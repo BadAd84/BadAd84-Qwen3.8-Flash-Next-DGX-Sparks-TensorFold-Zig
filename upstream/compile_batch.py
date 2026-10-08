@@ -8,6 +8,8 @@ import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
 ORDER = [
+    ("Qwen3.8 Flash Next recipe, Zig release 1.0.0 (2026-10-08 batch)", [
+        "zig-pr-confidence", "zig-pr-argmax", "zig-pr-mtp-fp8"]),
     ("Qwen3.8 Flash Next recipe (PARKED: the recipe moved to the Zig engine; not posted)", [
         "qwen-pr-copy-first", "qwen-pr-ple-page-cache", "qwen-pr-ple-native", "qwen-pr-chain-stop",
         "qwen-pr-mtp-graphs", "qwen-pr-ple-defer", "qwen-pr-tokenize-nogil"]),

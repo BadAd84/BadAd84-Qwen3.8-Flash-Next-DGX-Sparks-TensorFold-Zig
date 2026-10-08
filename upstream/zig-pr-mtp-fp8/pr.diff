@@ -1,0 +1,285 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 16da5a3..5be46fc 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -3,6 +3,15 @@
+ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
+ `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
+ 
++## Unreleased
++
++- `patches/0011-flash-next-mtp-fp8-overlay` and `MTP_FP8=1` (the default): the MTP layer's bf16 linears (attention
++  q/k/v/o, the hyper-connections and the mixer) on block FP8 for drafting. `scripts/prepare.sh` writes the overlay
++  once with `tools/mtp_fp8.py` (128x128 blocks, the checkpoint's own block-FP8 format) into
++  `$HF_CACHE/tensorfold-mtp-fp8/`; `start.sh` passes it as `TF_FLASHNEXT_MTP_FP8`. The head only drafts and every
++  draft is verified, so every reply stays byte-identical. Decode +4 to +5% on code and about +2% on prose at 1-4 clients.. `MTP_FP8=0` drafts from the bf16
++  layer as before.
++
+ ## [1.0.0] - 2026-10-08
+ 
+ TensorFold's Zig engine (`tensorfold-native`, TP=1). Engine `37763df`, merged into `zig-single` as `453439d`
+diff --git a/CREDITS.md b/CREDITS.md
+index 33d47f7..71ee3bc 100644
+--- a/CREDITS.md
++++ b/CREDITS.md
+@@ -91,6 +91,7 @@ This recipe no longer applies those patches (the serving path is the Zig engine)
+   [GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold);
+   `exact.py` is from MiaAI-Lab's Flash Next two-Spark TensorFold recipe. Developed with
+   [Claude Code](https://claude.com/claude-code).
++- `patches/0011-flash-next-mtp-fp8-overlay` and `tools/mtp_fp8.py`: by [BadAd84](https://github.com/BadAd84).
+ 
+ ## Runtime stack
+ 
+diff --git a/README.md b/README.md
+index 9b71561..9ff7c47 100644
+--- a/README.md
++++ b/README.md
+@@ -283,6 +283,7 @@ Every setting lives in [`scripts/config.sh`](scripts/config.sh). Override it fro
+ | `PARALLEL` | `8` | requests decoded together. One that would not fit (prompt plus `max_tokens`) is refused |
+ | `CONTEXT` | `262144` | prompt + reply window. `1048576` turns on YaRN factor 4 |
+ | `DRAFTS` | `1` | MTP drafts; `0` passes `--no-drafts` |
++| `MTP_FP8` | `1` | the drafts' MTP layer on block FP8 (`patches/0011`): `prepare.sh` writes the overlay with `tools/mtp_fp8.py` into `$HF_CACHE/tensorfold-mtp-fp8/`. Drafts only; replies match. `0` drafts from the bf16 layer |
+ | `TF_FLASHNEXT_DEPTH` | `15` | drafts a round. The stop rule is the engine's hybrid (see `TF_FLASHNEXT_PRODUCT_STREAMS`) |
+ | `TEMPERATURE` / `TOP_P` / `TOP_K` | `1.0` / `0.95` / `20` | default sampling; a request's own values win |
+ | `THINKING` | `1` | think before answering; `0` passes `--no-thinking` |
+@@ -330,9 +331,15 @@ the model was still thinking.
+ 
+ ## What the patches are
+ 
+-`patches/*.patch` is the Zig Flash Next CUDA engine against TensorFold `db281878` (the `zig-flashnext` pin), applied
+-with `git apply` in the checkout root. They are the engine, not speed patches on a Python package. Drafts are still
+-checked: a drafted reply matches `"draft": false`.
++`patches/0001`-`0009` are the Zig Flash Next CUDA engine against TensorFold `db281878` (the `zig-flashnext` pin),
++applied with `git apply` in the checkout root. They are the engine, not speed patches on a Python package. Drafts are
++still checked: a drafted reply matches `"draft": false`.
++
++Speed patches on top of the engine (each keeps every reply byte-identical):
++
++| Patch | What it changes |
++| --- | --- |
++| `0011-flash-next-mtp-fp8-overlay` | `TF_FLASHNEXT_MTP_FP8=DIR`: a second overlay, read before the checkpoint's `fast-fp8/`, and the MTP layer's attention taken on block FP8 when the overlay holds it. With `tools/mtp_fp8.py`'s file the MTP layer's bf16 linears (~139 MB read a draft step) become ~70 MB of block FP8. The MTP head only drafts, so replies do not change |
+ 
+ ## Checks
+ 
+diff --git a/patches/0011-flash-next-mtp-fp8-overlay.patch b/patches/0011-flash-next-mtp-fp8-overlay.patch
+new file mode 100644
+index 0000000..3ce58ac
+--- /dev/null
++++ b/patches/0011-flash-next-mtp-fp8-overlay.patch
+@@ -0,0 +1,50 @@
++diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
++index 9f2ec3a..bfde11b 100644
++--- a/zig/src/families/flashnext/cuda_engine.zig
+++++ b/zig/src/families/flashnext/cuda_engine.zig
++@@ -400,7 +400,10 @@ pub const Engine = struct {
++         // and MTP experts; lossy against the bf16 ones, opt-in)
++         var overlay_buf: [1024]u8 = undefined;
++         const overlay: ?[]const u8 = if (e.c.int4ar() and envGet("TF_FLASHNEXT_INT4AR_FAST") != null and !envOff("TF_FLASHNEXT_INT4AR_FAST")) try std.fmt.bufPrint(&overlay_buf, "{s}/fast-fp8", .{dir}) else null;
++-        e.w = try weights.load(gpa, io, dir, &e.c, .{ .rank = o.rank, .world = o.world, .mtp = o.mtp, .draft_head = o.mtp, .mode = .device, .driver = d, .overlay = overlay });
+++        // TF_FLASHNEXT_MTP_FP8=DIR, an overlay of the MTP layer's bf16 linears on block FP8 (tools/mtp_fp8.py);
+++        // the head only drafts, so the kept tokens are the target's either way
+++        const overlay2: ?[]const u8 = if (o.mtp) envGet("TF_FLASHNEXT_MTP_FP8") else null;
+++        e.w = try weights.load(gpa, io, dir, &e.c, .{ .rank = o.rank, .world = o.world, .mtp = o.mtp, .draft_head = o.mtp, .mode = .device, .driver = d, .overlay = overlay, .overlay2 = overlay2 });
++         errdefer e.w.deinit();
++         if (o.mtp and e.w.mtp == null) return error.NoMtpHead;
++         e.g = try geometry(&e.c, o.world, e.w.mtp != null);
++diff --git a/zig/src/families/flashnext/cuda_weights.zig b/zig/src/families/flashnext/cuda_weights.zig
++index e000172..04c2b28 100644
++--- a/zig/src/families/flashnext/cuda_weights.zig
+++++ b/zig/src/families/flashnext/cuda_weights.zig
++@@ -52,6 +52,8 @@ pub const Options = struct {
++     /// a directory whose safetensors take precedence over the checkpoint's for the names they hold (INT4-AutoRound's
++     /// fast-fp8/: block-FP8 hyper-connections and MTP experts); the shadowed checkpoint tensors are read as nothing
++     overlay: ?[]const u8 = null,
+++    /// a second overlay directory (TF_FLASHNEXT_MTP_FP8: the MTP layer's bf16 linears on block FP8, drafts only)
+++    overlay2: ?[]const u8 = null,
++     threads: u32 = 16,
++     /// drop the checkpoint's pages once a layer's tensors are on the device (Python's reader.release)
++     release_pages: bool = true,
++@@ -1359,7 +1361,9 @@ const Loader = struct {
++             lw.gdn = if (int4ar and try L.isFp8(try L.nameOf("{s}.in_proj_qkv", .{nm}))) try L.gdn8(try std.fmt.bufPrint(&pb, "{s}.gdn", .{path}), nm) else try L.gdn(try std.fmt.bufPrint(&pb, "{s}.gdn", .{path}), nm);
++         } else {
++             const nm = try std.fmt.bufPrint(&nb, "{s}.self_attn", .{base});
++-            lw.attn = if (int4ar and try L.isFp8(try L.nameOf("{s}.q_proj", .{nm}))) try L.attention8(try std.fmt.bufPrint(&pb, "{s}.attn", .{path}), nm) else try L.attention(try std.fmt.bufPrint(&pb, "{s}.attn", .{path}), nm);
+++            // the MTP layer too when an overlay (TF_FLASHNEXT_MTP_FP8) holds its q/k/v/o on block FP8
+++            const fp8_attn = (int4ar or (i < 0 and L.c.int4ar())) and try L.isFp8(try L.nameOf("{s}.q_proj", .{nm}));
+++            lw.attn = if (fp8_attn) try L.attention8(try std.fmt.bufPrint(&pb, "{s}.attn", .{path}), nm) else try L.attention(try std.fmt.bufPrint(&pb, "{s}.attn", .{path}), nm);
++         }
++         lw.moe = if (int4ar) try L.moe8(try std.fmt.bufPrint(&pb, "{s}.moe", .{path}), try std.fmt.bufPrint(&nb, "{s}.mlp", .{base})) else try L.moe(try std.fmt.bufPrint(&pb, "{s}.moe", .{path}), try std.fmt.bufPrint(&nb, "{s}.mlp", .{base}), i < 0);
++         if (with_ple and i >= 0) if (L.c.pleIndex(@intCast(i))) |pi| {
++@@ -1484,6 +1488,9 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
++     defer L.deinit();
++     L.prefix = if (L.has("language_model.model.embed_tokens.weight")) "language_model." else "";
++     try L.openExtra(dir);
+++    // the first overlay holding a name wins (Loader.get): overlay2 first, since fast-fp8/'s extra tensors repeat the
+++    // MTP layer's bf16 linears that overlay2 replaces
+++    if (o.overlay2) |ov| try L.openOverlay(ov);
++     if (o.overlay) |ov| try L.openOverlay(ov);
++     L.mbase = if (L.has(try L.nameOf("{s}model.language_model.embed_tokens.weight", .{L.prefix}))) "model.language_model." else "model.";
++ 
+diff --git a/scripts/config.sh b/scripts/config.sh
+index 1379319..a06aaa8 100644
+--- a/scripts/config.sh
++++ b/scripts/config.sh
+@@ -74,6 +74,10 @@ export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
+ # TF_FLASHNEXT_CONFIDENCE=0.5 forces the per-draft rule at every width.
+ export TF_FLASHNEXT_PRODUCT_STREAMS="${TF_FLASHNEXT_PRODUCT_STREAMS:-2}"
+ export TF_FLASHNEXT_PREFILL_TAIL="${TF_FLASHNEXT_PREFILL_TAIL:-512}"
++# The MTP layer's bf16 linears (attention, hyper-connections) on block FP8 for drafting (patches/0011): prepare.sh
++# writes them with tools/mtp_fp8.py into $HF_CACHE/tensorfold-mtp-fp8/, start.sh passes TF_FLASHNEXT_MTP_FP8. Drafts
++# only, so replies match; MTP_FP8=0 drafts from the checkpoint's bf16 layer.
++MTP_FP8="${MTP_FP8:-1}"
+ # KV cache (--kv-dtype). fp8 is the default: about 1.84x the pool of bf16, and lossy (~98.8% top-1 agreement with a
+ # bf16 cache, so a free-running reply can differ). bf16 is exact: KV_DTYPE=bf16. FP8 works together with --vision.
+ KV_DTYPE="${KV_DTYPE:-fp8}"
+@@ -142,6 +146,8 @@ snapshot_rev() {
+   if [[ -n "$MODEL_REVISION" ]]; then echo "$MODEL_REVISION"
+   else cat "$(model_cache_dir)/refs/main" 2>/dev/null; fi
+ }
++# The MTP FP8 overlay of the pinned checkpoint, relative to the HF cache (start.sh mounts the cache read-only)
++mtp_fp8_sub() { echo "tensorfold-mtp-fp8/${MODEL_ID//\//--}/$(snapshot_rev)"; }
+ 
+ PREPARED_MARKER="$STATE_DIR/prepared"
+ prepared_state() {
+@@ -149,5 +155,9 @@ prepared_state() {
+   hash=$(image_hash)
+   label=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || echo missing)
+   rev=$(snapshot_rev)
+-  echo "model=$MODEL_ID@$rev image=$label patches=$hash"
++  local fp8=off
++  if [[ "$MTP_FP8" == 1 ]]; then
++    if [[ -f "$HF_CACHE/$(mtp_fp8_sub)/mtp-fp8.safetensors" ]]; then fp8=present; else fp8=missing; fi
++  fi
++  echo "model=$MODEL_ID@$rev image=$label patches=$hash mtp_fp8=$fp8"
+ }
+diff --git a/scripts/prepare.sh b/scripts/prepare.sh
+index e88530c..032b3d4 100755
+--- a/scripts/prepare.sh
++++ b/scripts/prepare.sh
+@@ -214,5 +214,18 @@ print("qwen4_exp, AutoRound int4 g%s, %d n-gram table files, %d tensors in %d sh
+ snap="$dir/snapshots/$rev"
+ info=$(python3 -I -c "$CHECK_PY" "$snap" 2>&1) || die "the checkpoint at $snap is not ready: $info"
+ log "Checkpoint OK: $info"
++if [[ "$MTP_FP8" == 1 ]]; then
++  sub=$(mtp_fp8_sub)
++  if [[ -f "$HF_CACHE/$sub/mtp-fp8.safetensors" ]]; then
++    log "MTP FP8 overlay: $HF_CACHE/$sub (present)"
++  else
++    log "Writing the MTP layer's linears on block FP8 (tools/mtp_fp8.py) into $HF_CACHE/$sub"
++    mkdir -p "$HF_CACHE/$sub"
++    docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD/tools":/tools:ro \
++      -v "$HF_CACHE":/hf --entrypoint python3 "$IMAGE" /tools/mtp_fp8.py \
++      "/hf/hub/models--${MODEL_ID//\//--}/snapshots/$rev" "/hf/$sub" ||
++      die "tools/mtp_fp8.py failed (MTP_FP8=0 serves without the overlay)"
++  fi
++fi
+ prepared_state > "$PREPARED_MARKER"
+ log "Done. Start the server with ./start.sh (port $PORT)."
+diff --git a/start.sh b/start.sh
+index 0c9378b..5a19315 100755
+--- a/start.sh
++++ b/start.sh
+@@ -12,7 +12,7 @@
+ #   DRY_RUN=1 ./start.sh               # print the docker command and exit
+ # Extra arguments go to tensorfold-native serve after the defaults, so they win.
+ # Settings, from the environment or ./.env (scripts/config.sh):
+-#   serving  CONTEXT, PARALLEL, MAX_TOKENS, THINKING, DRAFTS, TEMPERATURE, TOP_P, TOP_K, SERVED_NAME, HOST, PORT
++#   serving  CONTEXT, PARALLEL, MAX_TOKENS, THINKING, DRAFTS, MTP_FP8, TEMPERATURE, TOP_P, TOP_K, SERVED_NAME, HOST, PORT
+ #   files    MODEL_ID, MODEL_REVISION, HF_CACHE, KERNEL_CACHE, STATE_DIR
+ #   image    IMAGE, TF_REPO, TF_REF, ZIG_VERSION, BASE_IMAGE, GHCR_IMAGE, CONTAINER_NAME
+ #   setup    PREPARE (auto | 1 | 0), PULL, FOREGROUND=1, WAIT_TIMEOUT, DRY_RUN=1, MEM_NEED_GIB, MEM_CHECK=0
+@@ -34,7 +34,7 @@ for arg in "$@"; do [[ "$arg" == -h || "$arg" == --help ]] && { usage; exit 0; }
+ [[ "$CONTEXT" =~ ^[1-9][0-9]*$ && "$CONTEXT" -le 1048576 ]] || die "CONTEXT is a token count up to 1048576, not $CONTEXT"
+ [[ "$PARALLEL" =~ ^([1-9]|1[0-6])$ ]] || die "PARALLEL is 1 to 16, not $PARALLEL"
+ [[ "$MAX_TOKENS" =~ ^[1-9][0-9]*$ ]] || die "MAX_TOKENS is a token count, not $MAX_TOKENS"
+-for v in THINKING DRAFTS VISION VISION_URLS; do [[ "${!v}" =~ ^[01]$ ]] || die "$v is 0 or 1, not ${!v}"; done
++for v in THINKING DRAFTS VISION VISION_URLS MTP_FP8; do [[ "${!v}" =~ ^[01]$ ]] || die "$v is 0 or 1, not ${!v}"; done
+ [[ "$TF_FLASHNEXT_YARN" =~ ^(0|4)$ ]] || die "TF_FLASHNEXT_YARN is 0 or 4, not $TF_FLASHNEXT_YARN"
+ (( CONTEXT <= 262144 || TF_FLASHNEXT_YARN != 0 )) || die "CONTEXT=$CONTEXT is past 262,144: it needs YaRN (TF_FLASHNEXT_YARN=4)"
+ DRY=0; [[ "${DRY_RUN:-0}" == 1 ]] && DRY=1
+@@ -165,6 +165,15 @@ full=$(kv_gib "$(arg_value --context)")
+ if (( PARALLEL * full + 66 + TENSORFOLD_MEMORY_RESERVE_GIB > 121 )); then
+   warn "$PARALLEL full windows are ~$((PARALLEL * full)) GiB of $KV_DTYPE cache beside ~66 GiB of weights: the engine keeps $TENSORFOLD_MEMORY_RESERVE_GIB GiB free and refuses a request that would not fit"
+ fi
++# MTP_FP8=1: the drafts' MTP layer on block FP8 (patches/0011), from the overlay prepare.sh wrote under the HF cache
++if [[ "$MTP_FP8" == 1 && "$DRAFTS" == 1 && -z "${TF_FLASHNEXT_MTP_FP8:-}" ]]; then
++  if [[ -f "$HF_CACHE/$(mtp_fp8_sub)/mtp-fp8.safetensors" ]]; then
++    TF_FLASHNEXT_MTP_FP8="/root/.cache/huggingface/$(mtp_fp8_sub)"
++    export TF_FLASHNEXT_MTP_FP8
++  else
++    warn "MTP_FP8=1 but $HF_CACHE/$(mtp_fp8_sub) has no overlay: drafting from the bf16 layer (run scripts/prepare.sh)"
++  fi
++fi
+ 
+ ENV_ARGS=(-e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}" -e TENSORFOLD_CUDA_KERNELS="$KERNELS_PATH")
+ while IFS='=' read -r name _; do
+diff --git a/tools/mtp_fp8.py b/tools/mtp_fp8.py
+new file mode 100644
+index 0000000..de9c550
+--- /dev/null
++++ b/tools/mtp_fp8.py
+@@ -0,0 +1,64 @@
++#!/usr/bin/env python3
++"""The MTP layer's bf16 linears on block FP8, for TF_FLASHNEXT_MTP_FP8 (patches/0011).
++
++Usage: tools/mtp_fp8.py SNAPSHOT OUTDIR      (scripts/prepare.sh runs it in the image, which has torch and safetensors)
++
++INT4-AutoRound keeps the MTP layer in bf16: its attention q/k/v/o, both hyper-connections' down/up and the mixer's,
++~139 MB that every draft step reads. This writes them as e4m3 codes (`.weight`) and fp32 scales
++(`.weight_scale_inv`, one per 128x128 block: scale = block amax / 448, weight ~= codes * scale), the format of the
++checkpoint's own block-FP8 tensors, into OUTDIR/mtp-fp8.safetensors. The engine loads them in place of the bf16 ones.
++The MTP head only drafts and every draft is verified, so replies stay byte-identical; only the drafts can change.
++"""
++import json
++import os
++import sys
++
++import torch
++from safetensors import safe_open
++from safetensors.torch import save_file
++
++NAMES = [f"mtp.layers.0.self_attn.{p}_proj" for p in "qkvo"]
++NAMES += [f"mtp.layers.0.{b}_hyper_connection.input_mix_weight_{d}" for b in ("attn", "mlp") for d in ("down", "up")]
++NAMES += [f"mtp.hyper_connection_mixer.input_mix_weight_{d}" for d in ("down", "up")]
++
++
++def block_fp8(w: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
++    rows, cols = w.shape
++    rb, cb = (rows + 127) // 128, (cols + 127) // 128
++    pad = torch.zeros(rb * 128, cb * 128, dtype=torch.float32)
++    pad[:rows, :cols] = w.float()
++    blocks = pad.view(rb, 128, cb, 128)
++    amax = blocks.abs().amax(dim=(1, 3))
++    scale = torch.where(amax > 0, amax / 448.0, torch.ones_like(amax))
++    codes = (blocks / scale[:, None, :, None]).clamp(-448, 448).to(torch.float8_e4m3fn)
++    return codes.view(rb * 128, cb * 128)[:rows, :cols].contiguous(), scale.contiguous()
++
++
++def main() -> int:
++    if len(sys.argv) != 3:
++        print(__doc__.strip().splitlines()[2], file=sys.stderr)
++        return 2
++    snap, outdir = sys.argv[1], sys.argv[2]
++    weight_map = json.load(open(os.path.join(snap, "model.safetensors.index.json")))["weight_map"]
++    out = {}
++    for name in NAMES:
++        key = name + ".weight"
++        if key not in weight_map:
++            print(f"{key}: not in the checkpoint", file=sys.stderr)
++            return 1
++        with safe_open(os.path.join(snap, weight_map[key]), "pt") as f:
++            w = f.get_tensor(key)
++        if w.dtype != torch.bfloat16 or w.dim() != 2:
++            print(f"{key}: {w.dtype} {tuple(w.shape)}, expected a bf16 matrix", file=sys.stderr)
++            return 1
++        out[key], out[name + ".weight_scale_inv"] = block_fp8(w)
++    os.makedirs(outdir, exist_ok=True)
++    tmp = os.path.join(outdir, "mtp-fp8.safetensors.tmp")
++    save_file(out, tmp)
++    os.replace(tmp, os.path.join(outdir, "mtp-fp8.safetensors"))
++    print(f"{len(NAMES)} MTP linears on block FP8 in {outdir}")
++    return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())

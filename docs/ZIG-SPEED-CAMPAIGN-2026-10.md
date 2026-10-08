@@ -47,6 +47,14 @@ and `-t cuda-sw` (hardware tracing drops every kernel timestamp on this box: "in
 | `ots0104`: the boot's measured cost tables on stdout (`costs:` lines; `zarm.sh` records them) | diagnostic; the window costs agree within ~1% across 12 boots | keep |
 | Rebuild control (`zctl`: the same source rebuilt by `build_zig_ots.sh`) | equal to the stock image in every cell | - |
 
+## 2b. Candidates: small, proven only when repeated (each is free once proven)
+
+- **`TF_FLASHNEXT_PREFILL_ROWS=4096`** (the engine says any chunking gives the same bits; the bench's reply shas
+  agree). Offline (`bench`, `zots5`): 8k +1.5%, 32k +2.1% in both pairs of runs. Through HTTP (`zarm2.sh`, cold prompts,
+  two boots an arm, 2026-10-08): 128k 2,622 / 2,622 tok/s against 2,571 / 2,586 (+1.4%, every 4096 boot above every
+  2048 boot), 32k 2,848 / 2,867 against 2,727 / 2,853 (+0.5%, inside the boot spread), 8k no change. Copy and rewrite
+  replies unchanged. Open: more boots at 32k-128k and the startup estimate at the default 8 streams.
+
 ## 3. Measured negatives
 
 - **int4 expert kernels** (`int4-check` offline): 235-277 GB/s at 1-32 rows; 3 or 4 stages of loads in flight are

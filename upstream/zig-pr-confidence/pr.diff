@@ -1,0 +1,61 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 16da5a3..a2b8b0d 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -3,6 +3,12 @@
+ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
+ `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
+ 
++## Unreleased
++
++- `TF_FLASHNEXT_CONFIDENCE` defaults to `-0.15` (was unset: the engine's `-0.4`, tuned at TP=2). The running-product
++  draft stop at up to two live streams lets chains run deeper on one Spark: decode +10% (prose) and +3% (code) at one
++  client, +7% and +1% at two, replies byte-identical (it changes only where a draft chain stops).
++
+ ## [1.0.0] - 2026-10-08
+ 
+ TensorFold's Zig engine (`tensorfold-native`, TP=1). Engine `37763df`, merged into `zig-single` as `453439d`
+diff --git a/CREDITS.md b/CREDITS.md
+index 33d47f7..6dc6249 100644
+--- a/CREDITS.md
++++ b/CREDITS.md
+@@ -91,6 +91,8 @@ This recipe no longer applies those patches (the serving path is the Zig engine)
+   [GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold](https://github.com/MiaAI-Lab/GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold);
+   `exact.py` is from MiaAI-Lab's Flash Next two-Spark TensorFold recipe. Developed with
+   [Claude Code](https://claude.com/claude-code).
++- The one-Spark draft stop default (`TF_FLASHNEXT_CONFIDENCE=-0.15`) and its A/B: by
++  [BadAd84](https://github.com/BadAd84).
+ 
+ ## Runtime stack
+ 
+diff --git a/README.md b/README.md
+index 9b71561..e349faf 100644
+--- a/README.md
++++ b/README.md
+@@ -296,6 +296,7 @@ Every setting lives in [`scripts/config.sh`](scripts/config.sh). Override it fro
+ | `PORT` / `HOST` | `8888` / `0.0.0.0` | where the API listens |
+ | `KV_DTYPE` | `fp8` | lossy (~98.8% top-1 agreement with bf16, about 1.8x the pool). `bf16` is exact. Works with `VISION=1`. Adapted from MiaAI-Lab's GLM recipe patch `0038-glm-kv-fp8` |
+ | `TENSORFOLD_MEMORY_RESERVE_GIB` | `10` | kept free when the engine sizes the pool. `prepare.sh` and `start.sh` refuse a Spark below this |
++| `TF_FLASHNEXT_CONFIDENCE` | `-0.15` | the running-product stop: a draft chain stops once its drafts' joint chance falls under 0.15 (the engine's own `-0.4` was tuned at TP=2). Drafts only; replies match |
+ | `TF_FLASHNEXT_PRODUCT_STREAMS` | `2` | running-product draft stop at this many streams or fewer; confidence 0.5 above it |
+ | `TF_FLASHNEXT_PREFILL_TAIL` | `512` | a short last prompt chunk joins the previous one |
+ | `MODEL_REVISION` | `14642741…` | the checkpoint commit this recipe serves |
+diff --git a/scripts/config.sh b/scripts/config.sh
+index 1379319..69de578 100644
+--- a/scripts/config.sh
++++ b/scripts/config.sh
+@@ -69,9 +69,11 @@ PARALLEL="${PARALLEL:-8}"
+ # MTP: up to this many drafts a round, kept while confidence stays at least this. Drafts are checked, so replies match
+ # serial decoding. PROVISIONAL with the gated engine (6eb39c1).
+ export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
+-# Unset TF_FLASHNEXT_CONFIDENCE: the engine uses the running product (-0.4) while at most
+-# TF_FLASHNEXT_PRODUCT_STREAMS streams are live, and confidence 0.5 above that. Setting
+-# TF_FLASHNEXT_CONFIDENCE=0.5 forces the per-draft rule at every width.
++# The drafts' stop rule: a running product of the drafts' chances, the chain stopping once it falls under
++# -TF_FLASHNEXT_CONFIDENCE, while at most TF_FLASHNEXT_PRODUCT_STREAMS streams are live; confidence 0.5 a draft above
++# that. The engine's own default (-0.4) was tuned at TP=2; on one Spark -0.15 drafts deeper and decodes faster (README
++# "Configuration"). TF_FLASHNEXT_CONFIDENCE=0.5 forces the per-draft rule at every width. Drafts only: replies match.
++export TF_FLASHNEXT_CONFIDENCE="${TF_FLASHNEXT_CONFIDENCE:--0.15}"
+ export TF_FLASHNEXT_PRODUCT_STREAMS="${TF_FLASHNEXT_PRODUCT_STREAMS:-2}"
+ export TF_FLASHNEXT_PREFILL_TAIL="${TF_FLASHNEXT_PREFILL_TAIL:-512}"
+ # KV cache (--kv-dtype). fp8 is the default: about 1.84x the pool of bf16, and lossy (~98.8% top-1 agreement with a
