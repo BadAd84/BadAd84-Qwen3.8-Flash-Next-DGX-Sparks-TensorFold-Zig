@@ -20,6 +20,8 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`docs
   ideas dropped, each with its HTTP A/B (golden 6/6 byte-identical).
 - **`UPSTREAM-WATCHLIST.md`** - the recipe and engine upstream against what spark4 runs, the Zig move, and which
   checkpoint formats each engine reads.
+- **`ZIG-SPEED-CAMPAIGN-2026-10.md`** - the Zig release profiled on spark6 and sped up (+8 to +13% decode at 1-2
+  clients, replies byte-identical): its patches, overlay and A/B tools are in `scripts/qwen38/zig/`.
 
 ## scripts/qwen38/
 The serve: `qwen-start.sh`, `build_qwen_ots.sh`, the seven layers (`pr319/`, `ple-cache/`, `ple-native/`,

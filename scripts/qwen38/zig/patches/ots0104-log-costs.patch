@@ -1,0 +1,16 @@
+diff --git a/zig/src/families/flashnext/cuda_native.zig b/zig/src/families/flashnext/cuda_native.zig
+index f20517a..d9b1c2c 100644
+--- a/zig/src/families/flashnext/cuda_native.zig
++++ b/zig/src/families/flashnext/cuda_native.zig
+@@ -142,6 +142,11 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const
+         const ids = try costText(gpa, io, dir);
+         defer gpa.free(ids);
+         try own.lanes.measure(io, ids);
++        // OTS: the measured tables the round planner prices with (they vary boot to boot)
++        const L = &own.lanes;
++        for (L.costs[0..L.cost_count]) |c| std.debug.print("costs: window {d} rows {d:.3} ms\n", .{ c.width, c.ms });
++        std.debug.print("costs: head level {d:.3} ms\n", .{L.mtp_ms});
++        for (L.shared[0..L.shared_count]) |c| std.debug.print("costs: shared {d} rows {d:.3} ms\n", .{ c.width, c.ms });
+     }
+     var backend = own.lanes.backend();
+     own.lanes.follower = o.tp == 2 and o.rank == 1;
