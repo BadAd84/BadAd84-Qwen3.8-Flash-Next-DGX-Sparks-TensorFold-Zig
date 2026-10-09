@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# mverify9.sh (under the GPU lock): zmerge5 (zmerge4 + W5 reduce+act + W2Opus shared-round copies, on) against
+# zmerge4. Warm-up discarded, then m4, m5, m5, m4. Each: golden + decode matrix + single-stream copy/rewrite +
+# concurrent edits (w2copy.py edit2 / editprose).
+set -uo pipefail
+cd ~/work/merge/v || exit 1
+COMMON="PREPARE=0 TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/ots-mtp-fp8 TF_FLASHNEXT_CONFIDENCE=-0.15 TF_FLASHNEXT_NGRAM_RANDOM=1 TF_FLASHNEXT_NGRAM_THREADS=32 TF_FLASHNEXT_NGRAM_PREFETCH=1 TF_FLASHNEXT_WINDOW=64 TF_FLASHNEXT_SEQ_POOL=4 TF_FLASHNEXT_WARM_POOL=4 TF_FLASHNEXT_SOLO_MAX=1024 TF_FLASHNEXT_MULTI_LRU=1 TF_FLASHNEXT_MULTI_MAX=192 TF_FLASHNEXT_MULTI_VERIFY=1 TF_FLASHNEXT_W8_QMMF_FUSE=4 TF_FLASHNEXT_W8_QMMF_FUSE_N=2048 TF_FLASHNEXT_W8_HEAD_MT=2 TF_FLASHNEXT_UPMIX_DECODE=1 TF_FLASHNEXT_DRAFT_INT4=1 TF_FLASHNEXT_W6_TP=0.05 TF_FLASHNEXT_W6_TC=0.20 TF_FLASHNEXT_W6_CAP2=7 TENSORFOLD_COPY_RESYNC=1 TENSORFOLD_COPY_RAMP=jump TENSORFOLD_COPY_MISS=keep TENSORFOLD_COPY_RESYNC_PROMPT_ONLY=1"
+M4="$COMMON IMAGE=tensorfold-qwen38:zmerge4"
+M5="$COMMON IMAGE=tensorfold-qwen38:zmerge5 TF_FLASHNEXT_COPY_SHARED=1"
+echo "##### start $(date -Is)"
+arm() {
+  local l=$1; shift
+  # shellcheck disable=SC2086
+  ~/work/zarm.sh "$l" 1 $*
+  grep -a "=== pass" ~/work/"zab-$l.log"
+  python3 ~/work/zgold_cmp.py ~/work/zab3/zgold-base-c1.json ~/work/"zgold-$l.json"
+  docker logs qwen38-flash-next-tf 2>&1 | grep -a "decode read-outs\|copy policy" | head -3
+  [[ "${WARM:-0}" == 1 ]] && return
+  python3 zcopy.py "$l" "zc-$l.jsonl" 2
+  python3 w2copy.py "$l" "w2-$l.jsonl" 2 edit2,editprose 2>&1 | tail -4
+}
+WARM=1 arm v9warm $M4
+arm v9m4a $M4
+arm v9m5a $M5
+arm v9m5b $M5
+arm v9m4b $M4
+echo "##### done $(date -Is)"

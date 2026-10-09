@@ -118,6 +118,26 @@ DROP both: the stack reaches Python's tokens a round but its deeper rounds cost 
 w6-opus's split rule in zmerge4 already replaced. Single-client prose across 6 prompts: zmerge4 73.5 tok/s; Python's
 recorded 76.4 is one prompt (ring buffer), and across prompts the engines were already level at zmerge3.
 
+## Merged image `zmerge5` (2026-10-09 ~23:58): + W5 fused reduce+act + W2Opus copies in shared rounds
+
+`scripts/qwen38/zig/merge/zmerge5.patch` = zmerge4 + w5-opus `w5-hc-decode-glue.patch` (decode read-outs: `_reduce`
+and `_hc_act` as one CUDA kernel replaying Triton's SASS, `tf_fn_hc_reduce_act_kernel`; conflicts with the merged pf5
+resolved by `merge/resolve_w5b.py`) + w2-opus `w2-copyshared-on-zmerge4.patch` (`TF_FLASHNEXT_COPY_SHARED=1`: copies
+out of the prompt in shared rounds take the lone stream's 15 -> 63 ramp). Golden 6/6 on every boot.
+
+W5 alone (`merge/mverify8.sh`, image `zw5b`, warm-up, m4 / w5 / w5 / m4): code 126.9 / 89.1 / 63.6 -> 128.2 / 89.7 /
+63.9, prose 72.4 / 59.6 / 39.7 -> 72.8 / 60.3 / 39.9 (+0.5 to +1.2% in all six cells).
+
+zmerge5 (`merge/mverify9.sh`, warm-up, m4 / m5 / m5 / m4):
+
+| | zmerge4 | zmerge5 |
+|---|---:|---:|
+| code 1 / 2 / 4 clients | 127.6 / 88.5 / 63.6 | 128.1 / 88.9 / 63.2 |
+| prose 1 / 2 / 4 clients | 72.3 / 59.8 / 39.6 | 72.6 / 60.1 / 39.9 |
+| two concurrent file edits, each stream | 192-218 | 286-350 (+55%) |
+| a file edit beside a prose reply: edit / prose | 233-236 / 67.0-67.9 | 439-465 / 71.7-72.0 |
+| lone copy / one-word rewrite | 817-820 / 584-586 | 819-823 / 585-587 |
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
