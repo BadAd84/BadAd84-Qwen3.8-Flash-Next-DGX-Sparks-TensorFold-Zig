@@ -58,6 +58,20 @@ m2 / m1 / base): golden 6/6 on all 7 boots, decode rounds and acceptance equal t
 | cold prefill 8k / 32k, new text | 1,229-1,613 / 2,034-2,136 | 2,827-2,900 / 2,852-2,877 | 2,889-2,914 / 2,871-2,875 |
 | free RAM after boot | 14-19 GiB | 19-22 GiB | 18-19 GiB |
 
+## Merged image `zmerge3` (2026-10-09 ~16:15): + W8 fused FP8 split-K + lm_head MT2 + W5 up-mix at decode
+
+`scripts/qwen38/zig/merge/zmerge3.patch` = zmerge2 + w8-opus `w8v4.patch` (split-K FP8 projections with N >= 2048 on
+one block a 64-column tile walking the 8 K slices in slice order: the cluster kernel's sum; lm_head in 32-row items)
++ w5-opus `pf5.patch` (`_hc_up_mix` at decode widths; its L2 prefetch stays off). Extra settings:
+`TF_FLASHNEXT_W8_QMMF_FUSE=4 TF_FLASHNEXT_W8_QMMF_FUSE_N=2048 TF_FLASHNEXT_W8_HEAD_MT=2 TF_FLASHNEXT_UPMIX_DECODE=1`
+(boot log: `ots w8: ...`). Verified (`merge/mverify4.sh`: warm-up, m2 / m3 / m3 / m2): golden 6/6 every boot.
+
+| | zmerge2 | zmerge3 |
+|---|---:|---:|
+| code decode 1 / 2 / 4 clients | 122.0 / 85.7 / 57.3 | 122.9 / 88.1 / 62.1 |
+| prose decode 1 / 2 / 4 clients | 68.9 / 55.3 / 38.5 | 68.9 / 55.9 / 39.6 |
+| verbatim copy / one-word rewrite | 759-769 / 416-420 | 818-821 / 437-438 |
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
