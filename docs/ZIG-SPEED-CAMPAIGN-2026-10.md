@@ -100,6 +100,24 @@ m3), golden 6/6 every boot:
 | copy / one-word rewrite | 811-812 / 432-434 | 814-816 / 578-585 |
 | cold prefill 8k / 32k | 2,886-2,917 / 2,810-2,871 | 2,894-2,913 / 2,774-2,843 |
 
+## Prose drafting configs on zmerge4 (2026-10-09 ~22:45): no change
+
+`merge/mverify7.sh` (image `zstack` = zmerge4 + the prose-glm calibrated stop rule, off unless selected; warm-up, then
+m4 / stack / k10 / k10 / stack / m4), golden 6/6 on all 7 boots. "stack" = the calibrated stop rule (the drafter's
+stated chances mapped to measured landing rates, then multiplied; T 0.20) + top-10 MTP routing + the int4 draft head.
+
+| | zmerge4 | + top-10 MTP routing | calibrated stack |
+|---|---:|---:|---:|
+| prose, 6 prompts, 1 client (median) | 73.5 | 73.7 | 73.4 |
+| prose 1 / 2 / 4 clients | 72.5 / 60.1 / 39.3 | 73.4 / 59.0 / 39.6 | 70.9 / 58.3 / 39.7 |
+| code 1 / 2 / 4 clients | 128.0 / 89.2 / 60.6 | 121.9 / 87.3 / 58.7 | 118.7 / 78.9 / 61.4 |
+| prose tokens a round | 2.71 | 2.72 | 3.02 |
+
+DROP both: the stack reaches Python's tokens a round but its deeper rounds cost what they gain on prose and cost code
+7-12%; top-10 is flat on prose and costs code 2-5%. The lanes' +8.5% was measured against zmerge3's -0.15 rule, which
+w6-opus's split rule in zmerge4 already replaced. Single-client prose across 6 prompts: zmerge4 73.5 tok/s; Python's
+recorded 76.4 is one prompt (ring buffer), and across prompts the engines were already level at zmerge3.
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
