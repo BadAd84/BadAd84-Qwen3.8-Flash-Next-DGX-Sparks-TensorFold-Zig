@@ -20,6 +20,29 @@ medians of the pass medians; replies byte-identical:
 Against our Python production on spark4 (the two-box table in `scripts/qwen38/README.md`: code 92.6 / 65.1 / 42.8,
 prose 76.1 / 52.1 / 33.0): code 1.28 / 1.31 / 1.38x, prose 0.90 / 1.06 / 1.17x.
 
+## Merged image `zmerge1` (2026-10-09 ~14:00): the overnight lanes' winners
+
+`scripts/qwen38/zig/merge/zmerge1-w1-w2-w4.patch` (over branch `up` = recipe + 0010 + 0011; with `ots0104`) =
+W1 n-gram host gather (w1-fable `ngram-host.patch`), W2 copy windows (w2-fable `w2-wide-window.patch`), W4 batched
+draft draws (w4-fable `batch-draws-v2.patch`); applied cleanly in order. Served with `TF_FLASHNEXT_NGRAM_RANDOM=1
+TF_FLASHNEXT_NGRAM_THREADS=32 TF_FLASHNEXT_NGRAM_PREFETCH=1 TF_FLASHNEXT_WINDOW=64` (+ the MTP FP8 overlay and -0.15).
+Verified on spark6 (`merge/mverify.sh`, `mverify2.sh`; a discarded warm-up boot first, base / merged / merged / base):
+golden 6/6 on every boot, decode rounds identical to base.
+
+| | base (`zots5`) | merged | change |
+|---|---:|---:|---:|
+| verbatim copy (1 client) | 325-328 tok/s | 755-765 | 2.3x |
+| one-word rewrite | 265-267 | 410 (538-540 with re-sync) | +54% (2.0x) |
+| cold prefill 8k, new text | 1,167 / 1,941 | 2,818 / 2,904 | 1.5-2.4x |
+| cold prefill 32k, new text | 1,741 / 2,307 | 2,861 / 2,867 | 1.25-1.6x |
+| code decode 1 / 2 / 4 clients | 118.1 / 84.2 / 54-58 | 117.9 / 85.1 / 59.4 | equal |
+| prose decode 1 / 2 / 4 clients | 67.9 / 54.7 / 38.0 | 67.9 / 54.6 / 38.7 | equal |
+
+Copy re-sync (`TENSORFOLD_COPY_RESYNC=1 TENSORFOLD_COPY_RAMP=jump TENSORFOLD_COPY_MISS=keep`) doubles rewrites but
+costs code decode 3.6-3.9% at one client even gated (`_RESYNC_KEPT=4` or `_RESYNC_TRIES=1`): OFF by default,
+opt-in for edit-heavy agents. W4's gain (+1-2.7% at 4-8 clients) is below this hold's noise at 4 clients.
+Pending on top: W3 pooled sequences + graph warm-up (+13% short replies at one client, w3-opus).
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
