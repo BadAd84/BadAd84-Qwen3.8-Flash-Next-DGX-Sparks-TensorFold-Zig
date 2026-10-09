@@ -41,7 +41,22 @@ golden 6/6 on every boot, decode rounds identical to base.
 Copy re-sync (`TENSORFOLD_COPY_RESYNC=1 TENSORFOLD_COPY_RAMP=jump TENSORFOLD_COPY_MISS=keep`) doubles rewrites but
 costs code decode 3.6-3.9% at one client even gated (`_RESYNC_KEPT=4` or `_RESYNC_TRIES=1`): OFF by default,
 opt-in for edit-heavy agents. W4's gain (+1-2.7% at 4-8 clients) is below this hold's noise at 4 clients.
-Pending on top: W3 pooled sequences + graph warm-up (+13% short replies at one client, w3-opus).
+
+## Merged image `zmerge2` (2026-10-09 ~14:45): + W3 graph pooling
+
+`scripts/qwen38/zig/merge/zmerge2-w1-w2-w3-w4.patch` = zmerge1 + w3-opus `pool-lru-v5.patch` (pooled sequences keep
+their graphs across requests, graphs warmed at boot, LRU multi-graph table). Served with zmerge1's settings plus
+`TF_FLASHNEXT_SEQ_POOL=4 TF_FLASHNEXT_WARM_POOL=4 TF_FLASHNEXT_SOLO_MAX=1024 TF_FLASHNEXT_MULTI_LRU=1
+TF_FLASHNEXT_MULTI_MAX=192 TF_FLASHNEXT_MULTI_VERIFY=1`. Verified (`merge/mverify3.sh`: warm-up, then base / m1 / m2 /
+m2 / m1 / base): golden 6/6 on all 7 boots, decode rounds and acceptance equal to base.
+
+| | base (`zots5`) | zmerge1 | zmerge2 |
+|---|---:|---:|---:|
+| code decode 1 / 2 / 4 clients | 117.8 / 84.5 / 58.8 | 117.6 / 85.3 / 59.5 | 121.4 / 86.7 / 59.4 |
+| prose decode 1 / 2 / 4 clients | 67.7 / 54.6 / 38.4 | 68.0 / 55.0 / 38.5 | 69.2 / 55.6 / 38.9 |
+| 12 short (100-token) replies, total s | 17.81 / 17.32 | 17.70 / 16.98 | 16.22 / 16.64 |
+| cold prefill 8k / 32k, new text | 1,229-1,613 / 2,034-2,136 | 2,827-2,900 / 2,852-2,877 | 2,889-2,914 / 2,871-2,875 |
+| free RAM after boot | 14-19 GiB | 19-22 GiB | 18-19 GiB |
 
 ## 1. Where the time goes
 
