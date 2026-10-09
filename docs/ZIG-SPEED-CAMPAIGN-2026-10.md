@@ -72,6 +72,34 @@ one block a 64-column tile walking the 8 K slices in slice order: the cluster ke
 | prose decode 1 / 2 / 4 clients | 68.9 / 55.3 / 38.5 | 68.9 / 55.9 / 39.6 |
 | verbatim copy / one-word rewrite | 759-769 / 416-420 | 818-821 / 437-438 |
 
+## Stop-rule shootout and `zmerge4` (2026-10-09 ~20:10)
+
+Three exact drafting changes on zmerge3, one hold (`merge/mverify5.sh`: warm-up, then base / fable / opus / glm /
+glm / opus / fable / base), golden 6/6 on all 9 boots:
+
+| | zmerge3 | w6-fable propose floor | prose-glm calibrated `cum` T 0.25 | w6-opus split lines + int4 draft head |
+|---|---:|---:|---:|---:|
+| code 1 / 2 / 4 clients | 122.2 / 87.9 / 62.0 | 122.1 / 87.5 / 61.6 | 122.6 / 82.9 / 61.7 | 127.7 / 89.1 / 63.5 |
+| prose 1 / 2 / 4 clients | 69.5 / 55.9 / 39.4 | 71.8 / 58.7 / 39.5 | 68.9 / 57.9 / 39.6 | 72.1 / 59.8 / 39.6 |
+
+KEEP w6-opus (`w6d.patch`: the draft head reads the int4 lm_head's own columns, 105 MB a step; a draft is proposed
+while the running product is >= 0.05 and the head runs another level while it is >= 0.20; depth capped at 7 while 2+
+streams draft). DROP the other two (the calibrated `cum` rule's offline replay, +6.5%, did not hold live).
+
+`zmerge4` = zmerge3 + w6-opus (conflicts with W1/W2/W4 resolved by `merge/resolve_opus.py`) + w2-fable
+`resync-prompt-only.patch` (copy re-sync armed only when the copied source is in the prompt: no prose/code cost), patch
+`scripts/qwen38/zig/merge/zmerge4.patch`. Extra settings: `TF_FLASHNEXT_DRAFT_INT4=1 TF_FLASHNEXT_W6_TP=0.05
+TF_FLASHNEXT_W6_TC=0.20 TF_FLASHNEXT_W6_CAP2=7 TENSORFOLD_COPY_RESYNC=1 TENSORFOLD_COPY_RAMP=jump
+TENSORFOLD_COPY_MISS=keep TENSORFOLD_COPY_RESYNC_PROMPT_ONLY=1`. Verified (`merge/mverify6.sh`: warm-up, m3 / m4 / m4 /
+m3), golden 6/6 every boot:
+
+| | zmerge3 | zmerge4 |
+|---|---:|---:|
+| code 1 / 2 / 4 clients | 122.1 / 87.4 / 61.5 | 127.3 / 88.5 / 63.1 |
+| prose 1 / 2 / 4 clients | 69.5 / 55.7 / 39.0 | 71.6 / 59.5 / 39.4 |
+| copy / one-word rewrite | 811-812 / 432-434 | 814-816 / 578-585 |
+| cold prefill 8k / 32k | 2,886-2,917 / 2,810-2,871 | 2,894-2,913 / 2,774-2,843 |
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
