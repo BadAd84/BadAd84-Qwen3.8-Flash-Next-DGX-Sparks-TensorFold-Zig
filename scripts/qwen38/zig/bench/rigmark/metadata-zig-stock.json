@@ -1,0 +1,38 @@
+{
+  "record_type": "OTS serving input (qwen3.8-flash-next-dev scripts/qwen38/zig/bench/rigmark/; live fields filled per run by rigmark_meta.py)",
+  "operator": "OTS",
+  "arm": "stock: the recipe's Zig release 1.0.0 as shipped (image tensorfold-qwen38:zig-db28187, the recipe's start.sh with its defaults; env PREPARE / IMAGE only)",
+  "hardware": "1x ASUS Ascent GX10 (NVIDIA GB10 Grace Blackwell, 128 GB unified LPDDR5x)",
+  "topology": "TP1: one GB10, no interconnect",
+  "negotiated_link_speed": "not applicable (one GPU)",
+  "model": "azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound",
+  "model_revision": "FILLED PER RUN",
+  "quantisation": "INT4 AutoRound weights (azampatti's checkpoint); MTP head weights as named in drafter",
+  "kv_cache_dtype": "FILLED PER RUN",
+  "serving_engine": "TensorFold Zig engine (tensorfold-native) @ db281878 + the recipe's 9 patches (stock; see recipe_patches)",
+  "recipe": "MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold release 1.0.0",
+  "recipe_revision": "364f21a1a46a366fa39c4da0d53b7b1f38624610",
+  "serving_image": "FILLED PER RUN",
+  "recipe_patches": "FILLED PER RUN",
+  "ots_patches": "FILLED PER RUN",
+  "drafter": "FILLED PER RUN",
+  "context_limit": 262144,
+  "scheduler": "FILLED PER RUN",
+  "competing_traffic": "FILLED PER RUN",
+  "co_resident_services": "none (the serve owns spark6's GB10; the harness holds its GPU lock)",
+  "expect": {
+    "stock_image": "tensorfold-qwen38:zig-db28187",
+    "recipe_env": {
+      "TENSORFOLD_IMAGE_TOKENS": "16384",
+      "TENSORFOLD_MAX_IMAGES": "50",
+      "TENSORFOLD_MEMORY_RESERVE_GIB": "10",
+      "TENSORFOLD_NO_UPDATE_CHECK": "1",
+      "TENSORFOLD_VIDEO_TOKENS": "16384",
+      "TENSORFOLD_VISION_WORKSPACE_MIB": "2048",
+      "TF_FLASHNEXT_DEPTH": "15",
+      "TF_FLASHNEXT_PREFILL_TAIL": "512",
+      "TF_FLASHNEXT_PRODUCT_STREAMS": "2",
+      "TF_FLASHNEXT_YARN": "0"
+    }
+  }
+}

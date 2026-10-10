@@ -19,6 +19,30 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
 - **A change ships only with replies byte-identical to the image it replaces** (golden 6/6:
   `~/work/qf_harness.py golden`, then `diff`), and its speed from an interleaved HTTP A/B on fixed prompts (3 passes
   an arm, the order alternating), never a single run: decode varies up to ~25% run to run on this box.
+- **Every exact win ships, however small (owner 2026-10-09, glm5.3-flash-dev's rule, adopted 2026-10-10).** A change
+  that is byte-identical (golden 6/6), passes its mutants and measures faster on its component ships, even when the
+  serve-level gain is under the A/B noise: small wins stack. Below the noise an image is gated on golden 6/6 and no
+  measured regression, not on a visible gain. Batch such changes into the next merged image; never park one as "too
+  small to matter".
+- **A speed number counts only if it was measured on the ARTIFACT that ships (owner 2026-10-09).** A lane's keep / drop
+  verdict is timed with its patch built into an image by `build_zig_ots.sh` and served through the recipe's
+  `start.sh` (the production entry point), interleaved with the base in one queued run (`zqueue.sh`, `merge/mverify*.sh`,
+  `zab_rm.sh`); a dev-harness or kernel-bench number is a lead, never a verdict. A drop that rested on harness numbers
+  alone is reopened until timed as an artifact.
+- **Time to first token is a first-class metric (owner 2026-10-10: "it is how fast the model feels").** Every
+  stock-vs-ours comparison and every image qualification on the Zig serve reports client-measured TTFT (to the first
+  streamed content / reasoning / tool token: `scripts/qwen38/zig/bench/ttft.py`) for cold prompts at 1k / 8k / 32k /
+  120k with thinking off and on, a warm +2k agent turn on a kept ~100k conversation, each idle and with 3 other
+  streams decoding (one Spark, the recipe's Zig server). A change that slows TTFT is a regression even when tok/s
+  improves.
+- **RigMark is part of every benchmark (owner 2026-10-10).** Every stock-vs-ours comparison and every image
+  qualification also runs RigMark (github.com/alexellis/rigmark, the DGX Spark community's shared benchmark; spark6
+  `~/rigmark` at the commit in its `~/INVENTORY.md`) through `zab_rm.sh`: one comparison ID per sweep so the arms get
+  byte-identical prompts, the extra body `{"reasoning_effort": "low"}` (RigMark's published card for this model family;
+  `effort_check.py` proves the live server honours it), a fresh boot per arm, and a metadata.json that names the
+  image, its OTS patch set and the drafter settings. Its JSON receipts and cards are kept in spark6
+  `~/work/bench/rigmark/runs/`; published numbers use its cards. Our own probes (golden, `qf_run.py` decode, copy /
+  prefill probes, TTFT) stay alongside it.
 
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names

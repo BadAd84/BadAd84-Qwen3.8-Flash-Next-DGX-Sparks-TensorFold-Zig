@@ -111,3 +111,63 @@ checkpoints differ (INT4-AutoRound against MLX 4-bit), so the replies were not c
 
 Verify a rebuild before serving it: the golden replies must be byte-identical to the recipe's image (spark4
 `~/work/qf_harness.py golden` then `diff`), as they were for the image now serving.
+
+## RigMark + TTFT on the Zig serve (spark6): `zig/bench/`
+
+AGENTS.md: RigMark is part of every benchmark and client-measured TTFT is a first-class metric. Ported from
+glm5.3-flash-dev `scripts/glm53/v110/` (2026-10-10) to the recipe's Zig server on one Spark. Box copy
+`~/work/bench/` (the directory as is, `rigmark/` and `tests/` included); RigMark itself is spark6 `~/rigmark` at
+commit `52c29c3fc1d7` (protocol 1.3.0), recorded in spark6 `~/INVENTORY.md`.
+
+- `zab_rm.sh <label> <base arm> <ours arm>` (detached: `setsid nohup bash ~/work/bench/zab_rm.sh L "BASE" "OURS"
+  </dev/null >/dev/null 2>&1 &`): an arm is one string of `start.sh` settings (`PREPARE=0
+  IMAGE=tensorfold-qwen38:<tag> TF_FLASHNEXT_...`) plus an optional `PATCHES=<the image's OTS patch set>` for the
+  metadata; `-` skips an arm. Each arm takes one hold of `~/work/gpu.lock` (~35-55 min) in `ORDER` (default
+  `base ours`): boot through `~/work/zarm.sh` with no decode passes, golden against `GOLDEN_REF` (default
+  `~/work/zab3/zgold-base-c1.json`, the stock image's replies), the raw SSE of one short reply (SHAPE), `ttft.py`,
+  `effort_check.py`, then `rigmark_run.sh` with comparison ID `RIGMARK_ID` (default `zrm-<label>`, one per sweep).
+  Log `~/work/bench/zabrm-<label>.log`; summary `python3 ~/work/bench/zab_rm_sum.py <log>`: golden MATCH / DIFF
+  per arm, the TTFT and RigMark sections (ours against base), exit 1 on a golden DIFF, a boot, effort, TTFT or
+  RigMark error. Stock = `PREPARE=0 IMAGE=tensorfold-qwen38:zig-db28187` (the recipe's image and defaults, the
+  campaign's "stock").
+- `ttft.py <port>`: TTFT to the first streamed content / reasoning / tool token for cold ~1k / 8k / 32k / 120k
+  prompts (a fresh UUID salt each; filler at 21.8 Qwen3.8 tokens a line, measured with the checkpoint's
+  tokenizer) with thinking off and on (`chat_template_kwargs.enable_thinking`), and a warm +2k turn on a kept ~100k
+  conversation (its first turn re-sent, unmeasured, before each warm sample), each idle and with 3 other streams
+  decoding; 3 reps. Per sample the split admit (headers: the Zig server answers after rendering and tokenizing) +
+  prefill (the reply's `tensorfold.prefill_seconds`: submit to the first token, so `other` is ~0.01 s at idle) +
+  other, beside the server's own `time_to_first_token`;
+  flagged samples (NOTCOLD / NOTWARM / NOLOAD) are printed and left out. `ttft.py report <logs>` prints the section.
+  Offline: `tests/test_ttft.py` (a fake server streaming the Zig shape) and `tests/mutants_ttft.py` (49 mutants,
+  every flag decision both ways; 49 of 49 killed, 2026-10-10).
+- `rigmark_run.sh <label> <comparison-id> <metadata> [extra-body]`: RigMark's standard suite (decode code / prose /
+  structured x5 at an 8,192-token cap, cold + immediate-replay prefill 8K / 32K / 64K x3, C1 / C2 / C4 x3) with the
+  extra body `{"reasoning_effort": "low"}`, byte-for-byte that of RigMark's published card for this model family
+  (`results/reference/qwen38-flash-next-nvidia-nvfp4-tp2-low`: vLLM, two Sparks, NVFP4). The Zig server reads a
+  top-level `reasoning_effort` (and `chat_template_kwargs.reasoning_effort`) as the template's effort and turns
+  thinking on for any effort but `none`, so every request is thinking on at effort low; `effort_check.py` proves it on
+  the live server (`/tokenize` renders the template's low-effort instruction, the reply's `tensorfold` block says
+  `enable_thinking` true, `reasoning_effort` low). That card's receipt is protocol 1.1.0 at another RigMark revision
+  with a 4,096-token cap, so `rigmark compare` against it needs `--allow-mismatch`; it is a recipe / appliance
+  comparison either way. Receipts, cards and filled metadata: `~/work/bench/rigmark/runs/`.
+- `rigmark_meta.py`: fills `rigmark/metadata-zig-{stock,ours}.json` (hardware 1x ASUS Ascent GX10) from the serving
+  container: image and id, the `tf.patches` label, the OTS patch set (`tf.ots-patches` or the arm's `PATCHES=`),
+  model revision, MTP drafter settings, KV dtype, scheduler flags, every `TF_FLASHNEXT_*` / `TENSORFOLD_*` setting,
+  the GPU, `/health`'s `live.connections` (the quiet check). It refuses a template the serve contradicts: the model,
+  context, one GB10, and stock exactly = the stock image id + the recipe's `start.sh` env + no OTS patches.
+- `rigmark_sum.py`: a receipt's headline line and the RigMark section (per arm the median decode tok/s, last output
+  and TTFT per workload, cold / replay prefill, C1-C4 aggregate; errors on a refused run or a mismatched sweep).
+- `tests/test_rigmark_dryrun.sh <rigmark clone>`: the whole chain offline against `tests/rigmark_fake_serve.py` (the
+  Zig server's routes and stream shape) with stand-in docker / nvidia-smi / zarm.sh: RigMark's refusal of a second
+  run on one boot (and a clean run after a restart), the metadata refusals, both summaries, `zab_rm.sh` end to end
+  (and no speed probes on a golden DIFF). `tests/mutants_rigmark.sh <rigmark clone>`: 10 mutants of those decisions,
+  each must make the dry run (or test_ttft.py's zab_rm_sum checks) fail. Run both from WSL or a box: `$HOME` scratch,
+  a local RigMark clone at the pinned commit.
+- `effort_check.py <port> [extra-body]`: the live check that the server honours RigMark's extra body (above).
+
+Cold prefill and the prompt cache: the Zig server does not read `cache_salt` (unknown request fields are ignored),
+and its prompt cache keeps states only at a chat prompt's history (prompts of 4,096+ tokens, in GPU memory).
+RigMark's prefill pairs are `/v1/completions` token-id prompts with no history, so they keep nothing: the cold samples
+are cold on any run, and RigMark's "immediate replay" is cold too (spark6 2026-10-10: replay cached 0 at every depth,
+replay TTFT equal to cold). Our replay column is therefore not comparable with a card whose server caches it (the
+vLLM reference: 64K replay 21,923 tok/s); keeping a state for completion prompts would be a server change, not done.
