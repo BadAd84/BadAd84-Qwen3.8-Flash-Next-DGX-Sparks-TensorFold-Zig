@@ -191,6 +191,29 @@ Trace + CPU replay on zmerge5 (`~/work/lanes/r2e-fable/REPORT.md`; golden 6/6 on
   round's fixed cost, not the price of an early verify row, so trees are unchanged: ~+3% at best before their own
   costs. Static shapes stay negative on both. Still the owner's call; nothing re-opens it short of cheaper rows.
 
+## zmerge6 confirmed, and the Python engines on the same harness (2026-10-10 ~23:30)
+
+zmerge6 = zmerge5 + 12-bit hc read-outs (r2b-opus) + indexer select/scores (r2a-opus) + FP8 prompt tiles + int4
+prompt gate/up (r2c-fable) + the sliced-fill fix (r2d-fill, FILL off) + `PREFILL_ROWS=4096`; env = `merge/zrm6.sh`
+OURS. Two zab_rm sweeps against zmerge5, arm order reversed (m6a, m6b), golden 6/6 every boot:
+- TTFT (idle / with 3 streams decoding): cold 8k -10 / -9 to -11%, 32k -10 / -10 to -11%, 120k -13 to -14% both, warm
+  turn -4 to -5 / -6 to -7%. Cold 1k: m6a +18% idle, m6b -6% idle: noise, not a regression.
+- RigMark: prefill 8K / 32K / 64K cold +13 / +12 to +15 / +13 to +16%; decode code +1.4 / +1.6%, prose +2.2 / +3.2%,
+  structured +1%; C1 +3.1 / +2.3%, C2 +3.0 / -4.5%, C4 +8.5 / +1.5% (one receipt a sweep: the C2/C4 cells disagree).
+- `TF_FLASHNEXT_PF1` on zmerge6: DROP (neutral to worse; `merge/mverify12.sh`).
+
+Python engines on spark6 (`zab_rm.sh` ENGINE=python; golden against a Python self-reference, 6/6; RigMark prefill
+skipped: the Python server has no `/tokenize` or token-id completions), RigMark comparison `2026-09-14-rigmark-standard`:
+
+| | Python 0.6.0 stock | Python ours (v061-ots) | Zig 1.0.0 stock | zmerge6 |
+|---|---:|---:|---:|---:|
+| RigMark code / prose / structured tok/s | 88.0 / 50.5 / 103.3 | 97.6 / 56.4 / 117.9 | 95.4 / 50.1 / 136.6 | 111.2-112.3 / 58.4-60.1 / 158.5-159.1 |
+| RigMark C1 / C2 / C4 tok/s | 68.6 / 94.9 / 129.4 | 74.3 / 96.5 / 144.1 | 59.0 / 97.7 / 150.2 | 72.9-74.8 / 112.5-114.7 / 171.0-172.9 |
+| TTFT cold 8k / 32k / 120k idle, s | 3.82 / 13.8 / 57.2 | 3.23 / 13.1 / 56.0 | 2.99 / 12.1 / 49.6 | 2.66-2.68 / 10.7-10.8 / 42.5-43.2 |
+| TTFT warm turn idle / load3, s | 1.50 / 1.93 | 1.37 / 1.73 | 1.23 / 1.32 | 1.12-1.14 / 1.21 |
+| decode probe prose C1 (ring buffer) / six prose prompts C1 | 68.8 / 63.3 | 74.5 / 68.8 | 62.3 / - | (mverify13) / - |
+| decode probe code C1 / C2 / C4 | 80.7 / 59.8 / 37.8 | 89.7 / 63.5 / 38.8 | 104.6 / 76.1 / 52.5 | (mverify13) |
+
 ## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
 
 - PDL DROP: all groups on is not exact (golden 0/6, 3/6; r2f-opus); r2f-fable's exact subset shows no change in the
