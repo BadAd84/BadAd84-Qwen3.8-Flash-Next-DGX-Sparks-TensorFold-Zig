@@ -138,6 +138,19 @@ zmerge5 (`merge/mverify9.sh`, warm-up, m4 / m5 / m5 / m4):
 | a file edit beside a prose reply: edit / prose | 233-236 / 67.0-67.9 | 439-465 / 71.7-72.0 |
 | lone copy / one-word rewrite | 817-820 / 584-586 | 819-823 / 585-587 |
 
+## W7's settings re-checked on zmerge5 (2026-10-10 ~01:00)
+
+W7 (w7-glm2) measured on `zots5`, before the merges. `merge/mverify10.sh` re-ran both on zmerge5 (warm-up, then
+r2 / r4 / fill / fill / r4 / r2), golden 6/6 on every boot:
+- `TF_FLASHNEXT_PREFILL_ROWS=4096`: cold prefill 32k 2,846 / 2,856 -> 2,935 / 2,864 tok/s, 128k 2,588 / 2,577 -> 2,650 /
+  2,595 (every 4096 run above every 2048 run; +0.3 to +3%), decode unchanged. On zots5 it was -5.9% time at 128k: the
+  n-gram host gather (W1) took most of what bigger chunks amortized. Small KEEP (a setting).
+- `TF_FLASHNEXT_FILL=1` (prompts fill in layer slices between other streams' rounds): the decoding client's longest
+  stall during a 32k prompt 11.3 s -> 0.19 s (the 32k prompt's own time to first token 11.35 -> 15.7-16.1 s), but every
+  concurrent request of the decode matrix (2 and 4 clients) failed at once with an empty reply (0.02-0.04 s); one
+  client was fine. It worked on zots5, so a merged change (likely the W3 sequence pool) breaks it. NOT shippable until
+  fixed.
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
