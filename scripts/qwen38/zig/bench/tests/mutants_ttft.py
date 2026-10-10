@@ -61,6 +61,7 @@ MUTANTS = [
     ("other-keeps-queue", ' - (queue or 0.0) - prefill if prefill', " - prefill if prefill"),
     ("prefill-ignored", "    prefill = stat(stats, PREFILL_KEY)", "    prefill = None"),
     ("prefill-key-glm", 'PREFILL_KEY = "prefill_seconds"', 'PREFILL_KEY = "prefill_s"'),
+    ("py-prefill-ignored", "        prefill = stat(stats, PY_PREFILL_KEY)", "        prefill = None"),
     ("server-ttft-key-wrong", 'SERVER_TTFT_KEY = "time_to_first_token"', 'SERVER_TTFT_KEY = "ttft"'),
     ("openai-cached-key", '.get("cached_tokens")', '.get("cached")'),
     ("separate-usage-ignored", '    if obj.get("usage"):', '    if obj.get("usage") and obj.get("choices"):'),

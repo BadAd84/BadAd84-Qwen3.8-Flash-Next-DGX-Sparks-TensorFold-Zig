@@ -21,6 +21,7 @@
   "competing_traffic": "FILLED PER RUN",
   "co_resident_services": "none (the serve owns spark6's GB10; the harness holds its GPU lock)",
   "expect": {
+    "engine": "zig",
     "stock_image": "tensorfold-qwen38:zig-db28187",
     "recipe_env": {
       "TENSORFOLD_IMAGE_TOKENS": "16384",

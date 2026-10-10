@@ -189,6 +189,9 @@ class Handler(BaseHTTPRequestHandler):
                  "engine": "lanes", "tokens_per_second": 50.0, "seconds": 1.0, "prefill_seconds": PREFILL,
                  "prefill_widths": [], "prefill_raised": [], "time_to_first_token": SERVER_TTFT,
                  "sampling": "greedy", "drafts": True, "token_sha": "7854e4db3a72", "min_rows": 5}
+        if mode.get("python"):                   # TensorFold v0.6.1's Python server: cuda/streams.py Stream.stats
+            stats = {"prefill_s": PREFILL, "decode_s": 0.3, "rounds": 2, "drafts": True, "cached": cached,
+                     "min_rows": 2, "drafted": 3, "accepted": 1, "token_sha": "7854e4db3a72"}
         if "queue_s" in mode:
             stats["queue_s"] = mode["queue_s"]
         usage = {"prompt_tokens": prompt, "completion_tokens": 3, "total_tokens": prompt + 3,
@@ -274,7 +277,7 @@ def test_stream(tt, port: int) -> None:
         url = f"http://127.0.0.1:{port}{path}"
         for thinking in (False, True):
             for extra in ({}, {"keepalive": True}, {"crlf": True}, {"multiline": True}, {"queue_s": 0.11},
-                          {"separate_usage": True}):
+                          {"separate_usage": True}, {"python": True}):
                 FAKE.mode = dict(extra)
                 name = f"{api} thinking {'on' if thinking else 'off'} {','.join(extra) or 'zig'}"
                 b = body(tt, api, thinking)
@@ -299,8 +302,9 @@ def test_stream(tt, port: int) -> None:
                 if s is None:
                     continue
                 if api == "openai":
-                    check(f"{name}: prefill_seconds", s["prefill"] == PREFILL, line)
-                    check(f"{name}: the server's time_to_first_token", s["server"] == SERVER_TTFT, line)
+                    check(f"{name}: prefill_seconds (the Python server's prefill_s)", s["prefill"] == PREFILL, line)
+                    want_server = None if extra.get("python") else SERVER_TTFT
+                    check(f"{name}: the server's time_to_first_token", s["server"] == want_server, line)
                     q = extra.get("queue_s")
                     check(f"{name}: queue", s["queue"] == q, line)
                     want_other = res["ttft"] - res["admit"] - (q or 0) - PREFILL

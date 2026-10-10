@@ -31,8 +31,10 @@ PY
   rm -rf "$d"
 }
 mutant golden-skip-removed dry zab_rm.sh 'if [ "$gold" != 0 ]; then' 'if false; then'
-mutant stock-template-always dry zab_rm.sh 'tpl="$HERE/rigmark/metadata-zig-ours.json"' \
-  'tpl="$HERE/rigmark/metadata-zig-stock.json"'
+mutant stock-template-always dry zab_rm.sh 'tpl="$HERE/rigmark/metadata-$engine-ours.json"' \
+  'tpl="$HERE/rigmark/metadata-$engine-stock.json"'
+mutant ours-template-always dry zab_rm.sh '    tpl="$HERE/rigmark/metadata-$engine-stock.json"' \
+  '    tpl="$HERE/rigmark/metadata-$engine-ours.json"'
 mutant patches-dropped dry zab_rm.sh 'RIGMARK_OTS_PATCHES="$patches" bash' 'RIGMARK_OTS_PATCHES="" bash'
 mutant stock-check-off dry rigmark_meta.py 'if arm.startswith("stock:") and not is_stock:' 'if False:'
 mutant ours-check-off dry rigmark_meta.py 'if arm.startswith("ours:") and is_stock:' 'if False:'
@@ -44,5 +46,29 @@ mutant sum-diff-ignored dry zab_rm_sum.py 'DIFF (zgold_cmp.py exit {rc})")
             bad += 1' 'DIFF (zgold_cmp.py exit {rc})")'
 mutant sum-noverdict-ignored ttft zab_rm_sum.py 'print(f"golden {arm}: NO VERDICT")
             bad += 1' 'print(f"golden {arm}: NO VERDICT")'
+# the Python engine (ENGINE=python arms, the python templates, effort_check.py's Python path)
+mutant py-ref-is-zig dry zab_rm.sh 'ref=$PY_GOLDEN_REF' 'ref=$GOLDEN_REF'
+mutant py-skip-prefill-dropped dry zab_rm.sh 'rm_args="$rm_args --skip-prefill"' 'rm_args="$rm_args"'
+mutant py-serve-left-running dry zab_rm.sh 'if [ "$ARM_ENGINE" = python ]; then' 'if false; then'
+mutant py-zig-not-stopped dry zab_rm.sh '( cd "$ZIG_RECIPE" && ./stop.sh </dev/null ) 2>&1 | tail -1' ':'
+mutant py-kernel-cache-shared dry zab_rm.sh 'env KERNEL_CACHE="$PY_KERNEL_CACHE" "$@"' 'env "$@"'
+mutant py-ref-always-rewritten dry zab_rm.sh '[ "$engine" = python ] && [ ! -f "$ref" ] && [ "$(basename' \
+  '[ "$engine" = python ] && [ "$(basename'
+mutant py-decode-off dry zab_rm.sh 'if [ "$engine" = python ] && [ "$PY_DECODE" = 1 ]; then' 'if false; then'
+mutant ttft-knob-ignored dry zab_rm.sh 'if [ "$TTFT" = 1 ]; then' 'if true; then'
+mutant decode-sum-dropped dry zab_rm_sum.py '    if d_lines:' '    if False:'
+mutant py-ref-from-any-arm dry zab_rm.sh ' && [ "$(basename "$tpl")" = metadata-python-stock.json ] \' ' \'
+mutant engine-check-off dry rigmark_meta.py 'if engine != expect.get("engine"):' 'if False:'
+mutant kv-check-off dry rigmark_meta.py 'if "kv_dtype" in expect and opt.get("--kv-dtype") != expect["kv_dtype"]:' \
+  'if False:'
+mutant image-check-off dry rigmark_meta.py 'if "image" in expect and image_id !=' 'if False and image_id !='
+mutant env-check-off dry rigmark_meta.py 'if "env" in expect and tf != expect["env"]:' 'if False:'
+mutant args-check-off dry rigmark_meta.py 'if "args" in expect and sargs != expect["args"]:' 'if False:'
+mutant recipe-args-ignored dry rigmark_meta.py 'and (recipe_args is None or sargs == recipe_args))' 'and True)'
+mutant py-revision-unread dry rigmark_meta.py 'return spec, ref.read_text().strip()' 'return spec, "unknown"'
+mutant py-health-unread dry rigmark_meta.py 'if "live" not in health and "requests_running" in health:' 'if False:'
+mutant effort-live-count-off dry effort_check.py 'if live != p_with["tokens"]:' 'if False:'
+mutant effort-python-path-off dry effort_check.py \
+  'why = python(port, raw, extra) if engine == "python" else zig(port, raw, extra)' 'why = zig(port, raw, extra)'
 if [ "$killed" = "$total" ]; then echo "ALL KILLED $killed / $total"; exit 0; fi
 echo "NOT CLEAN: $killed / $total killed"; exit 1

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """ttft.py <port> [options]: client-measured time to first token (TTFT) against the recipe's Zig server
-(tensorfold-native serve, spark6), the owner's "how fast the model feels".
+(tensorfold-native serve, spark6), or its Python server (tensorfold serve, the 0.x releases), the owner's "how fast
+the model feels".
 
 TTFT = the time from sending the request to the first streamed CONTENT, REASONING or TOOL-CALL token. The Zig server's
 OpenAI stream (src/server/openai.zig, sse.zig; measured on spark6's zmerge5 serve 2026-10-10, zab_rm.sh's SHAPE
@@ -34,9 +35,12 @@ Per sample the TTFT splits into
             / wait_s; the Zig server reports none, so it is `-` and stays inside `other`),
   prefill = the server's `tensorfold.prefill_seconds` (from the engine's submit to the prompt pass's end, its first
             token included: on spark6 it is all but ~0.01 s of ttft - admit; the OpenAI route's last chunk carries it,
-            the Anthropic route does not: `-`),
+            the Anthropic route does not: `-`); the Python server (TensorFold v0.6.1, the recipe's 0.x releases)
+            carries none, so its `tensorfold.prefill_s` instead: the time its prompt pieces took (cuda/streams.py
+            Stream.prefill_s; waits between pieces, e.g. another stream's decode rounds, are not in it),
   other   = ttft - admit - queue - prefill: what is left (scheduling between the steps and the emit);
-and, beside the split, server = the server's own `tensorfold.time_to_first_token` (from the request's arrival).
+and, beside the split, server = the server's own `tensorfold.time_to_first_token` (from the request's arrival; the
+Python server reports none: `-`).
 Output (stdout), one line per sample, then one summary line per case and load:
   sample <case> <load> ttft <s> admit <s> queue <s|-> prefill <s|-> other <s|-> server <s|-> prompt <n> cached <n>
          first <content|reasoning|tool> others <n>[ NOTCOLD| NOTWARM| NOLOAD ...]
@@ -71,6 +75,7 @@ WORDS = ("lattice probe ferrule datum spindle gauge trellis offset stylus kinema
 ASK = "\n\nContinue the numbered list above from where it stops, in the same format."
 QUEUE_KEYS = ("queue_s", "queued_s", "queue_wait_s", "wait_s")
 PREFILL_KEY = "prefill_seconds"                 # the Zig server's runtime block (chat.zig)
+PY_PREFILL_KEY = "prefill_s"                    # the Python server's stats block (cuda/streams.py Stream.stats)
 SERVER_TTFT_KEY = "time_to_first_token"
 LINE_TOKENS = 21.8          # Qwen3.8 Flash Next tokens a filler line (its tokenizer.json: 21.70-21.88 over 3 seeds,
                             # 400 and 5,000 lines; 5,000 lines = 108.9k-109.2k tokens)
@@ -283,6 +288,8 @@ def stat(stats: dict, key: str) -> float | None:
 def sample_line(case: str, load: str, res: dict, others: int, flags: list[str]) -> str:
     stats = res["stats"] or {}
     prefill = stat(stats, PREFILL_KEY)
+    if prefill is None:
+        prefill = stat(stats, PY_PREFILL_KEY)
     queue = next((float(stats[k]) for k in QUEUE_KEYS if stats.get(k) is not None), None)
     other = res["ttft"] - res["admit"] - (queue or 0.0) - prefill if prefill is not None else None
     return (f"sample {case} {load} ttft {res['ttft']:.3f} admit {res['admit']:.3f} queue {fmt(queue)} "

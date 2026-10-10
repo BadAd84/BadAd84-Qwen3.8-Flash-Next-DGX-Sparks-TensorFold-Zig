@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
-"""rigmark_fake_serve.py <port> <zig|keepall|honour>   a stand-in for the recipe's Zig server's HTTP surface
-(tensorfold-native serve), for the offline dry run (test_rigmark_dryrun.sh), stdlib only. Never computes anything.
+"""rigmark_fake_serve.py <port> <zig|keepall|honour|python|python-noeffort>   a stand-in for the recipe's Zig server's
+HTTP surface (tensorfold-native serve) or, in the python modes, its Python server's (tensorfold serve, TensorFold
+v0.6.1 cuda/http.py), for the offline dry run (test_rigmark_dryrun.sh), stdlib only. Never computes anything.
+  rigmark_fake_serve.py --probe <model dir> <thinking 1|0> <effort> <budget> <bodies JSON>   the stand-in for
+effort_check.py's in-container probe (App._prepare): per body {"tokens", "thinking", "text"}, rendered and counted
+exactly as this fake's chat route renders and counts a prompt.
+Python modes: GET /health is the Python server's ({"ok", "backend", "busy", "requests_running", "streams"}, no
+"live"); POST /tokenize is 404; /v1/completions refuses a prompt that is not a string (400, "prompt must be a
+string"); the reply's `tensorfold` block is the engine's stats (prefill_s, decode_s, rounds, cached, ..., token_sha:
+no enable_thinking / reasoning_effort / prefill_seconds / time_to_first_token) and usage counts reasoning tokens;
+every prompt is kept for the prefix cache, cache_salt not read. "python-noeffort" renders every chat prompt at the
+server's default effort, whatever the body says (a server that drops reasoning_effort: effort_check.py must fail).
 
 Routes, shaped as src/server/{status_routes,tokens,openai,sse}.zig answer them:
 - GET /health: {"status": "ok", ..., "live": {"connections": N, "waiting": 0, ...}} (N = requests in flight);
@@ -33,17 +43,20 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT, MODE = int(sys.argv[1]), sys.argv[2]
-if MODE not in ("zig", "keepall", "honour"):
-    raise SystemExit(f"rigmark_fake_serve: mode zig, keepall or honour, not {MODE!r}")
 CHUNK = 64
 MIN_PROMPT = 4096                   # prompt_cache.zig Rules.min_prompt
 KEPT: list = []                     # (salt key, the kept state's tokens)
 LOCK = threading.Lock()
 LIVE = [0]
 STRUCTURED = json.dumps([{"index": i, "square": i * i} for i in range(1, 51)])
-EFFORT_TEXT = {"low": "Reasoning effort is set to low. Keep your thinking brief.",
-               "xhigh": "Reasoning effort is set to xhigh. Please think carefully."}
+EFFORT_TEXT = {"low": "Reasoning effort is set to low. Keep your thinking brief.",   # lengths differ: a prompt
+               "xhigh": "Reasoning effort is set to xhigh. Please think it through carefully."}   # count tells them
+MODES = ("zig", "keepall", "honour", "python", "python-noeffort")
+PROBE = len(sys.argv) > 1 and sys.argv[1] == "--probe"
+PORT, MODE = (0, "python") if PROBE else (int(sys.argv[1]), sys.argv[2])
+if MODE not in MODES:
+    raise SystemExit(f"rigmark_fake_serve: mode {', '.join(MODES)}, not {MODE!r}")
+PYTHON = MODE.startswith("python")
 
 
 def thinking_of(body: dict) -> tuple[bool, str | None]:
@@ -100,6 +113,11 @@ class H(BaseHTTPRequestHandler):
             return self._json(200, {"object": "list", "data": [{"id": "Qwen3.8-Flash-Next", "object": "model",
                                                                  "owned_by": "tensorfold"}]})
         if self.path.rstrip("/") == "/health":
+            if PYTHON:                                  # cuda/health.py Health.snapshot
+                return self._json(200, {"ok": True, "backend": "tensorfold", "busy": LIVE[0] > 0,
+                                        "requests_running": LIVE[0], "prompt_tokens_total": 0,
+                                        "streams": {"decoding": LIVE[0], "prefilling": 0, "max": 5},
+                                        "context_length": 262144})
             return self._json(200, {"status": "ok", "model": "Qwen3.8-Flash-Next", "max_batch_size": 8,
                                     "warming": False, "memory": {},
                                     "live": {"connections": LIVE[0], "waiting": 0, "decode_tokens_per_second": 0.0,
@@ -109,7 +127,7 @@ class H(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
         path = self.path.rstrip("/")
-        if path == "/tokenize":
+        if path == "/tokenize" and not PYTHON:
             text = render(body["messages"], body)[0] if "messages" in body else body.get("prompt", "")
             out = {"count": len(text), "max_model_len": 262144, "tokens": [ord(c) % 50000 for c in text]}
             if body.get("return_token_strs"):
@@ -118,7 +136,11 @@ class H(BaseHTTPRequestHandler):
         if path not in ("/v1/chat/completions", "/v1/completions"):
             return self._json(404, {"error": {"message": "not found"}})
         chat = path.endswith("chat/completions")
+        if chat and MODE == "python-noeffort":          # drops the body's effort: the server's default effort
+            body = {k: v for k, v in body.items() if k != "reasoning_effort"}
         on, effort = thinking_of(body)
+        if not chat and PYTHON and not isinstance(body.get("prompt"), str):
+            return self._json(400, {"error": {"message": "prompt must be a string"}})   # cuda/server.py App._prepare
         if chat:
             text, history_len = render(body["messages"], body)
             prompt = [ord(c) % 50000 for c in text]
@@ -129,15 +151,19 @@ class H(BaseHTTPRequestHandler):
             finish = "stop"
         else:
             on, effort = False, "none"
-            prompt, history_len = list(body["prompt"]), 0     # token ids: no history (prompt.zig)
+            prompt = list(body["prompt"]) if not PYTHON else [ord(c) % 50000 for c in body["prompt"]]
+            history_len = 0                                   # token ids: no history (prompt.zig)
             pieces = ["x"] * int(body.get("max_tokens", 8))
             finish = "length"
         cached = cached_for(body.get("cache_salt"), prompt, history_len)
         runtime = {"enable_thinking": on, "reasoning_effort": effort, "engine": "fake", "prefill_seconds": 0.001,
                    "time_to_first_token": 0.002, "sampling": "exact", "drafts": True}
+        if PYTHON:                                       # cuda/streams.py Stream.stats + server.py's token_sha
+            runtime = {"prefill_s": 0.001, "decode_s": 0.01, "rounds": len(pieces), "drafts": True, "cached": cached,
+                       "min_rows": 1, "drafted": 0, "accepted": 0, "token_sha": "0123456789ab"}
         usage = {"prompt_tokens": len(prompt), "completion_tokens": len(pieces),
                  "total_tokens": len(prompt) + len(pieces), "prompt_tokens_details": {"cached_tokens": cached},
-                 "completion_tokens_details": {"reasoning_tokens": 0}}
+                 "completion_tokens_details": {"reasoning_tokens": len(pieces) if PYTHON and on else 0}}
         if not body.get("stream"):
             text = "".join(pieces)
             choice = ({"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": finish}
@@ -189,6 +215,10 @@ class H(BaseHTTPRequestHandler):
         self.close_connection = True
 
 
+if PROBE:                                   # effort_check.py's in-container probe, as `docker exec` stands it in
+    print(json.dumps([{"tokens": len(text), "thinking": thinking_of(b)[0], "text": text}
+                      for b in json.loads(sys.argv[6]) for text in [render(b["messages"], b)[0]]]))
+    sys.exit(0)
 srv = ThreadingHTTPServer(("127.0.0.1", PORT), H)
 srv.daemon_threads = True
 srv.serve_forever()

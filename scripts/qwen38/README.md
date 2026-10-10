@@ -129,7 +129,7 @@ commit `52c29c3fc1d7` (protocol 1.3.0), recorded in spark6 `~/INVENTORY.md`.
   Log `~/work/bench/zabrm-<label>.log`; summary `python3 ~/work/bench/zab_rm_sum.py <log>`: golden MATCH / DIFF
   per arm, the TTFT and RigMark sections (ours against base), exit 1 on a golden DIFF, a boot, effort, TTFT or
   RigMark error. Stock = `PREPARE=0 IMAGE=tensorfold-qwen38:zig-db28187` (the recipe's image and defaults, the
-  campaign's "stock").
+  campaign's "stock"). `ENGINE=python` in an arm runs the recipe's last Python release instead (below).
 - `ttft.py <port>`: TTFT to the first streamed content / reasoning / tool token for cold ~1k / 8k / 32k / 120k
   prompts (a fresh UUID salt each; filler at 21.8 Qwen3.8 tokens a line, measured with the checkpoint's
   tokenizer) with thinking off and on (`chat_template_kwargs.enable_thinking`), and a warm +2k turn on a kept ~100k
@@ -138,8 +138,8 @@ commit `52c29c3fc1d7` (protocol 1.3.0), recorded in spark6 `~/INVENTORY.md`.
   prefill (the reply's `tensorfold.prefill_seconds`: submit to the first token, so `other` is ~0.01 s at idle) +
   other, beside the server's own `time_to_first_token`;
   flagged samples (NOTCOLD / NOTWARM / NOLOAD) are printed and left out. `ttft.py report <logs>` prints the section.
-  Offline: `tests/test_ttft.py` (a fake server streaming the Zig shape) and `tests/mutants_ttft.py` (49 mutants,
-  every flag decision both ways; 49 of 49 killed, 2026-10-10).
+  Offline: `tests/test_ttft.py` (a fake server streaming the Zig shape, and in a variant the Python server's stats
+  block) and `tests/mutants_ttft.py` (50 mutants, every flag decision both ways; 50 of 50 killed, 2026-10-10).
 - `rigmark_run.sh <label> <comparison-id> <metadata> [extra-body]`: RigMark's standard suite (decode code / prose /
   structured x5 at an 8,192-token cap, cold + immediate-replay prefill 8K / 32K / 64K x3, C1 / C2 / C4 x3) with the
   extra body `{"reasoning_effort": "low"}`, byte-for-byte that of RigMark's published card for this model family
@@ -150,19 +150,22 @@ commit `52c29c3fc1d7` (protocol 1.3.0), recorded in spark6 `~/INVENTORY.md`.
   `enable_thinking` true, `reasoning_effort` low). That card's receipt is protocol 1.1.0 at another RigMark revision
   with a 4,096-token cap, so `rigmark compare` against it needs `--allow-mismatch`; it is a recipe / appliance
   comparison either way. Receipts, cards and filled metadata: `~/work/bench/rigmark/runs/`.
-- `rigmark_meta.py`: fills `rigmark/metadata-zig-{stock,ours}.json` (hardware 1x ASUS Ascent GX10) from the serving
-  container: image and id, the `tf.patches` label, the OTS patch set (`tf.ots-patches` or the arm's `PATCHES=`),
-  model revision, MTP drafter settings, KV dtype, scheduler flags, every `TF_FLASHNEXT_*` / `TENSORFOLD_*` setting,
-  the GPU, `/health`'s `live.connections` (the quiet check). It refuses a template the serve contradicts: the model,
-  context, one GB10, and stock exactly = the stock image id + the recipe's `start.sh` env + no OTS patches.
+- `rigmark_meta.py`: fills `rigmark/metadata-{zig,python}-{stock,ours}.json` (hardware 1x ASUS Ascent GX10) from the
+  serving container: engine, image and id, the `tf.patches` label, the OTS patch set (`tf.ots-patches` or the arm's
+  `PATCHES=`), model revision, MTP drafter settings, KV dtype, scheduler flags, every `TF_FLASHNEXT_*` /
+  `TENSORFOLD_*` setting, the GPU, `/health` (the quiet check). It refuses a template the serve contradicts: the
+  engine, model, context, one GB10, the KV dtype / image / env / arguments a template pins, and stock exactly = the
+  stock image id + the recipe's `start.sh` env (+ its serve arguments, Python) + no OTS patches.
 - `rigmark_sum.py`: a receipt's headline line and the RigMark section (per arm the median decode tok/s, last output
   and TTFT per workload, cold / replay prefill, C1-C4 aggregate; errors on a refused run or a mismatched sweep).
 - `tests/test_rigmark_dryrun.sh <rigmark clone>`: the whole chain offline against `tests/rigmark_fake_serve.py` (the
-  Zig server's routes and stream shape) with stand-in docker / nvidia-smi / zarm.sh: RigMark's refusal of a second
-  run on one boot (and a clean run after a restart), the metadata refusals, both summaries, `zab_rm.sh` end to end
-  (and no speed probes on a golden DIFF). `tests/mutants_rigmark.sh <rigmark clone>`: 10 mutants of those decisions,
-  each must make the dry run (or test_ttft.py's zab_rm_sum checks) fail. Run both from WSL or a box: `$HOME` scratch,
-  a local RigMark clone at the pinned commit.
+  Zig server's routes and stream shape, or the Python server's) with stand-in docker / nvidia-smi / zarm.sh / the
+  Python recipe's start.sh and stop.sh / qf_harness.py: RigMark's refusal of a second run on one boot (and a clean
+  run after a restart), the metadata refusals (both engines), both summaries, `zab_rm.sh` end to end for Zig and
+  Python arms (and no speed probes on a golden DIFF), effort_check.py's Python path. `tests/mutants_rigmark.sh
+  <rigmark clone>`: 31 mutants of those decisions (31 of 31 killed, 2026-10-10), each must make the dry run (or
+  test_ttft.py's zab_rm_sum checks) fail. Run both from WSL or a box: `$HOME` scratch, a local RigMark clone at the
+  pinned commit.
 - `effort_check.py <port> [extra-body]`: the live check that the server honours RigMark's extra body (above).
 
 Cold prefill and the prompt cache: the Zig server does not read `cache_salt` (unknown request fields are ignored),
@@ -171,3 +174,56 @@ RigMark's prefill pairs are `/v1/completions` token-id prompts with no history, 
 are cold on any run, and RigMark's "immediate replay" is cold too (spark6 2026-10-10: replay cached 0 at every depth,
 replay TTFT equal to cold). Our replay column is therefore not comparable with a card whose server caches it (the
 vLLM reference: 64K replay 21,923 tok/s); keeping a state for completion prompts would be a server change, not done.
+
+### The Python engine on the same harness (`ENGINE=python` arms, 2026-10-10)
+
+For a like-for-like Python-vs-Zig comparison on one box (spark6), one harness and one RigMark comparison ID
+(`2026-09-14-rigmark-standard`). spark6 carries the recipe's last Python release beside the Zig one: clone
+`~/qwen-py` at tag `v0.6.0` (22a3010; spark4's production clone 4c0dea8 adds only CHANGELOG.md), the images
+`tensorfold-qwen38:v0.6.1` (the release's published image, tf.patches 797af1d9df4d = the hash of its
+`patches/*.patch`) and `tensorfold-qwen38:v061-ots` (8e4a7bafb67d, OTS's production image), and the MLX 4-bit
+checkpoint (Vontra, 2b170fa6, 106 GB, n-gram tables read from SSD), all copied from spark4.
+
+- An arm with `ENGINE=python` (not passed to `start.sh`) stops the Zig serve (`~/qwen-zig/stop.sh`), boots
+  `PY_RECIPE/start.sh restart` (default `~/qwen-py`) with the arm's settings and its own kernel cache
+  (`PY_KERNEL_CACHE`, default `~/.cache/tensorfold-qwen38-py`), records the golden replies (`qf_harness.py golden`),
+  then runs the same SHAPE / TTFT / effort / RigMark steps, and stops its serve inside its hold (the next holder
+  boots what it needs). python-stock = `ENGINE=python PREPARE=0` (the recipe's defaults: 5 x 262k streams, int8 KV,
+  `--ple-on-ssd`, `--mtp-drafts 6 --mtp-confidence 0.60`); python-ours = `ENGINE=python PREPARE=0
+  IMAGE=tensorfold-qwen38:v061-ots MTP_DRAFTS=8 TENSORFOLD_CHAIN_RULE=cum TENSORFOLD_CHAIN_T=0.30` (spark4's
+  `~/qwen-start.sh`, without its `docker update --restart`).
+- Golden: the Python engine's replies are not the Zig engine's (another checkpoint and kernels), so a Python arm is
+  checked against `PY_GOLDEN_REF` (default `~/work/zab3/zgold-python-stock.json`): the Python stock serve's own
+  replies, written by the first Python stock arm that finds no reference (a GOLD line says so; only a stock arm
+  writes it). Every arm logs `GOLD <arm> reference <file> (<kind>)`, and `zab_rm_sum.py` prints it beside the
+  verdict (`... MATCH (against ... python self-reference ...)`).
+- Decode (Python arms, `PY_DECODE=1` default; owner request 2026-10-10: Python vs Zig prose at one client on one
+  box and harness): after golden and before SHAPE / TTFT, the arm's hold runs the decode probes the Zig arms get
+  from `zarm.sh` / the merge verify runs: `~/work/qf_run.py` decode (prose and code at 1 / 2 / 4 clients, 512 tokens,
+  greedy, thinking off, one pass; `DECODE` lines, rows `~/work/zab-<run>.jsonl`, /metrics drafted / accepted around
+  it) and `~/work/merge/v/pmz.py` (six one-client prose requests, MODE py; `PM` lines, rows
+  `~/work/zab-<run>-pm.jsonl`); `zab_rm_sum.py` prints a decode line per arm. `TTFT=0` skips ttft.py (a decode-only
+  hold: `TTFT=0 RIGMARK=0`).
+- Metadata: `rigmark/metadata-python-{stock,ours}.json`. `rigmark_meta.py` reads the engine from the command before
+  `serve` (`tensorfold-native` = zig, `tensorfold` = python; every template's `expect.engine` must match), the
+  Python server's model revision from `refs/main` in the Hugging Face cache the container mounts (it serves a Hub id
+  offline), its `/health` (`requests_running`), and its drafter (`--mtp-drafts`, `--mtp-confidence`, the chain rule,
+  `TENSORFOLD_MTP_COPY`) and scheduler (`--ple-on-ssd`, `TENSORFOLD_PREFILL_ROWS`). The python templates also pin
+  the KV dtype (`expect.kv_dtype` int8) and, for stock, the recipe's serve arguments (`expect.recipe_args`); the ours
+  template pins the production image (`expect.image`, by id), env (`expect.env`) and arguments (`expect.args`).
+- Effort: TensorFold v0.6.1's Python server reads a top-level `reasoning_effort` as the Zig server does
+  (`tensorfold/server/request_options.py` `thinking_fields`: any effort but `none` turns thinking on; the template
+  names low), but it has no `/tokenize` and its `tensorfold` block is the engine's stats. So `effort_check.py`
+  (engine from the container) runs the server's own `App._prepare` inside the serving container (`docker exec`, CPU
+  only: the App built as `cli.py` builds it around a stand-in engine) for the message with and without the body,
+  then checks the live reply's `usage.prompt_tokens` equals the prepared count and that it thought
+  (`reasoning_tokens` > 0).
+- RigMark's prefill section cannot run on the Python server: it needs `/tokenize` and token-id prompts on
+  `/v1/completions`, and the server has neither (`cuda/http.py`; `App._prepare`: "prompt must be a string"). A
+  Python arm runs RigMark with `--skip-prefill` (logged); ttft.py's cold prompts are its prefill measure, and they
+  are the same requests on both engines. ttft.py reads the Python server's `tensorfold.prefill_s` (its prompt
+  pieces' time, without waits between pieces) where the Zig server's `prefill_seconds` is absent; the Python server
+  reports no `time_to_first_token`.
+- `zab_rm_combine.py NAME=LOG:ARM ... [NAME=RECEIPT.json]`: one TTFT and RigMark table across sweeps and a published
+  card's receipt (the same `ttft.section` / `rigmark_sum.section`); a receipt from another protocol or RigMark
+  revision is reported as "not one matched sweep".

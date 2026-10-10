@@ -1,0 +1,41 @@
+{
+  "record_type": "OTS serving input (qwen3.8-flash-next-dev scripts/qwen38/zig/bench/rigmark/; live fields filled per run by rigmark_meta.py)",
+  "operator": "OTS",
+  "arm": "stock: the recipe's last Python release 0.6.0 as shipped (image tensorfold-qwen38:v0.6.1 = ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold:v0.6.1-797af1d9df4d, the recipe's start.sh with its defaults; env PREPARE only)",
+  "hardware": "1x ASUS Ascent GX10 (NVIDIA GB10 Grace Blackwell, 128 GB unified LPDDR5x)",
+  "topology": "TP1: one GB10, no interconnect",
+  "negotiated_link_speed": "not applicable (one GPU)",
+  "model": "Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP",
+  "model_revision": "FILLED PER RUN",
+  "quantisation": "MLX 4-bit weights, group size 32 (Vontra's conversion) with the MTP head; the n-gram tables read from SSD as the scheduler says",
+  "kv_cache_dtype": "FILLED PER RUN",
+  "serving_engine": "TensorFold Python engine (tensorfold serve, CUDA backend) v0.6.1 (17c73e1) + the recipe's patch 0002 (stock; see recipe_patches)",
+  "recipe": "MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold release 0.6.0 (the last Python release)",
+  "recipe_revision": "22a3010443980295f2bbaf30dc8161bac2d792f6",
+  "serving_image": "FILLED PER RUN",
+  "recipe_patches": "FILLED PER RUN",
+  "ots_patches": "FILLED PER RUN",
+  "drafter": "FILLED PER RUN",
+  "context_limit": 262144,
+  "scheduler": "FILLED PER RUN",
+  "competing_traffic": "FILLED PER RUN",
+  "co_resident_services": "none (the serve owns spark6's GB10; the harness holds its GPU lock)",
+  "expect": {
+    "engine": "python",
+    "kv_dtype": "int8",
+    "stock_image": "tensorfold-qwen38:v0.6.1",
+    "recipe_env": {
+      "TENSORFOLD_IMAGE_TOKENS": "16384",
+      "TENSORFOLD_MEMORY_RESERVE_GIB": "2",
+      "TENSORFOLD_MTP_COPY": "1",
+      "TENSORFOLD_NO_UPDATE_CHECK": "1",
+      "TENSORFOLD_PREFILL_ROWS": "2048",
+      "TENSORFOLD_VIDEO_TOKENS": "16384",
+      "TENSORFOLD_VISION_WORKSPACE_MIB": "0"
+    },
+    "recipe_args": ["--name", "Qwen3.8-Flash-Next", "--parallel", "5", "--context", "262144", "--kv-dtype", "int8",
+                    "--mtp-drafts", "6", "--mtp-confidence", "0.60", "--temperature", "1.0", "--top-p", "0.95",
+                    "--top-k", "20", "--max-tokens", "32768", "--ple-on-ssd", "--vision", "--vision-max-images", "50",
+                    "--thinking"]
+  }
+}
