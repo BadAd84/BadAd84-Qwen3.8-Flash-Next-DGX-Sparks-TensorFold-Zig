@@ -151,6 +151,22 @@ r2 / r4 / fill / fill / r4 / r2), golden 6/6 on every boot:
   client was fine. It worked on zots5, so a merged change (likely the W3 sequence pool) breaks it. NOT shippable until
   fixed.
 
+## The clean upstream stack `zpr-stack` (2026-10-10 ~01:27): matches zmerge5
+
+`zpr-stack` = recipe patches 0010-0020 as packaged for upstream (`upstream/zig-pr-*`: experiments, mutant switches and
+our names stripped, settings renamed). `merge/mverify11.sh` (warm-up, m5 / pr / pr / m5), golden 6/6 every boot, and
+every renamed setting's boot line present:
+
+| | zmerge5 | zpr-stack |
+|---|---:|---:|
+| code 1 / 2 / 4 clients | 124.5 / 88.8 / 62.1 | 126.5 / 88.5 / 63.4 |
+| prose 1 / 2 / 4 clients | 72.0 / 59.5 / 38.4 | 71.8 / 58.9 / 39.3 |
+| copy / one-word rewrite | 789-811 / 579-580 | 791-813 / 580-581 |
+| two concurrent edits (first stream) / edit beside prose | 300-363 / 273-442 | 287-303 / 442-448 |
+| cold prefill 8k / 32k | 2,903-2,914 / 2,845-2,850 | 2,888-2,913 / 2,845-2,847 |
+
+Every cell is within the run-to-run spread; the stripping lost nothing measurable.
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with

@@ -10,6 +10,9 @@ HERE = pathlib.Path(__file__).resolve().parent
 ORDER = [
     ("Qwen3.8 Flash Next recipe, Zig release 1.0.0 (2026-10-08 batch)", [
         "zig-pr-confidence", "zig-pr-argmax", "zig-pr-mtp-fp8"]),
+    ("Qwen3.8 Flash Next recipe, Zig speed batch 2", [
+        "zig-pr-ngram-host", "zig-pr-copy-window", "zig-pr-copy-resync", "zig-pr-copy-shared", "zig-pr-seq-pool",
+        "zig-pr-batch-draws", "zig-pr-fp8-fused-head-mt", "zig-pr-decode-glue", "zig-pr-draft-stop-lines"]),
     ("Qwen3.8 Flash Next recipe (PARKED: the recipe moved to the Zig engine; not posted)", [
         "qwen-pr-copy-first", "qwen-pr-ple-page-cache", "qwen-pr-ple-native", "qwen-pr-chain-stop",
         "qwen-pr-mtp-graphs", "qwen-pr-ple-defer", "qwen-pr-tokenize-nogil"]),

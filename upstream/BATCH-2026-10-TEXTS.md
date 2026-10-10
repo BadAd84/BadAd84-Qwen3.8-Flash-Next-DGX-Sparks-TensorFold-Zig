@@ -54,7 +54,7 @@ None.
 - `bash -n start.sh stop.sh scripts/*.sh`; shellcheck adds no finding.
 - Memory: unchanged (a draft stop setting only).
 
-Other PRs from me in this batch: #[0010's PR] (`patches/0010`, argmax/logsumexp launch width) and #[0011's PR]
+Other PRs from me in this batch: #35 (`patches/0010`, argmax/logsumexp launch width) and #36
 (`patches/0011`, the MTP layer on block FP8). All three add CHANGELOG/README/CREDITS lines in the same places;
 whichever merges second, I rebase.
 
@@ -126,9 +126,9 @@ None.
   second cycle.
 - Memory: unchanged (launch widths only).
 
-Other PRs from me in this batch: #[conf's PR] (the one-Spark draft stop default) and #[0011's PR] (the MTP
+Other PRs from me in this batch: #34 (the one-Spark draft stop default) and #36 (the MTP
 layer on block FP8, `patches/0011`). All three add CHANGELOG/README/CREDITS lines in the same places, and this PR and
-#[0011's PR] each add a row to the same new patch table; whichever merges second, I rebase.
+#36 each add a row to the same new patch table; whichever merges second, I rebase.
 
 ---
 
@@ -199,9 +199,758 @@ None.
 - `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
 - Memory: the MTP layer's device buffers shrink by ~70 MB; with the defaults (8 streams, 262,144, FP8 KV, vision) the engine sized sequence memory at 33.83 GiB with 10 GiB kept free.
 
-Other PRs from me in this batch: #[conf's PR] (the one-Spark draft stop default) and #[0010's PR]
-(`patches/0010`). All three add CHANGELOG/README/CREDITS lines in the same places, and this PR and #[0010's PR] each
+Other PRs from me in this batch: #34 (the one-Spark draft stop default) and #35
+(`patches/0010`). All three add CHANGELOG/README/CREDITS lines in the same places, and this PR and #35 each
 add a row to the same new patch table; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+# Qwen3.8 Flash Next recipe, Zig speed batch 2
+
+## 4. `zig-pr-ngram-host`
+
+**Title:** patches/0012: the n-gram table's host gather on a thread gang with read-ahead (cold prompts of new text 2-9x faster, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+At one GPU the engine keeps the FP8 n-gram (PLE) table host-mapped (`cuda_weights.zig` `openTable`; the
+two-rank layout puts each rank's heads on the GPU) and gathers a window's rows on the engine thread, one row at a time
+(`NgramTable.gather`). The table is `ple-table/`, 48.67 GiB in 34 files, and every token reads 16 rows of 160 B at
+hashed offsets: 16 different 4 KiB pages. A page that is not in the page cache is a synchronous fault, and the kernel's
+128 KiB read-around reads 32 pages for it: one 8k prompt of new text took the table from 2.8% to 24.9% resident (12 GiB
+read for 17 MB of rows), each fault cost ~250 us on the serving thread, and the next request found its rows evicted
+again. A GPU copy does not fit beside the weights on one Spark (48.67 GiB against 43.85 GiB free after load).
+
+`patches/0012-flash-next-ngram-host-gather.patch` keeps the gather's bits (the same rows through the same LUT into the
+same positions) and changes only when and on which thread the pages are read:
+
+- `cuda_ngram_host.zig` (new): a gather of at least `TF_FLASHNEXT_NGRAM_MIN` (32) rows is split into blocks over
+  `TF_FLASHNEXT_NGRAM_THREADS` worker threads plus the caller, so cold rows fault in parallel.
+- `TF_FLASHNEXT_NGRAM_PREFETCH=1`: the same workers touch rows that will be gathered soon, in the background: during a
+  prefill the next `TF_FLASHNEXT_NGRAM_AHEAD` (2) chunks while the current one computes; during decode the next
+  window's pending token, and each draft as the MTP chain draws it.
+- `TF_FLASHNEXT_NGRAM_RANDOM=1`: `MADV_RANDOM` on the table's mappings, so a miss reads its own page only.
+- `scripts/config.sh` turns all three on (32 threads; 64 bought 0.1 s more at 8k on a 20-core Spark). Unset or
+  `TF_FLASHNEXT_NGRAM_THREADS=0` is the engine's one-thread gather; the prefetch follows the thread count.
+- The README's "the n-gram table is on the GPU" (Configuration) now says where it is at one Spark.
+
+Why the replies do not change: the gang's blocks and the serial gather read the same rows into the same output
+positions, and a touch only reads a byte of a row. Only the thread and the moment of each page read move.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). The prompt cache was off and the table's pages dropped before each cold request, with new text every time
+(a repeated prompt costs no faults at all). Lane image (this patch alone on the stock engine), two cycles:
+
+| cold prompt of new text | stock | 0012 |
+| --- | ---: | ---: |
+| 8k prose, s | 25.8 / 19.4 | 2.98 / 2.98 |
+| 32k prose, s | 57.4 / 39.7 | 11.4 / 11.4 |
+| 32k of code, s | 35.6 / 28.2 | 13.1 / 13.1 |
+| 128k prose, s | 100.1 | 49.9 |
+| the same 8k / 32k warm, s | 2.70 / 11.1 | 2.70-2.75 / 11.1-11.5 |
+| decode, 4 clients, new text, aggregate tok/s | 100.2 / 101.9 | 128.4 / 129.7 |
+
+A cold prompt now takes within 1-10% of a warm one (stock: 2-10x the warm time). The stock decode of new text lost
+12-15% at one client and 23-24% at four (warm: 131.8 / 132.3 aggregate); with the patch it is within 1-5%. In the
+merged build (with `0013` and `0017`, which do not touch prefill): cold 8k 1,167 / 1,941 -> 2,818 / 2,904 prompt
+tok/s, 32k 1,741 / 2,307 -> 2,861 / 2,867, decode 1 / 2 / 4 clients equal (code 118.1 / 84.2 / 54-58 -> 117.9 / 85.1 /
+59.4).
+
+Arms dropped on the way (measured): `MADV_RANDOM` alone halves the cold cost (8k 9.58 s) but leaves the faults
+serial; the gang without the prefetch is 0.4-1.3 s a cold prompt slower (8k 3.42 s).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. Every prompt's reply sha was the same across all arms, cold and warm (8k x2 seeds, 32k x2, 32k
+  code, 128k, four decode prompts, four-client sets).
+- Host tests in `cuda_ngram_host.zig`: the gang's gather is the serial gather byte for byte over a three-shard table
+  (1 to 4,097 rows, both shard boundaries, repeats; an id past the table fails both the same way); a draft's
+  predecessors give the ids the stage computes for the next window; a chunk's touch ids from its own history equal
+  the whole prompt's. Four mutants of the gang (a block skipping its last row, a predecessor off by one, the gang's
+  error swallowed, a block written at the wrong offset) each fail them.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: 32 threads and a queue of row ids; the page cache holds less of the table than before, since each miss
+  reads 4 KiB instead of 128 KiB.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35 and #36 merged first (logically it needs none of them). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 5. `zig-pr-copy-window`
+
+**Title:** patches/0013: 64-row copy windows for a lone stream (file copies 2.3x, one-line edits +84%, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+A lone stream's verify window held 16 rows: the pending token and 15 drafts, whether the drafts came from
+the MTP head or were copied from the context (a file being rewritten, a verbatim repeat). A copy that lands every row
+could only grow 15 at a time.
+
+`patches/0013-flash-next-copy-window.patch` separates the window from the MTP chain:
+
+- `cuda_state.max_rows` and `cuda_lanes.max_rows` 16 -> 64, with every host array sized by them following (held
+  rows, ids, the sampler's scratch, `Round.held_stride`, the draw tables). A prompt burst stays at `state.ends` (16)
+  prompts.
+- `Engine.Options.window` / `TF_FLASHNEXT_WINDOW` (depth + 1 .. 64; 64 when unset): the decode buffers hold
+  `max(8, streams x (depth + 1), window)` rows (128 at `PARALLEL=8`, as before) and each sequence keeps `window`
+  speculative rows past the context.
+- The lanes keep `depth` (the head's chain, `TF_FLASHNEXT_DEPTH`) and `window` apart: the round planner's copy ramp
+  still starts at 15 rows and now grows 15 -> 31 -> 63, the head still drafts 15 at most, and the planner's cost
+  table is still timed for 1..16 rows. Shared rounds (two or more clients) still copy 15 rows (`0015` changes that).
+- The server's boot log says `copy windows: a lone stream verifies up to 64 rows ...`; the window is part of the
+  two-rank settings agreement.
+
+Why the replies do not change: copies are drafts, verified row by row like the MTP head's, and every row kernel is
+row-invariant (shared rounds already run 17..128 rows through the same kernels).
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). One client, lane image (the wide window on the stock engine), one hold (hold5: a warm-up boot first, then the
+arms interleaved):
+
+| 1 client, tok/s | stock (16 rows) | 64-row windows |
+| --- | ---: | ---: |
+| verbatim copy of a file | 327 | 763-766 |
+| one-word rewrite | 266 | 411-412 |
+| four-word rewrite | 151 | 156 |
+| a rename to a longer name | 256 | 409-411 |
+| a one-line code edit | 275 | 506-510 |
+
+Prose and code decode at one and two clients stayed within 1% (28/28 decode replies identical), with the same round
+counts at four clients (engine only, `bench-many --streams 4`: 51.2 vs 51.6 ms a round on prose, 57.0 vs 57.2 on
+code). The same binary with `TF_FLASHNEXT_WINDOW=16` measured as stock (copy 330, rewrite 267). Merged build (with
+`0012` and `0017`): verbatim copy 325-328 -> 755-765 tok/s, one-word rewrite 265-267 -> 410, prose and code decode at
+1-4 clients equal.
+
+Cost: a copy-heavy request captures two more window widths at both parities (32/64-row main graphs, 31/63-row MTP
+steps), ~40-60 ms once. The round cost grows with the rows (16 rows ~51 ms, 64 rows ~100 ms a round on one stream), so
+the planner only widens a copy that keeps landing. The lane also timed every width past 16 at boot for its log
+(+4 s); the patch here drops that diagnostic.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. Every copy, rewrite, rename and edit reply had one sha across every arm and image, and all
+  28 decode-matrix replies were identical to the stock image's (34 boots in seven holds).
+- Host test (`cuda_lanes.zig`): a window wider than the head's chain prices the chain's rows only; the lanes report
+  `exact_width` = the window, `drafts` = the depth, the ramp's first width from the head's window.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: each sequence keeps 64 speculative rows past the context instead of 16 (48 rows: under 1 MiB of FP8 cache a
+  sequence); the decode buffers stay at 128 rows at `PARALLEL=8`.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR] merged first (logically it needs none of them). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 6. `zig-pr-copy-resync`
+
+**Title:** patches/0014: copy re-sync after an edit and a wider copy ramp (one-word rewrites +31%, four-word rewrites 2x; replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+When a copy window misses (the reply edits the text it is copying), the copy proposer goes quiet until a
+new suffix of `min_match` tokens matches again, and the lone stream's window falls back to 15 rows; an edit every few
+lines never climbs the 15 -> 31 -> 63 ramp of `0013`.
+
+`patches/0014-flash-next-copy-resync.patch`, all of it drafting policy:
+
+- `TF_FLASHNEXT_COPY_RESYNC=1` (`core/lanes/proposer.zig`): after a copy that had landed 2+ rows misses, the
+  proposer resumes the source right past the edit, without waiting for a new match. At the miss itself the target's
+  token tells a deletion (it is the source's next token) from a substitution (resume past the replaced token); later
+  it matches the last two tokens written within 24 source tokens of the miss, or the last one within 4 (an insertion,
+  the end of a longer replacement). At most 2 guesses a miss, never counted toward the proposer's silence.
+- `TF_FLASHNEXT_COPY_RESYNC_PROMPT_ONLY` (on unless `0`): only copies whose source lies in the prompt resync. A reply
+  that repeats its own earlier lines (code's tests mirroring a call, lists) leaves the source at every miss, and a
+  resync there only costs rounds.
+- `TF_FLASHNEXT_COPY_RAMP=jump`: after a copy round that kept every row, the next window is the widest at once (rows
+  between the head's window and 64 cost about the same per kept token).
+- `TF_FLASHNEXT_COPY_MISS=keep`: after a round that missed, the window keeps its width instead of falling to 15.
+- The boot log says `copy policy: after a missed copy round keep, after a clean one jump, resync on (copies out of the
+  prompt) ...`. Unset, the engine keeps its own policy (`0` / `double` / `first`).
+
+Why the replies do not change: these only choose which tokens are proposed as copies and how many; every copied
+token is verified like any draft.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). One client, lane image with `0013`, one hold (hold7: a warm-up boot first):
+
+| 1 client, tok/s | 64-row windows | + this policy |
+| --- | ---: | ---: |
+| one-word rewrite | 408 | 534 |
+| four-word rewrite | 151 | 305 |
+| one-line code edit | 503 | 546 |
+| verbatim copy | 756 | 752 |
+| a rename to a longer name | 406 | 392 |
+
+Normal decode is untouched: with the prompt-only gate the quicksort prompt took 84 rounds, 562 drafts, 427 accepted,
+the control's exact counts, and the prose rounds were identical (without the gate the same prompt took 86 rounds: -3%
+on it). The rename case loses 3%: `MISS=keep` makes its two wrong guesses 63 rows wide (`TF_FLASHNEXT_COPY_MISS=first`
+keeps it at ~406). Merged build (with `0012`, `0013`, `0016`-`0018`, and `0020`'s drafting change in the same step):
+one-word rewrite 432-434 -> 578-585 tok/s, copy 811-812 -> 814-816, cold prefill unchanged.
+
+Arms dropped (measured): the copy entry gate at 4 matching tokens (code -5 to -9%), the proposer's silence at 4 rounds
+(no effect), `MISS=half` (below `keep`), arming only after 4 landed rows or 1 guess (no code gain, four-word rewrites
+-9 to -10%); the patch here has none of them, nor their switches.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. Every copy/rewrite/rename/edit reply had one sha across every arm (holds hold4-hold7).
+- Host tests (`core/lanes/proposer.zig`): a resync proposes the source past a one-token edit, realigns on the tokens
+  written and gives up after its tries; it is armed only by a copy that was landing; and only by a copy out of the
+  prompt.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (a few fields a proposer).
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR] merged first (logically it builds on #[0013's PR]'s windows). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 7. `zig-pr-copy-shared`
+
+**Title:** patches/0015: copies out of the prompt ramp in shared rounds too (two concurrent file edits +55%, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+`0013`'s copy ramp applies to a lone stream only: as soon as two clients decode together, every copy window is
+15 rows again, so two agents editing files at once copy at a fraction of the lone rate.
+
+`patches/0015-flash-next-copy-shared-rounds.patch`:
+
+- `TF_FLASHNEXT_COPY_SHARED=1` (`core/lanes/config.zig` `copy_shared`): streams in shared rounds take the lone
+  stream's ramp too (15 -> 31 -> 63, or `TF_FLASHNEXT_COPY_RAMP`), and follow `TF_FLASHNEXT_COPY_MISS`. The allocator
+  still trims each shared round to the decode buffers' rows.
+- Only copies out of the prompt ramp in a shared round: the proposer now reports where its last copy came from
+  (`Proposer.lastFrom`), and a reply copying its own earlier lines keeps 15 rows (that self-copy is what makes code
+  replies pay for wide windows at several clients).
+- The boot log line of `0014` adds `shared rounds ramp copies out of the prompt`.
+
+Why the replies do not change: as `0013`: copies are drafts verified row by row; the shared rounds already run up to
+128 rows through the same row-invariant kernels.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Merged build (`zmerge5` = `0012`-`0014`, `0016`-`0020` + this, against the same without this patch and without
+`0019`'s reduce + activation, which alone is +0.5 to +1.2% on decode), two boots an arm after a warm-up:
+
+| tok/s | without | with `0015` |
+| --- | ---: | ---: |
+| two concurrent file edits, each stream | 192-218 | 286-350 |
+| a file edit beside a prose reply: edit / prose | 233-236 / 67.0-67.9 | 439-465 / 71.7-72.0 |
+| lone copy / one-word rewrite | 817-820 / 584-586 | 819-823 / 585-587 |
+| code, 1 / 2 / 4 clients | 127.6 / 88.5 / 63.6 | 128.1 / 88.9 / 63.2 |
+| prose, 1 / 2 / 4 clients | 72.3 / 59.8 / 39.6 | 72.6 / 60.1 / 39.9 |
+
+On the lane's own image (the same mechanism, one boot an arm): two concurrent edits 188 / 177 -> 274 / 268 tok/s
+(stock ~176 / 176), an edit beside a prose reply 217 -> 312 with the prose stream at 60-66 either way.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here.
+- Host test (`core/lanes/engine_test.zig`): a shared round copies 15 rows without the knob, 63 with it when the copy
+  came from the prompt, and 15 when it came from the reply's own lines; the proposer reports the copy's source index.
+  Mutants that ungate the ramp, turn it off, or blank the proposer's source each fail it. The engine line that marks
+  whether a copy came from the prompt has no host test: the GPU A/B above is its check.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (one flag a stream).
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR] merged first (logically it builds on #[0013's PR] and #[0014's PR]). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 8. `zig-pr-seq-pool`
+
+**Title:** patches/0016: pooled sequences keep their CUDA graphs across requests (short replies 9% faster, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+Every request gets a new sequence and frees it at the end, and a solo window's CUDA graph bakes in its
+sequence's buffers: a one-client server re-captures its decode graphs request after request (about 200 solo captures
+in a bench run, ~12 a request at ~3.5 ms each). A short request's sequence limit (prompt + `max_tokens` + window)
+also caps its capacity, so the graph's context bucket and key differ per request. With two to four streams about two
+thirds of the shared verify rounds ran eagerly anyway, and each captured verify graph was replayed ~2.6 times.
+
+`patches/0016-flash-next-sequence-pool.patch` (one GPU):
+
+- `TF_FLASHNEXT_SEQ_POOL=N`: up to N finished sequences are kept for the next request (`Engine.takeSeq` /
+  `retire`). A pooled sequence reserves the engine's whole window, so every request sees the same capacities and the
+  graph keys repeat. Back in the pool it is reset to exactly what a new sequence is: physical memory past the first
+  growth step unmapped (the addresses stay reserved, so its graphs stay valid; `vmm.Region.shrinkToFirst`), every
+  cache byte and the fixed state zeroed, then `Forward.reset` (~3.1 ms a request). If a new sequence or a cache growth
+  would not fit, the idle pool and its graphs are freed first (`Forward.reclaim`), so pooling never causes a refusal.
+- `TF_FLASHNEXT_WARM_POOL=N`: at load N pooled sequences capture the served one-stream shapes: the verify window at
+  every width 1..16 and both parities, and the one-stream MTP steps (they go through the shared graph table even at
+  one client).
+- `TF_FLASHNEXT_MULTI_LRU=1` evicts the least recently run shared graph when the table (`TF_FLASHNEXT_MULTI_MAX`) is
+  full, instead of dropping them all; `TF_FLASHNEXT_SOLO_MAX` caps the solo graphs the same way.
+- `TF_FLASHNEXT_MULTI_VERIFY=1`: shared verify rounds of two or more streams run eagerly; shared MTP steps stay
+  captured up to `TF_FLASHNEXT_MULTI_GRAPHS`.
+- The boot log says `graphs: shared verify rounds of up to 1 streams captured, ...; sequence pool 4` and `graph
+  warm-up: N graphs on 4 pooled sequences`.
+
+Why the replies do not change: a graph replays the launches its eager run made, and a pooled sequence starts from the
+same bytes as a new one (caches and state zeroed, positions reset). Running a verify round eagerly instead of from a
+graph is the same launches.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Lane image (this patch on the stock engine), hold 4: three boots an arm after a discarded first boot, summed
+elapsed seconds a section (lower is better):
+
+| section | stock | 0016 | change |
+| --- | ---: | ---: | ---: |
+| 8 short (100-token) replies, 1 client | 3.58 / 3.57 / 3.54 | 3.23 / 3.22 / 3.25 | -9.4% |
+| first request after boot | 0.18-0.19 | 0.16 | -14% |
+| code 512 tokens, 1 client | 4.48 / 4.46 / 4.47 | 4.34 / 4.31 / 4.29 | -3.6% |
+| prose 512 tokens, 1 client | 7.05 / 6.84 / 6.88 | 6.80 / 6.77 / 6.65 | -1.6% |
+| short replies, 4 clients | 18.69 / 18.37 / 18.37 | 17.50 / 17.76 / 17.29 | -4.7% |
+
+Every run of these sections beat every stock run; long replies at two and four clients gained 0.7-2.3% inside the
+spread. Merged build (with `0012`, `0013`, `0017`; tok/s): code 1 / 2 / 4 clients 117.6 / 85.3 / 59.5 -> 121.4 / 86.7 /
+59.4, prose 68.0 / 55.0 / 38.5 -> 69.2 / 55.6 / 38.9, 12 short replies 17.70 / 16.98 s -> 16.22 / 16.64 s.
+
+The campaign's graph counters (`TF_FLASHNEXT_GRAPH_STATS`), its capture-on-sighting knob and its pool mutant switch
+are not in this patch.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. Every bench reply was byte-identical across arms (141/141 in hold 4, 94/94 in each earlier hold).
+- The byte checks see a state leak: a switch that carried the last request's DeltaNet, conv and PLE states over and
+  skipped prefill's own reset gave golden 3/6 and 18 of 33 short replies different (the switch was for that check
+  only and is not in this patch). Skipping only the pool's own reset, or only the zeroing, changed nothing: prefill
+  resets a sequence too; the patch keeps both so a reused sequence matches a new one byte for byte.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: a pool of 4 held ~1.8 GB at the end of a bench (15.9 vs 17.7 GB free); free memory after boot on the
+  merged build 18-19 GiB against 19-22 GiB. Idle pooled sequences are given back before a request or a growth would be
+  refused. I did not re-check the startup estimate at the template's 5 x 262,144 int8 setting, hence the box below.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR], #[0015's PR] merged first (logically it needs none of them). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [ ] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 9. `zig-pr-batch-draws`
+
+**Title:** patches/0017: one launch and one read for a draft level's greedy draws (+1 to +2.7% at 4-8 clients, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+In a shared draft step each stream drew its draft on its own: per stream a `toF32`, three logsumexp kernels, an
+argmax, `draft_pick`, a synchronize and a 12-byte read, about 38 us of GPU (with #35) plus a wait, per stream per level.
+At four streams `mtp.draft_sample` took 0.56-0.70 ms a round (`TF_FLASHNEXT_PROFILE=1`, eager).
+
+`patches/0017-flash-next-batched-draws.patch` (one rank, greedy streams):
+
+- `tf_fn_draft_greedy_rows_kernel` (`fn_logsumexp.cu`), one block a row over the step's rows: the first maximum by
+  `argmax_order.h`'s total order (NaN first, then the largest value at the lowest column, so any block shape finds the
+  same column), then the sum of `exp(x - m)` in ATen's single-row reduce order (`tf_fn_logsumexp_config(1, n)`: the
+  `ctas` CTAs walked one after another by the same block), writing `draft_pick`'s [max, lse, column]. Each row's
+  bytes are its own per-row draw's.
+- `draftMany` draws a level's greedy streams with that one launch and one read (`Draws.sampleDraftRows`); sampled
+  streams keep their own draws. `TF_FLASHNEXT_BATCH_DRAWS=0` is the old path.
+- `sampleWindow`: a shared round's greedy windows take one argmax over the round's rows and one read
+  (`TF_FLASHNEXT_BATCH_WINDOWS=0`: one a window).
+- `tensorfold draft-check MODEL [--rows ...]` (no weights): the batched draw against the per-row draw, bytes compared
+  on adversarial rows at the draft vocabulary's width (79,591), the main head's (248,320) and three more, then both
+  timed.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Lane image (this patch on the stock engine), aggregate tok/s (completion tokens over the batch's wall time,
+the stable measure at 4+ clients), two or three runs an arm:
+
+| aggregate tok/s | stock | 0017 | same binary, `=0` |
+| --- | ---: | ---: | ---: |
+| code, 4 clients | 198.5 / 198.5 / 199.0 | 205.5 / 202.1 | 199.0 / 200.8 |
+| prose, 4 clients | 138.1 / 138.2 / 137.6 | 139.6 / 139.2 | 138.4 / 137.9 |
+| code, 8 clients | 286.5 / 292.9 | 294.7 / 294.4 | 288.1 / 292.0 |
+| prose, 8 clients | 193.7 / 194.5 | 197.3 / 196.5 | 194.6 / 194.4 |
+
+Every run with the patch beat every stock run and every knobs-off run at 4 and 8 clients. At 1-2 clients the per-level
+saving (~16 us at one stream) is below the harness's noise (code 117.5 -> 118.5, 84.6 -> 85.6). In the same binary,
+four streams: `mtp.draft_sample` 0.556 -> 0.167 ms a round (prose), 0.700 -> 0.214 (code); `sample` 0.148 -> 0.057.
+The kernel draws 1 to 16 rows in 21-22 us (the rows run on separate SMs). In the merged builds the gain at four clients
+was inside the hold's noise.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. Round, draft and acceptance counts equal across arms (e.g. 4,837 / 12,769 / 10,105 against
+  4,846 / 12,744 / 10,097).
+- `tensorfold draft-check`: 360/360 cases byte-equal (widths 79,591, 248,320, 4,096, 1,000, 131; 1-64 rows; normal,
+  wide exponents, ties, NaN, +inf, all -inf, signed zeros, subnormals, mixed). A mutant (the four partial sums folded
+  into one accumulator in the aligned branch) gives 23/360 different (1-ulp logsumexp drifts) and FAIL.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: 768 bytes of device scratch and a few KB of host arrays.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR], #[0015's PR], #[0016's PR] merged first (logically it extends #35's `fn_logsumexp.cu`). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 10. `zig-pr-fp8-fused-head-mt`
+
+**Title:** patches/0018: fused split-K block-FP8 projections and 32-row lm_head items (copy windows +7%, code at 4 clients +8% on the merged build; replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+Two bandwidth-bound decode kernels left the GPU partly idle:
+
+- The block-FP8 projections that split K (`out_proj`, 2560 x 6144 and the like) run on the cluster kernel below 256
+  rows: one block a K slice, the slices added in the cluster. On GB10 a cluster launch fits two blocks per SM, so
+  `out_proj`'s 320 cluster blocks run in about 3.3 waves.
+- The int4 lm_head's dense calls ran in 16-row items whatever the rows, so a 17-64-row call (a copy window of `0013`)
+  read the 0.33 GB head once for every 16 rows.
+
+`patches/0018-flash-next-fp8-fused-split-head-rows.patch`:
+
+- `TF_FLASHNEXT_FP8_FUSED_SPLIT=4` (`cuda_fp8.zig` `Mode`): split shapes of at least `TF_FLASHNEXT_FP8_FUSED_SPLIT_N`
+  (2048) columns below 256 rows run on the stock kernel's fused form, one block a 64-column tile walking its K slices
+  and adding them in slice order, the cluster's own sum. Row tiles 16 and 32 use new instantiations of the same
+  kernel at pipeline depth 4 (or 8), row tile 64 the prompt's fused kernel. The column gate keeps narrow shapes (the
+  MTP layer's hyper-connection down: a few column tiles over K 10240) on the cluster kernel: fused, that one took
+  0.51 -> 1.16 ms a round.
+- `TF_FLASHNEXT_HEAD_ROW_TILES=2` (`cuda_int4.zig`): the head's calls of 17+ rows take 32-row items (the kernel's
+  dense items are now 16 x MT rows; MT 2 was already instantiated for prompt items), so the weights are read once for
+  32 rows. 16 rows and fewer are unchanged.
+- `tensorfold fp8-fused-check MODEL` and `tensorfold int4-head-check MODEL` (no weights): the two against the stock
+  paths, bytes compared, then timed. The boot log names both settings.
+
+Why the replies do not change: the fused form adds the same K slices in the same order as the cluster, and the head's
+32-row item is two 16-row tiles under one weight read: every output's MMA chain and `fmaf` order are the same.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Kernel times (weights rotated so they cannot stay in the 24 MB L2, median of 5, us a call):
+
+| shape | rows | cluster | fused |
+| --- | --- | ---: | ---: |
+| 2560 x 6144 | 1-16 | 81.3 | 70.5 |
+| 2560 x 6144 | 17-32 | 93-96 | 72 |
+| 2560 x 3072 | 1-16 | 41.4 | 36.9 |
+| 2560 x 2560 | 1-16 | 35.8 | 30.4 |
+
+| lm_head 248,320 x 2560, us | 17 rows | 32 rows | 33 rows | 64 rows |
+| --- | ---: | ---: | ---: | ---: |
+| 16-row items | 2,853 | 2,972 | 4,328 | 5,882 |
+| 32-row items | 1,486 | 1,541 | 2,943 | 3,087 |
+
+In the engine (lane image, one stream): `out_proj` 4.09 -> 3.74 ms a round. The lane's own net tok/s hold of the final
+version did not report before the merge, so the net numbers are the merged build's (`zmerge3`: this patch and `0019`'s
+decode up-mix together, which alone was +0.3 to +0.9%, on `0012`-`0014`, `0016`, `0017`), two boots an arm:
+
+| tok/s | before | with `0018` (+ up-mix) |
+| --- | ---: | ---: |
+| code, 1 / 2 / 4 clients | 122.0 / 85.7 / 57.3 | 122.9 / 88.1 / 62.1 |
+| prose, 1 / 2 / 4 clients | 68.9 / 55.3 / 38.5 | 68.9 / 55.9 / 39.6 |
+| verbatim copy / one-word rewrite | 759-769 / 416-420 | 818-821 / 437-438 |
+
+The campaign's other tile variants (pipeline depths 2 and 3 for every tile, 64-row head items) measured no faster or
+spilled registers; they and their switches are not in this patch.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here.
+- Fused split-K: 1,008/1,008 calls byte-equal to the cluster kernel at rows 1-64 (bf16, fp32 and the strided-output
+  form, six shapes, the output poisoned before every call; the lane's check also covered the depths the patch
+  drops); an independent second check 765/765. A mutant that tells the fused form half the slices differs
+  on every tile path (16, 32, 64): `fp8-fused-check` keeps that mutant built in and fails if it survives.
+- Head items: 204/204 calls equal to 16-row items and to 1-row calls (rows 1-128, fp32 and bf16, three shapes); the
+  item-count mutant is caught; `int4-check` passes.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (kernel instantiations only).
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0019's PR] (decode read-out fusion), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR], #[0015's PR], #[0016's PR], #[0017's PR] merged first (logically it needs none of them). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 11. `zig-pr-decode-glue`
+
+**Title:** patches/0019: decode read-outs fused, up projection + mix and reduce + activation (decode +0.5 to +1.2%, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+A graphed one-stream round (34.2 ms, ~1,552 kernels) has 2.43 ms (7.1%) in which no weight-streaming kernel
+runs: the gaps between kernels (0.53 ms) and the hyper-connection read-outs' small glue kernels (`_reduce` 0.39 ms,
+`_hc_writeback` 0.27, `_hc_normed` 0.15, `_hc_act` 0.12, `_hc_mix` 0.11, ...; nsys `--cuda-graph-trace=node`).
+
+`patches/0019-flash-next-decode-readout-fusion.patch` fuses two pairs of them in decode windows:
+
+- `TF_FLASHNEXT_UPMIX_DECODE` (on unless `0`): each layer's read-out runs the up projection and the mix as one
+  `_hc_up_mix` launch at decode widths, the BM 32 Triton variant already in the kernel set (prompt chunks already use
+  the BM 64 one). Not the final mixer's read-out (its 32-group sums of `mixed` feed the 4-bit MTP draft matrices),
+  not 1-row windows (the kernel set has no M = 1 variant), two-rank runs or recorded-launch tests.
+- `TF_FLASHNEXT_REDUCE_ACT` (on unless `0`): `tf_fn_hc_reduce_act_kernel` (`fn_ops.cu`) replaces bf16 `_reduce` (the
+  split `_b16mm`'s fp32 K slices, summed in slice order) and `glue._hc_act`. It repeats the Triton kernels' SASS
+  operation for operation (`v * 0.25` for `v / S`, `cvt.rn.bf16`, `0 - v`, `* 1.4426950216293334961f`,
+  `ex2.approx.f32` without ftz, `+ 1`, `div.full.f32`). It does not write `act`'s 32-group sums: only the 4-bit MTP
+  matrices read them, and the fusion is off when those are loaded.
+- `glue-check` also runs the reduce-act check and the up-mix check at 2-16 rows (before `wbNormCheck`, which stops on
+  the stock kernel set at a variant it lacks). The boot log says `decode read-outs: ...` for each one engaged.
+
+Why the replies do not change: `_hc_up_mix` is the kernel set's own kernel, the same `mixed` bytes as `_b16mm` +
+`_hc_mix` (the prompt path relies on that already); the fused reduce + activation computes Triton's operations in
+Triton's order.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Merged build with this patch's reduce + activation added alone (`zw5b`; the up-mix was already in), two boots an
+arm after a warm-up, tok/s:
+
+| | before | with the fused reduce + activation |
+| --- | ---: | ---: |
+| code, 1 / 2 / 4 clients | 126.9 / 89.1 / 63.6 | 128.2 / 89.7 / 63.9 |
+| prose, 1 / 2 / 4 clients | 72.4 / 59.6 / 39.7 | 72.8 / 60.3 / 39.9 |
+
++0.5 to +1.2% in all six cells. The up-mix alone (lane image against the stock engine, hold5): code +0.6 / +0.6 /
++0.8%, prose +0.9 / +0.9 / +0.3% at 1 / 2 / 4 clients; both together in the engine (`bench-many`, hold6, every run
+above every base run): code +1.0% at 1 stream and +1.1% at 4, prose +1.7% and +0.9%. The fused kernel takes 2.4-2.5 us
+against 4.1-4.8 us for the two launches.
+
+Measured and left out (with their switches): an L2 prefetch of the next weights on a side stream during the glue (the
+weight kernels got faster, the latency-bound glue beside them slower by as much: no gain) and forking the shared expert
+before the router (within noise).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here.
+- `glue-check`: the reduce-act check EQUAL on 134 cases (random fp32 bit patterns with NaN, inf and subnormals,
+  exponents 2^-140 to 2^100, cancelling sums, the split `_b16mm`'s own partials; 1-128 rows; with and without the
+  inject rows); `_hc_up_mix` EQUAL at 2-16 rows for BM 32 and 64 on every fill. Mutants: the slice order reversed in
+  the fused kernel gives 44 DIFFER; an up-mix that leaves the last row unwritten gives golden 3/6.
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0020's PR] (draft stop lines). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR], #[0015's PR], #[0016's PR], #[0017's PR], #[0018's PR] merged first (logically it needs none of them). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 12. `zig-pr-draft-stop-lines`
+
+**Title:** patches/0020: split draft stop lines, the int4 lm_head as draft head, depth 7 at 2+ streams (decode +1.4 to +7% at 1-2 clients, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+The running-product stop (`TF_FLASHNEXT_CONFIDENCE < 0`, at up to `TF_FLASHNEXT_PRODUCT_STREAMS` live streams)
+uses one line for two decisions: whether the draft just drawn is proposed, and whether the head runs another level.
+Proposing a draft is nearly free (a row in the verify window), another head level is not (an MTP step, ~1.3-1.6 ms).
+
+`patches/0020-flash-next-draft-stop-lines.patch`, all of it drafting:
+
+- `TF_FLASHNEXT_DRAFT_PROPOSE` / `TF_FLASHNEXT_DRAFT_CONTINUE` (`cuda_decode.Stop.tp` / `tc`): where the running
+  product applies, a draft is proposed while the product is >= the propose line (the first always), and the head
+  runs another level only while it is >= the continue line. They replace `-TF_FLASHNEXT_CONFIDENCE`'s one line; unset
+  (or a propose line of 0), the one line stands.
+- `TF_FLASHNEXT_DRAFT_INT4=1`: the draft head is the int4 lm_head's own GPTQ columns for the draft ids (groups of 128,
+  run by `int4.dense`; the id list padded to whole 8-column tiles with its last id), instead of the lm_head's draft
+  rows quantized again to 4 bits at load: 105.1 MB read a draft step instead of 127.5 MB, and no second quantization.
+- `TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7`: at most 7 drafts a stream while two or more streams draft in one step (a deep
+  chain makes every stream of the step wait for it).
+- The boot log names all three.
+
+Why the replies do not change: the drafts are verified by the target, which keeps only what it would have produced;
+these only change how many drafts are made and which head proposes them.
+
+Measured on one DGX Spark through the recipe's own server: arms interleaved, one boot and one pass an arm per cycle, the order reversed each cycle. Greedy, thinking off, per-request decode tok/s from the client (512-token replies unless a row says otherwise). Every arm ran with `patches/0010` and `0011` and the MTP FP8 overlay (#35, #36) and `TF_FLASHNEXT_CONFIDENCE=-0.15` (#34). Merged build before this patch (`zmerge3`: `0012`-`0014` with the policy off, `0016`-`0018`, the up-mix of
+`0019`) against it plus this patch, in a shootout of three stop changes (one hold, a warm-up boot first, two boots an
+arm, interleaved), tok/s:
+
+| | before | with `0020` |
+| --- | ---: | ---: |
+| code, 1 / 2 / 4 clients | 122.2 / 87.9 / 62.0 | 127.7 / 89.1 / 63.5 |
+| prose, 1 / 2 / 4 clients | 69.5 / 55.9 / 39.4 | 72.1 / 59.8 / 39.6 |
+
+The next step (`zmerge4`: this patch and `0014`'s copy policy together) repeated it: code 122.1 / 87.4 / 61.5 ->
+127.3 / 88.5 / 63.1, prose 69.5 / 55.7 / 39.0 -> 71.6 / 59.5 / 39.4. On the lane's own image (hold 4, base x3 against
+x2): code +3.6 / +1.3 / +1.4%, prose +3.4 / +5.9% at 1 / 2 clients, every run above every base run at 1 and 2 clients;
+3.25-3.26 tokens a round against 3.21, 76.4% of drafts accepted against 78.5%. The int4 head alone was within noise;
+the lines carry most of it.
+
+With #34 merged as well, these lines replace its `-0.15` wherever the product rule applies (they were measured on
+top of it). Measured and left out: a cost-aware adaptive rule (lines from the round's measured costs), a smaller
+draft vocabulary, depth caps at one stream, a calibrated per-draft rule and a propose floor.
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the stock image on every boot of every hold quoted here. (33 boots on the lane, 9 in the shootout, 4 in the `zmerge4` hold).
+- Host test (`cuda_decode.zig`): one line stops the chain at the draft under it; with split lines a draft under the
+  continue line is proposed and ends the chain, one under the propose line is not proposed; the first draft always
+  goes. Two mutants of `Stop.take` (the propose test against the continue line; the continue test always true) each
+  fail it (`zig build test` on the clean stack).
+- The patch here is the measured code with the campaign's experiment-only switches taken out (named above). The whole stack, `patches/0001`-`0020`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 189/189 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: the draft head shrinks from 127.5 MB to 105.1 MB.
+
+Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`patches/0010`), #36 (`patches/0011` + `MTP_FP8`), and #[0012's PR] (n-gram host gather), #[0013's PR] (copy windows), #[0014's PR] (copy re-sync and ramp), #[0015's PR] (copies in shared rounds), #[0016's PR] (sequence pool and graphs), #[0017's PR] (batched draft draws), #[0018's PR] (fused FP8 split-K and lm_head row tiles), #[0019's PR] (decode read-out fusion). `patches/0012`-`0020` are one stack written in that order on top of `0001`-`0011`: each applies with `git apply` after the ones before it (several edit the same lines of `cuda_engine.zig`), so this PR's patch needs #35, #36 and #[0012's PR], #[0013's PR], #[0014's PR], #[0015's PR], #[0016's PR], #[0017's PR], #[0018's PR], #[0019's PR] merged first (logically it builds on #34's running-product rule and #36's MTP layer). All twelve add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35 and #36 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
 
 ---
 
@@ -219,7 +968,7 @@ add a row to the same new patch table; whichever merges second, I rebase.
 
 # Qwen3.8 Flash Next recipe (PARKED: the recipe moved to the Zig engine; not posted)
 
-## 4. `qwen-pr-copy-first`
+## 13. `qwen-pr-copy-first`
 
 **Title:** Patch 0012: copies from the context before MTP chains (TensorFold #319 ported to v0.6.1): a verbatim repeat 153.8 -> ~535 tok/s, same replies
 
@@ -284,7 +1033,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 5. `qwen-pr-ple-page-cache`
+## 14. `qwen-pr-ple-page-cache`
 
 **Title:** Patch 0013: decode +9 to +12% with the n-gram tables on SSD: cached reads on the engine thread, the next round's rows hinted to the page cache
 
@@ -346,7 +1095,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 6. `qwen-pr-ple-native`
+## 15. `qwen-pr-ple-native`
 
 **Title:** Patch 0014: prefill with the n-gram tables on SSD +47% at 8k: the table reads in native threads, the same bytes
 
@@ -408,7 +1157,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 7. `qwen-pr-chain-stop`
+## 16. `qwen-pr-chain-stop`
 
 **Title:** Patch 0015: TENSORFOLD_CHAIN_RULE, where an MTP chain stops (cum: +5.5% for one stream writing code, +1.4% on average, same replies)
 
@@ -471,7 +1220,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 8. `qwen-pr-mtp-graphs`
+## 17. `qwen-pr-mtp-graphs`
 
 **Title:** Patch 0016: the MTP head's chain steps as CUDA graphs: decode +0.3 to +1.4% through the server, the eager step's bits
 
@@ -536,7 +1285,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 9. `qwen-pr-ple-defer`
+## 18. `qwen-pr-ple-defer`
 
 **Title:** Patch 0017: a decode round's n-gram rows read while the GPU runs layers 0-1: with 0016, decode +1.8 to +2.2%, same bytes
 
@@ -608,7 +1357,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 10. `qwen-pr-tokenize-nogil`
+## 19. `qwen-pr-tokenize-nogil`
 
 **Title:** Patch 0018: no stall at a long request's start: the server tokenizes with Python's GIL released
 
