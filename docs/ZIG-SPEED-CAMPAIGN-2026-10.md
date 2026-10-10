@@ -182,6 +182,14 @@ Trace + CPU replay on zmerge5 (`~/work/lanes/r2e-fable/REPORT.md`; golden 6/6 on
   runs 4-client code 10-12% slow (55-56 vs 63-64 tok/s, more rounds, fewer drafts) - the shared allocator trusts the
   slow point. Every A/B must check each boot's shared-32 cost; the engine fix (median over repeats or a pinned table)
   is an open lead.
+- **Tree re-pricing on zmerge6 (2026-10-10 ~22:00, the deferred re-run):** r2e-fable's trace replayed on the boot
+  cost tables of the zmerge6 sweep (`merge/../tree6.sh`). The best confidence-gated tree (a sibling where the head's
+  p2 x the chain's product >= 0.05-0.10, <= 2-4 rows, + its continuation), 1-client prose: on zmerge5's table +2.9%
+  (free tree overheads) / +1.1-1.6% (0.4 ms a head row, 1 ms a tree round); on zmerge6's second boot (normal table:
+  rows 2-5 cost 2.0-3.0 ms, as before) +2.1-2.9% / +0.3-1.6%. zmerge6's first boot gave +4.7% / +2.9%, but its table
+  timed window 1 at 35.1 ms against 31.6 for window 2 (an outlier that flattens the fitted line). zmerge6 cut the
+  round's fixed cost, not the price of an early verify row, so trees are unchanged: ~+3% at best before their own
+  costs. Static shapes stay negative on both. Still the owner's call; nothing re-opens it short of cheaper rows.
 
 ## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
 
