@@ -167,6 +167,16 @@ every renamed setting's boot line present:
 
 Every cell is within the run-to-run spread; the stripping lost nothing measurable.
 
+## Round 2, R2E drafting (r2e-fable, 2026-10-10 ~10:00)
+
+Trace + CPU replay on zmerge5 (`~/work/lanes/r2e-fable/REPORT.md`; golden 6/6 on all 8 boots):
+- Tree drafting: the head's rank-2 id is the target in 43% of level-0 rejections (0.118 tokens a try); a verify row
+  costs 2-3.3 ms at prose widths. Always-on rank-2 lane -1.8%; the best confidence-gated tree +2.9% on 1-client
+  prose with free tree overheads, +0.8-1.3% with plausible ones, ~+2% at 2 clients, ~0 on code. OPEN, deferred by
+  the owner (2026-10-10): re-run this replay (`r2e_replay.py` on the trace, priced on the new boot cost table) after
+  round 2 lands, since a cheaper verify row raises it (+4-6% at 1.0-1.5 ms a row); decide then.
+- `TF_FLASHNEXT_DRAFT_VOCAB`: v32 DROP (slower in every cell); v49 a trade (+1% at 4 clients, -2.4% code at 1).
+
 ## 1. Where the time goes
 
 Instruments (`scripts/qwen38/zig/prof/`): the engine's own `tensorfold bench-many --served` with
