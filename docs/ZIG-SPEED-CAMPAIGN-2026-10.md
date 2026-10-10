@@ -176,6 +176,24 @@ Trace + CPU replay on zmerge5 (`~/work/lanes/r2e-fable/REPORT.md`; golden 6/6 on
   the owner (2026-10-10): re-run this replay (`r2e_replay.py` on the trace, priced on the new boot cost table) after
   round 2 lands, since a cheaper verify row raises it (+4-6% at 1.0-1.5 ms a row); decide then.
 - `TF_FLASHNEXT_DRAFT_VOCAB`: v32 DROP (slower in every cell); v49 a trade (+1% at 4 clients, -2.4% code at 1).
+- r2e-opus agrees independently: trees +2.2-3.8% prose / ~+1% code at 1 client before tree costs; v49/v32 DROP.
+  `TF_FLASHNEXT_PF1=31` (L2 prefetch) +1.3-2.0% at 1 client in one hold, against round 1's wash: repeat queued.
+- **Slow boots (r2e-opus):** ~1 boot in 5 times `costs: shared 32 rows` at 93-98 ms instead of 68-74; every such boot
+  runs 4-client code 10-12% slow (55-56 vs 63-64 tok/s, more rounds, fewer drafts) - the shared allocator trusts the
+  slow point. Every A/B must check each boot's shared-32 cost; the engine fix (median over repeats or a pinned table)
+  is an open lead.
+
+## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
+
+- PDL DROP: all groups on is not exact (golden 0/6, 3/6; r2f-opus); r2f-fable's exact subset shows no change in the
+  boot cost tables. nsys (r2f-opus): the GPU is 92.8% busy at 1 stream, PDL lifts it to 93.0%; launch gaps are worth
+  <= ~1%. The visible idle is the main stream waiting ~39 us a MoE layer for the side stream's shared expert before
+  `_hc_writeback` (~5% of the 1-stream span): open scheduling lead.
+- R2B: r2b-opus 12-bit lossless hc read-out weights KEEP (code +2.6%, prose +3.7% at 1 client, prose +2.3% at 2,
+  every boot above; hc-check 675/675 EQUAL; +0.97 GB). r2b-fable's bf16 CUDA kernels no gain; its 12-bit layout -3%
+  (blocks straddle 32-byte sectors, header re-read each block).
+- R2A: r2a-fable fn_qsa_select KEEP (decode -6% time a token at 200k, -1.2% at 100k; 200k cold prefill -5.7%; exact).
+- R2C: r2c-fable FP8 prefill tiles exact, +1.9% cold prefill at 128k.
 
 ## 1. Where the time goes
 
