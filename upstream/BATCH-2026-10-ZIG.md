@@ -17,3 +17,19 @@ scripts/prepare.sh` (image built, 320 kernels, the overlay written as the user),
 `tools/exact.py` PASS, `toolcheck.py` 3/3, `needle.py` correct at 199,730 tokens (`scripts/qwen38/zig/recipe_flow.sh`).
 All three PRs touch CHANGELOG/README/CREDITS in the same places; #35 and #36 add rows to the same patch table:
 rebase whichever merges second.
+
+## Batch 2, posted 2026-10-10 (owner-approved)
+
+| PR | Package | Patch |
+|---|---|---|
+| #42 | zig-pr-ngram-host | 0012 |
+| #43 | zig-pr-copy-window | 0013 |
+| #44 | zig-pr-copy-resync | 0014 |
+| #45 | zig-pr-copy-shared | 0015 |
+| #46 | zig-pr-seq-pool | 0016 |
+| #47 | zig-pr-batch-draws | 0017 |
+| #48 | zig-pr-fp8-fused-head-mt | 0018 |
+| #49 | zig-pr-decode-glue | 0019 |
+| #50 | zig-pr-draft-stop-lines | 0020 |
+
+Each is a signed commit on a branch off upstream main; cross-references filled after posting.
