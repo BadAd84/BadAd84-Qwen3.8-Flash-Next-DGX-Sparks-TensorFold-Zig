@@ -23,6 +23,8 @@ const kk = cuda.kernels;
 /// topk.cu's column tile and threads; its workspace is four 8-bit digit passes, then ordered compaction.
 const topk_tile = 4096;
 const topk_threads = 256;
+/// fn_logsumexp.cu's kMaxThreads: the widest block its trees take, and the most CTA partials the greedy-rows kernel folds.
+const kMaxBlock = 512;
 
 fn tiles(columns: usize) usize {
     return (columns + topk_tile - 1) / topk_tile;
@@ -99,12 +101,14 @@ pub const Lse = struct {
     max: cuda.Function,
     sum: cuda.Function,
     finish: cuda.Function,
+    /// the draft head's greedy draws over several rows at once (draftGreedyRows)
+    greedy_rows: cuda.Function,
     /// the device's multiprocessors and threads a multiprocessor (ATen sizes its CTAs by them); Ops.load sets them
     mp: usize = 0,
     threads_mp: usize = 0,
 
     fn resolve(m: cuda.Module) !Lse {
-        return .{ .max = try m.function("tf_fn_lse_max_kernel"), .sum = try m.function("tf_fn_lse_sum_kernel"), .finish = try m.function("tf_fn_lse_finish_kernel") };
+        return .{ .max = try m.function("tf_fn_lse_max_kernel"), .sum = try m.function("tf_fn_lse_sum_kernel"), .finish = try m.function("tf_fn_lse_finish_kernel"), .greedy_rows = try m.function("tf_fn_draft_greedy_rows_kernel") };
     }
 
     pub const Config = struct { bw: usize, bh: usize, grid_x: usize, ctas: usize, split: bool };
@@ -447,6 +451,21 @@ pub const Torch = struct {
         try t.logsumexp(s.f32, 1, columns, s.lse, s.lse_scratch);
         try t.argmax(logits, columns, columns, s.col, 1);
         try t.draftPick(logits, s.col, s.lse, out);
+    }
+
+    /// draftGreedy over `rows` consecutive rows of the draft head's bf16 logits (`columns` apart): out [rows, 3]
+    /// (draftPick's [max, lse, column] a row), each row's bytes as draftGreedy's over that row alone - one launch and
+    /// one read for a shared step's streams instead of one each. One block a row, in ATen's single-row
+    /// reduce config (fn_logsumexp.cu tf_fn_draft_greedy_rows_kernel).
+    pub fn draftGreedyRows(t: Torch, logits: u64, rows: usize, columns: usize, out: u64) !void {
+        if (rows == 0) return;
+        const c = try Lse.config(1, columns, t.f.lse.mp, t.f.lse.threads_mp);
+        if (c.bh != 1 or c.ctas > kMaxBlock or rows > 65535) return error.LseShape;
+        var a: cuda.Args = .{};
+        a.add(logits);
+        a.add(out);
+        for ([_]usize{ rows, columns, c.ctas }) |v| a.add(@as(u32, @intCast(v)));
+        try t.go(t.f.lse.greedy_rows, .{ rows, 1 }, @intCast(c.bw), &a);
     }
 
     /// Engine.sample_draft with a top_k: out [2k + 1] (draftPack) from the draft head's bf16 row.

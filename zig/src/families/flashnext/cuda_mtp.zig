@@ -202,6 +202,8 @@ pub const Draws = struct {
     out: u64,
     /// the most top-k values `out` holds (columns: any top_k)
     max_k: usize,
+    /// one rank: a shared step's rows' greedy picks, [max_batch_rows, 3] fp32 (sampleDraftRows)
+    rows_out: u64 = 0,
     /// two ranks: tp_sample_rows' scratch, for samplers past the gathered candidates
     tp: ?TpScratch = null,
     /// two ranks, top_k off: nucleus_rows' device scratch
@@ -244,6 +246,24 @@ pub const Draws = struct {
         defer d.gpa.free(ids);
         for (ids, got[k + 1 ..]) |*t, c| t.* = d.id(@intFromFloat(c));
         return sampler.drawRow(d.gpa, got[0..k], ids, position, s, got[k]);
+    }
+
+    /// The most rows sampleDraftRows draws at once (a shared step's streams: Engine.draftMany's 64).
+    pub const max_batch_rows = 64;
+
+    /// One rank, greedy: sampleDraftRow's device half over rows [0, rows) of the head's `rows` rows in one launch and
+    /// one read into `got` [rows, 3] (each row's [max, lse, column], the bytes of its own draftGreedy); drawOfRow
+    /// turns a row's three into its draw.
+    pub fn sampleDraftRows(d: *const Draws, f: *Forward, logits_base: u64, rows: usize, got: []f32) !void {
+        if (d.world > 1 or rows > max_batch_rows or got.len < rows * 3) return error.TopKPastScratch;
+        try f.th.draftGreedyRows(logits_base, rows, d.columns, d.rows_out);
+        try d.read(f, d.rows_out, std.mem.sliceAsBytes(got[0 .. rows * 3]));
+    }
+
+    /// sampleDraftRow's host half of a greedy row sampleDraftRows read: the token and its probability.
+    pub fn drawOfRow(d: *const Draws, got: []const f32) sampler.Draw {
+        const c: usize = @intFromFloat(got[2]);
+        return .{ .token = d.id(c), .prob = exp(@as(f64, got[0]) - @as(f64, got[1])) };
     }
 
     /// decode.sample_mapped (a chain without the confidence rule): the keyed draw over the head's row.

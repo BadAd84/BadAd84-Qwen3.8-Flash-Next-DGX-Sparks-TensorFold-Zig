@@ -26,8 +26,10 @@
 // maxes, partial, R, N, ctas, split); tf_fn_lse_finish_kernel<<<R, (bw, bh)>>>(partial, maxes, out, R, ctas).
 // Scratch: maxes R floats, partial R * ctas floats. No dynamic shared memory. Compile with --fmad=false --ftz=false.
 #include <cuda_runtime.h>
+#include <cuda_bf16.h>
 #include <stdint.h>
 #include <math.h>
+#include "argmax_order.h"
 
 namespace {
 
@@ -166,6 +168,137 @@ extern "C" __global__ void tf_fn_lse_finish_kernel(const float* partial, const f
         s = tf_lse_lane_tree(v, shared);
     }
     if (threadIdx.x == 0 && threadIdx.y == 0) out[row] = __fadd_rn(logf(s), maxes[row]);
+}
+
+// Engine.sample_draft, greedy, over `rows` consecutive bf16 rows `n` apart, one block a row: out[3 row] =
+// [the first maximum's value, the row's log-sum-exp, its column as fp32], the bytes tf_fn_draft_pick_kernel writes
+// after tf_argmax_rows (argmax_order.h: the first NaN, else the largest value at the lowest column, a total order
+// over the columns, so any block shape finds the same one) and tf_fn_logsumexp over that one row copied alone
+// (shift 0). The sum runs ATen's order for ONE row, tf_fn_logsumexp_config(1, n): block (bw, 1) and `ctas` CTAs'
+// partials folded by the finish tree; this block walks the CTAs one after another (its threads are CTA y's
+// (x, 0) each time), so a row's sum is the same whether it is drawn alone or beside other streams' rows. Launch
+// <<<rows, bw>>> with bw and ctas from that config (bh is 1 for one row; ctas <= 512).
+extern "C" __global__ void tf_fn_draft_greedy_rows_kernel(const __nv_bfloat16* logits, float* out, uint32_t rows,
+                                                          uint32_t n, uint32_t ctas) {
+    __shared__ float shared[kMaxThreads];
+    __shared__ float partials[kMaxThreads];
+    __shared__ TFMaxCandidate warps[32];
+    const uint32_t row = blockIdx.x;
+    if (row >= rows) return;
+    const __nv_bfloat16* r = logits + uint64_t(row) * n;
+    const uint16_t* bits = reinterpret_cast<const uint16_t*>(r);
+    const uint32_t bw = blockDim.x;
+    // the first maximum: every thread's best over its columns (16 bytes a load over the aligned body, the few
+    // columns before and after it one at a time: the order is immaterial), the warps' bests, then the block's
+    TFMaxCandidate best = tf_max_empty();
+    const uint32_t head = min(uint32_t((16u - uint32_t(reinterpret_cast<uintptr_t>(bits) & 15u)) & 15u) / 2u, n);
+    const uint32_t body = (n - head) / 8u;
+    for (uint32_t col = threadIdx.x; col < head; col += bw)
+        best = tf_max_pick(best, tf_max_bits(uint32_t(bits[col]) << 16, col));
+    const uint4* vectors = reinterpret_cast<const uint4*>(bits + head);
+    uint32_t v = threadIdx.x;
+    for (; v + 3 * bw < body; v += 4 * bw) {
+        uint4 q[4];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) q[u] = vectors[v + u * bw];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) {
+            const uint32_t words[4] = {q[u].x, q[u].y, q[u].z, q[u].w};
+            const uint32_t column = head + (v + u * bw) * 8u;
+#pragma unroll
+            for (int j = 0; j < 4; ++j) {
+                best = tf_max_pick(best, tf_max_bits(words[j] << 16, column + 2 * j));
+                best = tf_max_pick(best, tf_max_bits(words[j] & 0xffff0000u, column + 2 * j + 1));
+            }
+        }
+    }
+    for (; v < body; v += bw) {
+        const uint4 q = vectors[v];
+        const uint32_t words[4] = {q.x, q.y, q.z, q.w};
+        const uint32_t column = head + v * 8u;
+#pragma unroll
+        for (int j = 0; j < 4; ++j) {
+            best = tf_max_pick(best, tf_max_bits(words[j] << 16, column + 2 * j));
+            best = tf_max_pick(best, tf_max_bits(words[j] & 0xffff0000u, column + 2 * j + 1));
+        }
+    }
+    for (uint32_t col = head + body * 8u + threadIdx.x; col < n; col += bw)
+        best = tf_max_pick(best, tf_max_bits(uint32_t(bits[col]) << 16, col));
+    for (int offset = 16; offset != 0; offset >>= 1) {
+        TFMaxCandidate other;
+        other.key = __shfl_down_sync(0xffffffffu, best.key, offset);
+        other.nan = __shfl_down_sync(0xffffffffu, best.nan, offset);
+        const uint32_t lo = __shfl_down_sync(0xffffffffu, uint32_t(best.column), offset);
+        const uint32_t hi = __shfl_down_sync(0xffffffffu, uint32_t(best.column >> 32), offset);
+        other.column = (uint64_t(hi) << 32) | lo;
+        best = tf_max_pick(best, other);
+    }
+    const int lane = int(threadIdx.x) & 31;
+    const int warp = int(threadIdx.x) >> 5;
+    if (lane == 0) warps[warp] = best;
+    __syncthreads();
+    if (warp == 0) {
+        best = lane < int(bw >> 5) ? warps[lane] : tf_max_empty();
+        for (int offset = 16; offset != 0; offset >>= 1) {
+            TFMaxCandidate other;
+            other.key = __shfl_down_sync(0xffffffffu, best.key, offset);
+            other.nan = __shfl_down_sync(0xffffffffu, best.nan, offset);
+            const uint32_t lo = __shfl_down_sync(0xffffffffu, uint32_t(best.column), offset);
+            const uint32_t hi = __shfl_down_sync(0xffffffffu, uint32_t(best.column >> 32), offset);
+            other.column = (uint64_t(hi) << 32) | lo;
+            best = tf_max_pick(best, other);
+        }
+        if (lane == 0) warps[0] = best;
+    }
+    __syncthreads();
+    const uint32_t c = uint32_t(warps[0].column);
+    const float top = __bfloat162float(r[c]);
+    // tf_fn_lse_max_kernel's maximum: a NaN when the row holds one (the first NaN is the pick: `top` is it), else the
+    // largest value; |m| == inf -> 0
+    const float m = fabsf(top) == INFINITY ? 0.0f : top;
+    // tf_fn_lse_sum_kernel for one row (split, bh 1, shift 0), CTA by CTA; tf_fn_lse_finish_kernel's fold. The four
+    // columns a thread takes a step are one 8-byte load where the row allows it (the same four values in the same
+    // accumulators either way).
+    const bool aligned8 = (reinterpret_cast<uintptr_t>(bits) & 7u) == 0;
+    for (uint32_t by = 0; by < ctas; ++by) {
+        float acc[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        const int64_t stride = int64_t(bw) * int64_t(ctas);
+        int64_t idx = int64_t(threadIdx.x) + int64_t(by) * int64_t(bw);
+        if (aligned8) {
+            const uint2* quads = reinterpret_cast<const uint2*>(bits);
+            while (idx * 4 + 3 < int64_t(n)) {
+                const uint2 q = quads[idx];
+                const uint32_t w[4] = {q.x << 16, q.x & 0xffff0000u, q.y << 16, q.y & 0xffff0000u};
+#pragma unroll
+                for (int i = 0; i < 4; i++) acc[i] = __fadd_rn(acc[i], expf(__fsub_rn(__uint_as_float(w[i]), m)));
+                idx += stride;
+            }
+        } else {
+            while (idx * 4 + 3 < int64_t(n)) {
+                for (int i = 0; i < 4; i++) acc[i] = __fadd_rn(acc[i], expf(__fsub_rn(__bfloat162float(r[idx * 4 + i]), m)));
+                idx += stride;
+            }
+        }
+        const int64_t tail = int64_t(n) - int64_t(n % 4) + int64_t(threadIdx.x);
+        if (by == 0 && tail < int64_t(n)) acc[0] = __fadd_rn(acc[0], expf(__fsub_rn(__bfloat162float(r[tail]), m)));
+        for (int i = 1; i < 4; i++) acc[0] = __fadd_rn(acc[0], acc[i]);
+        const float v = tf_lse_lane_tree(acc[0], shared);
+        if (threadIdx.x == 0) partials[by] = v;
+    }
+    __syncthreads();
+    float s;
+    if (ctas == 1) {
+        s = partials[0];
+    } else {
+        float v = 0.0f;
+        for (uint32_t t = threadIdx.x; t < ctas; t += bw) v = __fadd_rn(v, partials[t]);
+        s = tf_lse_lane_tree(v, shared);
+    }
+    if (threadIdx.x == 0) {
+        out[row * 3] = top;
+        out[row * 3 + 1] = __fadd_rn(logf(s), m);
+        out[row * 3 + 2] = __ll2float_rn((long long)c);
+    }
 }
 
 // ---- development launchers (ctypes parity checks only) ----

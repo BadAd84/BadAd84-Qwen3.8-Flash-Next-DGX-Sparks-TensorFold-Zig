@@ -356,6 +356,13 @@ pub const Engine = struct {
     cand_have: u64 = std.math.maxInt(u64),
     /// TF_FLASHNEXT_DRAW_ONCE=0: each window's and draft's draws read the candidates again (the old way)
     draw_once: bool = true,
+    /// TF_FLASHNEXT_BATCH_DRAWS=0: a draft level's greedy draws one stream at a time (the old way)
+    batch_draws: bool = true,
+    /// TF_FLASHNEXT_BATCH_WINDOWS=0: a shared round's greedy window draws one window at a time (the old way)
+    batch_windows: bool = true,
+    /// one rank, greedy windows: the round's argmax over every window's rows, read once (cand_round it belongs to)
+    round_ids: []i32 = &.{},
+    ids_have: u64 = std.math.maxInt(u64),
     /// generateMany's served hybrid (gate-many --served): a running product applies while at most this many streams
     /// are live, `wide_confidence` above (maxInt: the request's rule always)
     product_streams: usize = std.math.maxInt(usize),
@@ -480,6 +487,8 @@ pub const Engine = struct {
         const rows = @max(8, @max(@max(1, o.streams) * (e.depth + 1), window));
         e.round_segs = try gpa.alloc(fwd.Seg, @max(1, o.streams));
         errdefer gpa.free(e.round_segs);
+        e.round_ids = try gpa.alloc(i32, rows);
+        errdefer gpa.free(e.round_ids);
         const ag = tri.AttnGeometry.init(e.max_len, e.g.index_budget, e.g.index_ratio);
         e.buf = .{ .b = try state.Buffers.init(d, e.g, rows, .{ .moe_prefill = true, .capacity = e.max_len }), .y_f32 = false, .attn = ag };
         errdefer e.buf.deinit();
@@ -524,6 +533,11 @@ pub const Engine = struct {
         // prompt matmuls without split-K partials when the kernel set has them (TF_FLASHNEXT_PROMPT_MM=0: off)
         e.f.prompt_mm = !envOff(prompt_mm.env) and prompt_mm.available(&e.set);
         e.draw_once = !envOff("TF_FLASHNEXT_DRAW_ONCE");
+        // one rank, greedy: a draft level's draws and a shared round's window draws in one launch and one read each
+        // (TF_FLASHNEXT_BATCH_DRAWS=0 / TF_FLASHNEXT_BATCH_WINDOWS=0: one stream / one window at a time)
+        e.batch_draws = !envOff("TF_FLASHNEXT_BATCH_DRAWS");
+        e.batch_windows = !envOff("TF_FLASHNEXT_BATCH_WINDOWS");
+        if (o.world == 1) std.log.info("greedy draws: a draft level's {s}, a shared round's windows {s}", .{ if (e.batch_draws) "in one launch" else "a stream at a time", if (e.batch_windows) "in one launch" else "a window at a time" });
         // the shared expert beside the routed experts on a second stream (TF_FLASHNEXT_SHARED_SIDE=0: in line)
         if (!envOff("TF_FLASHNEXT_SHARED_SIDE")) try e.f.initSide();
         // INT4-AutoRound's projections: block-FP8 columns stored in place (TF_FLASHNEXT_FP8_LD=0: scratch + copy)
@@ -631,7 +645,7 @@ pub const Engine = struct {
         const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
         const draft_sz = try sampleSizes(&e.torch.f, &.{.{ 1, draft_n, draft_n }});
         const pack = state.max_rows * (2 * max_k + 1) * 4;
-        const fixed = [_]usize{ e.g.head_n * 2, o.world * (2 * state.cand + 1) * 4, (2 * draft_n + 1) * 4, if (o.world > 1) pack else 0, if (o.world > 1) o.world * pack else 0, @max(e.g.head_n, draft_n) * 8, 8, 8 };
+        const fixed = [_]usize{ e.g.head_n * 2, o.world * (2 * state.cand + 1) * 4, (2 * draft_n + 1) * 4, if (o.world > 1) pack else 0, if (o.world > 1) o.world * pack else 0, @max(e.g.head_n, draft_n) * 8, 8, 8, mtp.Draws.max_batch_rows * 3 * 4 };
         e.extra = .{ .buf = try cuda.DeviceBuffer.alloc(d, aligned(&main_sz) + aligned(&draft_sz) + aligned(&fixed)) };
         errdefer e.extra.buf.free();
         try e.extra.buf.fill8(0, null);
@@ -641,11 +655,12 @@ pub const Engine = struct {
         e.last_logits = e.extra.take(fixed[0]);
         e.last_cand = e.extra.take(fixed[1]);
         const draft_out = e.extra.take(fixed[2]);
+        const draft_rows_out = e.extra.take(fixed[8]);
         if (o.world > 1) e.tp = .{ .s = e.main_sample, .pack = e.extra.take(fixed[3]), .all = e.extra.take(fixed[4]), .max_rows = state.max_rows, .max_k = max_k };
         e.nsc = .{ .mass = e.extra.take(fixed[5]), .top = e.extra.take(fixed[6]), .sum = e.extra.take(fixed[7]) };
         if (e.w.mtp != null) {
             if (e.w.draft_head != null) e.draft_host = try weights.draftIds(gpa, weights.draft_vocab, e.c.vocab, o.rank, o.world);
-            e.draws = .{ .gpa = gpa, .ids = if (e.w.draft_head != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .tp = e.tp, .nsc = e.nsc };
+            e.draws = .{ .gpa = gpa, .ids = if (e.w.draft_head != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
         }
         errdefer gpa.free(e.draft_host);
         if (o.vmm) {
@@ -720,6 +735,7 @@ pub const Engine = struct {
         e.freeSeq(e.own);
         e.gpa.free(e.draft_host);
         e.gpa.free(e.round_segs);
+        e.gpa.free(e.round_ids);
         e.extra.buf.free();
         if (e.prof) |p| p.deinit(e.gpa);
         e.cand_host.deinit(e.gpa);
@@ -1549,6 +1565,17 @@ pub const Engine = struct {
             }
             return e.chooseFrom(e.cand_host.items, total, sg.a0, sg.a1 - sg.a0, sg.seq.st.pos + 1, smp, out);
         }
+        if (e.world == 1 and smp == null and e.batch_windows and e.round_n > 1 and total <= e.round_ids.len) {
+            // one rank, greedy: the round's argmax over every window's rows in one launch, read once (one wait); a
+            // row's pick is one block's whichever rows share the launch (one launch and one wait a round, not a window)
+            if (e.ids_have != e.cand_round) {
+                try e.f.th.argmax(e.buf.b.logits, e.g.head_n, e.g.head_n, e.main_sample.col, total);
+                try e.read(e.main_sample.col, std.mem.sliceAsBytes(e.round_ids[0..total]));
+                e.ids_have = e.cand_round;
+            }
+            for (out[0 .. sg.a1 - sg.a0], e.round_ids[sg.a0..sg.a1]) |*o, x| o.* = @intCast(x);
+            return;
+        }
         try e.drawRows(e.buf.b.logits, e.buf.b.cand_all, total, sg.a0, sg.a1 - sg.a0, sg.seq.st.pos + 1, smp, out);
     }
 
@@ -1649,11 +1676,25 @@ pub const Engine = struct {
                 cands = c;
                 try e.read(mb.b.cand_all, std.mem.sliceAsBytes(c));
             }
+            // one rank: every greedy stream's draw in one launch and one read (the step's rows, each row's bytes as
+            // its own draw's); the sampled streams keep their own draws (the draws were one launch and one
+            // wait a stream a level, ~130 us each at 4 streams)
+            var picks: [mtp.Draws.max_batch_rows * 3]f32 = undefined;
+            var batched = false;
+            if (e.world == 1 and rows <= mtp.Draws.max_batch_rows and e.batch_draws) {
+                for (active[0..n_active]) |a| if (reqs[a.req].sampling == null or reqs[a.req].sampling.?.temperature <= 0) {
+                    try d.sampleDraftRows(&e.f, lg, rows, picks[0 .. rows * 3]);
+                    batched = true;
+                    break;
+                };
+            }
             for (active[0..n_active], 0..) |a, k| {
                 const r = &reqs[a.req];
                 const smp: ?lanes.Sampling = if (r.sampling) |x| (if (x.temperature > 0) x else null) else null;
                 const got = if (cands != null and sampler.gatheredFits(smp))
                     try d.gatheredFrom(cands.?, row_of[k], rows, r.seq.st.pos + 1 + j, smp)
+                else if (batched and smp == null)
+                    d.drawOfRow(picks[row_of[k] * 3 ..][0..3])
                 else
                     try d.sampleDraftRow(&e.f, mb, lg, row_of[k], rows, r.seq.st.pos + 1 + j, smp);
                 const t = stops[a.req].take(j, got.prob);

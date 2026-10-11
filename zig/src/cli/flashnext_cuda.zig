@@ -51,6 +51,8 @@ const usage =
     \\           Python's Fp8BlockLinear on tools/zig/check_fp8block.py's cases in DIR, bytes compared, timed)
     \\  tensorfold int4-check MODEL   (no weights: the GPTQ int4 expert and head kernels (cuda_int4.zig) against a host
     \\           reference from the GPTQ bytes, row/tile invariance, plan == dense, then their speed)
+    \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
+    \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
     \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
     \\           (each captured prompt's greedy serial reply written to OUT.json; with REF.json, another run's replies
     \\           teacher-forced: the top-1 agreement of this engine's greedy draws with them, and where the free
@@ -279,6 +281,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "qsa-check")) return qsaCheck(gpa, init.io, &ctx, kernels);
     if (std.mem.eql(u8, cmd, "fp4-check")) return fp4Check(gpa, init.io, &ctx, kernels, o);
     if (std.mem.eql(u8, cmd, "glue-check")) return glueCheck(gpa, init.io, &ctx, kernels);
+    if (std.mem.eql(u8, cmd, "draft-check")) return draftCheck(gpa, &ctx, o);
     const mtp = !std.mem.eql(u8, cmd, "check-weights-nomtp");
     // two ranks: both run the same command (every engine call in the same order), rank 0 listening on --master
     var server: ?flashnext.link.Server = null;
@@ -1513,6 +1516,26 @@ fn fp4Check(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
     const ok = try flashnext.fp4_serial.check(gpa, ctx.d, t, th, rows.items);
     try flashnext.fp4_serial.bench(gpa, ctx.d, t, th, &.{ 1, 8, 36, 48, 64, 113, 128, 224 }, 50);
     std.debug.print("{s} fp4-check: the K-serial kernel {s} _fp4mm at one K slice\n", .{ if (ok) "PASS" else "FAIL", if (ok) "byte-equal to" else "DIFFERS from" });
+    return if (ok) 0 else 1;
+}
+
+/// `draft-check`: no checkpoint; the batched greedy draft draw (one block a row) against the per-row draw it
+/// replaces, bytes compared on adversarial rows at the draft vocabulary's width and the head's, then both timed.
+fn draftCheck(gpa: Allocator, ctx: *const cuda.Context, o: Options) !u8 {
+    var ops = try flashnext.torch_ops.Ops.load(ctx);
+    defer ops.deinit();
+    var stream = try cuda.Stream.init(ctx.d, true);
+    defer stream.deinit();
+    const th = ops.on(stream);
+    var rows: std.ArrayList(usize) = .empty;
+    defer rows.deinit(gpa);
+    if (o.rows.len > 0) {
+        var it = std.mem.tokenizeScalar(u8, o.rows, ',');
+        while (it.next()) |r| try rows.append(gpa, try std.fmt.parseInt(usize, r, 10));
+    } else try rows.appendSlice(gpa, &flashnext.draft_check.default_rows);
+    const ok = try flashnext.draft_check.check(gpa, ctx.d, th, rows.items);
+    try flashnext.draft_check.bench(gpa, ctx.d, th, &.{ 1, 2, 4, 8, 16 }, 50);
+    std.debug.print("{s} draft-check: the batched greedy draft draw {s} the per-row draw\n", .{ if (ok) "PASS" else "FAIL", if (ok) "byte-equal to" else "DIFFERS from" });
     return if (ok) 0 else 1;
 }
 
