@@ -58,6 +58,38 @@ pub fn productStreams() usize {
     return std.fmt.parseInt(usize, std.mem.span(v), 10) catch product_streams_default;
 }
 
+/// The running product's split lines from TF_FLASHNEXT_DRAFT_PROPOSE (a draft is proposed while the product is at
+/// least this) and TF_FLASHNEXT_DRAFT_CONTINUE (the head runs another level while it is at least this): null when
+/// neither is set (-TF_FLASHNEXT_CONFIDENCE's one line); both set, 0 < propose <= continue <= 1 (cuda_decode.Stop.tp /
+/// tc), they replace that line wherever the running product applies. One without the other, a value that is not a
+/// number, or lines out of that order are refused (error.BadDraftLines), never read as the one line. Engine.init
+/// reads them once into Engine.draft_lines.
+pub fn parseDraftLines(propose: ?[]const u8, cont: ?[]const u8) !?[2]f64 {
+    if (propose == null and cont == null) return null;
+    const a = propose orelse return badLines("TF_FLASHNEXT_DRAFT_CONTINUE is set without TF_FLASHNEXT_DRAFT_PROPOSE (set both, or neither for one line)", .{});
+    const b = cont orelse return badLines("TF_FLASHNEXT_DRAFT_PROPOSE is set without TF_FLASHNEXT_DRAFT_CONTINUE (set both, or neither for one line)", .{});
+    const tp = std.fmt.parseFloat(f64, a) catch return badLines("TF_FLASHNEXT_DRAFT_PROPOSE={s} is not a number", .{a});
+    const tc = std.fmt.parseFloat(f64, b) catch return badLines("TF_FLASHNEXT_DRAFT_CONTINUE={s} is not a number", .{b});
+    if (!(tp > 0 and tp <= tc and tc <= 1)) return badLines("TF_FLASHNEXT_DRAFT_PROPOSE={s} / _CONTINUE={s}: need 0 < propose <= continue <= 1", .{ a, b });
+    return .{ tp, tc };
+}
+
+fn badLines(comptime fmt: []const u8, args: anytype) error{BadDraftLines} {
+    std.log.warn("draft stop lines refused: " ++ fmt, args);
+    return error.BadDraftLines;
+}
+
+test "the split stop lines are both or neither, numbers with 0 < propose <= continue <= 1" {
+    try std.testing.expectEqual(@as(?[2]f64, null), try parseDraftLines(null, null));
+    try std.testing.expectEqual(@as(?[2]f64, .{ 0.05, 0.2 }), try parseDraftLines("0.05", "0.2"));
+    try std.testing.expectEqual(@as(?[2]f64, .{ 0.1, 0.1 }), try parseDraftLines("0.1", "0.1"));
+    try std.testing.expectError(error.BadDraftLines, parseDraftLines("0.05", null));
+    try std.testing.expectError(error.BadDraftLines, parseDraftLines(null, "0.2"));
+    for ([_][2][]const u8{ .{ "x", "0.2" }, .{ "0.05", "" }, .{ "0", "0.2" }, .{ "0.3", "0.2" }, .{ "0.05", "1.5" }, .{ "-0.1", "0.2" }, .{ "nan", "0.2" } }) |p| {
+        try std.testing.expectError(error.BadDraftLines, parseDraftLines(p[0], p[1]));
+    }
+}
+
 pub fn confidenceSetting() f64 {
     const v = std.c.getenv("TF_FLASHNEXT_CONFIDENCE") orelse return served_confidence;
     const x = std.fmt.parseFloat(f64, std.mem.span(v)) catch return served_confidence;
@@ -366,6 +398,8 @@ pub const Engine = struct {
     /// generateMany's served hybrid (gate-many --served): a running product applies while at most this many streams
     /// are live, `wide_confidence` above (maxInt: the request's rule always)
     product_streams: usize = std.math.maxInt(usize),
+    /// the running product's split lines (parseDraftLines at init; null: -confidence's one line)
+    draft_lines: ?[2]f64 = null,
     /// shared steps of at most this many streams are captured (TF_FLASHNEXT_MULTI_GRAPHS)
     multi_graphs: usize = multi_graphs_default,
     /// shared verify rounds (not MTP steps) of at most this many streams are captured
@@ -538,6 +572,10 @@ pub const Engine = struct {
         e.batch_draws = !envOff("TF_FLASHNEXT_BATCH_DRAWS");
         e.batch_windows = !envOff("TF_FLASHNEXT_BATCH_WINDOWS");
         if (o.world == 1) std.log.info("greedy draws: a draft level's {s}, a shared round's windows {s}", .{ if (e.batch_draws) "in one launch" else "a stream at a time", if (e.batch_windows) "in one launch" else "a window at a time" });
+        if (o.mtp) {
+            e.draft_lines = try parseDraftLines(envGet("TF_FLASHNEXT_DRAFT_PROPOSE"), envGet("TF_FLASHNEXT_DRAFT_CONTINUE"));
+            if (e.draft_lines) |l| std.log.info("draft stop: a draft proposed while the running product is >= {d:.3}, another head level while it is >= {d:.3}", .{ l[0], l[1] });
+        }
         // the shared expert beside the routed experts on a second stream (TF_FLASHNEXT_SHARED_SIDE=0: in line)
         if (!envOff("TF_FLASHNEXT_SHARED_SIDE")) try e.f.initSide();
         // INT4-AutoRound's projections: block-FP8 columns stored in place (TF_FLASHNEXT_FP8_LD=0: scratch + copy)
@@ -653,7 +691,7 @@ pub const Engine = struct {
         };
         errdefer if (e.mtpq) |*t| t.deinit();
         // sampling scratch: the main head's rows and the draft head's one row
-        const draft_n: usize = if (e.w.draft_head) |q| q.n else e.g.head_n;
+        const draft_n: usize = e.w.draftColumns() orelse e.g.head_n;
         const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
         const draft_sz = try sampleSizes(&e.torch.f, &.{.{ 1, draft_n, draft_n }});
         const pack = state.max_rows * (2 * max_k + 1) * 4;
@@ -671,8 +709,8 @@ pub const Engine = struct {
         if (o.world > 1) e.tp = .{ .s = e.main_sample, .pack = e.extra.take(fixed[3]), .all = e.extra.take(fixed[4]), .max_rows = state.max_rows, .max_k = max_k };
         e.nsc = .{ .mass = e.extra.take(fixed[5]), .top = e.extra.take(fixed[6]), .sum = e.extra.take(fixed[7]) };
         if (e.w.mtp != null) {
-            if (e.w.draft_head != null) e.draft_host = try weights.draftIds(gpa, weights.draft_vocab, e.c.vocab, o.rank, o.world);
-            e.draws = .{ .gpa = gpa, .ids = if (e.w.draft_head != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
+            if (e.w.draftColumns() != null) e.draft_host = try weights.draftIdsOf(gpa, e.c.vocab, o.rank, o.world, e.w.draft4 != null);
+            e.draws = .{ .gpa = gpa, .ids = if (e.w.draftColumns() != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
         }
         errdefer gpa.free(e.draft_host);
         if (o.vmm) {
@@ -1668,7 +1706,14 @@ pub const Engine = struct {
         }
         // each stream's stop rule (cuda_decode.Stop: per draft, running product or none), as its solo chain's
         var stops: [64]decode.Stop = undefined;
-        for (reqs, 0..) |r, i| stops[i] = .{ .c = r.confidence };
+        const lines = e.draft_lines;
+        for (reqs, 0..) |r, i| {
+            stops[i] = .{ .c = r.confidence };
+            if (r.confidence < 0) if (lines) |l| {
+                stops[i].tp = l[0];
+                stops[i].tc = l[1];
+            };
+        }
         // the next window's rows touched ahead of its stage: its pending token now (its predecessors are the
         // committed history), each draft as the chain draws it (cuda_ngram_host.zig)
         if (e.f.ngh) |h| for (reqs) |r| if (r.next.len > 0) h.touchTokens(r.seq.st.history[0 .. h.g.n - 1], &.{@as(i64, @intCast(r.next[r.next.len - 1]))});

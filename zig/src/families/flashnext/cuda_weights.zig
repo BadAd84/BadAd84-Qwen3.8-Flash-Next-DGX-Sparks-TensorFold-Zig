@@ -241,7 +241,10 @@ pub const Weights = struct {
     vocab_offset: u32 = 0,
     inv_freq: u64 = 0,
     mtp: ?Mtp = null,
+    /// the draft head as the lm_head's draft rows in 4-bit (null with draft4, or no draft head)
     draft_head: ?Q4 = null,
+    /// TF_FLASHNEXT_DRAFT_INT4 on an int4 lm_head: the draft head as that head's own columns (draft_head null)
+    draft4: ?int4.Mat = null,
     /// int64 draft ids (this rank's share), in draft-head row order
     draft_ids: u64 = 0,
     draft_count: u32 = 0,
@@ -262,6 +265,13 @@ pub const Weights = struct {
         w.gpa.free(w.layers);
         if (w.table) |*t| t.deinit();
         w.* = undefined;
+    }
+
+    /// The draft head's columns, whichever head drafts (draft4 or draft_head); null: no draft head (the full head).
+    pub fn draftColumns(w: *const Weights) ?usize {
+        if (w.draft4) |m| return m.n;
+        if (w.draft_head) |q| return q.n;
+        return null;
     }
 
     /// The named buffer, for tests and checks.
@@ -1462,6 +1472,29 @@ pub fn draftIds(gpa: std.mem.Allocator, text: []const u8, vocab: u32, rank: u32,
     return gpa.dupe(u32, all.items[start..][0..size]);
 }
 
+/// TF_FLASHNEXT_DRAFT_INT4 (not "0"): the draft head as the int4 lm_head's own gathered columns.
+pub fn draftInt4() bool {
+    const v = std.c.getenv("TF_FLASHNEXT_DRAFT_INT4") orelse return false;
+    return !std.mem.eql(u8, std.mem.span(v), "0");
+}
+
+/// The draft ids both the loader and the engine use (draftIds over the embedded list); for the int4 lm_head's columns
+/// (`int4_cols`: Weights.draft4) padded to whole 8-column tiles by repeating the last id (a repeated column scores the
+/// same token, so the draws pick the same id).
+pub fn draftIdsOf(gpa: std.mem.Allocator, vocab: u32, rank: u32, world: u32, int4_cols: bool) ![]u32 {
+    const ids = try draftIds(gpa, draft_vocab, vocab, rank, world);
+    if (ids.len == 0) {
+        gpa.free(ids);
+        return error.DraftVocab;
+    }
+    if (!int4_cols or ids.len % 8 == 0) return ids;
+    defer gpa.free(ids);
+    const out = try gpa.alloc(u32, (ids.len + 7) / 8 * 8);
+    @memcpy(out[0..ids.len], ids);
+    @memset(out[ids.len..], ids[ids.len - 1]);
+    return out;
+}
+
 /// Mark every tensor under `prefix` read on purpose (the vision tower), counting them.
 fn skip(ck: *core.Checkpoint, gpa: std.mem.Allocator, prefix: []const u8) !usize {
     var n: usize = 0;
@@ -1557,10 +1590,43 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
 
     // the draft head: the lm_head's draft rows quantized 4-bit (groups of 32), packed for the lane matmul
     if (o.draft_head) {
-        const ids = try draftIds(gpa, draft_vocab, c.vocab, o.rank, o.world);
+        // TF_FLASHNEXT_DRAFT_INT4 takes the int4 lm_head's columns when the checkpoint has one; else the 4-bit copy
+        // of the head's rows below, as without the setting (the drafts change, the replies do not)
+        const int4_cols = draftInt4() and head_src != null;
+        if (draftInt4() and head_src == null) std.log.warn("TF_FLASHNEXT_DRAFT_INT4: the checkpoint's lm_head is not int4; the draft head is its rows in 4-bit", .{});
+        const ids = try draftIdsOf(gpa, c.vocab, o.rank, o.world, int4_cols);
         defer gpa.free(ids);
         const k = c.hidden;
         const n = ids.len;
+        q4: {
+        // TF_FLASHNEXT_DRAFT_INT4: the draft head as the int4 lm_head's own columns (GPTQ groups of 128,
+        // gathered by draft id, run by int4.dense): no second quantization, 105 MB instead of 127.5 MB
+        if (int4_cols) {
+            const src = head_src.?;
+            const gqw = try gpa.alloc(u8, k / 8 * n * 4);
+            defer gpa.free(gqw);
+            const gsc = try gpa.alloc(u8, k / int4.checkpoint_group * n * 2);
+            defer gpa.free(gsc);
+            for (0..k / 8) |kp| for (ids, 0..) |id, col| @memcpy(gqw[(kp * n + col) * 4 ..][0..4], src.qweight[(kp * src.n_full + id) * 4 ..][0..4]);
+            for (0..k / int4.checkpoint_group) |g| for (ids, 0..) |id, col| @memcpy(gsc[(g * n + col) * 2 ..][0..2], src.scales[(g * src.n_full + id) * 2 ..][0..2]);
+            const gsrc: int4.Source = .{ .qweight = gqw, .scales = gsc, .n_full = n, .k_full = k };
+            const sl: int4.Slice = .{ .n0 = 0, .n = n, .k0 = 0, .k = k, .gs = 128 };
+            const words = try gpa.alloc(u32, int4.wordsOf(n, k));
+            defer gpa.free(words);
+            const scales = try gpa.alloc(u16, int4.scalesOf(n, k, 128));
+            defer gpa.free(scales);
+            try int4.packWords(gsrc, sl, words);
+            try int4.packScales(gsrc, sl, scales);
+            var m: int4.Mat = .{ .n = @intCast(n), .k = @intCast(k), .gs = 128 };
+            m.w = try L.out.whole("draft4.weight", "int32", &.{words.len}, std.mem.sliceAsBytes(words));
+            L.out.ours();
+            m.s = try L.out.whole("draft4.scales", "float16", &.{scales.len}, std.mem.sliceAsBytes(scales));
+            L.out.ours();
+            w.draft4 = m;
+            std.log.info("draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), {d} ids, {d:.1} MB", .{ n, @as(f64, @floatFromInt(words.len * 4 + scales.len * 2)) / 1e6 });
+            // draft_head stays null: draftColumns() answers for either head
+            break :q4;
+        }
         const rows = try gpa.alloc(u16, n * k);
         defer gpa.free(rows);
         if (head_src) |src| {
@@ -1618,6 +1684,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
         lay.majorQ4(bi, n, kg, major);
         q.biases = try L.out.whole("draft_head.biases", "bfloat16", &.{ kg, npad }, std.mem.sliceAsBytes(major));
         w.draft_head = q;
+        }
         const wide = try gpa.alloc(i64, n);
         defer gpa.free(wide);
         for (ids, wide) |id, *x| x.* = id;
@@ -1711,4 +1778,18 @@ test "ropeOf maps cuda_config's YaRN onto cuda_rope's" {
     try ropeOf(&plain).invFreq(&a);
     lay.invFreq(1e7, 32, &b);
     try std.testing.expectEqualSlices(f32, &b, &a);
+}
+
+test "the draft ids pad to whole 8-column tiles only for the int4 head's own columns" {
+    const gpa = std.testing.allocator;
+    // the 4-bit draft head (and TF_FLASHNEXT_DRAFT_INT4 on a checkpoint without an int4 head): the ids as they are
+    const plain = try draftIdsOf(gpa, 248320, 0, 1, false);
+    defer gpa.free(plain);
+    try std.testing.expectEqual(@as(usize, 79591), plain.len);
+    // the int4 lm_head's columns: the last id repeated up to the tile
+    const cols = try draftIdsOf(gpa, 248320, 0, 1, true);
+    defer gpa.free(cols);
+    try std.testing.expectEqual(@as(usize, 79592), cols.len);
+    try std.testing.expectEqualSlices(u32, plain, cols[0..plain.len]);
+    try std.testing.expectEqual(plain[plain.len - 1], cols[cols.len - 1]);
 }

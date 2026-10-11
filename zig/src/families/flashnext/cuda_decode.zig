@@ -65,6 +65,10 @@ fn last(r: Result) u32 {
 pub const Stop = struct {
     c: f64,
     product: f64 = 1.0,
+    /// split lines for the running product (c < 0; TF_FLASHNEXT_DRAFT_PROPOSE / _CONTINUE): draft j is proposed while
+    /// the product >= tp (the first always), the next level runs only while it is >= tc; null: one line, -c
+    tp: ?f64 = null,
+    tc: f64 = 0,
 
     /// Whether draft j (0-based) with temperature-1 probability `p` is proposed, and whether the chain may go on.
     pub fn take(s: *Stop, j: usize, p: f64) struct { propose: bool, more: bool } {
@@ -75,12 +79,39 @@ pub const Stop = struct {
         }
         if (s.c < 0) {
             s.product *= p;
+            if (s.tp) |tp| {
+                if (j > 0 and s.product < tp) return .{ .propose = false, .more = false };
+                return .{ .propose = true, .more = s.product >= s.tc };
+            }
             // the first draft always goes; below the line it ends the chain (no later product can reach it)
             if (s.product < -s.c) return .{ .propose = j == 0, .more = false };
         }
         return .{ .propose = true, .more = true };
     }
 };
+
+test "the split lines propose a draft while the product holds the lower line and go on while it holds the upper" {
+    // one line (-c): the chain stops at the draft that falls under it, which is not proposed (the first always is)
+    var one: Stop = .{ .c = -0.15 };
+    try std.testing.expectEqual(true, one.take(0, 0.9).more); // 0.9
+    try std.testing.expectEqual(true, one.take(1, 0.5).propose); // 0.45
+    const low = one.take(2, 0.3); // 0.135
+    try std.testing.expect(!low.propose and !low.more);
+    // split lines 0.05 / 0.20: proposed down to 0.05, the head stops once the product is under 0.20
+    var two: Stop = .{ .c = -0.15, .tp = 0.05, .tc = 0.20 };
+    const a = two.take(0, 0.5); // 0.5
+    try std.testing.expect(a.propose and a.more);
+    const b = two.take(1, 0.3); // 0.15: proposed, but no further level
+    try std.testing.expect(b.propose and !b.more);
+    var three: Stop = .{ .c = -0.15, .tp = 0.05, .tc = 0.20 };
+    _ = three.take(0, 0.2);
+    const c = three.take(1, 0.2); // 0.04: under the propose line
+    try std.testing.expect(!c.propose and !c.more);
+    // the first draft goes whatever its chance
+    var first: Stop = .{ .c = -0.15, .tp = 0.05, .tc = 0.20 };
+    const d = first.take(0, 0.01);
+    try std.testing.expect(d.propose and !d.more);
+}
 
 /// Absorb kept rows, then chain up to `count` drafts under the stop rule (`Stop`; Python `draft` for c > 0). Writes
 /// the drafts into `out`; returns how many.

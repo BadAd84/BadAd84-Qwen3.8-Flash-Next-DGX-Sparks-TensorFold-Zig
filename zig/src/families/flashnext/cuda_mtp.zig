@@ -17,6 +17,7 @@ const state = @import("cuda_state.zig");
 const sampler = @import("cuda_sampler.zig");
 const fwd = @import("cuda_forward.zig");
 const nucleus = @import("cuda_nucleus.zig");
+const int4 = @import("cuda_int4.zig");
 
 const Allocator = std.mem.Allocator;
 const Forward = fwd.Forward;
@@ -172,7 +173,11 @@ pub fn computeSegs(f: *Forward, segs: []const fwd.Seg, x: *const Bufs) !u64 {
     }
     try f.mark(.other);
     var columns: usize = undefined;
-    if (f.w.draft_head) |q| {
+    if (f.w.draft4) |dm| {
+        // the int4 lm_head's own draft columns (TF_FLASHNEXT_DRAFT_INT4)
+        try int4.dense(f.k4 orelse return error.NoInt4Kernels, f.s, rows, D, dm, b.logits, false, if (b.prefill) 1 else k);
+        columns = dm.n;
+    } else if (f.w.draft_head) |q| {
         const q4: kern.Q4 = .{ .w = q.weight, .s = q.scales, .b = q.biases, .n = q.n, .k = q.k, .npad = q.npad };
         if (b.prefill) try f.ops.qmmPrefill32(rows, D, q4, b.logits, 1, false) else try f.ops.qmm32(rows, D, xs, q4, b.logits, k, false);
         columns = q.n;
@@ -182,7 +187,7 @@ pub fn computeSegs(f: *Forward, segs: []const fwd.Seg, x: *const Bufs) !u64 {
     }
     try f.mark(.head);
     if (f.comm) |cm| {
-        try f.candidates(x, b.logits, k, columns, if (f.w.draft_head != null) f.w.draft_ids else null, f.vocab_offset, cm);
+        try f.candidates(x, b.logits, k, columns, if (f.w.draftColumns() != null) f.w.draft_ids else null, f.vocab_offset, cm);
         try f.mark(.cands);
     }
     try f.put("head_logits", b.logits, k * columns * 2);

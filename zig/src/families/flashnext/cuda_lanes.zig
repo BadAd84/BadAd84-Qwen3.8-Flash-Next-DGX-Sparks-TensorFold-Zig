@@ -170,11 +170,17 @@ pub fn Lanes(comptime E: type) type {
         shared: [shared_points]lanes.config.Cost = undefined,
         shared_count: usize = 0,
         mtp_ms: f64 = 0,
+        /// the head's chain at most while two or more streams draft in one call (TF_FLASHNEXT_DRAFT_DEPTH_SHARED; 0:
+        /// `depth`): deep chains cost every stream in the shared step what one stream gains
+        depth_shared: usize = 0,
 
         pub fn init(gpa: std.mem.Allocator, e: *E, drafting: bool, context: usize, window: usize) Self {
             const late = if (std.c.getenv("TF_FLASHNEXT_KEEP_LATE")) |v| !std.mem.eql(u8, std.mem.span(v), "0") else true;
             const w = @max(1, @min(window, max_rows));
-            return .{ .gpa = gpa, .e = e, .drafting = drafting, .context = context, .window = w, .depth = w - 1, .late_keep = late };
+            var s: Self = .{ .gpa = gpa, .e = e, .drafting = drafting, .context = context, .window = w, .depth = w - 1, .late_keep = late };
+            if (std.c.getenv("TF_FLASHNEXT_DRAFT_DEPTH_SHARED")) |v| s.depth_shared = std.fmt.parseInt(usize, std.mem.span(v), 10) catch 0;
+            if (drafting and s.depth_shared > 0) std.log.info("drafts: at most {d} a stream while two or more streams draft together (TF_FLASHNEXT_DRAFT_DEPTH_SHARED)", .{s.depth_shared});
+            return s;
         }
 
         pub fn deinit(self: *Self) void {
@@ -932,7 +938,9 @@ pub fn Lanes(comptime E: type) type {
                     e.commitWindow(l.index, rows.len) catch |err| return self.lost("a window's commit", err);
                 };
                 l.held_n = 0;
-                const depth = @min(r.depth, @min(self.depth, self.window - 1));
+                var depth = @min(r.depth, @min(self.depth, self.window - 1));
+                // the depth cap while two or more streams draft in one call (TF_FLASHNEXT_DRAFT_DEPTH_SHARED)
+                if (requests.len >= 2 and self.depth_shared > 0) depth = @min(depth, self.depth_shared);
                 if (r.rows == null) firsts[i] = .{self.value(r.first.?)};
                 reqs[i] = .{
                     .seq = l.seq,
