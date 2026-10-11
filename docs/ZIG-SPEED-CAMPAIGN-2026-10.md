@@ -227,6 +227,24 @@ Round 2 GLM lanes, closed 2026-10-11: R2bGlm's hc kernels (`r2b-hcmm`) are not e
 select never produced a measured arm of its own (three holds lost to harness errors; its last hold timed only the
 r2a-opus images: 2,683 / 2,549 tok/s at 128k / 200k against base 2,506 / 2,408): OPEN, superseded by r2a-opus.
 
+## zmerge7 (round 3) and adaptive fills (2026-10-11)
+
+zmerge7 = zmerge6 + r3-slowboot `retime1` + r3-ttft1k `r3t-b` + r3-sharedjoin `sj3` (env SHARED_EARLY=1,
+SHARED_EARLY_ROWS=6, SHARED_SLOT_LD=1) + r3-promptcache `r3pc-whole` (conflict resolved by `merge/resolve_m7.py`).
+Exact: golden 6/6, pcheck 59/59, `reuse` 36/36, cold under a fresh salt cached 0. Decode probe (`merge/zv7.sh`, 2 boots
+an arm): decode flat (code 131.4 -> 132.2 at 1 client, the rest inside the spread), cold prefill 8k +2.6%, 32k +4.6%.
+zab_rm sweep `zrm-m7` (both boots normal): TTFT -1 to -3% in 17 of 18 cells (warm turn -2.4% idle; cold 1k load3
+thinking off +9%, its thinking-on twin -1.7%); RigMark prefill cold +1.5 to +3.4%, immediate replay 2,988-3,159 ->
+1.29M-1.71M "tok/s" (5-50 ms to first token: the whole-prompt state, no forward), cold prefill verified; decode code
++1.1%, prose +0.7%; C1 +0.8%, C2 -4.4%, C4 +0.2%. Open before batch 4: the shared-expert change's own interleaved
+decode A/B (its lane measured +1.6-1.9%; flat here), and the C2 / 1k-load3 cells.
+
+Adaptive fills `r3-fill5` (`TF_FLASHNEXT_FILL=2`, with the rush cohort for bursts on an idle box), sweep
+`zrm-r3fill5` against zmerge6 FILL=0, both boots normal: exact (golden 6/6, decode 14/14 and race 8/8 shas equal);
+idle TTFT level (+-1%, warm turn +9%); load3 TTFT +34 to +85% (the sliced-while-busy trade); RigMark C2 -6.5%, C4
+-17.6%. Fails the decision rule (C2/C4 level with FILL=0): DROP as a default. FILL stays 0; #53's fix (FILL=1
+correct with several prompts) stands on its own.
+
 ## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
 
 - PDL DROP: all groups on is not exact (golden 0/6, 3/6; r2f-opus); r2f-fable's exact subset shows no change in the
