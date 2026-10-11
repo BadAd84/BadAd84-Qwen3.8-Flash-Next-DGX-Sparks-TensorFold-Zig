@@ -69,7 +69,16 @@ pub const Config = struct {
     mtp_step_ms: f64,
     enter_match: i64 = 8, // matching tokens a copy needs (rejects coincidental indentation)
     copy_rate: f64 = 0.94, // a copied token's chance of landing in allocation
+    /// a lone stream's copy window after a round that kept fewer than all of its copied rows: back to first_copy
+    /// (Python), or kept as it is (an edit every few lines otherwise never climbs the 15 -> 31 -> 63 ramp)
+    copy_miss: CopyMiss = .first,
+    /// ... and after a round that kept every copied row: twice the width plus one (Python: 15 -> 31 -> 63), or
+    /// straight to max_copy (rows between the head's window and the widest cost about the same per round)
+    copy_ramp: CopyRamp = .double,
     k: Constants = .{},
+
+    pub const CopyMiss = enum { first, keep };
+    pub const CopyRamp = enum { double, jump };
 
     pub fn init(gpa: Allocator, m: Model, max_rows: u32, max_draft: u32) !Config {
         if (max_rows < 1) return error.BadMaxRows;
