@@ -13,6 +13,9 @@ ORDER = [
     ("Qwen3.8 Flash Next recipe, Zig speed batch 2", [
         "zig-pr-ngram-host", "zig-pr-copy-window", "zig-pr-copy-resync", "zig-pr-copy-shared", "zig-pr-seq-pool",
         "zig-pr-batch-draws", "zig-pr-fp8-fused-head-mt", "zig-pr-decode-glue", "zig-pr-draft-stop-lines"]),
+    ("Qwen3.8 Flash Next recipe, Zig speed batch 3", [
+        "zig-pr-fill-fix", "zig-pr-readout-12bit", "zig-pr-indexer-select", "zig-pr-prompt-tiles",
+        "zig-pr-prefill-rows"]),
     ("Qwen3.8 Flash Next recipe (PARKED: the recipe moved to the Zig engine; not posted)", [
         "qwen-pr-copy-first", "qwen-pr-ple-page-cache", "qwen-pr-ple-native", "qwen-pr-chain-stop",
         "qwen-pr-mtp-graphs", "qwen-pr-ple-defer", "qwen-pr-tokenize-nogil"]),

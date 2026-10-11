@@ -966,9 +966,673 @@ Other PRs from me in this batch: #34 (the one-Spark draft stop default), #35 (`p
 
 ---
 
+# Qwen3.8 Flash Next recipe, Zig speed batch 3
+
+## 13. `zig-pr-fill-fix`
+
+**Title:** patches/0021: fix TF_FLASHNEXT_FILL=1 with two or more prompts at once (prompts fill one after another; a resume's MTP absorb waits for its own chunk)
+
+**Body:**
+
+## Description and Motivation
+
+A correctness fix to the engine's opt-in sliced fill (`TF_FLASHNEXT_FILL=1`: prompts fill in slices of layers
+between the other streams' rounds, so a long prompt does not stall the streams that are decoding). It is off by
+default in the recipe, so a default install never takes this path; this PR changes no setting. The code it fixes is
+the release's own (`patches/0005`: `fillBegin`, `fillStep`, `prefillStepFn`); the speed patches only made it visible.
+
+**The bug.** With `TF_FLASHNEXT_FILL=1`, any two prompts that fill at the same time both fail. On our build every
+concurrent request of a 2-client and a 4-client decode matrix came back empty after 0.02-0.04 s, while one client was
+fine; the server log says `reason=error (PromptBuffersBusy) prompt=32 tokens=0 after=0.03s`.
+
+- The engine has one set of prompt buffers (`Engine.pfill`), and a prompt chunk stays open over several `fillStep`
+  slices (8 layers a step).
+- `cuda_lanes.zig` `prefillStepFn` calls `fillStep` for every filling stream on each step. When two prompts fill at
+  once (every barrier-started batch of 2+ clients), the second call returns `error.PromptBuffersBusy`, and
+  `lanes.Engine.advanceFills` then fails every filling stream.
+- One prompt filling beside streams that decode works, which is why a test of one decoder plus one filler passes.
+
+A second, silent defect is on the same path: on a prompt-cache resume, `fillBegin` ran the MTP tail absorb
+(`mtp.forward`) in the prompt buffers at once. If another prompt's chunk was open then, the absorb overwrote it and that
+other request got a wrong reply, with no error.
+
+**The fix** (`patches/0021-flash-next-sliced-fill-one-at-a-time.patch`):
+
+1. `cuda_lanes.zig` `prefillStepFn`: while another fill holds the prompt buffers, a filling stream skips its slice and
+   stays filling. Prompts that arrive together fill one after another, in arrival order.
+2. `cuda_engine.zig` `fillBegin` / `fillStep`: on a resume, `fillBegin` parks the snapshot's tail row in the
+   sequence's `last_streams` and marks the fill; `fillStep` runs the absorb (`mtp.forward` + `setMtpLen`) when it opens
+   this fill's first chunk, after taking the prompt buffers. The order on the sequence is unchanged: restore, absorb,
+   chunks. `fillBegin` now touches no prompt buffer.
+3. The host tests' `Toy` engine now models the one set of prompt buffers, and a new test starts four streams before
+   the first step and checks each against serial decoding.
+
+Measured on one DGX Spark through the recipe's own server, the campaign's build with #34-#36 and #42-#50 (`zmerge5`)
+against the same build plus this patch (a lane image), a discarded warm-up boot first, then FILL=0 / FILL=1 and
+FILL=1 / FILL=0, golden 6/6 in all 4 arms. Decode matrix (prose and code, 512-token replies, client-side per-request tok/s):
+
+| | prose, 1 / 2 / 4 clients | code, 1 / 2 / 4 clients |
+| --- | ---: | ---: |
+| `FILL=0`, run a | 72.1 / 59.0 / 39.6 | 125.9 / 88.3 / 63.3 |
+| `FILL=0`, run b | 72.5 / 58.2 / 38.1 | 128.4 / 87.2 / 63.3 |
+| `FILL=1` with the fix, run a | 72.4 / 60.0 / 39.4 | 127.4 / 88.7 / 64.3 |
+| `FILL=1` with the fix, run b | 72.1 / 60.0 / 39.0 | 128.4 / 86.6 / 62.3 |
+
+Every arm: 14/14 replies, none empty, every reply's sha equal to `FILL=0`'s. Speed equal within the spread.
+
+What `FILL=1` buys, and what it costs in time to first token (a 32k prompt sent while another client decodes):
+
+| | the decoding client's longest gap, s | the 32k prompt's time to first token, s |
+| --- | ---: | ---: |
+| `FILL=0`, run a / b | 11.34 / 11.39 | 11.33 / 11.38 |
+| `FILL=1` with the fix, run a / b | 0.22 / 0.25 | 16.06 / 16.70 |
+
+So the setting trades a slower first token for the prompt (sliced fills are also serialised: a burst of two 6-8k
+prompts took about 8 s against 2-5 s) for no stall in the decoding streams. Whether it should become the default is a
+separate question; this PR only makes it correct.
+
+### The whole stack on RigMark and time to first token, stock against ours
+
+One DGX Spark, the recipe's own server (`start.sh`, the recipe's defaults otherwise), a fresh boot an arm, the golden
+replies byte-identical in every arm. Columns: the recipe's last Python release (0.6.1, its published image); this
+recipe's Zig release 1.0.0 as published (`tensorfold-qwen38:zig-db28187`); that plus #34-#36 and #42-#50 (the campaign's
+merged build `zmerge5`); and that plus this batch (`zmerge6`: the four patches as measured, before the clean-up named
+in each PR, with `TF_FLASHNEXT_PREFILL_ROWS=4096`; `TF_FLASHNEXT_FILL` off, so 0021 does not move these numbers). The
+last two ran in two sweeps with the arm order reversed (shown as sweep 1 / sweep 2), the first two in their own
+sweeps the same day.
+
+Time to first token, client-measured to the first streamed token, median of 3, seconds, thinking off (thinking on is
+within ~3% of these rows); cold prompts are new text, the warm turn is +2k tokens on a kept ~100k conversation:
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| cold 1k, idle | 0.707 | 0.464 | 0.426 / 0.432 | 0.503 / 0.406 |
+| cold 8k, idle | 3.819 | 2.989 | 2.967 / 2.980 | 2.655 / 2.679 |
+| cold 32k, idle | 13.76 | 12.07 | 12.05 / 11.98 | 10.83 / 10.67 |
+| cold 120k, idle | 57.20 | 49.62 | 49.62 / 49.54 | 43.24 / 42.50 |
+| warm +2k turn, idle | 1.502 | 1.231 | 1.196 / 1.180 | 1.144 / 1.116 |
+| cold 1k, 3 streams decoding | 0.922 | 0.537 | 0.494 / 0.511 | 0.468 / 0.474 |
+| cold 8k, 3 streams decoding | 4.076 | 3.074 | 3.041 / 3.015 | 2.731 / 2.754 |
+| cold 32k, 3 streams decoding | 14.88 | 12.18 | 12.10 / 12.12 | 10.87 / 10.75 |
+| cold 120k, 3 streams decoding | 63.87 | 50.01 | 49.86 / 49.82 | 43.16 / 42.88 |
+| warm +2k turn, 3 streams decoding | 1.927 | 1.321 | 1.287 / 1.310 | 1.207 / 1.213 |
+
+[RigMark](https://github.com/alexellis/rigmark) (protocol 1.3.0, extra body `{"reasoning_effort": "low"}` as on its
+published card for this model; the receipts' medians):
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| code / prose / structured decode, tok/s | 88.0 / 50.5 / 103.3 | 95.4 / 50.1 / 136.6 | 109.7, 110.5 / 57.2, 58.2 / 156.7, 158.2 | 111.2, 112.3 / 58.4, 60.1 / 158.5, 159.1 |
+| time to first token, s | 0.28-0.29 | 0.18 | 0.15-0.16 | 0.15-0.17 |
+| C1 / C2 / C4 aggregate, tok/s | 68.6 / 94.9 / 129.4 | 59.0 / 97.7 / 150.2 | 70.7, 73.1 / 111.4, 117.9 / 159.4, 168.5 | 72.9, 74.8 / 114.7, 112.5 / 172.9, 171.0 |
+| prefill 8K / 32K / 64K cold, tok/s | not run | 2,723 / 2,636 / 2,520 | 2,730, 2,741 / 2,639, 2,642 / 2,546, 2,547 | 3,101, 3,104 / 2,944, 3,032 / 2,876, 2,952 |
+
+Every arm passed RigMark's output gates (code, prose, structured 5/5). RigMark's prefill section needs `/tokenize`,
+which the Python server lacks, so the Python arm skipped it (its cold-prompt TTFT rows are the like-for-like prefill
+comparison). The stock arms ran under RigMark's published comparison ID, the last two under their own, so their decode
+prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
+build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
+cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the reference on every boot of every hold quoted here.
+- `race.py` (a burst of 4: a 6k extension, a fresh 8k prompt and two short ones, then two fills arriving while a
+  client decodes): 8/8 reply shas equal to `FILL=0`, none empty.
+- `race2.py` (three rounds of a resumed conversation, a fresh 12k prompt, and a third request 0.6 s later; the server
+  log shows 6 resumes at ~6,030-6,090 tokens): 12/12 shas equal to `FILL=0`. Mutant, the fix without its
+  `cuda_engine.zig` half (the absorb run at once again): the concurrent fresh prompt's reply is wrong in 2 of 3
+  rounds, with no error raised. Killed.
+- Host test: the new test passes on the stack; with the skip line removed from `prefillStepFn` it fails (exit
+  non-zero), and so does the existing sliced-fill test, which had only passed because the `Toy` had no shared buffers.
+- The patch here is the measured code; only its comments are reworded. The whole stack, `patches/0001`-`0024`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 190/190 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (the parked tail row lives in the sequence's existing `last_streams`).
+
+Other PRs from me: #34, #35, #36 and #42-#50 (`patches/0010`-`0020`), and in this batch #[0022's PR] (12-bit read-out weights), #[0023's PR] (indexer select and prompt scores tile), #[0024's PR] (FP8 prompt tiles and int4 prompt gate/up), #[the 4096-row setting's PR] (4096-row prompt chunks). `patches/0021`-`0024` are written in that order on top of `0001`-`0020`: each applies with `git apply` after the ones before it, so this PR's patch needs #35, #36, #42-#50 merged first (for context only: the fix is to code in `0005`, and its `cuda_engine.zig` hunks need `0012`/`0016`'s lines around `fillBegin`). All of them add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35, #36 and #42-#50 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 14. `zig-pr-readout-12bit`
+
+**Title:** patches/0022: decode read-outs from a lossless 12-bit copy of their weights (decode +2.6 to +3.7% at 1 client, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+At decode widths every layer's hyper-connection read-out reads two bf16 matrices (attention and MLP `down`
+[low (+ the inject rows), wide] and `up` [wide, low]): ~1.27 GB a round over 192 matrices, run by Triton's split
+`_b16mm` with #49's fused `_reduce` + `_hc_act`, and `_hc_up_mix`. Those reads are bandwidth-bound, and bf16 spends 8
+bits a weight on an exponent that varies little within a row.
+
+`patches/0022-flash-next-readout-12bit-weights.patch` (`TF_FLASHNEXT_HC_Q12=1`):
+
+- At load, a GPU packer (`tf_fn_hc_q12_pack_kernel`) builds a lossless 12-bit copy of each main-layer read-out matrix
+  from its loaded bf16 rows. Per (row, 64 k) the largest exponent is stored once as a base; each weight keeps its
+  sign|mantissa byte and a 4-bit exponent offset below that base; offset 15 escapes to the block's sorted list of exact
+  bits. Over the checkpoint's read-out matrices 0.0155% of weights escape and a copy is 0.767 of the bf16 bytes (192 matrices,
+  1266.2 -> 970.8 MB). The bf16 rows stay for prompt chunks and for every path the copy does not take.
+- Decode windows of up to 32 rows run the down projection from the copy (`tf_fn_hc_down_q12_kernel`: one warp an
+  8-column tile and K slice of 320, the same `mma.m16n8k16` chain Triton's split `_b16mm` issues, the same fp32
+  partials; up to 8 rows the CTA that finishes a column group last sums the slices in order and applies
+  `tf_fn_hc_reduce_act_kernel`'s operations), and windows of up to 16 rows the up projection and mix
+  (`tf_fn_hc_upmix_q12_kernel`, `_hc_up_mix`'s bytes). Not the MTP layer or the final mixer (the 4-bit draft matrices
+  read their 32-group sums), not two ranks, not recorded-launch tests.
+- `tensorfold hc-check MODEL` (no weights) compares the copies' kernels with the kernel set's, byte for byte, then
+  times both. The boot log says `hc q12: decode read-outs from 12-bit copies: 192 matrices, ...`.
+
+Why the replies do not change: decoding the copy gives the bf16 weights bit for bit, and each output is the same MMA
+chain from a zero accumulator, summed in the same slice order with the same epilogue operations.
+
+Kernel time (hc-check, GB10, per read-out): 64.4 -> 51.5 us at 1 row, 63.6 -> 52.0 at 8, 64.2 -> 52.5 at 16; over 97
+read-outs a round, 6.24 -> 4.99 ms.
+
+Measured on one DGX Spark through the recipe's own server: the campaign's build with #34-#36 and #42-#50 (`zmerge5`)
+against the same build plus this patch (a lane image), two holds of a warm-up boot then base / q12 / q12 / base, so
+four boots an arm. Greedy, thinking off, 512-token replies, client-side per-request tok/s, per boot:
+
+| | base | with `0022` | change |
+| --- | --- | --- | ---: |
+| code, 1 client | 127.9 / 128.0 / 127.8 / 127.9 | 131.2 / 130.4 / 131.3 / 131.4 | +2.6% |
+| prose, 1 client | 72.2 / 72.6 / 72.0 / 72.5 | 75.0 / 75.0 / 75.1 / 75.1 | +3.7% |
+| prose, 2 clients | 59.9 / 60.0 / 59.7 / 59.3 | 61.3 / 61.4 / 60.5 / 61.0 | +2.3% |
+| code, 2 clients | 88.5 / 90.1 / 89.2 / 88.8 | 89.5 / 90.1 / 90.9 / 90.9 | +1.7% (one pair tied) |
+| prose, 4 clients | 39.5 / 39.6 / 38.8 / 39.6 | 40.4 / 39.6 / 40.2 / 40.5 | +1.9% (one pair tied) |
+
+In the first three rows every boot with the patch is faster than every boot without. Code at 4 clients is within the
+noise (+0.6% leaving out one slow-plan boot in each arm, whose boot cost table timed the 32-row shared window at 91-93
+ms instead of ~71). The kernel-level saving (~1.2 ms of a ~38 ms one-stream round) matches the 1-client gain.
+
+Measured and left out: 2-4 tiles a warp, persistent double-buffered CTAs, the fused reduce above 8 rows, and the up
+copy above 16 rows (each slower), and a bf16 CUDA port of the same kernels (no gain).
+
+### The whole stack on RigMark and time to first token, stock against ours
+
+One DGX Spark, the recipe's own server (`start.sh`, the recipe's defaults otherwise), a fresh boot an arm, the golden
+replies byte-identical in every arm. Columns: the recipe's last Python release (0.6.1, its published image); this
+recipe's Zig release 1.0.0 as published (`tensorfold-qwen38:zig-db28187`); that plus #34-#36 and #42-#50 (the campaign's
+merged build `zmerge5`); and that plus this batch (`zmerge6`: the four patches as measured, before the clean-up named
+in each PR, with `TF_FLASHNEXT_PREFILL_ROWS=4096`; `TF_FLASHNEXT_FILL` off, so 0021 does not move these numbers). The
+last two ran in two sweeps with the arm order reversed (shown as sweep 1 / sweep 2), the first two in their own
+sweeps the same day.
+
+Time to first token, client-measured to the first streamed token, median of 3, seconds, thinking off (thinking on is
+within ~3% of these rows); cold prompts are new text, the warm turn is +2k tokens on a kept ~100k conversation:
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| cold 1k, idle | 0.707 | 0.464 | 0.426 / 0.432 | 0.503 / 0.406 |
+| cold 8k, idle | 3.819 | 2.989 | 2.967 / 2.980 | 2.655 / 2.679 |
+| cold 32k, idle | 13.76 | 12.07 | 12.05 / 11.98 | 10.83 / 10.67 |
+| cold 120k, idle | 57.20 | 49.62 | 49.62 / 49.54 | 43.24 / 42.50 |
+| warm +2k turn, idle | 1.502 | 1.231 | 1.196 / 1.180 | 1.144 / 1.116 |
+| cold 1k, 3 streams decoding | 0.922 | 0.537 | 0.494 / 0.511 | 0.468 / 0.474 |
+| cold 8k, 3 streams decoding | 4.076 | 3.074 | 3.041 / 3.015 | 2.731 / 2.754 |
+| cold 32k, 3 streams decoding | 14.88 | 12.18 | 12.10 / 12.12 | 10.87 / 10.75 |
+| cold 120k, 3 streams decoding | 63.87 | 50.01 | 49.86 / 49.82 | 43.16 / 42.88 |
+| warm +2k turn, 3 streams decoding | 1.927 | 1.321 | 1.287 / 1.310 | 1.207 / 1.213 |
+
+[RigMark](https://github.com/alexellis/rigmark) (protocol 1.3.0, extra body `{"reasoning_effort": "low"}` as on its
+published card for this model; the receipts' medians):
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| code / prose / structured decode, tok/s | 88.0 / 50.5 / 103.3 | 95.4 / 50.1 / 136.6 | 109.7, 110.5 / 57.2, 58.2 / 156.7, 158.2 | 111.2, 112.3 / 58.4, 60.1 / 158.5, 159.1 |
+| time to first token, s | 0.28-0.29 | 0.18 | 0.15-0.16 | 0.15-0.17 |
+| C1 / C2 / C4 aggregate, tok/s | 68.6 / 94.9 / 129.4 | 59.0 / 97.7 / 150.2 | 70.7, 73.1 / 111.4, 117.9 / 159.4, 168.5 | 72.9, 74.8 / 114.7, 112.5 / 172.9, 171.0 |
+| prefill 8K / 32K / 64K cold, tok/s | not run | 2,723 / 2,636 / 2,520 | 2,730, 2,741 / 2,639, 2,642 / 2,546, 2,547 | 3,101, 3,104 / 2,944, 3,032 / 2,876, 2,952 |
+
+Every arm passed RigMark's output gates (code, prose, structured 5/5). RigMark's prefill section needs `/tokenize`,
+which the Python server lacks, so the Python arm skipped it (its cold-prompt TTFT rows are the like-for-like prefill
+comparison). The stock arms ran under RigMark's published comparison ID, the last two under their own, so their decode
+prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
+build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
+cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the reference on every boot of every hold quoted here. (all 6 boots with the patch, every base boot.)
+- `hc-check` on GB10: EQUAL on all 675 cases (partials, act, inject and mixed bytes against the split `_b16mm` +
+  `tf_fn_hc_reduce_act_kernel` and `_hc_up_mix` / `_b16mm` + `_hc_mix`; 1-128 rows, with and without inject rows;
+  normal weights, weights over 44 binades (millions of escapes), and every bf16 bit pattern; normal, wide and
+  cancelling inputs; the fused and unfused reduce). Its built-in mutant (the k16 chunks reversed in each block) is
+  caught in 30 of 36 cases, and the check fails unless it is caught at least once. That mutant still gives golden 6/6
+  (greedy decoding absorbs last-bit fp32 changes), which is why the byte check, not the golden replies, is the gate.
+  An engagement mutant (every projection zero, a switch in the measured image, not in this patch) gave golden 0/6, so
+  the path runs.
+- The patch here is the measured code without the engagement mutant's switch (named below) and with the boot line and comments reworded. The whole stack, `patches/0001`-`0024`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 190/190 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: +0.97 GB of device memory for the copies, allocated before the engine sizes the KV pool (the pool is that
+  much smaller; the floor `TENSORFOLD_MEMORY_RESERVE_GIB` is unchanged). The startup estimate line was not
+  re-checked separately.
+
+Other PRs from me: #34, #35, #36 and #42-#50 (`patches/0010`-`0020`), and in this batch #[0021's PR] (the sliced-fill fix), #[0023's PR] (indexer select and prompt scores tile), #[0024's PR] (FP8 prompt tiles and int4 prompt gate/up), #[the 4096-row setting's PR] (4096-row prompt chunks). `patches/0021`-`0024` are written in that order on top of `0001`-`0020`: each applies with `git apply` after the ones before it, so this PR's patch needs #35, #36, #42-#50, #[0021's PR] merged first (logically it needs only #49's fused reduce + activation, whose operations its down kernel repeats). All of them add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35, #36 and #42-#50 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [ ] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 15. `zig-pr-indexer-select`
+
+**Title:** patches/0023: the sparse-attention indexer's block lists from one read of each row, and its prompt scores on fma.rn.f32.bf16 (cold prefill +4 to +9% at 100k-200k, decode -6.5% time a token at 200k; replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+Flash Next's sparse attention first picks, for every row, the TOP key blocks by an indexer score (`_scores`), then
+lists them in block order (`_select`, or `_select_tiles` past `_select`'s registers). At long contexts both grow with
+the context: in an eager profile at 200k, decode select took 2.04 ms of a 47.8 ms round and the MTP steps' select 0.55
+ms; a 2048-row prompt chunk spent 75.4 ms in `qsa_scores` and 40.8 ms in `qsa_select`.
+
+`patches/0023-flash-next-indexer-select-scores-tile.patch`:
+
+- `TF_FLASHNEXT_QSA_SELECT=1`: the block lists of decode windows, MTP steps and prompt blocks come from a new kernel
+  file, `fn_qsa_stream.cu`. Each row's scores are read once, in block order, through a shared-memory candidate buffer
+  that always holds the TOP best of the prefix seen so far (a later block must beat the current cut); an overflowing
+  buffer is compacted by a 3-pass radix cut over the top 11/11/10 bits, and the last compaction emits the list in
+  block order. Ties go to the lower block id, as in `_select`. Two kinds: `s5` (one 512-thread CTA a row) and `cs4`
+  (a cluster of 4 CTAs a row, each cutting its slice to its own TOP, rank 0 merging them over distributed shared
+  memory). Decode uses `cs4` from 32,768 blocks (~131k keys) and `s5` below; prompt blocks use `s5`. Off (`0`), the
+  Triton kernels run as before.
+- `TF_FLASHNEXT_QSA_TILE=4`: the prompt indexer's scores (`fn_qsa_scores.cu`, already in the engine) gain four tiles
+  4-7 that compute the per-dim products with `fma.rn.f32.bf16` on the packed bf16 words, the PTX instruction
+  `_scores` itself uses, in its order, instead of widening each operand to fp32 first. Tile 4 is the 2 x 4 shape.
+- `qsa-check` also compares every `fn_qsa_stream` kind and every score tile with `_scores` / `_select` at decode
+  windows (1, 3, 16 rows, bucketed and exact key counts, positions 2,045-261,000) as well as prompt blocks, and times
+  them. The boot log says `qsa select: ...`.
+
+Why the replies do not change: the lists are integers fixed by the scores (any exact selection gives the same words,
+ties included), and the score tiles compute the same fp32 words as `_scores` (`fma.rn.f32.bf16(k1, q1, -0.0)` equals
+`mul.rn(k1, q1)` exactly, and bf16 widens to fp32 exactly).
+
+Kernel times on GB10 (`qsa-check`): one decode row at 200k, Triton `_select_tiles` 0.2085 ms, `cs4` 0.0246, `s5`
+0.0347; 16 rows at 8k, `_select` 0.0106 ms, `s5` 0.0069, `cs4` 0.0143 (hence the split); a 256-row prompt block at
+200k, the engine's select 1.061 ms, `s5` 0.297. Tile 4 scores 131k keys 2.42x faster than Triton `_scores` (tile 0,
+the engine's default until now: 1.71x).
+
+Measured on one DGX Spark: the campaign's build with #34-#36 and #42-#50 (`zmerge5`) against the same build plus this
+patch (lane images), golden 6/6 on all 5 server boots. Eager profile at 200k: decode select 2.038 -> 0.337 ms a round, MTP
+select 0.554 -> 0.089 ms, the round 47.82 -> 44.71 ms (64.4 -> 68.9 tok/s, the same rounds and reply sha); per 2048-row
+chunk, `qsa_scores` 75.40 -> 53.45 ms and `qsa_select` 40.80 -> 15.81 ms. Offline prefill (`bench`, graphs, two runs
+an arm, on a first build of the patch that ran `cs4` at every decode width; every run with it above every base run),
+tok/s:
+
+| | base | with `0023` |
+| --- | ---: | ---: |
+| 100k | 2,517.7 / 2,634.9 | 2,738.0 / 2,749.9 |
+| 128k | 2,604.8 / 2,594.8 | 2,695.3 / 2,688.5 |
+| 200k | 2,440.8 / 2,432.7 | 2,585.6 / 2,584.7 |
+
+Through the recipe's server (cold prompts of new text, two boots an arm): 128k 2,569 / 2,563 -> 2,695 / 2,659 tok/s
+(+4.2%), 200k 2,403 / 2,421 -> 2,549 / 2,535 (+5.5%). Decode at 200k (offline, 256 tokens): 15.08 / 15.49 -> 14.18 /
+14.22 ms a token (-6.5%, the same first build); at 100k and 128k the arms overlap, so no decode claim there.
+
+Measured and left out: cluster selects of 8 and 16 CTAs a row (8 is 3-10x slower than `s5` at prompt blocks; 16 is not
+a portable cluster size), another one-CTA select (wrong lists on random-bit scores in 446 of 488 cases, and 2-3x
+slower), the new score tiles at decode widths (Triton's `_scores` is faster at 1-16 rows), and two further
+`fn_qsa_stream` shapes (`k6v8`, `c8k4v4`; exact, not picked).
+
+### The whole stack on RigMark and time to first token, stock against ours
+
+One DGX Spark, the recipe's own server (`start.sh`, the recipe's defaults otherwise), a fresh boot an arm, the golden
+replies byte-identical in every arm. Columns: the recipe's last Python release (0.6.1, its published image); this
+recipe's Zig release 1.0.0 as published (`tensorfold-qwen38:zig-db28187`); that plus #34-#36 and #42-#50 (the campaign's
+merged build `zmerge5`); and that plus this batch (`zmerge6`: the four patches as measured, before the clean-up named
+in each PR, with `TF_FLASHNEXT_PREFILL_ROWS=4096`; `TF_FLASHNEXT_FILL` off, so 0021 does not move these numbers). The
+last two ran in two sweeps with the arm order reversed (shown as sweep 1 / sweep 2), the first two in their own
+sweeps the same day.
+
+Time to first token, client-measured to the first streamed token, median of 3, seconds, thinking off (thinking on is
+within ~3% of these rows); cold prompts are new text, the warm turn is +2k tokens on a kept ~100k conversation:
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| cold 1k, idle | 0.707 | 0.464 | 0.426 / 0.432 | 0.503 / 0.406 |
+| cold 8k, idle | 3.819 | 2.989 | 2.967 / 2.980 | 2.655 / 2.679 |
+| cold 32k, idle | 13.76 | 12.07 | 12.05 / 11.98 | 10.83 / 10.67 |
+| cold 120k, idle | 57.20 | 49.62 | 49.62 / 49.54 | 43.24 / 42.50 |
+| warm +2k turn, idle | 1.502 | 1.231 | 1.196 / 1.180 | 1.144 / 1.116 |
+| cold 1k, 3 streams decoding | 0.922 | 0.537 | 0.494 / 0.511 | 0.468 / 0.474 |
+| cold 8k, 3 streams decoding | 4.076 | 3.074 | 3.041 / 3.015 | 2.731 / 2.754 |
+| cold 32k, 3 streams decoding | 14.88 | 12.18 | 12.10 / 12.12 | 10.87 / 10.75 |
+| cold 120k, 3 streams decoding | 63.87 | 50.01 | 49.86 / 49.82 | 43.16 / 42.88 |
+| warm +2k turn, 3 streams decoding | 1.927 | 1.321 | 1.287 / 1.310 | 1.207 / 1.213 |
+
+[RigMark](https://github.com/alexellis/rigmark) (protocol 1.3.0, extra body `{"reasoning_effort": "low"}` as on its
+published card for this model; the receipts' medians):
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| code / prose / structured decode, tok/s | 88.0 / 50.5 / 103.3 | 95.4 / 50.1 / 136.6 | 109.7, 110.5 / 57.2, 58.2 / 156.7, 158.2 | 111.2, 112.3 / 58.4, 60.1 / 158.5, 159.1 |
+| time to first token, s | 0.28-0.29 | 0.18 | 0.15-0.16 | 0.15-0.17 |
+| C1 / C2 / C4 aggregate, tok/s | 68.6 / 94.9 / 129.4 | 59.0 / 97.7 / 150.2 | 70.7, 73.1 / 111.4, 117.9 / 159.4, 168.5 | 72.9, 74.8 / 114.7, 112.5 / 172.9, 171.0 |
+| prefill 8K / 32K / 64K cold, tok/s | not run | 2,723 / 2,636 / 2,520 | 2,730, 2,741 / 2,639, 2,642 / 2,546, 2,547 | 3,101, 3,104 / 2,944, 3,032 / 2,876, 2,952 |
+
+Every arm passed RigMark's output gates (code, prose, structured 5/5). RigMark's prefill section needs `/tokenize`,
+which the Python server lacks, so the Python arm skipped it (its cold-prompt TTFT rows are the like-for-like prefill
+comparison). The stock arms ran under RigMark's published comparison ID, the last two under their own, so their decode
+prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
+build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
+cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the reference on every boot of every hold quoted here. Offline bench reply shas identical in every arm at 100k, 128k and 200k.
+- `qsa-check` on GB10 (the lane's build, which also held the kinds left out above): PASS, 1,704 EQUAL, 0 DIFFER: every
+  select kind and score tile against Triton `_scores` / `_select` on random, tie-heavy and special (NaN, inf, -0,
+  subnormal) indexer inputs, at prompt blocks (256 rows, positions 1k-261k) and decode windows.
+- A standalone select check against a literal host replay of `_select` (all 2,052 key-list words, lengths and flags; 8
+  input kinds x 62 shapes): every kind 496/496 EQUAL; six mutants (the tie rule `<=`, a 9-bit digit, the append order,
+  the gather order, and two more) all killed. A standalone score check: 96/96 bytes equal; the mutant (the fma order
+  of k1 and k0 swapped) differs in all 8 of its cases.
+- The patch here is the measured code with the kinds and switches left out above taken out: one setting (`TF_FLASHNEXT_QSA_SELECT`) in place of the lane's bit mask and per-kind switches, and `qsa-check`'s case count changes with the kinds. The whole stack, `patches/0001`-`0024`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 190/190 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (the select kernels use shared memory only).
+
+Other PRs from me: #34, #35, #36 and #42-#50 (`patches/0010`-`0020`), and in this batch #[0021's PR] (the sliced-fill fix), #[0022's PR] (12-bit read-out weights), #[0024's PR] (FP8 prompt tiles and int4 prompt gate/up), #[the 4096-row setting's PR] (4096-row prompt chunks). `patches/0021`-`0024` are written in that order on top of `0001`-`0020`: each applies with `git apply` after the ones before it, so this PR's patch needs #35, #36, #42-#50, #[0021's PR], #[0022's PR] merged first (logically it needs none of them). All of them add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35, #36 and #42-#50 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 16. `zig-pr-prompt-tiles`
+
+**Title:** patches/0024: larger block-FP8 prompt tiles and the int4 prompt kernel for the experts' gate/up (cold prefill +5.3 to +5.5% at 8k-128k, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+A 2,048-row prompt chunk of real text spends about a third of its time in the routed experts (gate/up 153.5 ms,
+down 95.1 ms of ~780 ms) and much of the rest in the block-FP8 projections. Both run tiles sized for decode-sized calls.
+
+`patches/0024-flash-next-prompt-fp8-tiles-int4-gate-up.patch`, prompt chunks only:
+
+- `TF_FLASHNEXT_FP8_PROMPT_TILES=1`: from 256 rows, one-slice block-FP8 shapes of 8,192+ columns (the DeltaNet qkvz
+  16384 x 2560 and attention qkv 13312 x 2560 projections) run `qmmf_kernel` on a 128 x 128 tile (2 x 4 warps, 3
+  stages; a block reads two 64-column tiles of words and scales) instead of 64 x 64 in 4 stages, and split-K shapes of
+  2,048+ columns (out_proj 2560 x 6144, the shared expert's gate/up and down) run the fused prompt form in 2 stages
+  instead of 4 (half the shared memory a block, so 3 blocks a multiprocessor instead of 2). Narrower shapes keep the
+  4-stage form: the MTP layer's hyper-connection down (324 columns over K 10,240, 192 blocks) lost 18% on 2 stages.
+- `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1`: a prompt call's routed gate/up runs on `int4_prompt_kernel` (until now only the
+  prompt down did) with both matrices and the SwiGLU epilogue, on items of up to 64 pairs: an expert's words are read
+  once an item instead of once every 16 pairs. 2 x 4 warps, 2 x 4 tiles a warp (64 rows x 128 columns a block), 3
+  stages.
+- `tensorfold fp8-tiles-check MODEL` (no weights): every tile mode against the stock kernel at prompt row counts, bytes
+  compared, with two mutants, then timed. `int4-check` also compares the prompt gate/up with `int4_kernel`. The boot
+  log names both settings.
+
+Why the replies do not change: a row's bits depend only on the K order and the per-output MMA and scale sequence, which
+the tiles keep; the gate/up kernel does `int4_kernel`'s arithmetic per output.
+
+Kernel time in the engine (2,048 rows, median of 5): qkvz 2,800 -> 2,463 us, attention qkv 2,332 -> 2,004, out_proj
+1,256 -> 1,098, the shared expert's gate/up 496 -> 420 and down 278 -> 238 (+12-15% at 4,096 rows); the experts'
+gate/up in an eager profile 151.0 / 150.4 -> 131.7 ms a chunk (code / prose text, -12.8%).
+
+Measured on one DGX Spark through the recipe's own server: the campaign's build with #34-#36 and #42-#50 (`zmerge5`)
+against the same build plus both changes (a lane image), a warm-up boot then base / both / both / base, golden 6/6 on
+all 5 boots; cold prompts of new text, time to first token as prompt tokens a second, every run listed:
+
+| | base | with `0024` | change of the median |
+| --- | --- | --- | ---: |
+| 8k | 2,915 2,930 2,932 2,883 2,917 2,913 | 3,077 3,100 3,052 3,060 3,075 3,080 | +5.5% |
+| 32k | 2,861 2,853 2,837 2,844 2,825 2,823 | 3,015 3,000 2,995 3,006 2,987 2,988 | +5.5% |
+| 128k | 2,564 2,510 2,568 2,564 | 2,698 2,700 2,699 2,696 | +5.3% |
+
+Every run with the patch is above every base run. Each change alone, in earlier holds: the tiles +1.9% and +2.7% at
+128k (every tiles run above every base run in both holds), +2-5% at 8k and 32k; the gate/up on top of the tiles
++2.1 / +1.6 / +3.2% at 8k / 32k / 128k (every run above at 128k).
+
+Measured and left out: the 64 x 64 tile in 2 stages for the wide shapes (the tile sweep picked 128 x 128), three other gate/up
+shapes (2 stages; 4 x 2 warps in 4 stages; 4 x 2 warps with 1 x 2 tiles), and an `int4_prompt_kernel` variant that
+keeps its copy ring full across items (the same bytes, but the down 12% slower).
+
+### The whole stack on RigMark and time to first token, stock against ours
+
+One DGX Spark, the recipe's own server (`start.sh`, the recipe's defaults otherwise), a fresh boot an arm, the golden
+replies byte-identical in every arm. Columns: the recipe's last Python release (0.6.1, its published image); this
+recipe's Zig release 1.0.0 as published (`tensorfold-qwen38:zig-db28187`); that plus #34-#36 and #42-#50 (the campaign's
+merged build `zmerge5`); and that plus this batch (`zmerge6`: the four patches as measured, before the clean-up named
+in each PR, with `TF_FLASHNEXT_PREFILL_ROWS=4096`; `TF_FLASHNEXT_FILL` off, so 0021 does not move these numbers). The
+last two ran in two sweeps with the arm order reversed (shown as sweep 1 / sweep 2), the first two in their own
+sweeps the same day.
+
+Time to first token, client-measured to the first streamed token, median of 3, seconds, thinking off (thinking on is
+within ~3% of these rows); cold prompts are new text, the warm turn is +2k tokens on a kept ~100k conversation:
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| cold 1k, idle | 0.707 | 0.464 | 0.426 / 0.432 | 0.503 / 0.406 |
+| cold 8k, idle | 3.819 | 2.989 | 2.967 / 2.980 | 2.655 / 2.679 |
+| cold 32k, idle | 13.76 | 12.07 | 12.05 / 11.98 | 10.83 / 10.67 |
+| cold 120k, idle | 57.20 | 49.62 | 49.62 / 49.54 | 43.24 / 42.50 |
+| warm +2k turn, idle | 1.502 | 1.231 | 1.196 / 1.180 | 1.144 / 1.116 |
+| cold 1k, 3 streams decoding | 0.922 | 0.537 | 0.494 / 0.511 | 0.468 / 0.474 |
+| cold 8k, 3 streams decoding | 4.076 | 3.074 | 3.041 / 3.015 | 2.731 / 2.754 |
+| cold 32k, 3 streams decoding | 14.88 | 12.18 | 12.10 / 12.12 | 10.87 / 10.75 |
+| cold 120k, 3 streams decoding | 63.87 | 50.01 | 49.86 / 49.82 | 43.16 / 42.88 |
+| warm +2k turn, 3 streams decoding | 1.927 | 1.321 | 1.287 / 1.310 | 1.207 / 1.213 |
+
+[RigMark](https://github.com/alexellis/rigmark) (protocol 1.3.0, extra body `{"reasoning_effort": "low"}` as on its
+published card for this model; the receipts' medians):
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| code / prose / structured decode, tok/s | 88.0 / 50.5 / 103.3 | 95.4 / 50.1 / 136.6 | 109.7, 110.5 / 57.2, 58.2 / 156.7, 158.2 | 111.2, 112.3 / 58.4, 60.1 / 158.5, 159.1 |
+| time to first token, s | 0.28-0.29 | 0.18 | 0.15-0.16 | 0.15-0.17 |
+| C1 / C2 / C4 aggregate, tok/s | 68.6 / 94.9 / 129.4 | 59.0 / 97.7 / 150.2 | 70.7, 73.1 / 111.4, 117.9 / 159.4, 168.5 | 72.9, 74.8 / 114.7, 112.5 / 172.9, 171.0 |
+| prefill 8K / 32K / 64K cold, tok/s | not run | 2,723 / 2,636 / 2,520 | 2,730, 2,741 / 2,639, 2,642 / 2,546, 2,547 | 3,101, 3,104 / 2,944, 3,032 / 2,876, 2,952 |
+
+Every arm passed RigMark's output gates (code, prose, structured 5/5). RigMark's prefill section needs `/tokenize`,
+which the Python server lacks, so the Python arm skipped it (its cold-prompt TTFT rows are the like-for-like prefill
+comparison). The stock arms ran under RigMark's published comparison ID, the last two under their own, so their decode
+prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
+build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
+cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the reference on every boot of every hold quoted here. (15 boots over three holds.)
+- `fp8-tiles-check` on GB10: PASS on six prompt shapes (the five above and the MTP layer's narrow hc down) at rows
+  255, 256, 300, 1,024, 2,048 and 2,049, bf16, fp32 and the strided form, random e4m3 codes and scales, the output
+  poisoned before every call: 0 of 72 / 48 calls a shape differ from the stock kernel. Two mutants, the fused form told
+  half the slices and the wide tile told a K of 64 less, differ on every call they run (15/15, 10/10). That run used
+  the lane's first build, before the narrow-shape gate; in this patch the check runs the mutants only where the new
+  kernels run, so the gated shape no longer counts a mutant it cannot see.
+- `int4-check` on GB10: the prompt gate/up's bf16 SwiGLU bytes equal `int4_kernel`'s on every pair, the skipped shared
+  slot left untouched. The engine bench's reply shas are identical with and without the tiles (code `f5f86b2cefc1`,
+  prose `0d5b96e12e42`).
+- The patch here is the measured code with the shapes left out above taken out (one gate/up shape, the 128 x 128 tile only), one switch for each change in place of the lane's per-shape switches, and a per-layer expert-count diagnostic dropped. The whole stack, `patches/0001`-`0024`, applies with `git apply` in order on TensorFold `db281878`, builds the image's engine (`zig build -Doptimize=fast fatbins install native` with nvcc in the build image), and passes `zig build test` (21/21 steps, 190/190 tests).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: unchanged (the tiles and the gate/up use shared memory and the same plan buffers).
+
+Other PRs from me: #34, #35, #36 and #42-#50 (`patches/0010`-`0020`), and in this batch #[0021's PR] (the sliced-fill fix), #[0022's PR] (12-bit read-out weights), #[0023's PR] (indexer select and prompt scores tile), #[the 4096-row setting's PR] (4096-row prompt chunks). `patches/0021`-`0024` are written in that order on top of `0001`-`0020`: each applies with `git apply` after the ones before it, so this PR's patch needs #35, #36, #42-#50, #[0021's PR], #[0022's PR], #[0023's PR] merged first (logically it needs only #48's fused prompt form and fp8-fused-check). All of them add CHANGELOG/README/CREDITS lines in the same places, the patch PRs each add a row to the same new patch table (as #35, #36 and #42-#50 do), and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [x] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
+## 17. `zig-pr-prefill-rows`
+
+**Title:** config: TF_FLASHNEXT_PREFILL_ROWS=4096 on one Spark (cold prefill +0.3 to +3% at 32k-128k, replies byte-identical)
+
+**Body:**
+
+## Description and Motivation
+
+`scripts/config.sh` now sets `TF_FLASHNEXT_PREFILL_ROWS=4096`: prompts run in chunks of 4,096 rows instead of the
+engine's one-GPU default of 2,048. The engine's own comment already says 4,096 rows a call are faster than 2,048 at two
+ranks; on one Spark the gain is smaller but holds. Any chunking gives the same bits (the engine says so, and the
+bench's reply shas agree).
+
+Measured on one DGX Spark through the recipe's own server, the campaign's build with #34-#36 and #42-#50
+(`zmerge5`), a warm-up boot then 2048 / 4096 / (two boots of another setting) / 4096 / 2048, golden 6/6 on every
+boot; cold prompts of new text, tok/s, one run a boot:
+
+| | 2,048 rows | 4,096 rows |
+| --- | --- | --- |
+| 32k | 2,846 / 2,856 | 2,935 / 2,864 |
+| 128k | 2,588 / 2,577 | 2,650 / 2,595 |
+
+Every 4,096 run is above every 2,048 run (+0.3 to +3%); decode unchanged. On an earlier build (the stock engine with
+`0010` and `0011`, two boots an arm): 128k 2,571 / 2,586 -> 2,622 / 2,622 (+1.4%, every 4,096 boot above every 2,048
+boot), 32k 2,727 / 2,853 -> 2,848 / 2,867 (+0.5%, inside the boot spread), 8k no change; copy and rewrite replies
+unchanged. Larger chunks amortise less than they used to once #42's n-gram host gather landed: before it, 4,096 rows
+cut 128k prefill time by 5.9%.
+
+It is one of the settings in the RigMark and time-to-first-token comparison below (the "+ this batch" column).
+
+### The whole stack on RigMark and time to first token, stock against ours
+
+One DGX Spark, the recipe's own server (`start.sh`, the recipe's defaults otherwise), a fresh boot an arm, the golden
+replies byte-identical in every arm. Columns: the recipe's last Python release (0.6.1, its published image); this
+recipe's Zig release 1.0.0 as published (`tensorfold-qwen38:zig-db28187`); that plus #34-#36 and #42-#50 (the campaign's
+merged build `zmerge5`); and that plus this batch (`zmerge6`: the four patches as measured, before the clean-up named
+in each PR, with `TF_FLASHNEXT_PREFILL_ROWS=4096`; `TF_FLASHNEXT_FILL` off, so 0021 does not move these numbers). The
+last two ran in two sweeps with the arm order reversed (shown as sweep 1 / sweep 2), the first two in their own
+sweeps the same day.
+
+Time to first token, client-measured to the first streamed token, median of 3, seconds, thinking off (thinking on is
+within ~3% of these rows); cold prompts are new text, the warm turn is +2k tokens on a kept ~100k conversation:
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| cold 1k, idle | 0.707 | 0.464 | 0.426 / 0.432 | 0.503 / 0.406 |
+| cold 8k, idle | 3.819 | 2.989 | 2.967 / 2.980 | 2.655 / 2.679 |
+| cold 32k, idle | 13.76 | 12.07 | 12.05 / 11.98 | 10.83 / 10.67 |
+| cold 120k, idle | 57.20 | 49.62 | 49.62 / 49.54 | 43.24 / 42.50 |
+| warm +2k turn, idle | 1.502 | 1.231 | 1.196 / 1.180 | 1.144 / 1.116 |
+| cold 1k, 3 streams decoding | 0.922 | 0.537 | 0.494 / 0.511 | 0.468 / 0.474 |
+| cold 8k, 3 streams decoding | 4.076 | 3.074 | 3.041 / 3.015 | 2.731 / 2.754 |
+| cold 32k, 3 streams decoding | 14.88 | 12.18 | 12.10 / 12.12 | 10.87 / 10.75 |
+| cold 120k, 3 streams decoding | 63.87 | 50.01 | 49.86 / 49.82 | 43.16 / 42.88 |
+| warm +2k turn, 3 streams decoding | 1.927 | 1.321 | 1.287 / 1.310 | 1.207 / 1.213 |
+
+[RigMark](https://github.com/alexellis/rigmark) (protocol 1.3.0, extra body `{"reasoning_effort": "low"}` as on its
+published card for this model; the receipts' medians):
+
+| | Python 0.6.1 | Zig 1.0.0 | + #34-#36, #42-#50 | + this batch |
+| --- | ---: | ---: | ---: | ---: |
+| code / prose / structured decode, tok/s | 88.0 / 50.5 / 103.3 | 95.4 / 50.1 / 136.6 | 109.7, 110.5 / 57.2, 58.2 / 156.7, 158.2 | 111.2, 112.3 / 58.4, 60.1 / 158.5, 159.1 |
+| time to first token, s | 0.28-0.29 | 0.18 | 0.15-0.16 | 0.15-0.17 |
+| C1 / C2 / C4 aggregate, tok/s | 68.6 / 94.9 / 129.4 | 59.0 / 97.7 / 150.2 | 70.7, 73.1 / 111.4, 117.9 / 159.4, 168.5 | 72.9, 74.8 / 114.7, 112.5 / 172.9, 171.0 |
+| prefill 8K / 32K / 64K cold, tok/s | not run | 2,723 / 2,636 / 2,520 | 2,730, 2,741 / 2,639, 2,642 / 2,546, 2,547 | 3,101, 3,104 / 2,944, 3,032 / 2,876, 2,952 |
+
+Every arm passed RigMark's output gates (code, prose, structured 5/5). RigMark's prefill section needs `/tokenize`,
+which the Python server lacks, so the Python arm skipped it (its cold-prompt TTFT rows are the like-for-like prefill
+comparison). The stock arms ran under RigMark's published comparison ID, the last two under their own, so their decode
+prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
+build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
+cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+
+## Related Issues
+
+None.
+
+---
+
+## Testing
+
+- Golden replies (six greedy prompts, `temperature: 0`, fixed seed) byte-identical to the reference on every boot of every hold quoted here.
+- The A/B: each arm a fresh boot of the recipe's server with the setting in the environment, arms interleaved.
+- The RigMark / TTFT sweeps below booted and served RigMark's 64K prompts and the 120k TTFT prompts with it, at the
+  recipe's defaults (`PARALLEL` 8).
+- `bash -n start.sh stop.sh scripts/*.sh`; `python3 -m py_compile tools/*.py`; shellcheck adds no finding.
+- Memory: a 4,096-row chunk's prompt scratch is larger than a 2,048-row one's. The servers above started and served
+  120k prompts at the defaults; I did not compare the startup estimate lines separately, so the box is unticked.
+
+Other PRs from me: #34, #35, #36 and #42-#50 (`patches/0010`-`0020`), and in this batch #[0021's PR] (the sliced-fill fix), #[0022's PR] (12-bit read-out weights), #[0023's PR] (indexer select and prompt scores tile), #[0024's PR] (FP8 prompt tiles and int4 prompt gate/up). This one changes `scripts/config.sh`, the README's settings table and the CHANGELOG only; it works on the engine as it is (the setting is the engine's own) and needs none of them. All of them add CHANGELOG/README lines in the same places, and the setting PRs add `scripts/config.sh` lines after `TF_FLASHNEXT_PREFILL_TAIL`; whichever merges second, I rebase.
+
+---
+
+## Checklist:
+
+- [x] I have read the README and `scripts/config.sh` and kept my changes consistent with them.
+- [x] My pull request has a sound title and description (not something vague like `Update README.md`).
+- [x] My change is reproducible and verified (script syntax check, `scripts/prepare.sh`, a launch, or a re-measurement).
+- [x] A patch change keeps every reply byte-identical, and I said how I checked it.
+- [x] I updated the README and/or `scripts/config.sh` if a setting, default, or measured number changed.
+- [ ] If my change affects memory, I checked the startup estimate still fits the budget at the default 5 x 262,144 int8 setting.
+- [x] Defaults in `scripts/config.sh` still work out of the box; a new setting has a sane fallback like the existing ones.
+
+---
+
 # Qwen3.8 Flash Next recipe (PARKED: the recipe moved to the Zig engine; not posted)
 
-## 13. `qwen-pr-copy-first`
+## 18. `qwen-pr-copy-first`
 
 **Title:** Patch 0012: copies from the context before MTP chains (TensorFold #319 ported to v0.6.1): a verbatim repeat 153.8 -> ~535 tok/s, same replies
 
@@ -1033,7 +1697,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 14. `qwen-pr-ple-page-cache`
+## 19. `qwen-pr-ple-page-cache`
 
 **Title:** Patch 0013: decode +9 to +12% with the n-gram tables on SSD: cached reads on the engine thread, the next round's rows hinted to the page cache
 
@@ -1095,7 +1759,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 15. `qwen-pr-ple-native`
+## 20. `qwen-pr-ple-native`
 
 **Title:** Patch 0014: prefill with the n-gram tables on SSD +47% at 8k: the table reads in native threads, the same bytes
 
@@ -1157,7 +1821,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 16. `qwen-pr-chain-stop`
+## 21. `qwen-pr-chain-stop`
 
 **Title:** Patch 0015: TENSORFOLD_CHAIN_RULE, where an MTP chain stops (cum: +5.5% for one stream writing code, +1.4% on average, same replies)
 
@@ -1220,7 +1884,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 17. `qwen-pr-mtp-graphs`
+## 22. `qwen-pr-mtp-graphs`
 
 **Title:** Patch 0016: the MTP head's chain steps as CUDA graphs: decode +0.3 to +1.4% through the server, the eager step's bits
 
@@ -1285,7 +1949,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 18. `qwen-pr-ple-defer`
+## 23. `qwen-pr-ple-defer`
 
 **Title:** Patch 0017: a decode round's n-gram rows read while the GPU runs layers 0-1: with 0016, decode +1.8 to +2.2%, same bytes
 
@@ -1357,7 +2021,7 @@ Setup: one DGX Spark (GB10), DGX OS, the recipe at `4c0dea8` with its defaults (
 
 ---
 
-## 19. `qwen-pr-tokenize-nogil`
+## 24. `qwen-pr-tokenize-nogil`
 
 **Title:** Patch 0018: no stall at a long request's start: the server tokenizes with Python's GIL released
 

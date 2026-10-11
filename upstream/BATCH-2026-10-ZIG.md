@@ -33,3 +33,20 @@ rebase whichever merges second.
 | #50 | zig-pr-draft-stop-lines | 0020 |
 
 Each is a signed commit on a branch off upstream main; cross-references filled after posting.
+
+## Batch 3, packaged 2026-10-11 (not posted)
+
+Round 2's winners on the clean stack: spark6 `~/work/lanes/r3-prpack/` (tf = `~/work/zpr` 0001-0020 + 0021-0024,
+host tests `test-stack-fresh.log` 21/21 steps 190/190, `mut0021.sh` killed), CPU image `tensorfold-qwen38:zpr3-stack`
+(GPU verification pending). Experiment switches, unused kernel variants and lane names stripped (each PR says what).
+
+| Package | Patch / setting | Source |
+|---|---|---|
+| zig-pr-fill-fix | 0021 (fix, `TF_FLASHNEXT_FILL=1` only) | r2d-fill `r2d-fill1.patch` |
+| zig-pr-readout-12bit | 0022 + `TF_FLASHNEXT_HC_Q12=1` | r2b-opus `r2b-hcq12b.patch` |
+| zig-pr-indexer-select | 0023 + `TF_FLASHNEXT_QSA_SELECT=1`, `TF_FLASHNEXT_QSA_TILE=4` | r2a-opus `r2a-qsa2.patch` |
+| zig-pr-prompt-tiles | 0024 + `TF_FLASHNEXT_FP8_PROMPT_TILES=1`, `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1` | r2c-fable `r2c-fp8tiles.patch` + `r2c-int4-prompt-gu.patch` (GU=2) |
+| zig-pr-prefill-rows | `TF_FLASHNEXT_PREFILL_ROWS=4096` (settings only) | W7 re-check, 2b |
+
+Every body carries the whole-stack RigMark + TTFT table (Python 0.6.1 / Zig 1.0.0 / + #34-#50 / + batch 3) from
+`~/work/bench/zabrm-py-stock.log`, `zabrm-m5-stock-1010.log`, `zabrm-m6a.log`, `zabrm-m6b.log`.
