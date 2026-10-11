@@ -63,3 +63,9 @@ Every body carries the whole-stack RigMark + TTFT table (Python 0.6.1 / Zig 1.0.
 
 The `#[the 4096-row setting's PR]` placeholder is not filled by upload_batch.py (it fills only numbered ones); it was
 replaced with #57 by hand after posting.
+
+## Review round 1, posted 2026-10-11 (owner-approved)
+
+On #34-#36, #42-#50, #53-#57: one signed "Review round 1: <title>" commit on each PR branch that had a code change
+(15; #34 and #57 had none), pushed without force, and one reply comment from `REVIEW-ROUND-1.md` (the batch note on
+#34). #54 and #57: memory checkbox ticked. Script: `_ompscratch/v110/post_review_qwen.py`.
