@@ -43,6 +43,14 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   image, its OTS patch set and the drafter settings. Its JSON receipts and cards are kept in spark6
   `~/work/bench/rigmark/runs/`; published numbers use its cards. Our own probes (golden, `qf_run.py` decode, copy /
   prefill probes, TTFT) stay alongside it.
+- **No outside traffic during a benchmark (owner 2026-10-11).** sparkDash (CT111, `sparkdash.ots-int.net`,
+  192.168.99.111) polls every Spark's `:8888`, and the LiteLLM router (CT105, .105) and agents send requests too:
+  on 2026-10-10 both hit the GLM serve mid-A/B and spoiled a TTFT arm. So every benchmark, qualification or A/B on a
+  serve: (1) stops sparkDash first, `ssh root@proxmox.ots-int.net "pct exec 111 -- systemctl stop sparkdash"`, and
+  starts it again (`... systemctl start sparkdash`) when the box is restored, from an EXIT trap so a failed run cannot
+  leave it off; (2) firewalls `:8888` on the API box to localhost, the fabric and docker (copy spark1's
+  `~/fw8888.sh on|off`; sudo needs `ssh -A`), lifted at the same point; (3) records `/health` request counts before
+  and after each probe, and an arm with requests it did not send is rerun.
 
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
