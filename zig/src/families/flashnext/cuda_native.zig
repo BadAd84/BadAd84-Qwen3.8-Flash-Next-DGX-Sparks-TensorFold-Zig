@@ -92,6 +92,8 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     const window: usize = if (getenv("TF_FLASHNEXT_WINDOW")) |v| std.fmt.parseInt(usize, v, 10) catch return error.BadWindow else lane_backend.max_rows;
     if (window < depth + 1 or window > lane_backend.max_rows) return error.BadWindow;
     if (o.drafts) std.log.info("copy windows: a lone stream verifies up to {d} rows (TF_FLASHNEXT_WINDOW; the MTP chain {d})", .{ window, depth + 1 });
+    // the cost points timed again after the first pass, at most this many passes (0: once; checked before the load)
+    const retime = try lane_backend.retimeSetting(getenv("TF_FLASHNEXT_COST_RETIME"));
     if (o.tp == 2) {
         // a rank stops on SIGTERM / SIGINT while it loads and, rank 1, while it follows (in a container it is PID 1,
         // where a signal's default action is ignored); rank 0's server takes them over once it serves
@@ -137,6 +139,7 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     errdefer own.e.deinit();
     own.lanes = lane_backend.Lanes(M.Engine).init(gpa, own.e, o.drafts, o.context, window);
     own.lanes.depth = depth;
+    own.lanes.retime = retime;
     // a shared forward's rows at most: the engine's decode buffers (streams x (depth + 1), or the window)
     own.lanes.rows = if (@hasField(M.Engine, "buf")) own.e.buf.b.rows else streams * window;
     own.lanes.streams = streams;
@@ -395,8 +398,9 @@ fn settingsText(gpa: std.mem.Allocator, base: []const u8, snapshot: [32]u8, kern
     const yt = if (yarn) |v| try std.fmt.bufPrint(&y, "{d}x{d}/ramp{d}/att{d}", .{ v.factor, v.original, v.ramp_positions, v.attention() }) else "off";
     const fill = getenv("TF_FLASHNEXT_FILL") orelse "0";
     const fill_layers = getenv("TF_FLASHNEXT_FILL_LAYERS") orelse "8";
-    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} window={d} confidence={d}/{d} yarn={s} fill={s}/{s} kv={s} kernels={x}", .{
-        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").windowSetting(lane_backend.max_rows), @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, @tagName(o.kv_dtype), kernel_set,
+    const retime = getenv("TF_FLASHNEXT_COST_RETIME") orelse "0";
+    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} window={d} confidence={d}/{d} yarn={s} fill={s}/{s} retime={s} kv={s} kernels={x}", .{
+        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").windowSetting(lane_backend.max_rows), @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, retime, @tagName(o.kv_dtype), kernel_set,
     });
 }
 
