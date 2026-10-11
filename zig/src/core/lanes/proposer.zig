@@ -11,6 +11,8 @@ pub const Proposer = struct {
         propose: *const fn (ptr: *anyopaque, context: []const u32, max_draft: i64) anyerror![]const u32,
         last_match: *const fn (ptr: *anyopaque) i64,
         observe: ?*const fn (ptr: *anyopaque, proposed: i64, accepted: i64) void = null,
+        /// the context index the last `propose` copied from (null: it returned nothing, or the proposer does not say)
+        last_from: ?*const fn (ptr: *anyopaque) ?usize = null,
     };
 
     /// Tokens valid until the next `propose`.
@@ -24,6 +26,10 @@ pub const Proposer = struct {
 
     pub fn observe(p: Proposer, proposed: i64, accepted: i64) void {
         if (p.vtable.observe) |f| f(p.ptr, proposed, accepted);
+    }
+
+    pub fn lastFrom(p: Proposer) ?usize {
+        return if (p.vtable.last_from) |f| f(p.ptr) else null;
     }
 };
 
@@ -79,6 +85,8 @@ pub const SuffixLookup = struct {
     /// the last proposal: where its first token sits in the context, and the context's length then
     last_from: usize = 0,
     last_len: usize = 0,
+    /// the latest `propose` returned tokens: `lastFrom` answers for that proposal only (null after an empty one)
+    last_out: bool = false,
     last_resync: bool = false,
     /// a miss waiting for a resync: the context index of the first draft the target rejected, the context length
     /// right after that round (the first token the target wrote instead sits at `base - 1`), and the resyncs that
@@ -107,7 +115,12 @@ pub const SuffixLookup = struct {
         return .{ .ptr = s, .vtable = &vtable };
     }
 
-    pub const vtable: Proposer.VTable = .{ .propose = proposeFn, .last_match = lastMatchFn, .observe = observeFn };
+    pub const vtable: Proposer.VTable = .{ .propose = proposeFn, .last_match = lastMatchFn, .observe = observeFn, .last_from = lastFromFn };
+
+    fn lastFromFn(ptr: *anyopaque) ?usize {
+        const s: *SuffixLookup = @ptrCast(@alignCast(ptr));
+        return if (s.last_out) s.last_from else null;
+    }
 
     fn proposeFn(ptr: *anyopaque, context: []const u32, max_draft: i64) anyerror![]const u32 {
         const s: *SuffixLookup = @ptrCast(@alignCast(ptr));
@@ -164,6 +177,7 @@ pub const SuffixLookup = struct {
     pub fn propose(s: *SuffixLookup, context: []const u32, max_draft: i64) ![]const u32 {
         const n = s.params.ngram;
         s.out.clearRetainingCapacity();
+        s.last_out = false;
         if (max_draft <= 0 or context.len < n + 1) return s.out.items;
         if (s.silent_for > 0) {
             s.silent_for -= 1;
@@ -213,6 +227,7 @@ pub const SuffixLookup = struct {
         try s.out.appendSlice(s.gpa, context[from..to]);
         if (s.out.items.len > 0) {
             s.proposals += 1;
+            s.last_out = true;
             s.proposed_tokens += @intCast(s.out.items.len);
             s.resyncs += @intFromBool(s.last_resync);
             s.last_from = from;
@@ -482,4 +497,22 @@ test "raising min_match to the round loop's enter_match changes only the resyncs
         // without resyncs the two never differ; with them they do, and only by a resync (asserted above)
         if (resync) try std.testing.expect(diverged > 0) else try std.testing.expectEqual(@as(usize, 0), diverged);
     }
+}
+
+test "lastFrom answers for the latest proposal only: null after an empty one" {
+    const gpa = std.testing.allocator;
+    var s = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2 });
+    defer s.deinit();
+    const p = s.proposer();
+    try std.testing.expectEqual(@as(?usize, null), p.lastFrom());
+    const ctx = [_]u32{ 1, 2, 3, 4, 5, 9, 1, 2, 3 };
+    try std.testing.expectEqualSlices(u32, &.{ 4, 5, 9 }, try s.propose(&ctx, 3));
+    try std.testing.expectEqual(@as(?usize, 3), p.lastFrom());
+    // no match: the proposal is empty, and so is its source (not the previous proposal's)
+    const other = [_]u32{ 1, 2, 3, 4, 5, 9, 1, 2, 3, 77, 78 };
+    try std.testing.expectEqual(@as(usize, 0), (try s.propose(&other, 3)).len);
+    try std.testing.expectEqual(@as(?usize, null), p.lastFrom());
+    // and a later match answers again
+    try std.testing.expectEqualSlices(u32, &.{ 4, 5, 9 }, try s.propose(&ctx, 3));
+    try std.testing.expectEqual(@as(?usize, 3), p.lastFrom());
 }

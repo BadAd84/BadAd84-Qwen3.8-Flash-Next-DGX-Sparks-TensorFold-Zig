@@ -219,6 +219,7 @@ pub const Stream = struct {
     served: ?u64 = null,
     granted: ?u32 = null,
     copy_width: ?u32 = null,
+    copy_prompt: bool = false, // the last copy came from the prompt (its source before prompt_len)
     gate: ?call_gate.Gate = null,
 
     pub fn init(gpa: Allocator, spec: Spec) !Stream {
@@ -265,6 +266,7 @@ pub const Stream = struct {
         s.served = null;
         s.granted = null;
         s.copy_width = null;
+        s.copy_prompt = false;
     }
 
     pub fn dropHeld(s: *Stream, gpa: Allocator) void {

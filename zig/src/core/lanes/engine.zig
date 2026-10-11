@@ -522,7 +522,10 @@ pub const Engine = struct {
                 s.accepted += kept;
                 if (p.kind == .copy) {
                     if (s.proposer) |pr| pr.observe(@intCast(rows - 1), @intCast(kept));
-                    if (e.alone) {
+                    // a copy out of the prompt (an edit of a given text), not of the reply's own lines
+                    const from = if (s.proposer) |pr| pr.lastFrom() else null;
+                    s.copy_prompt = if (from) |x| x < s.prompt_len else false;
+                    if (e.alone or (e.cfg.copy_shared and s.copy_prompt)) {
                         const width = s.copy_width orelse e.cfg.first_copy;
                         s.copy_width = if (kept == rows - 1) switch (e.cfg.copy_ramp) {
                             .double => @min(e.cfg.max_copy, 2 * width + 1),

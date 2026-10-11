@@ -288,13 +288,15 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
     // copies out of the prompt do)
     if (std.c.getenv("TF_FLASHNEXT_COPY_MISS")) |v| h.cfg.copy_miss = std.meta.stringToEnum(lanes.Config.CopyMiss, std.mem.span(v)) orelse h.cfg.copy_miss;
     if (std.c.getenv("TF_FLASHNEXT_COPY_RAMP")) |v| h.cfg.copy_ramp = std.meta.stringToEnum(lanes.Config.CopyRamp, std.mem.span(v)) orelse h.cfg.copy_ramp;
+    // TF_FLASHNEXT_COPY_SHARED=1: copies out of the prompt ramp in shared rounds too (Config.copy_shared)
+    if (envInt("TF_FLASHNEXT_COPY_SHARED")) |v| h.cfg.copy_shared = v != 0;
     h.clock = .{ .io = io };
     h.core = lanes.Engine.init(gpa, &h.cfg, h.backend(), h.clock.clock());
     errdefer h.core.deinit();
     h.host = api.LaneHost.init(gpa, io, &h.core, .{ .lanes = o.lanes, .context_window = @intCast(window), .prefill_step = F.prefill_step, .call_gates = true, .media = @hasDecl(F, "media") and F.media });
     if (envInt("TF_FLASHNEXT_COPY_RESYNC")) |v| h.host.resync = v != 0;
     if (envInt("TF_FLASHNEXT_COPY_RESYNC_PROMPT_ONLY")) |v| h.host.resync_prompt_only = v != 0;
-    std.log.info("copy policy: after a missed copy round {s}, after a clean one {s}, resync {s}", .{ @tagName(h.cfg.copy_miss), @tagName(h.cfg.copy_ramp), if (!h.host.resync) "off" else if (h.host.resync_prompt_only) "on (copies out of the prompt)" else "on" });
+    std.log.info("copy policy: after a missed copy round {s}, after a clean one {s}, resync {s}, shared rounds ramp {s}", .{ @tagName(h.cfg.copy_miss), @tagName(h.cfg.copy_ramp), if (!h.host.resync) "off" else if (h.host.resync_prompt_only) "on (copies out of the prompt)" else "on", if (h.cfg.copy_shared) "copies out of the prompt" else "no copies" });
     h.store = null;
     if (@hasField(@TypeOf(loaded), "cache")) if (loaded.cache) |c| if (c.budget > 0) {
         // the family keeps and restores the states; the store picks them (exact reuse, core/prompt_cache.zig)

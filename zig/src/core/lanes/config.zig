@@ -75,6 +75,10 @@ pub const Config = struct {
     /// ... and after a round that kept every copied row: twice the width plus one (Python: 15 -> 31 -> 63), or
     /// straight to max_copy (rows between the head's window and the widest cost about the same per round)
     copy_ramp: CopyRamp = .double,
+    /// streams in shared rounds take the ramp too (the allocator trims their rows to batch_rows), for copies
+    /// out of the prompt only (a reply repeating its own lines keeps first_copy); false: shared rounds copy
+    /// first_copy rows at most
+    copy_shared: bool = false,
     k: Constants = .{},
 
     pub const CopyMiss = enum { first, keep };

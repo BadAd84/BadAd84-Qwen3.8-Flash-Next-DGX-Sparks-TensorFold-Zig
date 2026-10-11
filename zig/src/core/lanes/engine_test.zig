@@ -288,3 +288,35 @@ test "a cancelled fill ends without its stream joining" {
     try std.testing.expectEqual(@as(usize, 0), engine.activeCount());
     try std.testing.expectEqual(@as(u32, 0), target.lanes.count());
 }
+
+test "shared rounds copy past the first width only with copy_shared and only out of the prompt" {
+    const win = @import("windows.zig");
+    var cfg = try Config.init(gpa, .{ .exact_width = 64, .first_copy_rows = 16, .mtp = true, .speculate = true, .speculate_early = false, .drafts = 15, .hidden_rows = true, .batch_rows = 128, .max_streams = 8, .draft_streams = true }, 64, 63);
+    defer cfg.deinit(gpa);
+    try std.testing.expectEqual(@as(u32, 15), cfg.first_copy);
+    var target: fake.Fake = .{ .gpa = gpa };
+    defer target.deinit();
+    var clock: fake.FixedClock = .{};
+    var engine = Engine.init(gpa, &cfg, target.backend(), clock.clock());
+    defer engine.deinit();
+    engine.alone = false; // a shared round
+    // a 100-token prompt (no repeats), and a reply that copies its first 20 tokens
+    var prompt: [100]u32 = undefined;
+    for (&prompt, 0..) |*t, i| t.* = @intCast(1000 + i);
+    var p = try SuffixLookup.init(gpa, .{ .min_match = 4 });
+    defer p.deinit();
+    var s = try sm.Stream.init(gpa, .{ .id = "s", .prompt = &prompt, .max_new = 200, .eos = &.{96}, .proposer = p.proposer() });
+    defer s.deinit(gpa);
+    try s.context.appendSlice(gpa, prompt[0..20]);
+    s.copy_width = 63;
+    s.copy_prompt = true;
+    // stock: a shared round copies first_copy rows
+    try std.testing.expectEqual(@as(usize, 15), (try win.copyProposal(&engine, &s)).len);
+    cfg.copy_shared = true;
+    try std.testing.expectEqual(@as(usize, 63), (try win.copyProposal(&engine, &s)).len);
+    // the last copy was of the reply's own lines: first_copy again
+    s.copy_prompt = false;
+    try std.testing.expectEqual(@as(usize, 15), (try win.copyProposal(&engine, &s)).len);
+    // the proposer reports where its copy came from: index 20 of the prompt
+    try std.testing.expectEqual(@as(?usize, 20), p.proposer().lastFrom());
+}
