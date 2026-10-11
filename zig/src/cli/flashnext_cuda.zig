@@ -60,6 +60,8 @@ const usage =
     \\           against 16-row items and 1-row calls, bytes compared, then both timed)
     \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
     \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
+    \\  tensorfold hc-check MODEL   (no weights: the read-outs' 12-bit-weight down/up kernels (cuda_hc_q12.zig)
+    \\           against the kernel set's _b16mm + reduce-act and _hc_up_mix, bytes compared, then both timed)
     \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
     \\           (each captured prompt's greedy serial reply written to OUT.json; with REF.json, another run's replies
     \\           teacher-forced: the top-1 agreement of this engine's greedy draws with them, and where the free
@@ -304,6 +306,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "qsa-check")) return qsaCheck(gpa, init.io, &ctx, kernels);
     if (std.mem.eql(u8, cmd, "fp4-check")) return fp4Check(gpa, init.io, &ctx, kernels, o);
     if (std.mem.eql(u8, cmd, "glue-check")) return glueCheck(gpa, init.io, &ctx, kernels);
+    if (std.mem.eql(u8, cmd, "hc-check")) return hcCheck(gpa, init.io, &ctx, kernels);
     if (std.mem.eql(u8, cmd, "draft-check")) return draftCheck(gpa, &ctx, o);
     const mtp = !std.mem.eql(u8, cmd, "check-weights-nomtp");
     // two ranks: both run the same command (every engine call in the same order), rank 0 listening on --master
@@ -1900,6 +1903,21 @@ fn benchMany(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
         };
     }
     return 0;
+}
+
+/// `hc-check`: no checkpoint; the read-outs' q12 kernels (cuda_hc_q12.zig) against the kernel set's split
+/// `_b16mm` + tf_fn_hc_reduce_act_kernel and `_hc_up_mix` / `_b16mm` + `_hc_mix`, bytes, then timed.
+fn hcCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []const u8) !u8 {
+    var set = try cuda.aot.Set.load(gpa, io, ctx.d, ctx.device, kernels);
+    defer set.deinit();
+    var stream = try cuda.Stream.init(ctx.d, true);
+    defer stream.deinit();
+    const t: flashnext.triton.Tri = .{ .set = &set, .s = stream };
+    var ops = try flashnext.torch_ops.Ops.load(ctx);
+    defer ops.deinit();
+    const ok = try flashnext.hc_q12.check(gpa, ctx.d, t, ops.on(stream));
+    std.debug.print("{s} hc-check\n", .{if (ok) "PASS" else "FAIL"});
+    return if (ok) 0 else 1;
 }
 
 /// `glue-check`: no checkpoint; the fused hyper-connection up projection + mix against _b16mm + _hc_mix, and the fused write-back + norm against _hc_writeback + _hc_normed.

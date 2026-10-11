@@ -558,6 +558,9 @@ pub const Forward = struct {
     /// tf_fn_hc_reduce_act_kernel gave the loaded kernel set's `_reduce` + `_hc_act` bytes at load (one GPU;
     /// cuda_prompt.zig reduceActAgrees): the fused read-out tails may run
     act_exact: bool = false,
+    /// TF_FLASHNEXT_HC_Q12=1: the layers' read-out matrices' lossless 12-bit copies; decode windows run
+    /// their down (+ reduce + act) and up (+ mix) from them (`q12Down` / `q12Up`), with the Triton kernels' bytes
+    hc_q12: ?*const @import("cuda_hc_q12.zig").Table = null,
     /// on unless TF_FLASHNEXT_WB_NORM=0: prompt chunks' write-back and norm in one pass (`_hc_wb_norm`)
     wb_norm: bool = false,
     /// two ranks, split prompt glue: the exchanges run on this stream beside the next rows' work (TF_FLASHNEXT_OVERLAP)
@@ -1400,6 +1403,41 @@ pub const Forward = struct {
         return if (inject != null) ndn == g.low + g.streams else ndn == g.low;
     }
 
+    /// decode windows of up to this many rows run the q12 down projection's reduce + act in the same launch;
+    /// the q12 down and up take windows of up to q12_down_rows / q12_up_rows rows (past them the kernel set's, which
+    /// read the weights once for 32 rows a program, were faster when timed)
+    const q12_fuse_rows = 8;
+    const q12_down_rows = 32;
+    const q12_up_rows = 16;
+
+    /// the down matrix's q12 copy when a read-out's down projection runs from it (tops.Torch.hcDownQ12: the
+    /// split `_b16mm` + tf_fn_hc_reduce_act_kernel's bytes): one GPU, a decode window of <= q12_down_rows rows, slices of 320 K,
+    /// no 4-bit MTP matrices (readers of act's 32-group sums), inject rows exactly when the caller asks for the gates,
+    /// no launch recorder, the partials inside `part`, and operands tops.q12DownTakes takes (alignment, the counters'
+    /// column groups when the reduce runs in the same launch); anything else keeps the kernel set's launches.
+    fn q12Down(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, R: usize, inject: ?u64) ?tops.Q12 {
+        const t = f.hc_q12 orelse return null;
+        if (b.prefill or f.comm != null or f.mtp_q4 != null or f.t.rec != null or R > q12_down_rows or hc.down8 != null) return null;
+        const g = f.g;
+        const ndn: usize = hc.down.n;
+        if (tri.b16SplitK(ndn, hc.down.k) * 320 != hc.down.k) return null;
+        if (if (inject != null) ndn != g.low + g.streams else ndn != g.low) return null;
+        if (tri.b16PartBytes(R, ndn, hc.down.k) > f.sc.part_len) return null;
+        const q = t.find(hc.down.weight) orelse return null;
+        return if (tops.q12DownTakes(q, b.normed, g.wide(), g.low, g.streams, R <= q12_fuse_rows)) q else null;
+    }
+
+    /// the up matrix's q12 copy when a layer read-out's up projection and mix run from it
+    /// (tops.Torch.hcUpMixQ12: `_hc_up_mix`'s bytes, no 32-group sums of mixed): `upMix`'s decode conditions from one
+    /// row to q12_up_rows, four streams, K 320.
+    fn q12Up(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, R: usize) ?tops.Q12 {
+        const t = f.hc_q12 orelse return null;
+        if (!f.layer_ro or b.prefill or f.comm != null or f.t.rec != null or f.mtp_q4 != null or hc.up8 != null or R > q12_up_rows) return null;
+        const g = f.g;
+        if (g.streams != 4 or hc.up.n != g.wide() or hc.up.k != 320 or g.low != 320) return null;
+        return t.find(hc.up.weight);
+    }
+
     /// Whether this write-back also makes the read-out's normed rows (`_hc_wb_norm`): prompt chunks, no 4-bit MTP
     /// matrices (the only readers of normed's 32-group sums), and a branch the kernel set has an entry for.
     fn fusesNorm(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, pending: ?Pending) bool {
@@ -1436,6 +1474,16 @@ pub const Forward = struct {
                 try f.th.slotCopy(f.sc.pb, hc.down.n * 4, f.sc.dn + d8.n * 4, dn_n * 4, hc.down.n * 4, R);
             }
             try f.mark(.hc_down);
+        } else if (f.q12Down(hc, b, R, inject)) |q| {
+            // the down projection from the q12 copy; to 8 rows `_reduce` and `_hc_act` in the same launch (the
+            // last CTA of a column group), past that tf_fn_hc_reduce_act_kernel (the fused tail grows with rows)
+            const fuse = R <= q12_fuse_rows;
+            try f.th.hcDownQ12(b.normed, Wd, R, q, f.sc.part, b.act, inject orelse b.act, g.low, g.streams, if (fuse) f.hc_q12.?.counters.ptr else 0, 0);
+            try f.mark(.hc_down);
+            if (!fuse) {
+                try f.th.hcReduceAct(f.sc.part, b.act, inject orelse b.act, R, tri.b16SplitK(hc.down.n, hc.down.k), dn_n, g.low, g.streams);
+                try f.mark(.hc_act);
+            }
         } else if (f.reduceActTakes(hc, b, R, inject)) {
             // a decode window's down projection as its K slices, then `_reduce` and `_hc_act` in one launch
             // (fn_ops.cu tf_fn_hc_reduce_act_kernel: their bits; no 32-group sums of act, read only by mtp_q4)
@@ -1455,6 +1503,11 @@ pub const Forward = struct {
         // prompt chunks, and with `upmix_decode` a decode window's layer read-outs past one row (the kernel set has
         // no M == 1 variant: Triton folds a 1): the up projection and the mix in one pass (cuda_prompt.zig upMix, the
         // same mixed bytes; no 32-group sums of mixed, which only the 4-bit MTP draft matrices read)
+        if (f.q12Up(hc, b, R)) |q| {
+            try f.th.hcUpMixQ12(b.act, q, b.normed, mixed, R, g.hidden, 0);
+            try f.mark(.hc_mix);
+            return;
+        }
         const decode_ok = f.upmix_decode and f.layer_ro and !b.prefill and R > 1 and f.comm == null and f.t.rec == null;
         if (f.up_mix and ((b.prefill and R >= 16) or decode_ok) and hc.up8 == null and f.mtp_q4 == null and hc.up.n == g.wide() and hc.up.k == g.low and g.low % 64 == 0) {
             try prompt.upMix(f.t, b.act, hc.up.weight, b.normed, mixed, R, g.hidden, g.streams, g.low, if (b.prefill) 64 else 32);

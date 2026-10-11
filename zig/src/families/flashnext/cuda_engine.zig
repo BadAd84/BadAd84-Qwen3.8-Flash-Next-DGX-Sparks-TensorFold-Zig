@@ -311,6 +311,21 @@ fn envOff(name: [:0]const u8) bool {
     return std.mem.eql(u8, v, "0") or std.mem.eql(u8, v, "off");
 }
 
+/// TF_FLASHNEXT_HC_Q12 (`setting`) asks for the read-outs' 12-bit copies (set and not "0"), and they may run: the q12
+/// down's reduce + act is tf_fn_hc_reduce_act_kernel's code, so only where it gave the loaded kernel set's bytes at
+/// load (`act_exact`; one GPU). Otherwise the bf16 read-outs, and no copy is built (0.97 GB).
+fn hcQ12On(setting: ?[]const u8, act_exact: bool) bool {
+    const v = setting orelse return false;
+    return !std.mem.eql(u8, v, "0") and act_exact;
+}
+
+test "HC_Q12 builds the 12-bit copies only where the fused read-out tail matched the kernel set" {
+    try std.testing.expect(hcQ12On("1", true));
+    try std.testing.expect(!hcQ12On("1", false));
+    try std.testing.expect(!hcQ12On("0", true));
+    try std.testing.expect(!hcQ12On(null, true));
+}
+
 /// A count setting: null when unset; a value that is not a count is refused (error.BadSetting, logged with its
 /// name), never read as the default.
 pub fn envCount(name: [:0]const u8) !?usize {
@@ -372,6 +387,8 @@ pub const Engine = struct {
     draws: ?mtp.Draws = null,
     /// decode D5: the MTP head's matrices in 4-bit (TF_FLASHNEXT_MTP_Q4=1), drafts only
     mtpq: ?@import("cuda_mtp_q4.zig").Table = null,
+    /// the read-out matrices' lossless 12-bit copies (TF_FLASHNEXT_HC_Q12=1)
+    hcq: ?@import("cuda_hc_q12.zig").Table = null,
     /// host copy of the draft ids (this rank's), column -> token
     draft_host: []u32 = &.{},
     /// sampling scratch, the prompt's last logits and gathered candidates, the draft read-back
@@ -690,6 +707,16 @@ pub const Engine = struct {
             std.log.info("MTP head in 4-bit for the drafts: {d} matrices, {d:.1} -> {d:.1} MB", .{ e.mtpq.?.n, @as(f64, @floatFromInt(e.mtpq.?.bytes_bf16)) / 1e6, @as(f64, @floatFromInt(e.mtpq.?.bytes_q4)) / 1e6 });
         };
         errdefer if (e.mtpq) |*t| t.deinit();
+        // decode read-outs' down/up matrices from a lossless 12-bit copy (cuda_hc_q12.zig; the Triton kernels'
+        // bytes, hc-check), built from the loaded bf16 rows; only with `act_exact` (hcQ12On)
+        if (hcQ12On(envGet("TF_FLASHNEXT_HC_Q12"), e.f.act_exact)) {
+            e.hcq = try @import("cuda_hc_q12.zig").Table.build(gpa, d, e.torch.on(e.stream), &e.w);
+            e.f.hc_q12 = &e.hcq.?;
+            std.log.info("hc q12: decode read-outs from 12-bit copies: {d} matrices, {d:.1} -> {d:.1} MB, {d} escapes", .{ e.hcq.?.map.count(), @as(f64, @floatFromInt(e.hcq.?.bytes_bf16)) / 1e6, @as(f64, @floatFromInt(e.hcq.?.bytes_q12)) / 1e6, e.hcq.?.escapes });
+        } else if (hcQ12On(envGet("TF_FLASHNEXT_HC_Q12"), true) and o.comm == null) {
+            std.log.warn("hc q12 off: tf_fn_hc_reduce_act_kernel differs from this kernel set's _reduce + _hc_act (the q12 down runs it); the bf16 read-outs kept", .{});
+        }
+        errdefer if (e.hcq) |*t| t.deinit(gpa);
         // sampling scratch: the main head's rows and the draft head's one row
         const draft_n: usize = e.w.draftColumns() orelse e.g.head_n;
         const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
@@ -794,6 +821,7 @@ pub const Engine = struct {
         if (e.k8) |*q| q.deinit();
         if (e.k4) |*q| q.deinit();
         if (e.mtpq) |*t| t.deinit();
+        if (e.hcq) |*t| t.deinit(e.gpa);
         if (e.qsa_fast) |*q| q.deinit();
         if (e.f.cs) |*cs| {
             cs.synchronize() catch {};

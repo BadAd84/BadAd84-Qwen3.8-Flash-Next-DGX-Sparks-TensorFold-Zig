@@ -65,6 +65,11 @@ pub const Functions = struct {
     nucleus_mass: cuda.Function,
     fp4_serial: cuda.Function,
     hc_reduce_act: cuda.Function,
+    hc_down_q12: cuda.Function,
+    hc_upmix_q12: cuda.Function,
+    hc_down_q12_r32: cuda.Function,
+    hc_upmix_q12_r32: cuda.Function,
+    hc_q12_pack: cuda.Function,
     lse: Lse,
 
     pub fn resolve(m: []const cuda.Module) !Functions {
@@ -91,10 +96,63 @@ pub const Functions = struct {
             .nucleus_mass = try m[i(.ops)].function("tf_fn_nucleus_mass_kernel"),
             .fp4_serial = try m[i(.ops)].function("tf_fn_fp4_serial_kernel"),
             .hc_reduce_act = try m[i(.ops)].function("tf_fn_hc_reduce_act_kernel"),
+            .hc_down_q12 = try m[i(.ops)].function("tf_fn_hc_down_q12_kernel"),
+            .hc_upmix_q12 = try m[i(.ops)].function("tf_fn_hc_upmix_q12_kernel"),
+            .hc_down_q12_r32 = try m[i(.ops)].function("tf_fn_hc_down_q12_r32_kernel"),
+            .hc_upmix_q12_r32 = try m[i(.ops)].function("tf_fn_hc_upmix_q12_r32_kernel"),
+            .hc_q12_pack = try m[i(.ops)].function("tf_fn_hc_q12_pack_kernel"),
             .lse = try Lse.resolve(m[i(.lse)]),
         };
     }
 };
+
+/// a bf16 matrix [n, k]'s lossless 12-bit copy (fn_ops.cu, cuda_hc_q12.zig): device addresses of its arrays.
+pub const Q12 = struct {
+    sm: u64 = 0,
+    ex: u64 = 0,
+    base: u64 = 0,
+    escoff: u64 = 0,
+    esc: u64 = 0,
+    n: usize = 0,
+    k: usize = 0,
+
+    fn addArgs(q: Q12, a: *cuda.Args) void {
+        a.add(q.sm);
+        a.add(q.ex);
+        a.add(q.base);
+        a.add(q.escoff);
+        a.add(q.esc);
+    }
+};
+
+/// The down kernel's last-CTA counters (cuda_hc_q12.zig Table.counters): one word a column group (4 tiles of 8
+/// columns), so a fused down launch takes at most this many groups (ndn <= 2048).
+pub const q12_max_groups = 64;
+
+/// Whether tf_fn_hc_down_q12_kernel takes these operands (`hcDownQ12` refuses the rest, `Forward.q12Down` falls back
+/// to the kernel set): K slices of 320, at most 32 of them; a power-of-two stream count; n >= low; x 16-byte aligned
+/// with rows a multiple of 8 elements apart (the kernel stages x with 16-byte cp.async); with `counters` (the reduce
+/// and act in the same launch) at most q12_max_groups column groups.
+pub fn q12DownTakes(q: Q12, x: u64, x_stride: usize, low: usize, streams: usize, counters: bool) bool {
+    if (q.k % 320 != 0 or q.k / 320 > 32 or !std.math.isPowerOfTwo(streams) or q.n < low) return false;
+    if (x % 16 != 0 or x_stride % 8 != 0) return false;
+    return !counters or ((q.n + 7) / 8 + 3) / 4 <= q12_max_groups;
+}
+
+test "q12DownTakes: K slices, alignment, counters" {
+    const q: Q12 = .{ .n = 324, .k = 10240 };
+    try std.testing.expect(q12DownTakes(q, 0x1000, 10240, 320, 4, true));
+    try std.testing.expect(!q12DownTakes(q, 0x1008, 10240, 320, 4, true)); // x not 16-byte aligned
+    try std.testing.expect(!q12DownTakes(q, 0x1000, 10244, 320, 4, true)); // rows 8 bytes off
+    try std.testing.expect(!q12DownTakes(q, 0x1000, 10240, 320, 3, true)); // streams not a power of two
+    try std.testing.expect(!q12DownTakes(.{ .n = 324, .k = 10240 + 64 }, 0x1000, 10240, 320, 4, true)); // K not 320s
+    try std.testing.expect(!q12DownTakes(.{ .n = 324, .k = 33 * 320 }, 0x1000, 33 * 320, 320, 4, true)); // 33 slices
+    try std.testing.expect(!q12DownTakes(q, 0x1000, 10240, 325, 4, true)); // n < low
+    // 2048 columns are 64 groups: the counters' words; one more column is a 65th group, partials-only still takes it
+    try std.testing.expect(q12DownTakes(.{ .n = 2048, .k = 10240 }, 0x1000, 10240, 320, 4, true));
+    try std.testing.expect(!q12DownTakes(.{ .n = 2049, .k = 10240 }, 0x1000, 10240, 320, 4, true));
+    try std.testing.expect(q12DownTakes(.{ .n = 2049, .k = 10240 }, 0x1000, 10240, 320, 4, false));
+}
 
 /// fn_logsumexp.cu: torch.logsumexp(x, dim=-1, keepdim=True) on contiguous fp32 rows in ATen's reduction order:
 /// the row maxima (|max| == inf -> 0), the exp(x - max) sum by ATen's reduce config for (rows, n) on this device,
@@ -225,6 +283,10 @@ pub const Torch = struct {
         try cuda.launch.launch(f, .{ .grid = .{ .x = @intCast(grid[0]), .y = @intCast(grid[1]) }, .block = .{ .x = block } }, t.s, args);
     }
 
+    fn go3(t: Torch, f: cuda.Function, grid: [3]usize, block: u32, args: *cuda.Args) !void {
+        try cuda.launch.launch(f, .{ .grid = .{ .x = @intCast(grid[0]), .y = @intCast(grid[1]), .z = @intCast(grid[2]) }, .block = .{ .x = block } }, t.s, args);
+    }
+
     fn check(t: Torch, rc: anytype, what: []const u8) !void {
         try t.s.d.check(rc, what);
     }
@@ -310,6 +372,69 @@ pub const Torch = struct {
         for ([_]u32{ @intCast(rows), @intCast(sk), @intCast(ndn), @intCast(low) }) |v| a.add(v);
         a.add(1.0 / @as(f32, @floatFromInt(streams)));
         try t.go(t.f.hc_reduce_act, .{ (ndn + 127) / 128, rows }, 128, &a);
+    }
+
+    /// a read-out's down projection from its q12 copy (cuda_hc_q12.zig) as `_b16mm`'s split-K partials into
+    /// `part` [SK, rows, ndn] (SK = k / 320 <= 32), one CTA a (4 tiles, slice, 16 rows; past 16 rows 32 rows, the
+    /// weights decoded once for both row tiles); with `counters` (else 0:
+    /// partials only, for `hcReduceAct`) `hcReduceAct`'s act / inject bytes by the CTA arriving last at a column group
+    /// (fn_ops.cu tf_fn_hc_down_q12_kernel). `counters`: ceil(ceil(ndn / 8) / 4) zeroed words, left zeroed. Operands
+    /// `q12DownTakes` refuses are an error (Forward.q12Down asks it first and keeps the kernel set's launches).
+    /// `mut` 1 (hc-check only): the k16 chunks reversed in each block, wrong bits; 0 otherwise.
+    pub fn hcDownQ12(t: Torch, x: u64, x_stride: usize, rows: usize, q: Q12, part: u64, act: u64, inj: u64, low: usize, streams: usize, counters: u64, mut: i32) !void {
+        if (rows == 0) return;
+        if (!q12DownTakes(q, x, x_stride, low, streams, counters != 0)) return error.HcQ12Shape;
+        var a: cuda.Args = .{};
+        a.add(x);
+        a.add(@as(u32, @intCast(x_stride)));
+        a.add(@as(u32, @intCast(rows)));
+        q.addArgs(&a);
+        a.add(part);
+        a.add(@as(u32, @intCast(q.n)));
+        a.add(@as(u32, @intCast(q.k)));
+        a.add(act);
+        a.add(inj);
+        a.add(@as(u32, @intCast(low)));
+        a.add(1.0 / @as(f32, @floatFromInt(streams)));
+        a.add(counters);
+        a.add(mut);
+        const rt: usize = if (rows > 16) 32 else 16;
+        try t.go3(if (rows > 16) t.f.hc_down_q12_r32 else t.f.hc_down_q12, .{ ((q.n + 7) / 8 + 3) / 4, q.k / 320, (rows + rt - 1) / rt }, 128, &a);
+    }
+
+    /// a read-out's up projection and mix from the up matrix's q12 copy: mixed [rows, d] with
+    /// `_hc_up_mix`'s bytes (= `_b16mm` + `_hc_mix`; no 32-group sums), K 320, 4 streams, one CTA a (8 columns, 16
+    /// rows; past 16 rows 32) (tf_fn_hc_upmix_q12_kernel / _r32_kernel).
+    pub fn hcUpMixQ12(t: Torch, act: u64, q: Q12, normed: u64, mixed: u64, rows: usize, d: usize, mut: i32) !void {
+        if (rows == 0) return;
+        if (q.k != 320 or q.n != 4 * d or d % 8 != 0) return error.HcQ12Shape;
+        var a: cuda.Args = .{};
+        a.add(act);
+        q.addArgs(&a);
+        a.add(normed);
+        a.add(mixed);
+        a.add(@as(u32, @intCast(rows)));
+        a.add(@as(u32, @intCast(d)));
+        a.add(mut);
+        const rt: usize = if (rows > 16) 32 else 16;
+        try t.go(if (rows > 16) t.f.hc_upmix_q12_r32 else t.f.hc_upmix_q12, .{ d / 8, (rows + rt - 1) / rt }, 128, &a);
+    }
+
+    /// tf_fn_hc_q12_pack_kernel over bf16 `w` [n, k]: `pack` false writes each block's escape count to
+    /// `counts`, true the q12 arrays of `q` (q.escoff already the counts' exclusive sums).
+    pub fn hcQ12Pack(t: Torch, w: u64, counts: u64, q: Q12, pack: bool) !void {
+        var a: cuda.Args = .{};
+        a.add(w);
+        a.add(@as(u32, @intCast(q.n)));
+        a.add(@as(u32, @intCast(q.k)));
+        a.add(counts);
+        a.add(q.sm);
+        a.add(q.ex);
+        a.add(q.base);
+        a.add(q.escoff);
+        a.add(q.esc);
+        a.add(@as(i32, @intFromBool(pack)));
+        try t.go(t.f.hc_q12_pack, .{ (q.n + 7) / 8, q.k / 64 }, 32, &a);
     }
 
     // -- sampling ------------------------------------------------------------------------------------------

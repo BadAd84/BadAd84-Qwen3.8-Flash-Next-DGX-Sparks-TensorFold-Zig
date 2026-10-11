@@ -22,6 +22,7 @@ pub const vmm = @import("cuda_vmm.zig");
 pub const nucleus = @import("cuda_nucleus.zig");
 pub const mtp = @import("cuda_mtp.zig");
 pub const mtp_q4 = @import("cuda_mtp_q4.zig");
+pub const hc_q12 = @import("cuda_hc_q12.zig");
 pub const engine = @import("cuda_engine.zig");
 pub const prompt = @import("cuda_prompt.zig");
 pub const fp4_serial = @import("cuda_fp4_serial.zig");
