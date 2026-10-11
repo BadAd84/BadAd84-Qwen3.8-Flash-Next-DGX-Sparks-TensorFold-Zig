@@ -5,7 +5,7 @@ Evidence: W7 settings re-check on zmerge5 (`merge/mverify10.sh`), the zots5 runs
 
 ---
 
-**Title:** config: TF_FLASHNEXT_PREFILL_ROWS=4096 on one Spark (cold prefill +0.3 to +3% at 32k-128k, replies byte-identical)
+**Title:** config: TF_FLASHNEXT_PREFILL_ROWS=4096 on one Spark (cold prefill +0.3 to +3% on prose, +11% on 32k of code, replies byte-identical)
 
 **Body:**
 
@@ -30,6 +30,11 @@ Every 4,096 run is above every 2,048 run (+0.3 to +3%); decode unchanged. On an 
 boot), 32k 2,727 / 2,853 -> 2,848 / 2,867 (+0.5%, inside the boot spread), 8k no change; copy and rewrite replies
 unchanged. Larger chunks amortise less than they used to once #42's n-gram host gather landed: before it, 4,096 rows
 cut 128k prefill time by 5.9%.
+
+The prompts above are prose, which routes to fewer experts than code: on 8k of real source code a 2,048-row chunk
+touched a median of 328 distinct experts a layer against 110 for the prose. On real text the setting matters more: an
+offline `bench` of 32k prompts (two runs x two reps an arm, in two holds, so this comparison crosses holds) gave code
+2,485 tok/s at 2,048 rows and 2,755 at 4,096 (+11%), prose 2,859 and 2,945 (+3%).
 
 It is one of the settings in the RigMark and time-to-first-token comparison below (the "+ this batch" column).
 
@@ -75,7 +80,9 @@ comparison). The stock arms ran under RigMark's published comparison ID, the las
 prompts may differ (the #34-#50 build, run in both, gave code 109.8 there and 109.7 / 110.5 here). Against the #34-#50
 build, this batch is faster in every cold-prompt cell from 8k up (by 8.6-14.5%) and in the warm turn (4.3-7.4%); two
 cells moved the other way in one sweep each: cold 1k idle 0.426 -> 0.503 s in sweep 1 (0.432 -> 0.406 in sweep 2), and
-RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1).
+RigMark's C2 aggregate 117.9 -> 112.5 in sweep 2 (111.4 -> 114.7 in sweep 1). The 1k cell was then re-run on its own
+(the two builds interleaved, two boots each, 15 prompts a boot): 0.421 / 0.420 s without this batch against 0.401 /
+0.404 s with it, thinking off, and 0.449 / 0.452 against 0.423 / 0.430 thinking on; every boot with the batch was faster.
 
 ## Related Issues
 
