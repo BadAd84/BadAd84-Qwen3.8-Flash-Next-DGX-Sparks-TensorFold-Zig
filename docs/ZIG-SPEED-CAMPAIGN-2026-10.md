@@ -211,8 +211,16 @@ skipped: the Python server has no `/tokenize` or token-id completions), RigMark 
 | RigMark C1 / C2 / C4 tok/s | 68.6 / 94.9 / 129.4 | 74.3 / 96.5 / 144.1 | 59.0 / 97.7 / 150.2 | 72.9-74.8 / 112.5-114.7 / 171.0-172.9 |
 | TTFT cold 8k / 32k / 120k idle, s | 3.82 / 13.8 / 57.2 | 3.23 / 13.1 / 56.0 | 2.99 / 12.1 / 49.6 | 2.66-2.68 / 10.7-10.8 / 42.5-43.2 |
 | TTFT warm turn idle / load3, s | 1.50 / 1.93 | 1.37 / 1.73 | 1.23 / 1.32 | 1.12-1.14 / 1.21 |
-| decode probe prose C1 (ring buffer) / six prose prompts C1 | 68.8 / 63.3 | 74.5 / 68.8 | 62.3 / - | (mverify13) / - |
-| decode probe code C1 / C2 / C4 | 80.7 / 59.8 / 37.8 | 89.7 / 63.5 / 38.8 | 104.6 / 76.1 / 52.5 | (mverify13) |
+| decode probe prose C1 (ring buffer) / six prose prompts C1 | 68.8 / 63.3 | 74.5 / 68.8 | 62.3 / - | 74.6 / - |
+| decode probe code C1 / C2 / C4 | 80.7 / 59.8 / 37.8 | 89.7 / 63.5 / 38.8 | 104.6 / 76.1 / 52.5 | 129.7 / 90.0 / 63.1 |
+
+zmerge6 decode probe (`merge/mverify13.sh`, two boots, spreads tight): prose 74.6 / 60.9 / 39.8 at 1 / 2 / 4 clients,
+code 129.7 / 90.0 / 63.1; copy ~812, one-word rewrite ~575-584, cold prefill (`pf2.py`) 8k ~3,080 / 32k ~3,090.
+Prose at 1 client on the same box and probe: zmerge6 74.6, Python ours 74.5 (level; Python stock 68.8).
+
+The clean upstream stack `zpr3-stack` (recipe patches 0010-0024, the batch-3 packages; settings renamed) matches
+zmerge6 in every cell (prose 74.6 / 61.0 / 39.4, code 129.4 / 89.0 / 63.2, copy ~811, prefill ~3,090 / ~3,035),
+golden 6/6 on all boots; the packages' GPU checks on it pass: `hc-check`, `qsa-check`, `int4-check` (exit 0).
 
 ## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
 
