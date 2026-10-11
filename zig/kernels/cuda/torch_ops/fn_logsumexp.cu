@@ -74,14 +74,26 @@ __device__ float tf_lse_warp_tree(float v, float* shared) {
 
 }  // namespace
 
-// Row maxima with NaN winning, then |max| == inf set to 0 (torch's masked_fill before the subtraction).
+// Row maxima with NaN winning, then |max| == inf set to 0 (torch's masked_fill before the subtraction). Any block of
+// up to 1024 threads (a power of two): a maximum is the same whichever thread reads which column (launched with
+// 1024, four loads in flight a thread, where 256 threads read one row at a time and a draft-vocabulary row took ~50 us).
 extern "C" __global__ void tf_fn_lse_max_kernel(const float* x, float* maxes, uint32_t rows, uint32_t n) {
-    __shared__ float best[256];
+    __shared__ float best[1024];
     const uint32_t row = blockIdx.x;
     if (row >= rows) return;
     float m = -INFINITY;
-    for (uint32_t i = threadIdx.x; i < n; i += blockDim.x) {
-        const float v = x[uint64_t(row) * n + i];
+    const float* r = x + uint64_t(row) * n;
+    const uint32_t step = blockDim.x;
+    uint32_t i = threadIdx.x;
+    for (; i + 3 * step < n; i += 4 * step) {
+        float v[4];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) v[u] = r[i + u * step];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) m = (v[u] != v[u] || m != m) ? (m != m ? m : v[u]) : fmaxf(m, v[u]);
+    }
+    for (; i < n; i += step) {
+        const float v = r[i];
         m = (v != v || m != m) ? (m != m ? m : v) : fmaxf(m, v);
     }
     best[threadIdx.x] = m;

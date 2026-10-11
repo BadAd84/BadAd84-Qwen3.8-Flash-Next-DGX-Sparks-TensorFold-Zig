@@ -150,7 +150,7 @@ pub const Lse = struct {
         a.add(maxes);
         a.add(@as(u32, @intCast(rows)));
         a.add(@as(u32, @intCast(n)));
-        try t.go(l.max, .{ rows, 1 }, 256, &a);
+        try t.go(l.max, .{ rows, 1 }, 1024, &a); // fn_logsumexp.cu: any power of two to 1024, the same maxima
         var b: cuda.Args = .{};
         for ([_]u64{ in, maxes, partial }) |v| b.add(v);
         for ([_]usize{ rows, n, c.ctas, @intFromBool(c.split) }) |v| b.add(@as(u32, @intCast(v)));
@@ -310,7 +310,10 @@ pub const Torch = struct {
         a.add(out);
         for ([_]usize{ rows, vocab, ld }) |v| a.add(@as(i64, @intCast(v)));
         a.add(@as(i32, 0)); // dtype 0: bf16
-        try t.go(t.f.argmax, .{ rows, 1 }, 256, &a);
+        // 1024 threads (the kernel's launch bound), not 256: a row is one block, and 256 threads read a 248,320-column
+        // row at ~8 GB/s; the pick is a total order (the first maximum, a NaN first), so every thread count returns
+        // the same index
+        try t.go(t.f.argmax, .{ rows, 1 }, 1024, &a);
     }
 
     /// torch.topk(rows of fp32 `columns` wide, k, sorted=False): values [rows, k] fp32 and int64 columns, in
