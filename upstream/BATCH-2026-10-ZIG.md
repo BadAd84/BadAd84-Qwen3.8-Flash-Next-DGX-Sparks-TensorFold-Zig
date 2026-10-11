@@ -50,3 +50,16 @@ host tests `test-stack-fresh.log` 21/21 steps 190/190, `mut0021.sh` killed), CPU
 
 Every body carries the whole-stack RigMark + TTFT table (Python 0.6.1 / Zig 1.0.0 / + #34-#50 / + batch 3) from
 `~/work/bench/zabrm-py-stock.log`, `zabrm-m5-stock-1010.log`, `zabrm-m6a.log`, `zabrm-m6b.log`.
+
+## Batch 3, posted 2026-10-11 (owner-approved)
+
+| PR | Package | Patch |
+|---|---|---|
+| #53 | zig-pr-fill-fix | 0021 |
+| #54 | zig-pr-readout-12bit | 0022 |
+| #55 | zig-pr-indexer-select | 0023 |
+| #56 | zig-pr-prompt-tiles | 0024 |
+| #57 | zig-pr-prefill-rows | settings |
+
+The `#[the 4096-row setting's PR]` placeholder is not filled by upload_batch.py (it fills only numbered ones); it was
+replaced with #57 by hand after posting.
