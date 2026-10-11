@@ -222,6 +222,11 @@ The clean upstream stack `zpr3-stack` (recipe patches 0010-0024, the batch-3 pac
 zmerge6 in every cell (prose 74.6 / 61.0 / 39.4, code 129.4 / 89.0 / 63.2, copy ~811, prefill ~3,090 / ~3,035),
 golden 6/6 on all boots; the packages' GPU checks on it pass: `hc-check`, `qsa-check`, `int4-check` (exit 0).
 
+Round 2 GLM lanes, closed 2026-10-11: R2bGlm's hc kernels (`r2b-hcmm`) are not exact (golden 0/6 on every arm,
+`check1b.out`: DIFFER on every hc_dn case, then an Xid 31 out-of-bounds fault): DROP; R2B stays r2b-opus. R2aGlm's
+select never produced a measured arm of its own (three holds lost to harness errors; its last hold timed only the
+r2a-opus images: 2,683 / 2,549 tok/s at 128k / 200k against base 2,506 / 2,408): OPEN, superseded by r2a-opus.
+
 ## Round 2, R2F launch overlap (PDL) and R2B read-outs (2026-10-10)
 
 - PDL DROP: all groups on is not exact (golden 0/6, 3/6; r2f-opus); r2f-fable's exact subset shows no change in the
