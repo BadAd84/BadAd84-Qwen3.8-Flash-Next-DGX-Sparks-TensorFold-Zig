@@ -368,14 +368,16 @@ pub fn qsaScoresRows(t: tri.Tri, iq: u64, pooled: u64, pos0: u64, sc: tri.AttnSc
     try run(t, "_scores_rows", .{ cdiv(rows, rt), cdiv(blocks, 64), 1 }, &.{ aot.ptr("IQ", bf16, iq), aot.ptr("POOLED", bf16, pooled), aot.ptr("POS0", "*i32", pos0), aot.ptr("SC", f32p, sc.scores), int("NB", g.nb), int("ROWS", rows) }, &.{ ci("HI", d.index_heads), ci("DI", d.index_dim), ci("RATIO", g.ratio), ci("TOP", g.budget / g.ratio), ci("BB", 64), ci("RT", rt) });
 }
 
-/// fn_qsa_scores.cu: `_scores`' bits from 32-row x 64-block tiles (the prompt indexer's scoring).
+/// fn_qsa_scores.cu: `_scores`' bits from 32-row x 64-block tiles (the prompt indexer's scoring). Tiles 4-7: the same
+/// shapes on fma.rn.f32.bf16 (the packed bf16 operands, no widening; the same words, qsa-check).
 pub const QsaScores = struct {
     mod: cuda.Module,
-    fs: [4]cuda.Function, // (rows, blocks) a thread: (2, 4), (4, 4), (2, 8), (4, 8)
+    fs: [8]cuda.Function, // (rows, blocks) a thread: (2, 4), (4, 4), (2, 8), (4, 8), then the same four on FHFMA
     pick: usize = 0,
 
-    const tiles = [4][2]usize{ .{ 2, 4 }, .{ 4, 4 }, .{ 2, 8 }, .{ 4, 8 } };
-    const names = [4][:0]const u8{ "fn_qsa_scores", "fn_qsa_scores_r4b4", "fn_qsa_scores_r2b8", "fn_qsa_scores_r4b8" };
+    pub const count = 8;
+    const tiles = [8][2]usize{ .{ 2, 4 }, .{ 4, 4 }, .{ 2, 8 }, .{ 4, 8 }, .{ 2, 4 }, .{ 4, 4 }, .{ 2, 8 }, .{ 4, 8 } };
+    const names = [8][:0]const u8{ "fn_qsa_scores", "fn_qsa_scores_r4b4", "fn_qsa_scores_r2b8", "fn_qsa_scores_r4b8", "fn_qsa_scores_f2b4", "fn_qsa_scores_f4b4", "fn_qsa_scores_f2b8", "fn_qsa_scores_f4b8" };
 
     fn shared(i: usize) usize {
         // tile 1 keeps its keys widened to fp32
@@ -391,7 +393,7 @@ pub const QsaScores = struct {
             f.* = try m.function(n);
             try f.allowDynamicShared(@intCast(shared(i)));
         }
-        if (std.c.getenv("TF_FLASHNEXT_QSA_TILE")) |v| q.pick = @min(3, std.fmt.parseInt(usize, std.mem.span(v), 10) catch 0);
+        if (std.c.getenv("TF_FLASHNEXT_QSA_TILE")) |v| q.pick = @min(count - 1, std.fmt.parseInt(usize, std.mem.span(v), 10) catch 0);
         return q;
     }
 
@@ -409,15 +411,83 @@ pub const QsaScores = struct {
     }
 };
 
+/// The indexer's key lists, lengths and flags (`_select` / `_select_tiles`' integers: any exact algorithm gives the
+/// same words) from fn_qsa_stream.cu: the row read once, in block order, through a candidate buffer, one CTA a row
+/// (s5) or a cluster of four (cs4). Decode windows and MTP steps use cs4 for rows of at least `dec_from` blocks and s5
+/// below; prompt blocks use s5 (GB10 qsa-check timings: cs4 is fastest at 200k, s5 below ~130k and never slower than
+/// Triton's `_select` there).
+pub const QsaSelect = struct {
+    mod: cuda.Module,
+    fs: [kinds.len]cuda.Function,
+    dec_from: usize = 32768,
+
+    pub const s5 = 0;
+    pub const cs4 = 1;
+
+    /// The decode kind for a row of `blocks` blocks.
+    pub fn decFor(q: *const QsaSelect, blocks: usize) usize {
+        return if (blocks >= q.dec_from) cs4 else s5;
+    }
+
+    pub const Kind = struct {
+        label: []const u8,
+        name: [:0]const u8,
+        /// CTAs a row (1: no cluster)
+        cluster: usize,
+        /// dynamic shared memory bytes
+        shared: usize,
+        /// the candidate buffer and the keys a batch (needs top + batch <= cap, cluster * top <= cap)
+        cap: usize,
+        batch: usize,
+    };
+    pub const kinds = [_]Kind{
+        .{ .label = "s5", .name = "fn_qsa_stream_k5v4", .cluster = 1, .shared = 5120 * 8, .cap = 5120, .batch = 2048 },
+        .{ .label = "cs4", .name = "fn_qsa_cstream_c4k4v4", .cluster = 4, .shared = 4096 * 8, .cap = 4096, .batch = 2048 },
+    };
+
+    pub fn init(d: *const cuda.Driver) !QsaSelect {
+        if (!cuda.kernels.available) return error.BuiltWithoutKernels;
+        var m = try cuda.Module.load(d, cuda.kernels.fn_qsa_stream);
+        errdefer m.unload();
+        var q: QsaSelect = .{ .mod = m, .fs = undefined };
+        for (&q.fs, kinds) |*f, k| {
+            f.* = try m.function(k.name);
+            try f.allowDynamicShared(@intCast(k.shared));
+        }
+        return q;
+    }
+
+    pub fn deinit(q: *QsaSelect) void {
+        q.mod.unload();
+    }
+
+    /// Whether kind `k` lists a row (the buffer holds a batch past TOP and the cluster's TOPPs).
+    pub fn fits(k: usize, g: tri.AttnGeometry) bool {
+        const kd = kinds[k];
+        const top = g.budget / g.ratio;
+        return top + kd.batch <= kd.cap and kd.cluster * top <= kd.cap;
+    }
+
+    pub fn run(q: *const QsaSelect, k: usize, s: cuda.Stream, pos0: u64, sc: tri.AttnScratch, rows: usize, g: tri.AttnGeometry) !void {
+        var a: cuda.Args = .{};
+        for ([_]u64{ sc.scores, pos0, sc.ids, sc.nk, sc.sparse }) |v| a.add(v);
+        for ([_]usize{ g.nb, g.ratio, g.budget / g.ratio, g.idw }) |v| a.add(@as(c_int, @intCast(v)));
+        const kd = kinds[k];
+        const cl: ?cuda.launch.Dim3 = if (kd.cluster > 1) .{ .x = @intCast(kd.cluster), .y = 1, .z = 1 } else null;
+        try cuda.launch.launch(q.fs[k], .{ .grid = .{ .x = @intCast(rows * kd.cluster), .y = 1, .z = 1 }, .block = .{ .x = 512 }, .shared = @intCast(kd.shared), .cluster = cl }, s, &a);
+    }
+};
+
 /// `_select_tiles` for any row length (Python's own choice past `_select`'s registers; the same lists).
 pub fn qsaSelectTiles(t: tri.Tri, pos0: u64, sc: tri.AttnScratch, rows: usize, g: tri.AttnGeometry) !void {
     const lists = [_]aot.Arg{ aot.ptr("SC", f32p, sc.scores), aot.ptr("POS0", "*i32", pos0), aot.ptr("IDS", "*i32", sc.ids), aot.ptr("NKR", "*i32", sc.nk), aot.ptr("SPR", "*i32", sc.sparse), int("NB", g.nb) };
     try run(t, "_select_tiles", .{ rows, 1, 1 }, &lists, &.{ ci("RATIO", g.ratio), ci("TOP", g.budget / g.ratio), ci("IDW", g.idw), ci("TB", if (rows >= 64) 4096 else 8192) });
 }
 
-/// `qsa-check`: `_scores_rows` against `_scores` (score bytes) and `_select_tiles` against `_select` (key lists,
-/// lengths, flags) on random and tie-heavy indexer keys, rows past several positions. True when all equal.
-pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast: ?*const QsaScores) !bool {
+/// `qsa-check`: `_scores_rows` against `_scores` (score bytes) and `_select_tiles` (and each fn_qsa_stream kind)
+/// against `_select` (key lists, lengths, flags) on random and tie-heavy indexer keys, rows past several positions,
+/// then on score rows of NaN, +-inf, +-0 and ties written directly (qsaDirectScores). True when all equal.
+pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast: ?*const QsaScores, sel: ?*const QsaSelect) !bool {
     const capacity: usize = 262144 + 8;
     const g = tri.AttnGeometry.init(capacity, 2048, 4);
     const dims: tri.Dims = .{};
@@ -467,9 +537,12 @@ pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast:
             }
             try qsaScores(t, iq.ptr, pooled.ptr, pos.ptr, scs[0], n, g, ends, dims);
             try qsaSelect(t, pos.ptr, scs[0], n, g, ends);
-            for ([_]usize{ 8, 16, 0, 1, 2, 3 }) |rt| {
+            // `_scores_rows` RT 8 and 16, then every fn_qsa_scores tile (0-3 widened, 4-7 FHFMA)
+            for (0..2 + QsaScores.count) |arm| {
+                const tile = arm >= 2;
+                const rt: usize = if (tile) arm - 2 else @as(usize, 8) << @intCast(arm);
                 try bufs[1][0].fill8(0xA7, t.s.handle);
-                if (rt < 4) {
+                if (tile) {
                     const q = fast orelse continue;
                     var qq = q.*;
                     qq.pick = rt;
@@ -480,7 +553,7 @@ pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast:
                 try bufs[1][0].download(0, host2[0 .. n * g.nb * 4]);
                 const ok = std.mem.eql(u8, host1[0 .. n * g.nb * 4], host2[0 .. n * g.nb * 4]);
                 if (!ok) all = false;
-                std.debug.print("{s} {s} RT {d} position {d} rows {d}{s}: score bytes\n", .{ if (ok) "EQUAL" else "DIFFER", if (rt < 4) "fn_qsa_scores tile" else "_scores_rows", rt, p0, n, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
+                std.debug.print("{s} {s} RT {d} position {d} rows {d}{s}: score bytes\n", .{ if (ok) "EQUAL" else "DIFFER", if (tile) "fn_qsa_scores tile" else "_scores_rows", rt, p0, n, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
             }
             // the lists from the same scores by the tiled select
             try qsaSelectTiles(t, pos.ptr, scs[1], n, g);
@@ -494,9 +567,210 @@ pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast:
             }
             if (!ok) all = false;
             std.debug.print("{s} _select_tiles = _select position {d} rows {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", p0, n, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
+            if (sel) |q| {
+                if (!try selCheck(t, q, bufs, scs, pos.ptr, n, g, ends, host1, host2, p0, kind)) all = false;
+                if (kind == 0) try qsaPromptSelTimes(d, t, q, pos.ptr, scs[1], n, g, ends, p0);
+            }
         }
+        // decode windows (1-16 rows) at the graph's bucket bound and at the exact one: each fn_qsa_scores tile and
+        // `_select_tiles` (a decode window's TB 8192) against `_scores` + `_select` (Tri.qsaRows); random keys also timed
+        for ([_]usize{ 2045, 2049, 8000, 32000, 70000, 100000, 131000, 200000, 261000 }) |p0| for ([_]usize{ 1, 3, 16 }) |n| for ([_]bool{ true, false }) |bucketed| {
+            const ends = p0 + n;
+            const keys = if (bucketed) @min(capacity, @max(8192, std.math.ceilPowerOfTwo(usize, ends) catch ends)) else ends;
+            try pos.fill32(@intCast(p0), t.s.handle);
+            var scs: [2]tri.AttnScratch = undefined;
+            for (&scs, bufs) |*sc, set| {
+                for (set) |b| try b.fill8(0xA7, t.s.handle);
+                sc.* = .{ .po = 0, .pm = 0, .pl = 0, .ids = set[1].ptr, .nk = set[2].ptr, .sparse = set[3].ptr, .scores = set[0].ptr };
+            }
+            try qsaScores(t, iq.ptr, pooled.ptr, pos.ptr, scs[0], n, g, keys, dims);
+            try qsaSelect(t, pos.ptr, scs[0], n, g, keys);
+            if (fast) |q| {
+                for (0..QsaScores.count) |pk| {
+                    try bufs[1][0].fill8(0xA7, t.s.handle);
+                    var qq = q.*;
+                    qq.pick = pk;
+                    try qq.run(t.s, iq.ptr, pooled.ptr, pos.ptr, scs[1], n, g, keys);
+                    try t.s.synchronize();
+                    try bufs[0][0].download(0, host1[0 .. n * g.nb * 4]);
+                    try bufs[1][0].download(0, host2[0 .. n * g.nb * 4]);
+                    const same = std.mem.eql(u8, host1[0 .. n * g.nb * 4], host2[0 .. n * g.nb * 4]);
+                    if (!same) all = false;
+                    if (!same or pk == 0) std.debug.print("{s} decode fn_qsa_scores tile {d} position {d} rows {d} keys {d}{s}: score bytes\n", .{ if (same) "EQUAL" else "DIFFER", pk, p0, n, keys, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
+                }
+            } else try qsaScores(t, iq.ptr, pooled.ptr, pos.ptr, scs[1], n, g, keys, dims);
+            try qsaSelectTiles(t, pos.ptr, scs[1], n, g);
+            try t.s.synchronize();
+            var ok = true;
+            for (1..4) |k| {
+                const bytes = if (k == 1) n * g.idw * 4 else n * 4;
+                try bufs[0][k].download(0, host1[0..bytes]);
+                try bufs[1][k].download(0, host2[0..bytes]);
+                ok = ok and std.mem.eql(u8, host1[0..bytes], host2[0..bytes]);
+            }
+            if (!ok) all = false;
+            std.debug.print("{s} decode _select_tiles = _select position {d} rows {d} keys {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", p0, n, keys, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
+            if (sel) |q| if (!try selCheck(t, q, bufs, scs, pos.ptr, n, g, keys, host1, host2, p0, kind)) {
+                all = false;
+            };
+            if (kind == 0 and bucketed) try qsaDecodeTimes(d, t, fast, sel, iq.ptr, pooled.ptr, pos.ptr, scs, n, g, keys, dims, p0);
+        };
+    }
+    if (!try qsaDirectScores(gpa, t, sel, g, bufs, &pos, host1, host2)) all = false;
+    return all;
+}
+
+/// `qsa-check`'s direct-scores pass: score rows written straight into the scratch (no `_scores`, which seldom makes
+/// these values), each row one pattern: NaN of both signs (quiet, signalling, all-ones payloads) among normals, +-inf
+/// among normals, +-0 only (a few positives), three-value ties, every special value mixed, and half NaN over ties.
+/// `_select_tiles` and each QsaSelect kind against Python's choice for the row's width (`_select` while its
+/// registers hold the row, else `_select_tiles`: Tri.qsaRows): key lists, lengths and flags.
+fn qsaDirectScores(gpa: std.mem.Allocator, t: tri.Tri, sel: ?*const QsaSelect, g: tri.AttnGeometry, bufs: [2][4]cuda.DeviceBuffer, pos: *cuda.DeviceBuffer, host1: []u8, host2: []u8) !bool {
+    const specials = [_]u32{ 0x7fc00000, 0xffc00000, 0x7f800001, 0xff800001, 0x7fffffff, 0xffffffff, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x00000001, 0x80000001 };
+    const nans = specials[0..6];
+    const ties = [_]f32{ 0.5, 1.0, 2.0 };
+    var prng = std.Random.DefaultPrng.init(0x95a_0002);
+    const r = prng.random();
+    var all = true;
+    const rows_max = 16;
+    const host = try gpa.alloc(u32, rows_max * g.nb);
+    defer gpa.free(host);
+    for ([_]usize{ 1000, 2040, 20000, 131000, 200000, 261000 }, 0..) |p0, pi| for ([_]usize{ 1, 3, rows_max }) |n| {
+        for (0..n) |row| for (0..g.nb) |b| {
+            const v = &host[row * g.nb + b];
+            const normal: u32 = @bitCast(r.floatNorm(f32));
+            v.* = switch ((row + pi) % 6) {
+                0 => if (r.uintLessThan(u32, 50) == 0) nans[r.uintLessThan(usize, nans.len)] else normal,
+                1 => if (r.uintLessThan(u32, 50) == 0) (if (r.boolean()) @as(u32, 0x7f800000) else 0xff800000) else normal,
+                2 => if (r.uintLessThan(u32, 200) == 0) @as(u32, @bitCast(@abs(r.floatNorm(f32)))) else (if (r.boolean()) @as(u32, 0x80000000) else 0),
+                3 => @bitCast(ties[r.uintLessThan(usize, ties.len)]),
+                4 => if (r.uintLessThan(u32, 10) == 0) specials[r.uintLessThan(usize, specials.len)] else normal,
+                else => if (r.boolean()) nans[r.uintLessThan(usize, nans.len)] else @as(u32, @bitCast(@as(f32, 1.0))),
+            };
+        };
+        try pos.fill32(@intCast(p0), t.s.handle);
+        var scs: [2]tri.AttnScratch = undefined;
+        for (&scs, bufs) |*sc, set| {
+            for (set[1..]) |b| try b.fill8(0xA7, t.s.handle);
+            try set[0].upload(0, std.mem.sliceAsBytes(host[0 .. n * g.nb]));
+            sc.* = .{ .po = 0, .pm = 0, .pl = 0, .ids = set[1].ptr, .nk = set[2].ptr, .sparse = set[3].ptr, .scores = set[0].ptr };
+        }
+        const keys = p0 + n;
+        try qsaSelect(t, pos.ptr, scs[0], n, g, keys);
+        try qsaSelectTiles(t, pos.ptr, scs[1], n, g);
+        try t.s.synchronize();
+        var ok = true;
+        for (1..4) |k| {
+            const bytes = if (k == 1) n * g.idw * 4 else n * 4;
+            try bufs[0][k].download(0, host1[0..bytes]);
+            try bufs[1][k].download(0, host2[0..bytes]);
+            ok = ok and std.mem.eql(u8, host1[0..bytes], host2[0..bytes]);
+        }
+        if (!ok) all = false;
+        std.debug.print("{s} _select_tiles = _select position {d} rows {d} direct scores: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", p0, n });
+        if (sel) |q| if (!try selCheck(t, q, bufs, scs, pos.ptr, n, g, keys, host1, host2, p0, 3)) {
+            all = false;
+        };
+    };
+    return all;
+}
+
+/// Each QsaSelect kind's lists from scs[1]'s scores (equal to scs[0]'s) against scs[0]'s `_select` lists: every word
+/// of the rows' IDW-word lists (the words a list leaves alone still hold the 0xA7 fill), lengths and flags.
+fn selCheck(t: tri.Tri, q: *const QsaSelect, bufs: [2][4]cuda.DeviceBuffer, scs: [2]tri.AttnScratch, pos: u64, n: usize, g: tri.AttnGeometry, keys: usize, host1: []u8, host2: []u8, p0: usize, kind: u8) !bool {
+    var all = true;
+    for (QsaSelect.kinds, 0..) |kd, k| {
+        if (!QsaSelect.fits(k, g)) continue;
+        for (bufs[1][1..]) |b| try b.fill8(0xA7, t.s.handle);
+        try q.run(k, t.s, pos, scs[1], n, g);
+        try t.s.synchronize();
+        var ok = true;
+        for (1..4) |b| {
+            const bytes = if (b == 1) n * g.idw * 4 else n * 4;
+            try bufs[0][b].download(0, host1[0..bytes]);
+            try bufs[1][b].download(0, host2[0..bytes]);
+            ok = ok and std.mem.eql(u8, host1[0..bytes], host2[0..bytes]);
+        }
+        if (!ok) all = false;
+        std.debug.print("{s} qsa select {s} = _select position {d} rows {d} keys {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", kd.label, p0, n, keys, if (kind == 1) " tie-heavy" else if (kind == 2) " special" else if (kind == 3) " direct scores" else "" });
     }
     return all;
+}
+
+/// ms a call (20 calls, after a warm pass) of each decode-window indexer launch: `_scores`, each fn_qsa_scores tile,
+/// `_select` (while its registers hold the row), `_select_tiles` and each QsaSelect kind.
+fn qsaDecodeTimes(d: *const cuda.Driver, t: tri.Tri, fast: ?*const QsaScores, sel: ?*const QsaSelect, iq: u64, pooled: u64, pos: u64, scs: [2]tri.AttnScratch, n: usize, g: tri.AttnGeometry, keys: usize, dims: tri.Dims, p0: usize) !void {
+    var e0 = try cuda.Event.init(d, true);
+    defer e0.deinit();
+    var e1 = try cuda.Event.init(d, true);
+    defer e1.deinit();
+    const reps = 20;
+    const nt = QsaScores.count;
+    const nk = QsaSelect.kinds.len;
+    // 0 `_scores`, 1..nt the tiles, nt + 1 `_select`, nt + 2 `_select_tiles`, then the QsaSelect kinds
+    const s0 = nt + 3;
+    var ms: [s0 + nk]f32 = @splat(-1);
+    var width: usize = 1;
+    while (width < g.blocks(keys)) width *= 2;
+    for (0..ms.len) |which| {
+        if (which >= 1 and which <= nt and fast == null) continue;
+        if (which == nt + 1 and width > tri.AttnGeometry.select_regs) continue;
+        if (which >= s0 and (sel == null or !QsaSelect.fits(which - s0, g))) continue;
+        for (0..2) |pass| {
+            try e0.record(t.s);
+            for (0..reps) |_| {
+                if (which == 0) {
+                    try qsaScores(t, iq, pooled, pos, scs[0], n, g, keys, dims);
+                } else if (which <= nt) {
+                    var qq = fast.?.*;
+                    qq.pick = which - 1;
+                    try qq.run(t.s, iq, pooled, pos, scs[1], n, g, keys);
+                } else if (which == nt + 1) {
+                    try qsaSelect(t, pos, scs[0], n, g, keys);
+                } else if (which == nt + 2) {
+                    try qsaSelectTiles(t, pos, scs[1], n, g);
+                } else try sel.?.run(which - s0, t.s, pos, scs[1], n, g);
+            }
+            try e1.record(t.s);
+            try e1.synchronize();
+            if (pass == 1) ms[which] = try cuda.Event.elapsedMs(e0, e1) / reps;
+        }
+    }
+    std.debug.print("time decode position {d} rows {d} keys {d}: _scores {d:.4} ms, fn_qsa_scores tiles", .{ p0, n, keys, ms[0] });
+    for (1..nt + 1) |i| std.debug.print(" {d:.4}", .{ms[i]});
+    std.debug.print(" ms, _select {d:.4} ms, _select_tiles {d:.4} ms, qsa select", .{ ms[nt + 1], ms[nt + 2] });
+    for (QsaSelect.kinds, 0..) |kd, k| std.debug.print(" {s} {d:.4}", .{ kd.label, ms[s0 + k] });
+    std.debug.print(" ms\n", .{});
+}
+
+/// ms a call of a prompt block's (`n` rows) selection: the engine's (`_select` below 8192 blocks, `_select_tiles`
+/// from them) against each QsaSelect kind.
+fn qsaPromptSelTimes(d: *const cuda.Driver, t: tri.Tri, sel: *const QsaSelect, pos: u64, sc: tri.AttnScratch, n: usize, g: tri.AttnGeometry, ends: usize, p0: usize) !void {
+    var e0 = try cuda.Event.init(d, true);
+    defer e0.deinit();
+    var e1 = try cuda.Event.init(d, true);
+    defer e1.deinit();
+    const reps = 5;
+    var ms: [1 + QsaSelect.kinds.len]f32 = @splat(-1);
+    for (0..ms.len) |which| {
+        if (which > 0 and !QsaSelect.fits(which - 1, g)) continue;
+        for (0..2) |pass| {
+            try e0.record(t.s);
+            for (0..reps) |_| {
+                if (which > 0) {
+                    try sel.run(which - 1, t.s, pos, sc, n, g);
+                } else if (g.blocks(ends) >= 8192) {
+                    try qsaSelectTiles(t, pos, sc, n, g);
+                } else try qsaSelect(t, pos, sc, n, g, ends);
+            }
+            try e1.record(t.s);
+            try e1.synchronize();
+            if (pass == 1) ms[which] = try cuda.Event.elapsedMs(e0, e1) / reps;
+        }
+    }
+    std.debug.print("time prompt block position {d} rows {d}: engine select {d:.4} ms, qsa select", .{ p0, n, ms[0] });
+    for (QsaSelect.kinds, 0..) |kd, k| std.debug.print(" {s} {d:.4}", .{ kd.label, ms[1 + k] });
+    std.debug.print(" ms\n", .{});
 }
 
 /// Scoring time of 256 rows: `_scores` against fn_qsa_scores at several key counts (keys are random).
@@ -533,7 +807,7 @@ pub fn qsaBench(d: *const cuda.Driver, t: tri.Tri, fast: *const QsaScores) !void
             try e2.synchronize();
         }
         const a = try cuda.Event.elapsedMs(e0, e1) / 5;
-        for (0..4) |pk| {
+        for (0..QsaScores.count) |pk| {
             var qq = fast.*;
             qq.pick = pk;
             try e1.record(t.s);

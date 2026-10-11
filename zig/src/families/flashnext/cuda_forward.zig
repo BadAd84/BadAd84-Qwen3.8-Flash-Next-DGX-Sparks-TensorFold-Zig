@@ -579,6 +579,9 @@ pub const Forward = struct {
     qsa_tiles_from: usize = 8192,
     /// fn_qsa_scores.cu for the prompt indexer's scores (`_scores`' bits); null: Python's `_scores`
     qsa_fast: ?*const prompt.QsaScores = null,
+    /// TF_FLASHNEXT_QSA_SELECT=1: the indexer's block lists of decode windows, MTP steps and prompt blocks from
+    /// fn_qsa_stream.cu (QsaSelect); null: Triton's `_select` / `_select_tiles`. The same lists either way (qsa-check).
+    qsa_sel: ?*const prompt.QsaSelect = null,
 
     pub fn init(gpa: Allocator, d: *const cuda.Driver, s: cuda.Stream, ops: kern.Ops, t: tri.Tri, th: tops.Torch, w: *const W.Weights, c: *const cfgs.Config, g: state.Geometry, dims: tri.Dims, max_rows: usize) !Forward {
         var f: Forward = .{ .gpa = gpa, .d = d, .s = s, .ops = ops, .t = t, .th = th, .w = w, .c = c, .dims = dims, .g = g, .sc = undefined, .pin = undefined, .pin_rows = max_rows, .staged = undefined, .eps = @floatCast(c.eps), .vocab_offset = w.vocab_offset };
@@ -834,6 +837,28 @@ pub const Forward = struct {
     /// The GPU time since the previous mark is `part`'s (profiling only).
     pub fn mark(f: *Forward, part: profs.Part) !void {
         if (f.prof) |p| try p.mark(f.s, part);
+    }
+
+    /// A decode window's indexer: pool the blocks it completes, score, select. QSA_SELECT=0 (`qsa_sel` null):
+    /// Tri.qsaSelectRope, the call as before the option, so the same launches; else the pool, marked, and qsaDecode.
+    fn qsaIndex(f: *Forward, iq: u64, ikc: u64, pooled: u64, pos0: u64, w: u64, sc: tri.AttnScratch, rows: usize, ag: tri.AttnGeometry, keys: usize, rope: ?tri.Tri.Rope) !void {
+        if (f.qsa_sel == null) return f.t.qsaSelectRope(iq, ikc, pooled, pos0, w, f.w.inv_freq, sc, rows, ag, keys, f.dims, rope);
+        try f.t.qsaPoolRope(ikc, pooled, pos0, w, f.w.inv_freq, rows, ag, f.dims, rope);
+        try f.mark(.qsa_pool);
+        try f.qsaDecode(iq, pooled, pos0, sc, rows, ag, keys);
+    }
+
+    /// A decode window's (or MTP step's) indexer rows: QSA_SELECT=0 (`qsa_sel` null), Tri.qsaRows' `_scores` and
+    /// `_select` as before the option, profile or not; with `qsa_sel` `_scores` and the same lists from QsaSelect
+    /// (`_select` where it does not fit).
+    fn qsaDecode(f: *Forward, iq: u64, pooled: u64, pos0: u64, sc: tri.AttnScratch, rows: usize, ag: tri.AttnGeometry, keys: usize) !void {
+        const q = f.qsa_sel orelse return f.t.qsaRows(iq, pooled, pos0, sc, rows, ag, keys, f.dims);
+        try prompt.qsaScores(f.t, iq, pooled, pos0, sc, rows, ag, keys, f.dims);
+        try f.mark(.qsa_scores);
+        if (prompt.QsaSelect.fits(q.decFor(ag.blocks(keys)), ag)) {
+            try q.run(q.decFor(ag.blocks(keys)), f.s, pos0, sc, rows, ag);
+        } else try prompt.qsaSelect(f.t, pos0, sc, rows, ag, keys);
+        try f.mark(.qsa_select);
     }
 
     pub fn put(f: *Forward, name: []const u8, ptr: u64, bytes: usize) !void {
@@ -1725,7 +1750,7 @@ pub const Forward = struct {
                 continue;
             }
             const keys = if (f.contexts) |cs| cs[si] else f.context orelse host_pos + n;
-            if (ag.qsa) try f.t.qsaSelectRope(iq, ikc, pooled, pos, a.ik_scale, f.w.inv_freq, sc, n, ag, keys, d, rope);
+            if (ag.qsa) try f.qsaIndex(iq, ikc, pooled, pos, a.ik_scale, sc, n, ag, keys, rope);
             try f.t.attention(q, cache, pos, sc, b.att_out, n, ag, keys, d);
             // the scratch output is the next stream's too
             if (segs.len > 1) try f.th.copy(b.attn_o + sg.a0 * qrow, b.att_out, n * qrow);
@@ -1776,7 +1801,9 @@ pub const Forward = struct {
             try prompt.qsaScoresRows(f.t, iq, pooled, pos0, sc, m, ag, ends, f.dims, f.qsa_rt);
         } else try prompt.qsaScores(f.t, iq, pooled, pos0, sc, m, ag, ends, f.dims);
         try f.mark(.qsa_scores);
-        if (ag.blocks(ends) >= f.qsa_tiles_from) {
+        if (f.qsa_sel != null and prompt.QsaSelect.fits(prompt.QsaSelect.s5, ag)) {
+            try f.qsa_sel.?.run(prompt.QsaSelect.s5, f.s, pos0, sc, m, ag);
+        } else if (ag.blocks(ends) >= f.qsa_tiles_from) {
             try prompt.qsaSelectTiles(f.t, pos0, sc, m, ag);
         } else try prompt.qsaSelect(f.t, pos0, sc, m, ag, ends);
         try f.mark(.qsa_select);
@@ -1815,7 +1842,7 @@ pub const Forward = struct {
                 if (end / ag.ratio <= top) continue;
                 const a0 = sg.a0;
                 const sc: tri.AttnScratch = .{ .po = b.att_po, .pm = b.att_pm, .pl = b.att_pl, .ids = b.att_ids + a0 * ag.idw * 4, .nk = b.att_nk + a0 * 4, .sparse = b.att_sparse + a0 * 4, .scores = b.att_scores + a0 * ag.nb * 4 };
-                try f.t.qsaRows(b.iq + a0 * irow, st.pooled[ai], st.pos_dev, sc, sg.a1 - sg.a0, ag, end, d);
+                try f.qsaDecode(b.iq + a0 * irow, st.pooled[ai], st.pos_dev, sc, sg.a1 - sg.a0, ag, end);
             }
             try f.mark(.qsa_rows);
         }
@@ -2140,6 +2167,43 @@ test "the partial scratch covers the widest split-K matmul of a prompt chunk" {
     for ([_]usize{ 1, 16, 17, 64, 128, 2048 + 512 }) |rows| {
         for (1..rows + 1) |r| try std.testing.expect(tri.b16PartBytes(r, g.low + g.streams, g.wide()) <= partBytes(g, rows));
     }
+}
+
+test "QSA_SELECT=0: the decode indexer's launches are the calls from before the option" {
+    // qsaIndex (a decode window) and qsaDecode (an MTP step) with no QsaSelect, recorded, against Tri.qsaSelectRope
+    // and Tri.qsaRows recorded directly: the same kernels, grids, arguments and constants, rope or not, at window
+    // widths and contexts on both sides of `_select`'s register width
+    var w: W.Weights = undefined;
+    w.inv_freq = 0x7f0000100000;
+    const dims: tri.Dims = .{};
+    const ag = tri.AttnGeometry.init(262144, 2048, 4);
+    const sc: tri.AttnScratch = .{ .po = 0x7f0000200000, .pm = 0x7f0000300000, .pl = 0x7f0000400000, .ids = 0x7f0000500000, .nk = 0x7f0000600000, .sparse = 0x7f0000700000, .scores = 0x7f0000800000 };
+    const A = [_]u64{ 0x7f0000900000, 0x7f0000a00000, 0x7f0000b00000, 0x7f0000c00000, 0x7f0000d00000 };
+    const ropes = [_]?tri.Tri.Rope{ null, .{ .table = 0x7f0000e00000, .delta = 0x7f0000f00000, .length = 300 } };
+    for ([_]usize{ 1, 7, 16, 64 }) |rows| for ([_]usize{ 100, 9000, 200000 }) |keys| for (ropes) |rope| {
+        var want: tri.Recorder = .{};
+        var got: tri.Recorder = .{};
+        const tw: tri.Tri = .{ .set = null, .rec = &want };
+        try tw.qsaSelectRope(A[0], A[1], A[2], A[3], A[4], w.inv_freq, sc, rows, ag, keys, dims, rope);
+        try tw.qsaRows(A[0], A[2], A[3], sc, rows, ag, keys, dims);
+        var f: Forward = undefined;
+        f.t = .{ .set = null, .rec = &got };
+        f.w = &w;
+        f.dims = dims;
+        f.qsa_sel = null;
+        f.prof = null;
+        try f.qsaIndex(A[0], A[1], A[2], A[3], A[4], sc, rows, ag, keys, rope);
+        try f.qsaDecode(A[0], A[2], A[3], sc, rows, ag, keys);
+        try std.testing.expectEqual(want.n, got.n);
+        for (want.launches[0..want.n], got.launches[0..got.n]) |a, b| {
+            try std.testing.expectEqualStrings(a.name, b.name);
+            try std.testing.expectEqual(a.grid, b.grid);
+            try std.testing.expectEqual(a.nargs, b.nargs);
+            try std.testing.expectEqual(a.nconsts, b.nconsts);
+            try std.testing.expectEqualDeep(a.args[0..a.nargs], b.args[0..b.nargs]);
+            try std.testing.expectEqualDeep(a.consts[0..a.nconsts], b.consts[0..b.nconsts]);
+        }
+    };
 }
 
 test {

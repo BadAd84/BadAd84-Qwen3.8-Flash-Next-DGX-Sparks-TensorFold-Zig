@@ -496,6 +496,8 @@ pub const Engine = struct {
     pass_times: bool = false,
     /// TF_FLASHNEXT_QSA_FAST (default on): fn_qsa_scores for the prompt indexer's scores
     qsa_fast: ?prompt_mm.QsaScores = null,
+    /// TF_FLASHNEXT_QSA_SELECT=1: fn_qsa_stream for the indexer's block lists
+    qsa_sel: ?prompt_mm.QsaSelect = null,
 
     pub fn init(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, dir: []const u8, kernels_dir: []const u8, o: Options) !*Engine {
         const t0 = std.Io.Clock.awake.now(io);
@@ -677,6 +679,12 @@ pub const Engine = struct {
         if (envGet("TF_FLASHNEXT_QSA_SPLIT_KEYS")) |v| {
             e.f.qsa_split_keys = std.fmt.parseInt(usize, v, 10) catch 0;
         }
+        if (envGet("TF_FLASHNEXT_QSA_SELECT")) |v| if (!std.mem.eql(u8, v, "0")) {
+            e.qsa_sel = try prompt_mm.QsaSelect.init(d);
+            e.f.qsa_sel = &e.qsa_sel.?;
+            std.log.info("qsa select: the indexer's block lists from fn_qsa_stream (decode: cs4 from {d} blocks, s5 below; prompt blocks: s5)", .{e.qsa_sel.?.dec_from});
+        };
+        errdefer if (e.qsa_sel) |*q| q.deinit();
         // measured ~1% (research/R2-measured.md): off unless asked
         if (e.f.glue_split and envGet("TF_FLASHNEXT_OVERLAP") != null and !envOff("TF_FLASHNEXT_OVERLAP")) {
             if (envGet("TF_FLASHNEXT_OVERLAP")) |v| e.f.overlap = std.fmt.parseInt(u8, v, 10) catch 1;
@@ -823,6 +831,7 @@ pub const Engine = struct {
         if (e.mtpq) |*t| t.deinit();
         if (e.hcq) |*t| t.deinit(e.gpa);
         if (e.qsa_fast) |*q| q.deinit();
+        if (e.qsa_sel) |*q| q.deinit();
         if (e.f.cs) |*cs| {
             cs.synchronize() catch {};
             cs.deinit();

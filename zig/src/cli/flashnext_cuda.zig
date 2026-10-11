@@ -1585,7 +1585,8 @@ fn expertsCheck(gpa: Allocator, ctx: *const cuda.Context, o: Options) !u8 {
     return if (ok) 0 else 1;
 }
 
-/// `qsa-check`: no checkpoint; the prompt indexer's row-tiled scoring and tiled selection against Python's kernels.
+/// `qsa-check`: no checkpoint; the indexer's row-tiled scoring and its selections (tiled, fn_qsa_stream) against
+/// Python's kernels.
 fn qsaCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []const u8) !u8 {
     var set = try cuda.aot.Set.load(gpa, io, ctx.d, ctx.device, kernels);
     defer set.deinit();
@@ -1593,7 +1594,9 @@ fn qsaCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
     defer stream.deinit();
     var fast = try flashnext.prompt.QsaScores.init(ctx.d);
     defer fast.deinit();
-    const ok = try flashnext.prompt.qsaCheck(gpa, ctx.d, .{ .set = &set, .s = stream }, &fast);
+    var sel = try flashnext.prompt.QsaSelect.init(ctx.d);
+    defer sel.deinit();
+    const ok = try flashnext.prompt.qsaCheck(gpa, ctx.d, .{ .set = &set, .s = stream }, &fast, &sel);
     // timing: Python's _scores against fn_qsa_scores on 256 rows at 128k and 1M-like key counts
     try flashnext.prompt.qsaBench(ctx.d, .{ .set = &set, .s = stream }, &fast);
     std.debug.print("{s} qsa-check\n", .{if (ok) "PASS" else "FAIL"});

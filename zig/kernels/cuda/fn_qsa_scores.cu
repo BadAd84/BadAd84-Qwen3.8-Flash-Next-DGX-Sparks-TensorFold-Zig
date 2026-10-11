@@ -206,3 +206,128 @@ TF_QSA(fn_qsa_scores, 2, 4, false)
 TF_QSA(fn_qsa_scores_r4b4, 4, 4, true)
 TF_QSA(fn_qsa_scores_r2b8, 2, 8, false)
 TF_QSA(fn_qsa_scores_r4b8, 4, 8, false)
+
+// The same tiles with the per-dim products on fma.rn.f32.bf16 (FHFMA):
+// _scores' own PTX instruction (its header above: "mul.f32 then fma.rn.f32.bf16"), reading the bf16 operands from
+// the packed words instead of widening each to fp32 first. The first product is fma.rn.f32.bf16(k1, q1, -0.0) =
+// mul.rn(k1, q1) exactly (x + -0 = x for every x, signed zeros included) and fma.rn.f32.bf16(k, q, p) =
+// fma.rn.f32(widen(k), widen(q), p) (bf16 widens exactly), so every score is the same fp32 word (qsa-check).
+namespace {
+
+__device__ __forceinline__ float lane_hf(const uint4& k, const uint4& q) {
+  float p;
+  asm("{\n .reg .b16 k0, k1, q0, q1;\n mov.b32 {k0, k1}, %1;\n mov.b32 {q0, q1}, %2;\n"
+      " mov.b32 %0, 0x80000000;\n fma.rn.f32.bf16 %0, k1, q1, %0;\n fma.rn.f32.bf16 %0, k0, q0, %0;\n}\n"
+      : "=f"(p) : "r"(k.x), "r"(q.x));
+#define TF_HF_STEP(W)                                                                                                \
+  asm("{\n .reg .b16 k0, k1, q0, q1;\n mov.b32 {k0, k1}, %1;\n mov.b32 {q0, q1}, %2;\n"                              \
+      " fma.rn.f32.bf16 %0, k0, q0, %0;\n fma.rn.f32.bf16 %0, k1, q1, %0;\n}\n"                                     \
+      : "+f"(p) : "r"(k.W), "r"(q.W));
+  TF_HF_STEP(y) TF_HF_STEP(z) TF_HF_STEP(w)
+#undef TF_HF_STEP
+  return p;
+}
+
+template <int TR, int TB>
+__device__ __forceinline__ void scores_hf(const uint16_t* __restrict__ IQ, const uint16_t* __restrict__ POOLED,
+                                          const int* __restrict__ POS0, float* __restrict__ SC, int NB, int rows,
+                                          int ratio, int top) {
+  constexpr int RT = 16 * TR;
+  constexpr int BT = 16 * TB;
+  extern __shared__ __align__(16) uint16_t smem[];
+  uint16_t* ks = smem;
+  uint16_t* qs = smem + BT * DI;
+  const int tid = threadIdx.x;
+  const int r0 = blockIdx.x * RT;
+  const int j0 = blockIdx.y * BT;
+  const int pos0 = __ldg(POS0);
+  const int last = min(r0 + RT, rows) - 1;
+  const int reach = (pos0 + last + 1) / ratio;
+  if (reach <= top || j0 >= reach) return;
+  for (int i = tid; i < BT * (DI / 8); i += 256) {
+    const int b = i / (DI / 8), c = i % (DI / 8);
+    uint4 v = make_uint4(0, 0, 0, 0);
+    if (j0 + b < reach) v = __ldg(reinterpret_cast<const uint4*>(POOLED + (size_t)(j0 + b) * DI) + c);
+    *reinterpret_cast<uint4*>(ks + kslot(b, c)) = v;
+  }
+  for (int i = tid; i < RT * HI * (DI / 8); i += 256) {
+    const int rh = i / (DI / 8), c = i % (DI / 8);
+    const int r = rh / HI;
+    uint4 v = make_uint4(0, 0, 0, 0);
+    if (r0 + r < rows) v = __ldg(reinterpret_cast<const uint4*>(IQ + (size_t)(r0 * HI + rh) * DI) + c);
+    *reinterpret_cast<uint4*>(qs + rh * DI + c * 8) = v;
+  }
+  __syncthreads();
+  const int tr = tid / 16;
+  const int tb = tid % 16;
+  float total[TR][TB];
+#pragma unroll 1
+  for (int h = 0; h < HI; ++h) {
+    float c0[TR][TB], cc[TR][TB], bb[TR][TB], aa[TR][TB];
+#pragma unroll 1
+    for (int step = 0; step < 16; ++step) {
+      const int half = step >> 3, q2 = (step >> 2) & 1, q4 = (step >> 1) & 1, q8 = step & 1;
+      const int l = half + 2 * q2 + 4 * q4 + 8 * q8;
+      uint4 qf[TR];
+#pragma unroll
+      for (int ir = 0; ir < TR; ++ir) qf[ir] = *reinterpret_cast<const uint4*>(qs + ((tr * TR + ir) * HI + h) * DI + l * 8);
+#pragma unroll
+      for (int jb = 0; jb < TB; ++jb) {
+        const uint4 kf = *reinterpret_cast<const uint4*>(ks + kslot(tb + 16 * jb, l));
+#pragma unroll
+        for (int ir = 0; ir < TR; ++ir) {
+          const float p = lane_hf(kf, qf[ir]);
+          float& A = aa[ir][jb];
+          float& B = bb[ir][jb];
+          float& C = cc[ir][jb];
+          if (q8 == 0) {
+            A = p;
+          } else {
+            const float a = add_rn(A, p);
+            if (q4 == 0) {
+              B = a;
+            } else {
+              const float bsum = add_rn(B, a);
+              if (q2 == 0) {
+                C = bsum;
+              } else {
+                const float csum = add_rn(C, bsum);
+                if (half == 0) {
+                  c0[ir][jb] = csum;
+                } else {
+                  const float S = max0(add_rn(c0[ir][jb], csum));
+                  total[ir][jb] = h == 0 ? add_rn(S, 0.0f) : add_rn(total[ir][jb], S);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+#pragma unroll
+  for (int ir = 0; ir < TR; ++ir) {
+    const int r = r0 + tr * TR + ir;
+    if (r >= rows) continue;
+    const int complete = (pos0 + r + 1) / ratio;
+    if (complete <= top) continue;
+#pragma unroll
+    for (int jb = 0; jb < TB; ++jb) {
+      const int bk = j0 + tb + 16 * jb;
+      if (bk < complete) SC[(size_t)r * NB + bk] = div_full(total[ir][jb]);
+    }
+  }
+}
+
+}  // namespace
+
+#define TF_QSA_HF(NAME, TR, TB)                                                                                      \
+  extern "C" __global__ void __launch_bounds__(256)                                                            \
+      NAME(const uint16_t* __restrict__ IQ, const uint16_t* __restrict__ POOLED, const int* __restrict__ POS0,    \
+           float* __restrict__ SC, int NB, int rows, int ratio, int top) {                                     \
+    scores_hf<TR, TB>(IQ, POOLED, POS0, SC, NB, rows, ratio, top);                                                 \
+  }
+TF_QSA_HF(fn_qsa_scores_f2b4, 2, 4)
+TF_QSA_HF(fn_qsa_scores_f4b4, 4, 4)
+TF_QSA_HF(fn_qsa_scores_f2b8, 2, 8)
+TF_QSA_HF(fn_qsa_scores_f4b8, 4, 8)
