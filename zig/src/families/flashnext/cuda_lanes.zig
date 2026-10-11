@@ -619,9 +619,19 @@ pub fn Lanes(comptime E: type) type {
         fn freeKept(self: *Self, k: *Kept) void {
             self.kept_bytes -= k.bytes;
             if (std.mem.indexOfScalar(*Kept, self.late.items, k)) |i| _ = self.late.orderedRemove(i);
-            if (k.keeper) |kp| self.e.freeSeq(kp);
+            if (k.keeper) |kp| self.retireSeq(kp);
             self.e.freeSnapshot(k.snap);
             self.gpa.destroy(k);
+        }
+
+        /// A lane's sequence from the engine's pool when it has one (Engine.takeSeq), else newSeq.
+        fn takeSeq(self: *Self, limit: usize) !SeqPtr {
+            return if (@hasDecl(E, "takeSeq")) self.e.takeSeq(limit) else self.e.newSeq(limit);
+        }
+
+        /// A lane's (or keeper's) sequence back to the engine's pool when it keeps them, else freed.
+        fn retireSeq(self: *Self, s: SeqPtr) void {
+            if (@hasDecl(E, "retire")) self.e.retire(s) else self.e.freeSeq(s);
         }
 
         /// The pass ended: rank 0 (or one rank) frees what the store did not adopt and tells rank 1 which it did;
@@ -749,7 +759,6 @@ pub fn Lanes(comptime E: type) type {
 
         /// The prefill's local steps: admission, the last round's commits, the stream's lane and a new sequence.
         fn preparePrefill(self: *Self, s: *lanes.Stream) !*Lane {
-            const e = self.e;
             const ids = s.prompt();
             if (ids.len == 0 or ids.len > self.context or s.max_new > self.context - ids.len) return error.PromptTooLong;
             const limit = ids.len + s.max_new + self.window; // speculative rows are outside the public context
@@ -760,7 +769,7 @@ pub fn Lanes(comptime E: type) type {
             if (!self.overcommit and self.reserved - before + need + self.kept_bytes > self.budget()) return error.NoRoom;
             try self.settle();
             const l = if (self.lanes.get(s)) |old| blk: {
-                e.freeSeq(old.seq);
+                self.retireSeq(old.seq);
                 break :blk old;
             } else blk: {
                 const l = try self.gpa.create(Lane);
@@ -769,7 +778,7 @@ pub fn Lanes(comptime E: type) type {
                 break :blk l;
             };
             self.reserved -= before;
-            l.* = .{ .seq = e.newSeq(limit) catch |err| {
+            l.* = .{ .seq = self.takeSeq(limit) catch |err| {
                 _ = self.lanes.remove(s);
                 self.gpa.destroy(l);
                 return err;
@@ -798,7 +807,7 @@ pub fn Lanes(comptime E: type) type {
             self.stopFill(l);
             self.reserved -= l.reserved;
             self.forget(l);
-            self.e.freeSeq(l.seq);
+            self.retireSeq(l.seq);
             self.gpa.destroy(l);
         }
 
@@ -1016,7 +1025,7 @@ pub fn Lanes(comptime E: type) type {
             }
             self.reserved -= kv.value.reserved;
             self.forget(kv.value);
-            if (!kept_seq) self.e.freeSeq(kv.value.seq);
+            if (!kept_seq) self.retireSeq(kv.value.seq);
             self.gpa.destroy(kv.value);
         }
 

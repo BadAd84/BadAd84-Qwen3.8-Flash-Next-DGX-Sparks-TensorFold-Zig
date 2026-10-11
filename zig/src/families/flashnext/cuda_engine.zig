@@ -118,11 +118,15 @@ pub const Seq = fwd.Seq;
 /// rotary table and prompt length, so its graphs are its own.
 const GraphKey = struct { seq: usize, version: u32, mtp: bool, rows: u32, parity: u32, ctx: usize, media: u64 = 0 };
 
-/// A shared round's (or shared MTP step's) graph and the sequences whose buffers it bakes in.
-const MultiGraph = struct { exec: cuda.graph.Exec, seqs: []usize };
+/// A solo window's graph and when it last ran (TF_FLASHNEXT_SOLO_MAX: least recently used out first).
+const SoloGraph = struct { exec: cuda.graph.Exec, used: u64 = 0 };
+
+/// A shared round's (or shared MTP step's) graph, the sequences whose buffers it bakes in, and when it last ran.
+const MultiGraph = struct { exec: cuda.graph.Exec, seqs: []usize, used: u64 = 0 };
 
 /// Shared-round graphs kept at most (drafted rounds vary their windows' lengths; a composition is captured
-/// the second time it is seen).
+/// the second time it is seen). TF_FLASHNEXT_MULTI_MAX overrides; TF_FLASHNEXT_MULTI_LRU=1 evicts the least
+/// recently used graph when full instead of dropping them all.
 const max_multi_graphs = 192;
 
 /// The state of a class of captures after failures: rounds left to run eagerly, and the failures in a row.
@@ -275,6 +279,35 @@ fn envOff(name: [:0]const u8) bool {
     return std.mem.eql(u8, v, "0") or std.mem.eql(u8, v, "off");
 }
 
+/// A count setting: null when unset; a value that is not a count is refused (error.BadSetting, logged with its
+/// name), never read as the default.
+pub fn envCount(name: [:0]const u8) !?usize {
+    const v = envGet(name) orelse return null;
+    return std.fmt.parseInt(usize, v, 10) catch {
+        std.log.warn("{s}={s} refused: a count (0, 1, 2, ...)", .{ name, v });
+        return error.BadSetting;
+    };
+}
+
+test "count settings (TF_FLASHNEXT_SEQ_POOL, WARM_POOL, ...) refuse a value that is not a count, never read it as unset" {
+    const c = struct {
+        extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+        extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+    };
+    const name = "TF_FLASHNEXT_TEST_COUNT";
+    _ = c.unsetenv(name);
+    try std.testing.expectEqual(@as(?usize, null), try envCount(name));
+    for ([_]struct { v: [:0]const u8, n: usize }{ .{ .v = "0", .n = 0 }, .{ .v = "4", .n = 4 }, .{ .v = "16", .n = 16 } }) |ok| {
+        _ = c.setenv(name, ok.v, 1);
+        try std.testing.expectEqual(@as(?usize, ok.n), try envCount(name));
+    }
+    for ([_][:0]const u8{ "", "x", "-1", "4 ", "2.5", "1e3" }) |bad| {
+        _ = c.setenv(name, bad, 1);
+        try std.testing.expectError(error.BadSetting, envCount(name));
+    }
+    _ = c.unsetenv(name);
+}
+
 /// TF_FLASHNEXT_PREFILL_ROWS: the prompt chunk's rows (both ranks the same; any chunking gives the same bits), else
 /// the caller's.
 /// Two ranks' prompt chunk rows: with the in-program K slices and the prompt expert kernel 4096 rows a call are
@@ -328,6 +361,9 @@ pub const Engine = struct {
     product_streams: usize = std.math.maxInt(usize),
     /// shared steps of at most this many streams are captured (TF_FLASHNEXT_MULTI_GRAPHS)
     multi_graphs: usize = multi_graphs_default,
+    /// shared verify rounds (not MTP steps) of at most this many streams are captured
+    /// (TF_FLASHNEXT_MULTI_VERIFY; default: multi_graphs)
+    multi_verify: usize = multi_graphs_default,
     /// the Triton variants each launch site picked (the forward's launches skip `find`'s scan)
     memo: tri.Memo = undefined,
     /// the rows the context caches hold (Python max_len: the window plus depth + 1 speculative rows)
@@ -361,7 +397,7 @@ pub const Engine = struct {
     vm: ?vmm.Vmm = null,
     /// the fill whose chunk holds the prompt buffers between slices (one at a time; prefill waits for it)
     pfill: ?*const Fill = null,
-    graphs: std.AutoHashMapUnmanaged(GraphKey, cuda.graph.Exec) = .empty,
+    graphs: std.AutoHashMapUnmanaged(GraphKey, SoloGraph) = .empty,
     captures: usize = 0,
     /// a failed capture, instantiate or upload is not fatal: that round runs eagerly (the same bits) and captures
     /// pause for a while (solo windows and shared rounds apart); TF_FLASHNEXT_GRAPH_LOG=1 logs the graph counts,
@@ -374,6 +410,16 @@ pub const Engine = struct {
     /// shared rounds' and shared MTP steps' graphs by composition (multiKey), and compositions seen once
     multi: std.AutoHashMapUnmanaged(u64, MultiGraph) = .empty,
     seen: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    /// the graph policy: shared graphs kept (TF_FLASHNEXT_MULTI_MAX), LRU eviction (TF_FLASHNEXT_MULTI_LRU=1, else
+    /// all are dropped when full), solo graphs kept (TF_FLASHNEXT_SOLO_MAX, 0: unbounded), the LRU clock
+    multi_max: usize = max_multi_graphs,
+    multi_lru: bool = false,
+    solo_max: usize = 0,
+    use_tick: u64 = 0,
+    /// lanes' released sequences kept for the next request, reset, with their graphs (TF_FLASHNEXT_SEQ_POOL=N keeps
+    /// up to N; 0: every request frees its sequence and makes a new one)
+    pool: std.ArrayList(*Seq) = .empty,
+    pool_max: usize = 0,
     /// TF_FLASHNEXT_PROFILE: each prompt chunk's GPU time by part (cuda_prof.zig)
     prof: ?*profs.Prof = null,
     /// TF_FLASHNEXT_PROMPT_EXPERTS (default on): prompt chunks' experts read weights once a call
@@ -488,6 +534,18 @@ pub const Engine = struct {
         e.graph_log = envGet("TF_FLASHNEXT_GRAPH_LOG") != null;
         if (envGet("TF_FLASHNEXT_GRAPH_FAIL")) |v| e.inject_every = std.fmt.parseInt(u64, v, 10) catch 0;
         if (envGet("TF_FLASHNEXT_MULTI_GRAPHS")) |v| e.multi_graphs = std.fmt.parseInt(usize, v, 10) catch multi_graphs_default;
+        e.multi_verify = e.multi_graphs;
+        if (try envCount("TF_FLASHNEXT_MULTI_VERIFY")) |v| e.multi_verify = @min(e.multi_graphs, v);
+        if (try envCount("TF_FLASHNEXT_MULTI_MAX")) |v| e.multi_max = @max(1, v);
+        e.multi_lru = if (envGet("TF_FLASHNEXT_MULTI_LRU")) |v| std.mem.eql(u8, v, "1") else false;
+        if (try envCount("TF_FLASHNEXT_SOLO_MAX")) |v| e.solo_max = v;
+        if (try envCount("TF_FLASHNEXT_SEQ_POOL")) |v| e.pool_max = v;
+        // the pool is one rank's: both ranks of a TP=2 engine would have to take and give back the same sequences
+        if (e.pool_max > 0 and o.world > 1) {
+            std.log.warn("TF_FLASHNEXT_SEQ_POOL={d} refused: the sequence pool runs at one GPU only", .{e.pool_max});
+            return error.BadSetting;
+        }
+        std.log.info("graphs: shared verify rounds of up to {d} streams captured, MTP steps of up to {d}; {d} shared graphs kept ({s}), solo graphs {s}; sequence pool {d}", .{ e.multi_verify, e.multi_graphs, e.multi_max, if (e.multi_lru) "least recently used out first" else "all dropped when full", if (e.solo_max > 0) "least recently used out past TF_FLASHNEXT_SOLO_MAX" else "unbounded", e.pool_max });
         // shared rounds past the captured widths run their attention in one launch a kernel (attn_multi.py's
         // kernels, aot/w6-ks1 and later; without them, a stream at a time): TF_FLASHNEXT_ATTN_MULTI=N from N
         // streams (never at a captured width), 0 off
@@ -620,6 +678,7 @@ pub const Engine = struct {
             e.budget.limit = @min(both[0], both[1]);
         }
         e.f.budget = &e.budget;
+        e.f.reclaim = .{ .ptr = e, .run = reclaimFn };
         e.budget.floor = @intFromFloat(@min(reserve_gib, 10) * (1 << 30));
         std.log.info("sequence memory: {d:.2} GiB ({d:.2} GiB free, {d:.1} GiB kept free); {s} KV cache, {d} bytes a position a layer", .{ @as(f64, @floatFromInt(e.budget.limit)) / (1 << 30), @as(f64, @floatFromInt(free)) / (1 << 30), reserve_gib, @tagName(e.g.kv), e.g.kRow() + e.g.vRow() });
         e.own = try e.newSeq(e.max_len);
@@ -647,8 +706,10 @@ pub const Engine = struct {
 
     pub fn deinit(e: *Engine) void {
         e.stream.synchronize() catch {};
+        for (e.pool.items) |s| e.freeSeq(s);
+        e.pool.deinit(e.gpa);
         var it = e.graphs.valueIterator();
-        while (it.next()) |g| g.deinit();
+        while (it.next()) |g| g.exec.deinit();
         e.graphs.deinit(e.gpa);
         e.graphs = .empty;
         e.dropMulti(null);
@@ -698,7 +759,7 @@ pub const Engine = struct {
         errdefer e.gpa.destroy(s);
         // caches start at one growth step and grow with the stream (State.ensure), up to `limit`
         const first = @min(limit, state.grow_step);
-        if (!e.fits(first)) return error.NoRoom;
+        if (!e.fits(first) and !(e.trimPool() and e.fits(first))) return error.NoRoom;
         s.* = .{ .st = try state.State.init(e.ctx.d, e.g, if (e.vm != null) 1 else first, limit) };
         errdefer s.deinit(e.gpa);
         s.charged = s.st.fixed.buf.len + (if (s.st.ctx) |c| c.buf.len else 0) + e.g.wide() * 2;
@@ -757,6 +818,79 @@ pub const Engine = struct {
         e.dropMulti(@intFromPtr(s));
         s.deinit(e.gpa);
         e.gpa.destroy(s);
+    }
+
+    /// A lane's sequence. With TF_FLASHNEXT_SEQ_POOL a released one comes back reset, its graphs still
+    /// valid (its caches sit in reserved address space that never moves); pooled sequences reserve the engine's
+    /// whole window so every request sees the same capacities (graph keys repeat). Without: newSeq(limit_rows).
+    pub fn takeSeq(e: *Engine, limit_rows: usize) !*Seq {
+        if (e.pool_max == 0 or e.vm == null) return e.newSeq(limit_rows);
+        if (e.pool.pop()) |s| {
+            errdefer e.freeSeq(s);
+            try e.f.register(s);
+            return s;
+        }
+        const s = try e.newSeq(e.max_len);
+        s.pooled = true;
+        s.pool_capacity = s.st.capacity;
+        return s;
+    }
+
+    /// A lane's (or keeper's) sequence given back: a pooled one reset into the pool, else freed.
+    pub fn retire(e: *Engine, s: *Seq) void {
+        if (!s.pooled or e.pool.items.len >= e.pool_max) return e.freeSeq(s);
+        e.pool.ensureUnusedCapacity(e.gpa, 1) catch return e.freeSeq(s);
+        e.recycle(s) catch |err| {
+            std.log.warn("sequence pool: reset failed ({s}); the sequence is freed", .{@errorName(err)});
+            return e.freeSeq(s);
+        };
+        e.pool.appendAssumeCapacity(s);
+    }
+
+    /// A pooled sequence back to exactly what newSeq gives: physical memory past the first growth step unmapped
+    /// (addresses stay reserved), every byte the caches hold zeroed, the window and held rows cleared, then
+    /// Forward.reset, newSeq's own last step: the fixed state (DeltaNet conv and recurrent state, PLE tail, the device
+    /// position, rope delta and MTP length), positions, the n-gram history (initialHistory), the MTP head's length
+    /// and drafts, the rope delta, the DeltaNet parities, `staged`, and the attachment dropped
+    /// (dropMedia). Every field of Seq and State is classified by the test "every field of a pooled sequence is
+    /// reset ..." below and compared with a fresh sequence's by `tensorfold pool-check`. It leaves the forward's
+    /// registry until taken again.
+    fn recycle(e: *Engine, s: *Seq) !void {
+        try e.stream.synchronize(); // launches in flight may read its caches
+        if (e.bound == s and s != e.own) e.bound = e.own;
+        e.f.unregister(s);
+        var freed: usize = 0;
+        for (s.regions.items) |*r| {
+            if (r.ring) continue;
+            freed += r.shrinkToFirst();
+        }
+        e.budget.used -|= freed;
+        s.charged -|= freed;
+        for (s.regions.items) |r| {
+            // a ring maps one chunk over the whole range: zero the chunk once
+            const bytes = if (r.ring) (if (r.maps.items.len > 0) r.maps.items[0][1] else 0) else r.mapped;
+            try e.f.th.zero(r.base, bytes);
+        }
+        s.st.capacity = s.pool_capacity;
+        s.window.clearRetainingCapacity();
+        s.held_a0 = 0;
+        s.held_par = 0;
+        try e.f.reset(s);
+        try e.stream.synchronize();
+    }
+
+    /// Every pooled sequence freed (memory for a new sequence or a growth); whether any was.
+    pub fn trimPool(e: *Engine) bool {
+        if (e.pool.items.len == 0) return false;
+        e.stream.synchronize() catch {};
+        for (e.pool.items) |s| e.freeSeq(s);
+        e.pool.clearRetainingCapacity();
+        return true;
+    }
+
+    fn reclaimFn(ptr: *anyopaque) bool {
+        const e: *Engine = @ptrCast(@alignCast(ptr));
+        return e.trimPool();
     }
 
     /// One cache layer's indexer-key ring (physical bytes): a prompt chunk's rows and the 3 before them that a pool
@@ -1827,7 +1961,7 @@ pub const Engine = struct {
             } else null;
             const k = found orelse return;
             var g = e.graphs.fetchRemove(k).?.value;
-            g.deinit();
+            g.exec.deinit();
         }
     }
 
@@ -1859,7 +1993,11 @@ pub const Engine = struct {
         const key: GraphKey = .{ .seq = @intFromPtr(seq), .version = seq.st.version, .mtp = head, .rows = @intCast(rows), .parity = par, .ctx = ctx, .media = mediaKey(seq) };
         e.f.context = ctx;
         defer e.f.context = null;
-        if (e.graphs.get(key)) |g| return g.launchOn(e.stream);
+        e.use_tick += 1;
+        if (e.graphs.getPtr(key)) |g| {
+            g.used = e.use_tick;
+            return g.exec.launchOn(e.stream);
+        }
         e.dropGraphsOf(key.seq, key.version, key.media);
         try e.body(head, rows);
         // the eager run above is this call's result; a capture that fails from here on only costs the graph
@@ -1868,13 +2006,43 @@ pub const Engine = struct {
             return;
         }
         try e.stream.synchronize();
+        if (e.solo_max > 0 and e.graphs.count() >= e.solo_max) e.evictSolo(); // after the drain: none in flight
         if (!e.capBegin(&e.solo_fault, "solo")) return;
         const ok = if (e.body(head, rows)) |_| true else |err| e.capNote(&e.solo_fault, "solo", "capture", err);
         var exec = e.capEnd(&e.solo_fault, "solo", ok) orelse return;
         errdefer exec.deinit();
-        try e.graphs.put(e.gpa, key, exec);
+        try e.graphs.put(e.gpa, key, .{ .exec = exec, .used = e.use_tick });
         e.captures += 1;
         e.capLog("solo");
+    }
+
+    /// The least recently run solo graph released (TF_FLASHNEXT_SOLO_MAX).
+    fn evictSolo(e: *Engine) void {
+        var it = e.graphs.iterator();
+        var old: ?GraphKey = null;
+        var t: u64 = std.math.maxInt(u64);
+        while (it.next()) |kv| if (kv.value_ptr.used < t) {
+            t = kv.value_ptr.used;
+            old = kv.key_ptr.*;
+        };
+        const k = old orelse return;
+        var g = e.graphs.fetchRemove(k).?.value;
+        g.exec.deinit();
+    }
+
+    /// The least recently run shared graph released (TF_FLASHNEXT_MULTI_LRU=1).
+    fn evictMulti(e: *Engine) void {
+        var it = e.multi.iterator();
+        var old: ?u64 = null;
+        var t: u64 = std.math.maxInt(u64);
+        while (it.next()) |kv| if (kv.value_ptr.used < t) {
+            t = kv.value_ptr.used;
+            old = kv.key_ptr.*;
+        };
+        const k = old orelse return;
+        var g = e.multi.fetchRemove(k).?.value;
+        g.exec.deinit();
+        e.gpa.free(g.seqs);
     }
 
     /// Starts a thread-local capture on the engine's stream; false (noted) when the driver refuses.
@@ -1957,6 +2125,37 @@ pub const Engine = struct {
         return e.captures - before;
     }
 
+    /// TF_FLASHNEXT_WARM_POOL=N with TF_FLASHNEXT_SEQ_POOL: N pooled sequences made at load and the served
+    /// one-stream shapes captured on each - verifyMany's one-window forward at every width and both parities, and
+    /// draftMany's one-stream MTP steps (runMulti, captured on the second sight) at every width - at the first
+    /// context bucket, then given back to the pool. Returns the graphs captured.
+    pub fn warmPool(e: *Engine, n: usize) !usize {
+        if (!e.graphs_on or e.pool_max == 0 or e.vm == null) return 0;
+        const before = e.captures;
+        const keep = e.bound;
+        defer e.bound = keep;
+        var seqs: [16]*Seq = undefined;
+        const m = @min(n, e.pool_max, seqs.len);
+        var made: usize = 0;
+        defer for (seqs[0..made]) |s| e.retire(s);
+        while (made < m) : (made += 1) seqs[made] = try e.takeSeq(e.max_len);
+        const zeros: [state.max_rows]u32 = @splat(0);
+        const rows = @min(e.depth + 1, e.buf.b.rows, state.max_rows);
+        for (seqs[0..made]) |s| {
+            e.bound = s;
+            for (1..rows + 1) |r| for (0..2) |_| try e.forward(zeros[0..r]);
+            const mb = &(e.mbuf orelse continue);
+            for (1..rows + 1) |r| for (0..2) |_| {
+                var segs: [1]fwd.Seg = undefined;
+                const in = [1]mtp.Input{.{ .seq = s, .next = zeros[0..r], .streams = e.buf.b.streams }};
+                _ = try mtp.stageMany(&e.f, &in, mb, &segs);
+                try e.runMulti(true, &segs, mb);
+            };
+        }
+        try e.stream.synchronize();
+        return e.captures - before;
+    }
+
     /// Shared graphs released: those baking in sequence `seq`, or all (null).
     fn dropMulti(e: *Engine, seq: ?usize) void {
         while (true) {
@@ -1995,19 +2194,24 @@ pub const Engine = struct {
         const media = !e.media_graphs and for (segs) |sg| {
             if (sg.seq.media != null) break true;
         } else false;
-        const key = if (e.graphs_on and e.f.dump == null and e.f.prof == null and segs.len <= e.multi_graphs and !media) e.multiKey(head, segs, ctxs[0..segs.len]) else null;
+        const widest = if (head) e.multi_graphs else e.multi_verify;
+        const key = if (e.graphs_on and e.f.dump == null and e.f.prof == null and segs.len <= widest and !media) e.multiKey(head, segs, ctxs[0..segs.len]) else null;
         const k = key orelse {
             if (head) _ = try mtp.computeSegs(&e.f, segs, x) else _ = try e.f.computeSegs(segs, x, true);
             return;
         };
         e.f.contexts = ctxs[0..segs.len];
         defer e.f.contexts = null;
-        if (e.multi.get(k)) |g| return g.exec.launchOn(e.stream);
+        e.use_tick += 1;
+        if (e.multi.getPtr(k)) |g| {
+            g.used = e.use_tick;
+            return g.exec.launchOn(e.stream);
+        }
         if (e.seen.count() > 16384) e.seen.clearRetainingCapacity();
         const again = (try e.seen.getOrPut(e.gpa, k)).found_existing;
         if (head) _ = try mtp.computeSegs(&e.f, segs, x) else _ = try e.f.computeSegs(segs, x, true);
         if (!again) return;
-        if (e.multi.count() >= max_multi_graphs) {
+        if (!e.multi_lru and e.multi.count() >= e.multi_max) {
             e.dropMulti(null);
             e.seen.clearRetainingCapacity();
         }
@@ -2016,6 +2220,7 @@ pub const Engine = struct {
             return;
         }
         try e.stream.synchronize();
+        if (e.multi_lru and e.multi.count() >= e.multi_max) e.evictMulti(); // after the drain: none in flight
         if (!e.capBegin(&e.multi_fault, "shared")) return;
         const r = if (head) mtp.computeSegs(&e.f, segs, x) else e.f.computeSegs(segs, x, true);
         const ok = if (r) |_| true else |err| e.capNote(&e.multi_fault, "shared", "capture", err);
@@ -2024,7 +2229,7 @@ pub const Engine = struct {
         const seqs = try e.gpa.alloc(usize, segs.len);
         errdefer e.gpa.free(seqs);
         for (segs, seqs) |sg, *q| q.* = @intFromPtr(sg.seq);
-        try e.multi.put(e.gpa, k, .{ .exec = exec, .seqs = seqs });
+        try e.multi.put(e.gpa, k, .{ .exec = exec, .seqs = seqs, .used = e.use_tick });
         e.captures += 1;
         e.capLog("shared");
     }
@@ -2137,6 +2342,98 @@ test "geometry and dims follow the config's split" {
     const d = tri.Dims{};
     try std.testing.expectEqual(@as(usize, 13952), d.attnWidth());
     try std.testing.expectEqual(@as(usize, 16480), d.projWidth());
+}
+
+/// The text of the function `sig` opens in `src` (from its signature to the first line closing it at four spaces).
+fn bodyOf(src: []const u8, sig: []const u8) ![]const u8 {
+    const at = std.mem.indexOf(u8, src, sig) orelse return error.NoSuchFunction;
+    const end = std.mem.indexOfPos(u8, src, at, "\n    }\n") orelse return error.NoSuchFunction;
+    return src[at..end];
+}
+
+/// How a pooled sequence's field gets newSeq's value back: the statement in recycle or in Forward.reset, or kept.
+const ResetHow = struct { field: []const u8, in: enum { recycle, reset, kept }, does: []const u8 };
+
+/// Every field of T is in `table` (or among `addresses`: device addresses whose bytes are zeroed), every entry is
+/// a field of T, and each reset statement is in its function's body.
+fn checkResets(comptime T: type, table: []const ResetHow, addresses: []const []const u8, recycle_body: []const u8, reset_body: []const u8) !void {
+    const names = @typeInfo(T).@"struct".field_names;
+    try std.testing.expectEqual(names.len, table.len + addresses.len);
+    inline for (names) |name| {
+        var how: ?ResetHow = null;
+        for (table) |h| if (std.mem.eql(u8, h.field, name)) {
+            how = h;
+        };
+        for (addresses) |a| if (std.mem.eql(u8, a, name)) {
+            how = .{ .field = a, .in = .kept, .does = "an address" };
+        };
+        const h = how orelse {
+            std.debug.print("{s}.{s} is not classified\n", .{ @typeName(T), name });
+            return error.UnclassifiedField;
+        };
+        if (h.in != .kept) {
+            const body = if (h.in == .recycle) recycle_body else reset_body;
+            if (std.mem.indexOf(u8, body, h.does) == null) {
+                std.debug.print("{s}.{s}: `{s}` is not in {s}\n", .{ @typeName(T), name, h.does, @tagName(h.in) });
+                return error.ResetMissing;
+            }
+        }
+    }
+}
+
+test "every field of a pooled sequence is reset by recycle and Forward.reset, or kept on purpose" {
+    // Each field of Seq and of State, and how a pooled sequence gets newSeq's value back: the statement that resets it
+    // in recycle (this file) or Forward.reset (cuda_forward.zig, which newSeq ends with too), or why it is kept. A field
+    // added to either struct fails here until it is classified; a reset statement removed fails too. `tensorfold
+    // pool-check` compares the values themselves with a fresh sequence's on the GPU.
+    const How = ResetHow;
+    const seq = [_]How{
+        .{ .field = "st", .in = .kept, .does = "State: classified below" },
+        .{ .field = "window", .in = .recycle, .does = "s.window.clearRetainingCapacity();" },
+        .{ .field = "staged", .in = .reset, .does = "seq.staged = false;" },
+        .{ .field = "last_streams", .in = .kept, .does = "newSeq's buffer: every prompt writes it before an absorb reads it" },
+        .{ .field = "charged", .in = .recycle, .does = "s.charged -|= freed;" },
+        .{ .field = "regions", .in = .recycle, .does = "freed += r.shrinkToFirst();" },
+        .{ .field = "ring_rows", .in = .kept, .does = "the ring's size, fixed by newSeq" },
+        .{ .field = "held", .in = .reset, .does = "seq.held = 0;" },
+        .{ .field = "held_a0", .in = .recycle, .does = "s.held_a0 = 0;" },
+        .{ .field = "held_par", .in = .recycle, .does = "s.held_par = 0;" },
+        .{ .field = "media", .in = .reset, .does = "f.dropMedia(seq);" },
+        .{ .field = "pooled", .in = .kept, .does = "the pool's mark" },
+        .{ .field = "pool_capacity", .in = .kept, .does = "the capacity recycle restores" },
+    };
+    const st = [_]How{
+        .{ .field = "d", .in = .kept, .does = "the driver" },
+        .{ .field = "g", .in = .kept, .does = "the geometry" },
+        .{ .field = "limit", .in = .kept, .does = "the engine's window: pooled sequences reserve it whole" },
+        .{ .field = "capacity", .in = .recycle, .does = "s.st.capacity = s.pool_capacity;" },
+        .{ .field = "version", .in = .kept, .does = "the graphs' key: the addresses never move" },
+        .{ .field = "pos", .in = .reset, .does = "try f.setPos(st, 0);" },
+        .{ .field = "mtp_len", .in = .reset, .does = "try f.setMtpLen(st, 0);" },
+        .{ .field = "mtp_drafted", .in = .reset, .does = "st.mtp_drafted = 0;" },
+        .{ .field = "rope_delta", .in = .reset, .does = "st.rope_delta = 0;" },
+        .{ .field = "fixed", .in = .kept, .does = "newSeq's arena (zeroed by State.init); its parts are reset below" },
+        .{ .field = "conv", .in = .reset, .does = "try f.th.zero(st.conv, " },
+        .{ .field = "rec", .in = .reset, .does = "try f.th.zero(st.rec, " },
+        .{ .field = "ple_tail", .in = .reset, .does = "try f.th.zero(st.ple_tail, " },
+        .{ .field = "pos_dev", .in = .reset, .does = "try f.setPos(st, 0);" },
+        .{ .field = "rope_delta_dev", .in = .reset, .does = "try f.th.fill32(st.rope_delta_dev, 0, 1);" },
+        .{ .field = "mtp_pos", .in = .reset, .does = "try f.setMtpLen(st, 0);" },
+        .{ .field = "gdn_k", .in = .kept, .does = "0 bytes (State.fixedSizes): the replay inputs are round scratch" },
+        .{ .field = "gdn_v", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+        .{ .field = "gdn_g", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+        .{ .field = "gdn_b", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+        .{ .field = "cur", .in = .reset, .does = "st.cur = @splat(0);" },
+        .{ .field = "history", .in = .reset, .does = "p.ngram.initialHistory(st.history[0 .. p.ngram.n - 1]);" },
+        .{ .field = "ctx", .in = .kept, .does = "null with reserved address space (the regions hold the caches)" },
+    };
+    // the caches' device addresses: the bytes behind them are zeroed (regions above)
+    const addresses = [_][]const u8{ "kc", "vc", "ikc", "pooled" };
+    const recycle_body = try bodyOf(@embedFile("cuda_engine.zig"), "fn recycle(e: *Engine, s: *Seq) !void {");
+    const reset_body = try bodyOf(@embedFile("cuda_forward.zig"), "pub fn reset(f: *Forward, seq: *Seq) !void {");
+    try std.testing.expect(std.mem.indexOf(u8, recycle_body, "try e.f.reset(s);") != null);
+    try checkResets(fwd.Seq, &seq, &.{}, recycle_body, reset_body);
+    try checkResets(state.State, &st, &addresses, recycle_body, reset_body);
 }
 
 test {

@@ -102,6 +102,10 @@ pub const Seq = struct {
     held_par: u1 = 0,
     /// the prompt's images and video frames (null: text)
     media: ?SeqMedia = null,
+    /// a lane sequence the engine keeps for the next request (Engine.takeSeq / retire), and the capacity
+    /// its first growth step gave it (a recycled one starts there again)
+    pooled: bool = false,
+    pool_capacity: usize = 0,
 
     /// The sequence's rotary table, when its prompt has images or video.
     pub fn rope(s: *const Seq) ?tri.Tri.Rope {
@@ -141,6 +145,9 @@ pub const Budget = struct {
         return b.limit -| b.used;
     }
 };
+
+/// Memory the engine can give back on demand (its idle pooled sequences); `run` says whether it freed any.
+pub const Reclaim = struct { ptr: *anyopaque, run: *const fn (*anyopaque) bool };
 
 extern "c" fn open(path: [*:0]const u8, flags: c_int, ...) c_int;
 extern "c" fn read(fd: c_int, buf: [*]u8, n: usize) isize;
@@ -486,6 +493,8 @@ pub const Forward = struct {
     contexts: ?[]const usize = null,
     /// the sequences' memory (null: unbounded)
     budget: ?*Budget = null,
+    /// memory held by idle pooled sequences given back when a growth would not fit (Engine.trimPool)
+    reclaim: ?Reclaim = null,
     /// decode rounds' DeltaNet scratch (initRound), the parity the last decode stage wrote, and every live
     /// sequence (those holding rows of a round that a later one overwrites are folded first)
     round: ?Round = null,
@@ -1092,7 +1101,11 @@ pub const Forward = struct {
         if (seq.regions.items.len > 0) return f.growMapped(seq, target);
         const now = if (st.ctx) |c| c.buf.len else 0;
         const next = state.State.cacheBytes(f.g, target) + 64 * 256;
-        if (!try f.agree(if (f.budget) |b| b.used + next <= b.limit and b.leaves(next) else true)) return error.NoRoom;
+        var fits = if (f.budget) |b| b.used + next <= b.limit and b.leaves(next) else true;
+        if (!fits) if (f.reclaim) |r| if (r.run(r.ptr)) {
+            fits = if (f.budget) |b| b.used + next <= b.limit and b.leaves(next) else true;
+        };
+        if (!try f.agree(fits)) return error.NoRoom;
         try f.s.synchronize();
         _ = try st.ensure(rows);
         const after = if (st.ctx) |c| c.buf.len else 0;
@@ -1132,7 +1145,11 @@ pub const Forward = struct {
             const r = seq.regions.items[4 * i ..][0..4];
             for ([_]usize{ 0, 1, 3 }, [_]usize{ target * k_row, target * v_row, pooled }) |j, bytes| need += r[j].v.up(bytes) -| r[j].mapped;
         }
-        if (!try f.agree(if (f.budget) |b| b.used + need <= b.limit and b.leaves(need) else true)) return error.NoRoom;
+        var fits = if (f.budget) |b| b.used + need <= b.limit and b.leaves(need) else true;
+        if (!fits) if (f.reclaim) |r| if (r.run(r.ptr)) {
+            fits = if (f.budget) |b| b.used + need <= b.limit and b.leaves(need) else true;
+        };
+        if (!try f.agree(fits)) return error.NoRoom;
         var added: usize = 0;
         for (0..layers) |i| {
             const r = seq.regions.items[4 * i ..][0..4];

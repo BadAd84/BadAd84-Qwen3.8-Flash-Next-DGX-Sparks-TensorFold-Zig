@@ -34,6 +34,8 @@ const usage =
     \\           aggregate tok/s; code greedy, prose and chat sampled; TF_FLASHNEXT_PROFILE=1 times rounds by part)
     \\  tensorfold pool MODEL --streams N   (N sequences grown in turn until the memory budget refuses: the tokens
     \\           the rank's caches hold at N streams)
+    \\  tensorfold pool-check MODEL --tokens-file PATH [--max-tokens N]   (TF_FLASHNEXT_SEQ_POOL=1: a pooled sequence
+    \\           given back after a drafted request comes back as a fresh one: fields, bytes and the next reply)
     \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
     \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
@@ -324,6 +326,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "bench-many")) return benchMany(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "reuse") and rest.len == 1) return reuse(gpa, init.io, e, rest[0], o);
     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
+    if (std.mem.eql(u8, cmd, "pool-check")) return poolCheck(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
     std.debug.print("{s}", .{usage});
@@ -1268,6 +1271,104 @@ fn pool(gpa: Allocator, e: *Engine, o: Options) !u8 {
     for (seqs) |q| rows += q.st.capacity;
     std.debug.print("RESULT pool x{d}: {d} cache rows ({d} a stream), {d:.2} GiB of {d:.2} GiB charged, {d:.0} bytes a row overall\n", .{ N, rows, rows / N, @as(f64, @floatFromInt(e.budget.used)) / (1 << 30), @as(f64, @floatFromInt(e.budget.limit)) / (1 << 30), @as(f64, @floatFromInt(e.budget.used)) / @as(f64, @floatFromInt(@max(rows, 1))) });
     return 0;
+}
+
+fn deviceZero(gpa: Allocator, e: *Engine, ptr: u64, len: usize) !bool {
+    const host = try gpa.alloc(u8, len);
+    defer gpa.free(host);
+    try e.stream.synchronize();
+    const buf: cuda.DeviceBuffer = .{ .d = e.ctx.d, .ptr = ptr, .len = len };
+    try buf.download(0, host);
+    return std.mem.allEqual(u8, host, 0);
+}
+
+/// `pool-check` (TF_FLASHNEXT_SEQ_POOL >= 1): a pooled sequence given back after a drafted request, with an image
+/// attachment on it, comes back from the pool as a fresh sequence: every host field of the sequence and of its state
+/// as newSeq leaves them (positions, the MTP head's length and drafts, the n-gram history, the DeltaNet parities,
+/// the window, held rows, the attachment dropped, capacity and charge), the fixed state's bytes equal a fresh
+/// sequence's and every cache region's mapped bytes zero, and a drafted reply on it equal to one on a fresh sequence.
+fn poolCheck(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
+    if (e.pool_max == 0 or e.vm == null) {
+        std.debug.print("pool-check: needs TF_FLASHNEXT_SEQ_POOL >= 1 (and the caches in reserved address space)\n", .{});
+        return 2;
+    }
+    if (o.tokens.len == 0) {
+        std.debug.print("pool-check: --tokens or --tokens-file\n", .{});
+        return 2;
+    }
+    const keep = e.bound;
+    defer e.bind(keep);
+    e.absorbing = true;
+    const fresh = try e.newSeq(e.max_len);
+    defer e.freeSeq(fresh);
+    const s = try e.takeSeq(e.max_len);
+    e.bind(s);
+    const dirty = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+    gpa.free(dirty.tokens);
+    // what an image prompt leaves on its sequence until a reset: an attachment (its table)
+    s.media = .{ .table = try cuda.DeviceBuffer.alloc(e.ctx.d, 256), .len = 1, .width = 1 };
+    std.debug.print("pool-check: the request left pos {d}, MTP length {d}, history {any}, {d} window tokens, an attachment\n", .{ s.st.pos, s.st.mtp_len, s.st.history, s.window.items.len });
+    e.bind(keep);
+    e.retire(s);
+    const back = try e.takeSeq(e.max_len);
+    defer e.retire(back);
+    var bad: usize = 0;
+    if (back != s) {
+        std.debug.print("FAIL pool-check: the pool did not give the sequence back\n", .{});
+        return 1;
+    }
+    const a = &back.st;
+    const f = &fresh.st;
+    const Field = struct { name: []const u8, got: u64, want: u64 };
+    const fields = [_]Field{
+        .{ .name = "st.pos", .got = a.pos, .want = f.pos },
+        .{ .name = "st.mtp_len", .got = a.mtp_len, .want = f.mtp_len },
+        .{ .name = "st.mtp_drafted", .got = a.mtp_drafted, .want = f.mtp_drafted },
+        .{ .name = "st.rope_delta", .got = @bitCast(@as(i64, a.rope_delta)), .want = @bitCast(@as(i64, f.rope_delta)) },
+        .{ .name = "st.capacity", .got = a.capacity, .want = f.capacity },
+        .{ .name = "st.limit", .got = a.limit, .want = f.limit },
+        .{ .name = "st.history[0]", .got = @bitCast(a.history[0]), .want = @bitCast(f.history[0]) },
+        .{ .name = "st.history[1]", .got = @bitCast(a.history[1]), .want = @bitCast(f.history[1]) },
+        .{ .name = "st.history[2]", .got = @bitCast(a.history[2]), .want = @bitCast(f.history[2]) },
+        .{ .name = "st.cur", .got = @intFromBool(!std.mem.eql(u1, &a.cur, &f.cur)), .want = 0 },
+        .{ .name = "window", .got = back.window.items.len, .want = fresh.window.items.len },
+        .{ .name = "staged", .got = @intFromBool(back.staged), .want = @intFromBool(fresh.staged) },
+        .{ .name = "held", .got = back.held, .want = fresh.held },
+        .{ .name = "held_a0", .got = back.held_a0, .want = fresh.held_a0 },
+        .{ .name = "held_par", .got = back.held_par, .want = fresh.held_par },
+        .{ .name = "media", .got = @intFromBool(back.media != null), .want = @intFromBool(fresh.media != null) },
+        .{ .name = "charged", .got = back.charged, .want = fresh.charged },
+        .{ .name = "regions", .got = back.regions.items.len, .want = fresh.regions.items.len },
+    };
+    for (fields) |x| if (x.got != x.want) {
+        bad += 1;
+        std.debug.print("  {s}: {d} after the pool, {d} fresh\n", .{ x.name, x.got, x.want });
+    };
+    if (!std.mem.eql(u8, &(try deviceSha(gpa, e, a.fixed.buf.ptr, a.fixed.buf.len)), &(try deviceSha(gpa, e, f.fixed.buf.ptr, f.fixed.buf.len)))) {
+        bad += 1;
+        std.debug.print("  the fixed state's bytes differ from a fresh sequence's\n", .{});
+    }
+    for (back.regions.items, fresh.regions.items, 0..) |r, fr, i| {
+        const bytes = if (r.ring) (if (r.maps.items.len > 0) r.maps.items[0][1] else 0) else r.mapped;
+        if (r.mapped != fr.mapped or !try deviceZero(gpa, e, r.base, bytes)) {
+            bad += 1;
+            std.debug.print("  cache region {d}: {d} bytes mapped ({d} fresh), {s}\n", .{ i, r.mapped, fr.mapped, if (try deviceZero(gpa, e, r.base, bytes)) "zeroed" else "NOT zeroed" });
+        }
+    }
+    // the next request on it decodes as on a fresh sequence
+    e.bind(back);
+    const again = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+    defer gpa.free(again.tokens);
+    e.bind(fresh);
+    const want = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+    defer gpa.free(want.tokens);
+    e.bind(keep);
+    if (!std.mem.eql(u32, again.tokens, want.tokens)) {
+        bad += 1;
+        std.debug.print("  the reply on the pooled sequence differs from a fresh one's\n", .{});
+    }
+    std.debug.print("{s} pool-check: {d} host fields, the fixed state, {d} cache regions and a {d}-token reply against a fresh sequence; {d} differ\n", .{ if (bad == 0) "PASS" else "FAIL", fields.len, back.regions.items.len, want.tokens.len, bad });
+    return if (bad == 0) 0 else 1;
 }
 
 /// `bench`: every prompt file (ids) `repeat` times in one load; prefill seconds, tok/s and the reply's first tokens.

@@ -157,6 +157,22 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     }
     var backend = own.lanes.backend();
     own.lanes.follower = o.tp == 2 and o.rank == 1;
+    // TF_FLASHNEXT_WARM_POOL=N pooled sequences carry the served one-stream graphs before serving (one rank)
+    if (comptime @hasDecl(M.Engine, "warmPool")) {
+        // a count, else refused (envCount, as TF_FLASHNEXT_SEQ_POOL)
+        if (try @import("cuda_engine.zig").envCount("TF_FLASHNEXT_WARM_POOL")) |n| {
+            // the pool runs at one GPU (Engine.init refuses TF_FLASHNEXT_SEQ_POOL at two ranks)
+            if (o.tp != 1) {
+                std.log.warn("TF_FLASHNEXT_WARM_POOL={d} refused: the sequence pool runs at one GPU only", .{n});
+                return error.BadSetting;
+            }
+            const got = own.e.warmPool(n) catch |err| blk: {
+                std.log.warn("graph warm-up failed ({s}); serving without it", .{@errorName(err)});
+                break :blk 0;
+            };
+            std.log.info("graph warm-up: {d} graphs on {d} pooled sequences", .{ got, n });
+        }
+    }
     if (o.tp == 2) {
         own.bcast = try mirror.Broadcast.init(ctx.d, &own.comm.?, streamOf(own.e));
         own.agreement = try mirror.Agreement.init(ctx.d, &own.comm.?, streamOf(own.e), &own.watch.?);

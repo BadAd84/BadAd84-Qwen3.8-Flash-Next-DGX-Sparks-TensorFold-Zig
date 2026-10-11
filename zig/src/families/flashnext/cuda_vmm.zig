@@ -116,6 +116,23 @@ pub const Region = struct {
         return size;
     }
 
+    /// Physical memory past the first mapping given back (the addresses stay reserved, so pointers and
+    /// captured graphs stay valid); the bytes released. The caller drains every launch that may touch it first.
+    pub fn shrinkToFirst(r: *Region) usize {
+        std.debug.assert(!r.ring);
+        if (r.maps.items.len <= 1) return 0;
+        var freed: usize = 0;
+        for (r.maps.items[1..], r.handles.items[1..]) |m, h| {
+            _ = r.v.unmap(r.base + m[0], m[1]);
+            _ = r.v.release(h);
+            freed += m[1];
+        }
+        r.maps.shrinkRetainingCapacity(1);
+        r.handles.shrinkRetainingCapacity(1);
+        r.mapped = r.maps.items[0][0] + r.maps.items[0][1];
+        return freed;
+    }
+
     /// The whole region as a ring over one chunk of `chunk` bytes (a multiple of the granularity): address
     /// base + x reaches physical byte x mod chunk. Returns the physical bytes.
     pub fn mapRing(r: *Region, gpa: Allocator, chunk: usize) !usize {
