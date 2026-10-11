@@ -400,7 +400,10 @@ pub const Engine = struct {
         // and MTP experts; lossy against the bf16 ones, opt-in)
         var overlay_buf: [1024]u8 = undefined;
         const overlay: ?[]const u8 = if (e.c.int4ar() and envGet("TF_FLASHNEXT_INT4AR_FAST") != null and !envOff("TF_FLASHNEXT_INT4AR_FAST")) try std.fmt.bufPrint(&overlay_buf, "{s}/fast-fp8", .{dir}) else null;
-        e.w = try weights.load(gpa, io, dir, &e.c, .{ .rank = o.rank, .world = o.world, .mtp = o.mtp, .draft_head = o.mtp, .mode = .device, .driver = d, .overlay = overlay });
+        // TF_FLASHNEXT_MTP_FP8=DIR, an overlay of the MTP layer's bf16 linears on block FP8 (tools/mtp_fp8.py);
+        // the head only drafts, so the kept tokens are the target's either way
+        const overlay2: ?[]const u8 = if (o.mtp) envGet("TF_FLASHNEXT_MTP_FP8") else null;
+        e.w = try weights.load(gpa, io, dir, &e.c, .{ .rank = o.rank, .world = o.world, .mtp = o.mtp, .draft_head = o.mtp, .mode = .device, .driver = d, .overlay = overlay, .overlay2 = overlay2 });
         errdefer e.w.deinit();
         if (o.mtp and e.w.mtp == null) return error.NoMtpHead;
         e.g = try geometry(&e.c, o.world, e.w.mtp != null);
