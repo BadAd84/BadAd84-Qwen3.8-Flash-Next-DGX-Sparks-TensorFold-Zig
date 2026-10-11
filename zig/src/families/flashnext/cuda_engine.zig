@@ -355,6 +355,36 @@ test "count settings (TF_FLASHNEXT_SEQ_POOL, WARM_POOL, ...) refuse a value that
     _ = c.unsetenv(name);
 }
 
+/// An on/off setting: unset `default`, "0" off, "1" on; any other value is refused (error.BadSetting, logged with
+/// its name), never read as on or off.
+pub fn envSwitch(name: [:0]const u8, default: bool) !bool {
+    const v = envGet(name) orelse return default;
+    if (std.mem.eql(u8, v, "0")) return false;
+    if (std.mem.eql(u8, v, "1")) return true;
+    std.log.warn("{s}={s} refused: 0 (off) or 1 (on)", .{ name, v });
+    return error.BadSetting;
+}
+
+test "on/off settings (TF_FLASHNEXT_EARLY_DRAW, ...) take 0 or 1 only, never read another value as either" {
+    const c = struct {
+        extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+        extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+    };
+    const name = "TF_FLASHNEXT_TEST_SWITCH";
+    _ = c.unsetenv(name);
+    try std.testing.expectEqual(false, try envSwitch(name, false));
+    try std.testing.expectEqual(true, try envSwitch(name, true));
+    _ = c.setenv(name, "0", 1);
+    try std.testing.expectEqual(false, try envSwitch(name, true));
+    _ = c.setenv(name, "1", 1);
+    try std.testing.expectEqual(true, try envSwitch(name, false));
+    for ([_][:0]const u8{ "", "on", "off", "2", "01", "1 ", "true", "-1" }) |bad| {
+        _ = c.setenv(name, bad, 1);
+        try std.testing.expectError(error.BadSetting, envSwitch(name, false));
+    }
+    _ = c.unsetenv(name);
+}
+
 /// TF_FLASHNEXT_PREFILL_ROWS: the prompt chunk's rows (both ranks the same; any chunking gives the same bits), else
 /// the caller's.
 /// Two ranks' prompt chunk rows: with the in-program K slices and the prompt expert kernel 4096 rows a call are
@@ -494,6 +524,10 @@ pub const Engine = struct {
     poison: bool = false,
     /// TF_FLASHNEXT_PASS_TIMES=1: prefillWith logs its parts' wall times (the stream drained at each edge)
     pass_times: bool = false,
+    /// TF_FLASHNEXT_EARLY_DRAW=1: a prompt's first token drawn as soon as its last chunk's logits row is copied out,
+    /// before that chunk's MTP absorb and commit (prefillWith, prefillMany): the same draw on the same row, so the
+    /// host has the token while those kernels are still to come. 0: the draw after them, as it always ran.
+    early_draw: bool = false,
     /// TF_FLASHNEXT_QSA_FAST (default on): fn_qsa_scores for the prompt indexer's scores
     qsa_fast: ?prompt_mm.QsaScores = null,
     /// TF_FLASHNEXT_QSA_SELECT=1: fn_qsa_stream for the indexer's block lists
@@ -650,6 +684,12 @@ pub const Engine = struct {
         if (!envOff("TF_FLASHNEXT_DROP_PAGES")) weights.dropPages(gpa, io, dir);
         e.poison = envGet("TF_FLASHNEXT_POISON_PADS") != null;
         e.pass_times = envGet("TF_FLASHNEXT_PASS_TIMES") != null;
+        // a prompt's time to first token (first-token-check: the same tokens, drafts and draws either way):
+        // TF_FLASHNEXT_EARLY_DRAW, TF_FLASHNEXT_PROMPT_HEAD_SKIP and TF_FLASHNEXT_NGRAM_LATE (0, unset: as before)
+        e.early_draw = try envSwitch("TF_FLASHNEXT_EARLY_DRAW", false);
+        e.f.prompt_head_skip = try envSwitch("TF_FLASHNEXT_PROMPT_HEAD_SKIP", false);
+        e.f.ngram_late = try envSwitch("TF_FLASHNEXT_NGRAM_LATE", false);
+        if (e.early_draw or e.f.prompt_head_skip or e.f.ngram_late) std.log.info("first token: drawn {s} the last chunk's MTP absorb; the MTP head of a one-prompt pass {s}; the host n-gram gather {s}", .{ if (e.early_draw) "before" else "after", if (e.f.prompt_head_skip) "stops after its layer" else "runs to its logits", if (e.f.ngram_late) "beside the layers before the first n-gram layer" else "before the chunk's embedding" });
         e.f.up_mix = !envOff("TF_FLASHNEXT_GLUE_FUSE") and prompt_mm.upMixAvailable(&e.set);
         // decode windows' layer read-outs on `_hc_up_mix` too (rows > 1; glue-check: the same mixed bytes as
         // `_b16mm` + `_hc_mix` at 2-16 rows); TF_FLASHNEXT_UPMIX_DECODE=0 keeps the two launches
@@ -1199,6 +1239,8 @@ pub const Engine = struct {
         errdefer if (kept) |k| e.freeSnapshot(k);
         errdefer if (e.f.ngh) |h| h.dropTouches(); // a pass that failed leaves no rows queued for the next one
         var chunk: usize = 0;
+        var first: [1]u32 = undefined;
+        var drawn = false;
         // the prompt's n-gram rows touched ahead of their chunks (cuda_ngram_host.zig): chunk 0 is gathered at once
         // by the gang, the next `ahead` chunks are queued now, each later chunk when it is `ahead` chunks away
         var queued: usize = start;
@@ -1234,6 +1276,12 @@ pub const Engine = struct {
             if (final) {
                 try e.f.th.copy(e.last_logits, lg.?, e.g.head_n * 2);
                 if (e.world > 1) try e.f.th.copy(e.last_cand, pb.b.cand_all, e.world * (2 * state.cand + 1) * 4);
+                // TF_FLASHNEXT_EARLY_DRAW: the first token now, ahead of this chunk's MTP absorb and commit
+                if (e.early_draw) {
+                    try e.draw(e.last_logits, e.last_cand, 1, prompt.len, &first);
+                    drawn = true;
+                    if (e.pass_times) pw[3] = try e.passLap(&t_pw);
+                }
             }
             try e.f.th.copy(seq.last_streams.?.ptr, pb.b.streams + (R - 1) * Wd * 2, Wd * 2);
             if (e.digest) try e.chunkDigest(chunk, R, if (final) lg.? else null);
@@ -1268,10 +1316,11 @@ pub const Engine = struct {
         if (e.prof) |p| p.summary(e.rank, "prefill");
         if (e.f.dump) |dm| dm.setChunk(null);
         e.f.finishMedia(seq);
-        var first: [1]u32 = undefined;
-        try e.draw(e.last_logits, e.last_cand, 1, prompt.len, &first);
+        if (!drawn) {
+            try e.draw(e.last_logits, e.last_cand, 1, prompt.len, &first);
+            if (e.pass_times) pw[3] = try e.passLap(&t_pw);
+        }
         if (e.pass_times) {
-            pw[3] = try e.passLap(&t_pw);
             if (e.rank == 0) std.log.info("prefillWith {d} tokens{s}{s}: restore {d:.1} ms, {d} forwards {d:.1} ms, absorbs + commits {d:.1} ms, draw {d:.1} ms", .{ prompt.len, if (o.resume_from != null) " (resumed)" else "", if (o.keep_at != null) " (kept)" else "", pw[0], pw_chunks, pw[1], pw[2], pw[3] });
         }
         return .{ .first = first[0], .kept = kept };
@@ -1330,8 +1379,13 @@ pub const Engine = struct {
             try e.f.reset(p.seq);
             windows[i] = .{ .seq = p.seq, .tokens = p.prompt };
         }
+        e.f.ngram_late_ok = e.f.ngram_late;
+        defer e.f.endNgramLate();
         _ = try e.f.stageMany(windows[0..n], pb, &segs);
         const lg = (try e.f.computeSegs(segs[0..n], pb, true)).?;
+        e.f.endNgramLate();
+        // TF_FLASHNEXT_EARLY_DRAW: each prompt's first token now, ahead of the burst's MTP absorb and commits
+        if (e.early_draw) try e.drawBurst(prompts, lg, firsts);
         for (prompts, segs[0..n]) |p, sg| try e.f.th.copy(p.seq.last_streams.?.ptr, pb.b.streams + (sg.a1 - 1) * Wd * 2, Wd * 2);
         if (use_mtp) {
             // each prompt's MTP rows: its next tokens over the main model's streams of its rows (a prompt of one row has none)
@@ -1350,9 +1404,14 @@ pub const Engine = struct {
             }
         }
         for (prompts, segs[0..n]) |p, sg| try e.f.commitAt(p.seq, pb, sg.a1 - sg.a0, sg.a1 - sg.a0, sg.a0);
+        if (!e.early_draw) try e.drawBurst(prompts, lg, firsts);
+    }
+
+    /// prefillMany's draws: each prompt's first token from its row of the burst's logits `lg`, with its sampling.
+    fn drawBurst(e: *Engine, prompts: []const ManyPrompt, lg: u64, firsts: []u32) !void {
         for (prompts, 0..) |p, i| {
             const s: ?lanes.Sampling = if (p.sampling) |x| (if (x.temperature > 0) x else null) else null;
-            try e.drawRows(lg, pb.b.cand_all, n, i, 1, p.prompt.len, s, firsts[i .. i + 1]);
+            try e.drawRows(lg, e.pbuf.b.cand_all, prompts.len, i, 1, p.prompt.len, s, firsts[i .. i + 1]);
         }
     }
 

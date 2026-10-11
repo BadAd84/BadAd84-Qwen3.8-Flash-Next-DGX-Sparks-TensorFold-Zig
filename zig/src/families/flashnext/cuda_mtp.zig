@@ -153,8 +153,9 @@ pub fn computeSegs(f: *Forward, segs: []const fwd.Seg, x: *const Bufs) !u64 {
     f.pf_moe = Forward.prefetchOf(m.mixer.down);
     const pending = try f.layerForward(&m.layer, segs, x, n, null, true);
     // several prompts in one pass: the head's cache is written by the layer above and nothing reads the draft
-    // head's logits of a prompt pass (the drafts come later, from the prompts' last rows), so stop here
-    if (b.prefill and k > 1) return b.logits;
+    // head's logits of a prompt pass (the drafts come later, from the prompts' last rows), so stop here; one prompt
+    // too with TF_FLASHNEXT_PROMPT_HEAD_SKIP (every caller discards them), unless a dump records the head
+    if (b.prefill and (k > 1 or (f.prompt_head_skip and f.dump == null))) return b.logits;
     _ = try f.finish(&m.mixer, x, n, pending, false);
     // prompt buffers mix the last row into row 0; a window's last row is row n - 1; several streams' last rows
     // gathered into one block (mtp_e and mtp_xe are free by now: Python's index_select)

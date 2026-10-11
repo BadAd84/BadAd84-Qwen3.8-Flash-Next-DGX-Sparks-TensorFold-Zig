@@ -547,6 +547,17 @@ pub const Forward = struct {
     mtp_q4: ?*const @import("cuda_mtp_q4.zig").Table = null,
     /// on unless TF_FLASHNEXT_GLUE_FUSE=0: prompt read-outs' up projection and mix in one pass (`_hc_up_mix`)
     up_mix: bool = false,
+    /// TF_FLASHNEXT_PROMPT_HEAD_SKIP=1: a one-prompt pass's MTP head stops after its layer (its cache written) as a
+    /// burst's always did: nothing reads the draft head's logits of a prompt pass (mtp.computeSegs)
+    prompt_head_skip: bool = false,
+    /// TF_FLASHNEXT_NGRAM_LATE=1: a prompt pass's host n-gram gather (stageMany) waits until the chunk's embedding and
+    /// the layers before the first n-gram layer are launched (layerForward, stageNgramLate), so its page faults run
+    /// beside their GPU time; the same rows into the same `ple_v` before the n-gram block reads them. `ngram_late_ok`:
+    /// set by the prompt passes (forward, Engine.prefillMany) around their stage and compute; `ngram_pending`: the
+    /// deferred gather until then (endNgramLate clears both, whatever happens)
+    ngram_late: bool = false,
+    ngram_late_ok: bool = false,
+    ngram_pending: ?struct { x: *const Bufs, R: usize } = null,
     /// on unless TF_FLASHNEXT_UPMIX_DECODE=0: decode windows' layer read-outs on `_hc_up_mix` at BM 32 too;
     /// `layer_ro` marks a layer's read-out (hcBlock) apart from the final mixer's, whose 32-group sums of mixed feed
     /// the MTP draft head's 4-bit matmul
@@ -1244,12 +1255,26 @@ pub const Forward = struct {
             a.* = @intCast(t);
         };
         try f.upload(x.b.ids, 0, R * 4);
+        // TF_FLASHNEXT_NGRAM_LATE: a prompt pass's host-gathered n-gram rows wait for layerForward's first n-gram layer,
+        // so the gather's page faults run while the GPU computes the embedding and the layers before it
+        if (f.ngram_late_ok and x.b.prefill and f.ngramOnHost()) {
+            f.ngram_pending = .{ .x = x, .R = R };
+        } else try f.stageNgram(segs[0..windows.len], x, R);
+        for (windows) |w| w.seq.staged = true;
+        try f.staged.record(f.s);
+        if (!x.b.prefill and f.round != null and f.g.linear_layers > 0) try f.roundTables(segs[0..windows.len], 1 - f.cur_par);
+        return R;
+    }
+
+    /// stageMany's n-gram rows: each n-gram layer's ids from every stream's history and window, its rows gathered into
+    /// the pinned buffer and uploaded (a host table) or gathered on the device (W4's Gather), into x.b.ple_v.
+    fn stageNgram(f: *Forward, segs: []const Seg, x: *const Bufs, R: usize) !void {
         const rows_at = std.mem.alignForward(usize, f.pin_rows * 4, 256);
         for (f.w.layers) |l| if (l.ple) |p| {
             const heads = p.ngram.heads;
             const nid = try f.gpa.alloc(i64, R * heads);
             defer f.gpa.free(nid);
-            for (segs[0..windows.len]) |sg| try p.ngram.ids(sg.seq.st.history[0 .. p.ngram.n - 1], sg.seq.window.items, nid[sg.a0 * heads .. sg.a1 * heads]);
+            for (segs) |sg| try p.ngram.ids(sg.seq.st.history[0 .. p.ngram.n - 1], sg.seq.window.items, nid[sg.a0 * heads .. sg.a1 * heads]);
             const table = &(f.w.table orelse return error.NoNgramTable);
             if (table.gpu != null) {
                 // the ids on the device, then the rank's heads' rows gathered there (W4's Gather, the host bits)
@@ -1262,10 +1287,31 @@ pub const Forward = struct {
             if (f.ngh) |h| try h.gather(nid, @alignCast(out)) else try table.gather(nid, @alignCast(out));
             try f.upload(x.b.ple_v, rows_at, R * heads * table.width * 2);
         };
-        for (windows) |w| w.seq.staged = true;
+    }
+
+    /// The n-gram rows come from a host table (the layers have an n-gram block and the table is not on the device).
+    fn ngramOnHost(f: *const Forward) bool {
+        const t = f.w.table orelse return false;
+        if (t.gpu != null) return false;
+        for (f.w.layers) |l| if (l.ple != null) return true;
+        return false;
+    }
+
+    /// The deferred n-gram rows of the prompt pass in flight (TF_FLASHNEXT_NGRAM_LATE), gathered and uploaded now:
+    /// before the first n-gram layer's block reads them, after the pinned buffer's last copies are done.
+    fn stageNgramLate(f: *Forward, segs: []const Seg, x: *const Bufs, R: usize) !void {
+        const pp = f.ngram_pending orelse return;
+        f.ngram_pending = null;
+        if (pp.x != x or pp.R != R) return error.NgramLateMismatch;
+        try f.staged.synchronize();
+        try f.stageNgram(segs, x, R);
         try f.staged.record(f.s);
-        if (!x.b.prefill and f.round != null and f.g.linear_layers > 0) try f.roundTables(segs[0..windows.len], 1 - f.cur_par);
-        return R;
+    }
+
+    /// A prompt pass ended (or failed): nothing of its deferred n-gram gather outlives it.
+    pub fn endNgramLate(f: *Forward) void {
+        f.ngram_late_ok = false;
+        f.ngram_pending = null;
     }
 
     /// forward.stage for one stream (its rows from 0).
@@ -1290,6 +1336,8 @@ pub const Forward = struct {
             f.pf_moe = prefetchHc(if (i + 1 < f.w.layers.len) &f.w.layers[i + 1].attn_hc else &f.w.mixer);
             pending = try f.layerForward(layer, segs, x, R, pending, false);
         }
+        // a deferred n-gram gather is staged by the first n-gram layer above: one still pending was never uploaded
+        if (f.ngram_pending != null) return error.NgramLateUnstaged;
         return f.finishSegs(&f.w.mixer, x, R, pending.?, logits, segs);
     }
 
@@ -1313,6 +1361,8 @@ pub const Forward = struct {
 
     /// The window `tokens` at st.pos ..: staged, then computed (Python forward; the state commits later).
     pub fn forward(f: *Forward, seq: *Seq, x: *const Bufs, tokens: []const u32, logits: bool) !?u64 {
+        f.ngram_late_ok = f.ngram_late and x.b.prefill;
+        defer f.endNgramLate();
         try f.stage(seq, x, tokens);
         return f.compute(seq, x, tokens.len, logits);
     }
@@ -1332,6 +1382,7 @@ pub const Forward = struct {
             // the n-gram block runs on every row (its conv reads the rows before each): the halves gathered first
             if (sp) |q| try f.gatherRows(b.h, q, g.wide() * 2, .bf16, 2);
             try f.mark(.hc_writeback);
+            if (f.ngram_pending != null) try f.stageNgramLate(segs, x, R);
             try f.pleBlock(p, segs, x, R);
             try f.mark(.ple);
             try f.putLayer(layer, "ple_emb", b.ple_emb, R * g.ple_dim * 2);

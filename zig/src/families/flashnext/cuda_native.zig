@@ -399,8 +399,9 @@ fn settingsText(gpa: std.mem.Allocator, base: []const u8, snapshot: [32]u8, kern
     const fill = getenv("TF_FLASHNEXT_FILL") orelse "0";
     const fill_layers = getenv("TF_FLASHNEXT_FILL_LAYERS") orelse "8";
     const retime = getenv("TF_FLASHNEXT_COST_RETIME") orelse "0";
-    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} window={d} confidence={d}/{d} yarn={s} fill={s}/{s} retime={s} kv={s} kernels={x}", .{
-        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").windowSetting(lane_backend.max_rows), @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, retime, @tagName(o.kv_dtype), kernel_set,
+    const head_skip = getenv("TF_FLASHNEXT_PROMPT_HEAD_SKIP") orelse "0";
+    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} window={d} confidence={d}/{d} yarn={s} fill={s}/{s} retime={s} head_skip={s} kv={s} kernels={x}", .{
+        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").windowSetting(lane_backend.max_rows), @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, retime, head_skip, @tagName(o.kv_dtype), kernel_set,
     });
 }
 

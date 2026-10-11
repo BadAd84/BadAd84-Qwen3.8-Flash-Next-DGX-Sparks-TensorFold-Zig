@@ -41,6 +41,9 @@ const usage =
     \\  tensorfold fill-check MODEL --tokens-file PATH [--max-tokens N]   (sliced fills on the real engine: a second
     \\           fill waits while one holds the prompt buffers, a cancel releases them, a resumed fill's deferred MTP
     \\           absorb; each reply equal to a fresh prefill's)
+    \\  tensorfold first-token-check MODEL --tokens-file PATH [--max-tokens N]   (a prompt pass's first-token settings,
+    \\           TF_FLASHNEXT_EARLY_DRAW / PROMPT_HEAD_SKIP / NGRAM_LATE, each and all on against all off: first tokens,
+    \\           drafted replies and draft counts of prompts of 7-9,000 tokens, a resume and a burst)
     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
     \\           prompt N times in one load: prefill seconds and tok/s, the reply's first token and sha)
     \\  tensorfold mm-check MODEL [--rows N,N,...]   (no weights: the prompt matmuls' in-program K
@@ -367,6 +370,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "pool-check")) return poolCheck(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
     if (std.mem.eql(u8, cmd, "fill-check")) return fillCheck(gpa, init.io, e, o);
+    if (std.mem.eql(u8, cmd, "first-token-check")) return firstTokenCheck(gpa, e, o);
     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
     std.debug.print("{s}", .{usage});
     return 2;
@@ -1387,6 +1391,128 @@ fn fillCheck(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
     }
     std.debug.print("{s} fill-check: {d}-token prompt resumed at {d}, {d}-token replies (sha {s}); {d} failed\n", .{ if (bad == 0) "PASS" else "FAIL", p.len, snap.pos, ref.tokens.len, &(try sha12(gpa, ref.tokens)), bad });
     return if (bad == 0) 0 else 1;
+}
+
+/// `first-token-check` (one GPU): the first-token settings of a prompt pass (Engine.early_draw, Forward.prompt_head_skip,
+/// Forward.ngram_late: TF_FLASHNEXT_EARLY_DRAW, TF_FLASHNEXT_PROMPT_HEAD_SKIP, TF_FLASHNEXT_NGRAM_LATE) each on, and
+/// all three, against all three off, on the real engine: prompts of 7 to 9,000 tokens of the tokens file, greedy and
+/// sampled (the recipe's sampling, seed 1234), a prompt resumed from a state kept at its half, and a burst of three
+/// prompts in one pass (prefillMany). Every run's first token, its drafted reply and its rounds, drafts and accepted
+/// drafts must equal the reference's: the drafts read the MTP head's cache, so a head that skipped writing it shows.
+/// The solo prompts run every length greedy, then every length sampled, so each pass follows another prompt's (a
+/// first token drawn from the previous pass's logits row differs); a tokens file whose prompts all draw the same
+/// first token (a chat header with the user turn left open draws its end) cannot show that, and fails the check.
+fn firstTokenCheck(gpa: Allocator, e: *Engine, o: Options) !u8 {
+    const p = o.tokens;
+    if (p.len < 1200) {
+        std.debug.print("first-token-check: --tokens or --tokens-file (1,200 tokens or more)\n", .{});
+        return 2;
+    }
+    const Mode = struct { name: []const u8, early: bool = false, skip: bool = false, late: bool = false };
+    const modes = [_]Mode{ .{ .name = "off" }, .{ .name = "early-draw", .early = true }, .{ .name = "head-skip", .skip = true }, .{ .name = "ngram-late", .late = true }, .{ .name = "all", .early = true, .skip = true, .late = true } };
+    const Run = struct {
+        r: decode.Result,
+        fn same(a: *const @This(), b: *const @This()) bool {
+            return std.mem.eql(u32, a.r.tokens.items, b.r.tokens.items) and a.r.rounds == b.r.rounds and a.r.drafted == b.r.drafted and a.r.accepted == b.r.accepted;
+        }
+    };
+    const sampled: lanes.Sampling = .{ .seed = 1234, .temperature = 1.0, .top_k = 20, .top_p = 0.95, .min_p = 0.0 };
+    const was: Mode = .{ .name = "engine", .early = e.early_draw, .skip = e.f.prompt_head_skip, .late = e.f.ngram_late };
+    defer {
+        e.early_draw = was.early;
+        e.f.prompt_head_skip = was.skip;
+        e.f.ngram_late = was.late;
+    }
+    const own = e.bound;
+    defer e.bind(own);
+    e.absorbing = true;
+    const opts: decode.Options = .{ .count = o.max_tokens, .depth = e.depth, .confidence = flashnext.engine.confidenceSetting(), .stop_eos = false };
+    var lens: std.ArrayList(usize) = .empty;
+    defer lens.deinit(gpa);
+    for ([_]usize{ 7, 300, 1100, 3000, 5200, 9000 }) |n| if (n <= p.len and n + o.max_tokens + e.depth + 1 < e.max_len) try lens.append(gpa, n);
+    const solo = 2 * lens.items.len;
+    const cases = solo + 1 + 3; // solo prompts greedy and sampled, the resume, the burst's three
+    const refs = try gpa.alloc(Run, cases);
+    defer gpa.free(refs);
+    var have: usize = 0;
+    defer for (refs[0..have]) |*x| x.r.deinit(gpa);
+    const seq = try e.newSeq(e.max_len);
+    defer e.freeSeq(seq);
+    const rs = try e.newSeq(e.max_len);
+    defer e.freeSeq(rs);
+    var bs: [3]@TypeOf(seq) = undefined;
+    var nbs: usize = 0;
+    defer for (bs[0..nbs]) |q| e.freeSeq(q);
+    for (&bs) |*q| {
+        q.* = try e.newSeq(e.max_len);
+        nbs += 1;
+    }
+    // the resumed prompt's state, kept at its half with every setting off (a resume's restore runs no prompt pass)
+    const rp = p[0..lens.items[lens.items.len - 1]];
+    e.early_draw = false;
+    e.f.prompt_head_skip = false;
+    e.f.ngram_late = false;
+    e.bind(rs);
+    const kept = try e.prefillWith(rp, null, .{ .keep_at = rp.len / 2 });
+    const snap = kept.kept.?;
+    defer e.freeSnapshot(snap);
+    const burst = [3][]const u32{ p[0..7], p[0..300], p[0..1100] };
+    var bad: usize = 0;
+    var total: usize = 0;
+    for (modes, 0..) |m, mi| {
+        e.early_draw = m.early;
+        e.f.prompt_head_skip = m.skip;
+        e.f.ngram_late = m.late;
+        var c: usize = 0;
+        for ([_]?lanes.Sampling{ null, sampled }) |smp| for (lens.items) |n| {
+            e.bind(seq);
+            const f0 = (try e.prefillWith(p[0..n], smp, .{})).first;
+            var got: Run = .{ .r = try decode.drafted(Engine, e, gpa, f0, opts) };
+            bad += try firstTokenCompare(gpa, mi, &refs[c], &have, &got, m.name, n, if (smp == null) "greedy" else "sampled", Run.same);
+            c += 1;
+            total += 1;
+        };
+        e.bind(rs);
+        const fr = (try e.prefillWith(rp, null, .{ .resume_from = snap })).first;
+        var gr: Run = .{ .r = try decode.drafted(Engine, e, gpa, fr, opts) };
+        bad += try firstTokenCompare(gpa, mi, &refs[c], &have, &gr, m.name, rp.len, "resumed at its half", Run.same);
+        c += 1;
+        total += 1;
+        var mp: [3]Engine.ManyPrompt = undefined;
+        for (&mp, burst, bs) |*x, t, q| x.* = .{ .seq = q, .prompt = t, .sampling = null };
+        var firsts: [3]u32 = undefined;
+        try e.prefillMany(&mp, &firsts);
+        for (bs, burst, firsts) |q, t, f1| {
+            e.bind(q);
+            var gb: Run = .{ .r = try decode.drafted(Engine, e, gpa, f1, opts) };
+            bad += try firstTokenCompare(gpa, mi, &refs[c], &have, &gb, m.name, t.len, "in a burst of three", Run.same);
+            c += 1;
+            total += 1;
+        }
+    }
+    // the reference's solo first tokens must differ somewhere, or a stale row's draw could equal the right one
+    var distinct = false;
+    for (refs[1..solo]) |x| distinct = distinct or x.r.tokens.items[0] != refs[0].r.tokens.items[0];
+    if (!distinct) {
+        std.debug.print("FAIL first-token-check: every solo prompt draws first token {d}: these prompts cannot tell a first token drawn from the wrong row (use a tokens file of plain text, no open chat turn)\n", .{refs[0].r.tokens.items[0]});
+        bad += 1;
+    }
+    std.debug.print("{s} first-token-check: {d} modes x {d} runs ({d} compared with every setting off), {d}-token replies; {d} differ\n", .{ if (bad == 0) "PASS" else "FAIL", modes.len, cases, total - cases, o.max_tokens, bad });
+    return if (bad == 0) 0 else 1;
+}
+
+/// firstTokenCheck's comparison: mode 0's run becomes the reference `ref` (owned from then on), a later mode's run
+/// is compared with it and freed. Returns 1 when they differ.
+fn firstTokenCompare(gpa: Allocator, mode: usize, ref: anytype, have: *usize, got: anytype, name: []const u8, len: usize, what: []const u8, same: anytype) !usize {
+    if (mode == 0) {
+        ref.* = got.*;
+        have.* += 1;
+        return 0;
+    }
+    defer got.r.deinit(gpa);
+    if (same(ref, got)) return 0;
+    std.debug.print("  DIFFER {s}: {d}-token prompt {s}: first {d} vs {d}, {d} rounds / {d} drafted / {d} accepted vs {d} / {d} / {d}, reply sha {s} vs {s}\n", .{ name, len, what, got.r.tokens.items[0], ref.r.tokens.items[0], got.r.rounds, got.r.drafted, got.r.accepted, ref.r.rounds, ref.r.drafted, ref.r.accepted, &(try sha12(gpa, got.r.tokens.items)), &(try sha12(gpa, ref.r.tokens.items)) });
+    return 1;
 }
 
 fn deviceZero(gpa: Allocator, e: *Engine, ptr: u64, len: usize) !bool {
