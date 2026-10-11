@@ -5,6 +5,11 @@
 # 16-row items and 1-row calls. Both exit 1 on a failure. Lane w8-opus (its w8-qmmf / w8-head, the same checks with
 # more variants): 1,008/1,008 equal, mutant killed on every tile path; 204/204 equal, item-count mutant
 # (w8v2-hmut.patch) caught. Re-run on the clean stack's image:
+# Review round 1 (2026-10-11), on the fixed stack (~/work/lanes/r1-fix, tf branch `stack`): the round's
+# new host tests and a mutant each, judged by exit code (hostmut.py exits 0 only when every one is killed).
+python3 ~/work/lanes/r1-fix/hostmut.py head-row-tiles-silent-1 || exit 1
+# `int4-head-check` passes on the fixed stack and fails with each mutant binary (gmutants.json):
+bash ~/work/lanes/r1-fix/gpucheck.sh int4-head-check int4-dense-no-tail-mask || exit 1
 set -euo pipefail
 IMG=${1:-tensorfold-qwen38:zpr-stack}
 SNAP=/root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd

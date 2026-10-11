@@ -5,6 +5,9 @@
 # 1 on any DIFFER or a surviving mutant. `tensorfold int4-check` compares the prompt gate/up with int4_kernel and
 # exits 1 on any differing pair (no mutant of its own). Lane r2c-fable (~/work/lanes/r2c-fable/out1/tiles-check.log):
 # PASS, mutants 15/15 and 10/10 killed, on the lane's first build. Re-run on the clean stack's image:
+# Review round 1 (2026-10-11), on the fixed stack (~/work/lanes/r1-fix, tf branch `stack`): the round's
+# new host tests and a mutant each, judged by exit code (hostmut.py exits 0 only when every one is killed).
+python3 ~/work/lanes/r1-fix/hostmut.py prompt-gu-width-unchecked prompt-gu-smem-unchecked || exit 1
 set -uo pipefail
 IMG=${1:-tensorfold-qwen38:zpr3-stack}
 SNAP=/root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd

@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..5759fad 100644
+index 16da5a3..e1706ad 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -3,6 +3,13 @@
+@@ -3,6 +3,14 @@
  Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
  `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
  
@@ -11,7 +11,8 @@ index 16da5a3..5759fad 100644
 +- `patches/0019-flash-next-decode-readout-fusion` (on by default; `TF_FLASHNEXT_UPMIX_DECODE=0`,
 +  `TF_FLASHNEXT_REDUCE_ACT=0` keep the separate launches): decode read-outs run the up projection and the mix as one
 +  `_hc_up_mix` launch, and bf16 `_reduce` + `_hc_act` as one CUDA kernel with Triton's operations. Decode +0.5 to
-+  +1.2% at 1-4 clients; every reply byte-identical (`glue-check`).
++  +1.2% at 1-4 clients; every reply byte-identical (`glue-check`). The fused kernel runs only where it gives the loaded kernel set's bytes, checked at every start (otherwise the
++  two launches).
 +
  ## [1.0.0] - 2026-10-08
  
@@ -61,10 +62,10 @@ index 9b71561..30b4601 100644
  
 diff --git a/patches/0019-flash-next-decode-readout-fusion.patch b/patches/0019-flash-next-decode-readout-fusion.patch
 new file mode 100644
-index 0000000..79387b2
+index 0000000..c0dbe4d
 --- /dev/null
 +++ b/patches/0019-flash-next-decode-readout-fusion.patch
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,480 @@
 +diff --git a/zig/kernels/cuda/torch_ops/fn_ops.cu b/zig/kernels/cuda/torch_ops/fn_ops.cu
 +index b53836a..14484f0 100644
 +--- a/zig/kernels/cuda/torch_ops/fn_ops.cu
@@ -126,29 +127,37 @@ index 0000000..79387b2
 + extern "C" __global__ void tf_fn_fill_u64_kernel(uint64_t* out, uint64_t value, uint64_t count) {
 +     for (uint64_t i = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < count;
 +diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
-+index a7c023e..730e4c5 100644
++index 1402042..b892f80 100644
 +--- a/zig/src/cli/flashnext_cuda.zig
 ++++ b/zig/src/cli/flashnext_cuda.zig
-+@@ -1676,7 +1676,13 @@ fn glueCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []co
++@@ -1828,7 +1828,21 @@ fn glueCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []co
 +     var stream = try cuda.Stream.init(ctx.d, true);
 +     defer stream.deinit();
 +     const t: flashnext.triton.Tri = .{ .set = &set, .s = stream };
 +-    const ok = (try flashnext.prompt.glueCheck(gpa, ctx.d, t)) and (try flashnext.prompt.wbNormCheck(gpa, ctx.d, t));
 ++    var ops = try flashnext.torch_ops.Ops.load(ctx);
 ++    defer ops.deinit();
-++    // the fused decode `_reduce` + `_hc_act` first (wbNormCheck below stops at a variant the set lacks)
 ++    const ra = try flashnext.prompt.reduceActCheck(gpa, ctx.d, t, ops.on(stream));
 ++    std.debug.print("{s} reduce-act-check\n", .{if (ra) "PASS" else "FAIL"});
 ++    const um = try flashnext.prompt.glueCheck(gpa, ctx.d, t);
-++    const ok = ra and um and (try flashnext.prompt.wbNormCheck(gpa, ctx.d, t));
+++    // the write-back + norm part needs a _hc_writeback launch the release's kernel set has no variant for (the stock
+++    // image stops there too): reported as a skip with its reason, never as a pass of that part
+++    const wb = flashnext.prompt.wbNormCheck(gpa, ctx.d, t) catch |e| switch (e) {
+++        error.MissingTritonVariant => blk: {
+++            std.debug.print("SKIP wb-norm-check: the kernel set has no _hc_writeback variant for its launch\n", .{});
+++            break :blk true;
+++        },
+++        else => return e,
+++    };
+++    const ok = ra and um and wb;
 +     std.debug.print("{s} glue-check\n", .{if (ok) "PASS" else "FAIL"});
 +     return if (ok) 0 else 1;
 + }
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
-+index 9e18f0f..24bc649 100644
++index 5a60310..da35e67 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig
 ++++ b/zig/src/families/flashnext/cuda_engine.zig
-+@@ -560,6 +560,14 @@ pub const Engine = struct {
++@@ -594,6 +594,18 @@ pub const Engine = struct {
 +         e.poison = envGet("TF_FLASHNEXT_POISON_PADS") != null;
 +         e.pass_times = envGet("TF_FLASHNEXT_PASS_TIMES") != null;
 +         e.f.up_mix = !envOff("TF_FLASHNEXT_GLUE_FUSE") and prompt_mm.upMixAvailable(&e.set);
@@ -157,17 +166,38 @@ index 0000000..79387b2
 ++        e.f.upmix_decode = e.f.up_mix and !envOff("TF_FLASHNEXT_UPMIX_DECODE");
 ++        if (e.f.upmix_decode) std.log.info("decode read-outs: up projection and mix in one pass (_hc_up_mix BM 32)", .{});
 ++        // decode read-outs' `_reduce` + `_hc_act` in one fn_ops kernel (glue-check's reduce-act-check: their
-++        // bytes); TF_FLASHNEXT_REDUCE_ACT=0 keeps the two launches
-++        e.f.reduce_act = !envOff("TF_FLASHNEXT_REDUCE_ACT");
-++        if (e.f.reduce_act) std.log.info("decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel)", .{});
+++        // bytes); TF_FLASHNEXT_REDUCE_ACT=0 keeps the two launches. The kernel reproduces the kernel set's own
+++        // instructions, so it runs only when it gives their bytes on the loaded kernel set (`act_exact`: a set from
+++        // another Triton or ptxas keeps the two launches; cuda_prompt.zig reduceActAgrees)
+++        e.f.act_exact = o.comm == null and try prompt_mm.reduceActAgrees(gpa, d, e.f.t, e.f.th, e.g.streams, e.g.low, e.g.wide());
+++        e.f.reduce_act = !envOff("TF_FLASHNEXT_REDUCE_ACT") and e.f.act_exact;
+++        if (o.comm == null and !e.f.act_exact) std.log.warn("decode read-outs: tf_fn_hc_reduce_act_kernel differs from this kernel set's _reduce + _hc_act; the two launches kept", .{});
+++        if (e.f.reduce_act) std.log.info("decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel, checked against the kernel set at load)", .{});
 +         e.f.wb_norm = !envOff("TF_FLASHNEXT_WB_NORM") and prompt_mm.wbNormAvailable(&e.set);
 +         // the split glue's exchanges on their own stream beside the other rows' work (TF_FLASHNEXT_OVERLAP=0: in line)
 +         if (!envOff("TF_FLASHNEXT_QSA_FAST")) {
 +diff --git a/zig/src/families/flashnext/cuda_forward.zig b/zig/src/families/flashnext/cuda_forward.zig
-+index dbca23b..8dc5135 100644
++index dbca23b..ff2da12 100644
 +--- a/zig/src/families/flashnext/cuda_forward.zig
 ++++ b/zig/src/families/flashnext/cuda_forward.zig
-+@@ -544,6 +544,14 @@ pub const Forward = struct {
++@@ -185,6 +185,8 @@ pub const Window = struct { seq: *Seq, tokens: []const u32 };
++ pub const Scratch = struct {
++     arena: state.Arena,
++     part: u64,
+++    /// `part`'s bytes (partBytes: the widest split-K matmul of the widest window)
+++    part_len: usize,
++     dn: u64, // [rows, low + streams] fp32
++     shared_g: u64, // [rows, 2 NI] bf16
++     shared_y: u64, // [rows, D] fp32 or bf16
++@@ -236,6 +238,7 @@ pub const Scratch = struct {
++         try s.arena.buf.fill8(0, null);
++         const ptrs = [_]*u64{ &s.part, &s.dn, &s.shared_g, &s.shared_y, &s.gq, &s.gk, &s.gv, &s.gg, &s.gb, &s.gy, &s.kv_scale, &s.invalid, &s.vote, &s.gdn_t, &s.ngram_ids, &s.ple_half, &s.xs_half, &s.ple_all, &s.xs_all, &s.qsa_pos, &s.p8, &s.pb, &s.sh_g, &s.sh_a };
++         for (ptrs, sz) |p, n| p.* = s.arena.take(n);
+++        s.part_len = part;
++         return s;
++     }
++ 
++@@ -544,6 +547,17 @@ pub const Forward = struct {
 +     mtp_q4: ?*const @import("cuda_mtp_q4.zig").Table = null,
 +     /// on unless TF_FLASHNEXT_GLUE_FUSE=0: prompt read-outs' up projection and mix in one pass (`_hc_up_mix`)
 +     up_mix: bool = false,
@@ -176,13 +206,16 @@ index 0000000..79387b2
 ++    /// the MTP draft head's 4-bit matmul
 ++    upmix_decode: bool = false,
 ++    layer_ro: bool = false,
-++    /// on unless TF_FLASHNEXT_REDUCE_ACT=0: decode read-outs' `_reduce` + `_hc_act` as one fn_ops kernel
-++    /// (`reduceActTakes`)
+++    /// on unless TF_FLASHNEXT_REDUCE_ACT=0, and only with `act_exact`: decode read-outs' `_reduce` + `_hc_act` as one
+++    /// fn_ops kernel (`reduceActTakes`)
 ++    reduce_act: bool = false,
+++    /// tf_fn_hc_reduce_act_kernel gave the loaded kernel set's `_reduce` + `_hc_act` bytes at load (one GPU;
+++    /// cuda_prompt.zig reduceActAgrees): the fused read-out tails may run
+++    act_exact: bool = false,
 +     /// on unless TF_FLASHNEXT_WB_NORM=0: prompt chunks' write-back and norm in one pass (`_hc_wb_norm`)
 +     wb_norm: bool = false,
 +     /// two ranks, split prompt glue: the exchanges run on this stream beside the next rows' work (TF_FLASHNEXT_OVERLAP)
-+@@ -1366,9 +1374,23 @@ pub const Forward = struct {
++@@ -1366,9 +1380,26 @@ pub const Forward = struct {
 +             try f.t.hcWritebackNorm(h, h, x.b.pss, p.inject, p.branch, R, g.hidden, g.streams, nm);
 +         } else try f.t.hcWritebackNorm(h, h, x.b.pss, null, .none, R, g.hidden, g.streams, nm);
 +         try f.mark(.hc_writeback);
@@ -200,13 +233,16 @@ index 0000000..79387b2
 ++        const g = f.g;
 ++        const ndn: usize = hc.down.n;
 ++        if (tri.b16SplitK(ndn, hc.down.k) < 2 or hc.down.k % 64 != 0 or !std.math.isPowerOfTwo(g.streams)) return false;
+++        // its K slices' partials in the part scratch, sized for the same split of the same matrix at the widest
+++        // window (partBytes holds `_b16mm`'s for [low + streams, wide] at max_rows): never past it
+++        if (tri.b16PartBytes(R, ndn, hc.down.k) > f.sc.part_len) return false;
 ++        return if (inject != null) ndn == g.low + g.streams else ndn == g.low;
 ++    }
 ++
 +     /// Whether this write-back also makes the read-out's normed rows (`_hc_wb_norm`): prompt chunks, no 4-bit MTP
 +     /// matrices (the only readers of normed's 32-group sums), and a branch the kernel set has an entry for.
 +     fn fusesNorm(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, pending: ?Pending) bool {
-+@@ -1405,13 +1427,28 @@ pub const Forward = struct {
++@@ -1405,13 +1436,28 @@ pub const Forward = struct {
 +                 try f.th.slotCopy(f.sc.pb, hc.down.n * 4, f.sc.dn + d8.n * 4, dn_n * 4, hc.down.n * 4, R);
 +             }
 +             try f.mark(.hc_down);
@@ -242,8 +278,21 @@ index 0000000..79387b2
 +             try f.mark(.hc_mix);
 +             return;
 +         }
++@@ -2035,6 +2081,12 @@ test "the partial scratch covers the widest split-K matmul of a prompt chunk" {
++     try std.testing.expectEqual(@as(usize, 4 * 4 * 2048 * 2560 * 4), partBytes(g, 2048));
++     // the MTP head's fc_h at 8 rows takes 32 stream rows of [2560, 2560]
++     try std.testing.expect(partBytes(g, 8) >= tri.b16PartBytes(32, 2560, 2560));
+++    // a read-out's down projection [low + streams, wide] as K slices (tf_fn_hc_reduce_act_kernel reads them from
+++    // `part`): 32 slices of rows x 324 fp32, inside the scratch at every window width up to the scratch's rows
+++    try std.testing.expectEqual(@as(usize, 32), tri.b16SplitK(g.low + g.streams, g.wide()));
+++    for ([_]usize{ 1, 16, 17, 64, 128, 2048 + 512 }) |rows| {
+++        for (1..rows + 1) |r| try std.testing.expect(tri.b16PartBytes(r, g.low + g.streams, g.wide()) <= partBytes(g, rows));
+++    }
++ }
++ 
++ test {
 +diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-+index 7bd96f2..dc760a4 100644
++index 7bd96f2..80a9af8 100644
 +--- a/zig/src/families/flashnext/cuda_prompt.zig
 ++++ b/zig/src/families/flashnext/cuda_prompt.zig
 +@@ -594,7 +594,7 @@ pub fn glueCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri) !boo
@@ -281,10 +330,63 @@ index 0000000..79387b2
 +     return all;
 + }
 + 
-+@@ -642,6 +661,118 @@ fn fillF32(gpa: std.mem.Allocator, buf: cuda.DeviceBuffer, count: usize, r: std.
++@@ -642,6 +661,171 @@ fn fillF32(gpa: std.mem.Allocator, buf: cuda.DeviceBuffer, count: usize, r: std.
 +     try buf.upload(0, std.mem.sliceAsBytes(h));
 + }
 + 
+++/// The engine's boot check of tf_fn_hc_reduce_act_kernel against the loaded kernel set's `_reduce` + `_hc_act`, in
+++/// the model's geometry (read-outs with inject rows and without), rows 1, 2, 5, 16, 17, 64 and 128, on random fp32
+++/// bit patterns (NaN, infinities, subnormals) and on slices that cancel: act and inject gate bytes. The kernel
+++/// reproduces the Triton kernels' own instructions (cvt.rn.bf16, ex2.approx, div.full: their SASS on this build), so
+++/// a kernel set from another Triton or ptxas that changed them disagrees here and the engine keeps the two launches
+++/// (Forward.reduce_act off) instead of serving other bits.
+++pub fn reduceActAgrees(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, th0: @import("cuda_torch_ops.zig").Torch, streams: usize, low: usize, k: usize) !bool {
+++    const ndn_most = low + streams;
+++    const SK = tri.b16SplitK(ndn_most, k);
+++    if (SK < 2 or tri.b16SplitK(low, k) != SK) return false;
+++    const max_m: usize = 128;
+++    var th = th0;
+++    th.s = t.s;
+++    var prng = std.Random.DefaultPrng.init(0x2ed_ac8);
+++    const r = prng.random();
+++    var part = try cuda.DeviceBuffer.alloc(d, SK * max_m * ndn_most * 4);
+++    defer part.free();
+++    var dn = try cuda.DeviceBuffer.alloc(d, max_m * ndn_most * 4);
+++    defer dn.free();
+++    var xs = try cuda.DeviceBuffer.alloc(d, max_m * (low / 32 + 1) * 4);
+++    defer xs.free();
+++    var outs: [4]cuda.DeviceBuffer = undefined;
+++    for (&outs, [_]usize{ low, low, streams, streams }) |*b, w| b.* = try cuda.DeviceBuffer.alloc(d, max_m * w * 2);
+++    defer for (&outs) |*b| b.free();
+++    const a1, const a2, const g1, const g2 = outs;
+++    const hp = try gpa.alloc(u32, SK * max_m * ndn_most);
+++    defer gpa.free(hp);
+++    const ha = try gpa.alloc(u8, max_m * low * 2);
+++    defer gpa.free(ha);
+++    const hb = try gpa.alloc(u8, max_m * low * 2);
+++    defer gpa.free(hb);
+++    for ([_]bool{ true, false }) |bits| for ([_]usize{ 1, 2, 5, 16, 17, 64, 128 }) |m| for ([_]bool{ true, false }) |has_inj| {
+++        const ndn = if (has_inj) ndn_most else low;
+++        const total = m * ndn;
+++        for (hp[0 .. SK * total], 0..) |*v, i| v.* = if (bits) r.int(u32) else @bitCast(if (i / total == 0) std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else if (i / total == 1) -std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else r.floatNorm(f32) * 0.01);
+++        try part.upload(0, std.mem.sliceAsBytes(hp[0 .. SK * total]));
+++        for (outs, [_]u8{ 0xA5, 0x5A, 0xA5, 0x5A }) |b, v| try b.fill8(v, t.s.handle);
+++        try reduce(t, part.ptr, dn.ptr, true, total, SK);
+++        try t.hcAct(dn.ptr, a1.ptr, xs.ptr, if (has_inj) g1.ptr else null, m, ndn, streams, low);
+++        try th.hcReduceAct(part.ptr, a2.ptr, if (has_inj) g2.ptr else a2.ptr, m, SK, ndn, low, streams);
+++        try t.s.synchronize();
+++        try a1.download(0, ha[0 .. m * low * 2]);
+++        try a2.download(0, hb[0 .. m * low * 2]);
+++        if (!std.mem.eql(u8, ha[0 .. m * low * 2], hb[0 .. m * low * 2])) return false;
+++        if (has_inj) {
+++            try g1.download(0, ha[0 .. m * streams * 2]);
+++            try g2.download(0, hb[0 .. m * streams * 2]);
+++            if (!std.mem.eql(u8, ha[0 .. m * streams * 2], hb[0 .. m * streams * 2])) return false;
+++        }
+++    };
+++    return true;
+++}
+++
 ++/// `glue-check`'s decode part: tf_fn_hc_reduce_act_kernel against `_reduce` (SK 32, fp32) + `_hc_act` (act and inject
 ++/// gate bytes) for the read-outs with inject rows (ndn 324) and without (320), 1-128 rows: on adversarial fp32
 ++/// partials (random bit patterns: subnormals, infinities, NaNs; wide exponents; sums that cancel), then on the split

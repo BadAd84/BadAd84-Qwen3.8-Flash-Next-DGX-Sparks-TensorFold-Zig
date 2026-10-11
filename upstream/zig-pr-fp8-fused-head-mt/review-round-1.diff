@@ -1,0 +1,319 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 61946f8..aa9d73b 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,8 @@ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:
+   `TF_FLASHNEXT_HEAD_ROW_TILES=2` (the defaults): block-FP8 split-K projections of 2048+ columns below 256 rows run
+   on the fused kernel (one block a column tile, its K slices in slice order, the cluster's sum), and the int4 lm_head
+   takes 32-row items. `out_proj` -9% a round; on the merged build code at 4 clients +8%, copy windows +7%; every reply
+-  byte-identical (`tensorfold fp8-fused-check`, `tensorfold int4-head-check`).
++  byte-identical (`tensorfold fp8-fused-check`, `tensorfold int4-head-check`). `TF_FLASHNEXT_HEAD_ROW_TILES` other than 1 or 2, or `TF_FLASHNEXT_FP8_FUSED_SPLIT` other than 0, 4 or 8, stops
++  the start.
+ 
+ ## [1.0.0] - 2026-10-08
+ 
+diff --git a/patches/0018-flash-next-fp8-fused-split-head-rows.patch b/patches/0018-flash-next-fp8-fused-split-head-rows.patch
+index 91e5986..167225d 100644
+--- a/patches/0018-flash-next-fp8-fused-split-head-rows.patch
++++ b/patches/0018-flash-next-fp8-fused-split-head-rows.patch
+@@ -65,10 +65,10 @@ index 2496ef8..b3e24d8 100644
+ +TF_QMMF_LD_S(16, false, true, 4) TF_QMMF_LD_S(32, false, true, 4) TF_QMMF_LD_S(16, false, true, 8)
+ +TF_QMMF_LD_S(32, false, true, 8)
+ diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
+-index dc7a314..a7c023e 100644
++index 5be6859..1402042 100644
+ --- a/zig/src/cli/flashnext_cuda.zig
+ +++ b/zig/src/cli/flashnext_cuda.zig
+-@@ -47,6 +47,10 @@ const usage =
++@@ -51,6 +51,10 @@ const usage =
+      \\           Python's Fp8BlockLinear on tools/zig/check_fp8block.py's cases in DIR, bytes compared, timed)
+      \\  tensorfold int4-check MODEL   (no weights: the GPTQ int4 expert and head kernels (cuda_int4.zig) against a host
+      \\           reference from the GPTQ bytes, row/tile invariance, plan == dense, then their speed)
+@@ -79,7 +79,7 @@ index dc7a314..a7c023e 100644
+      \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
+      \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
+      \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
+-@@ -274,6 +278,22 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++@@ -278,6 +282,22 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
+          std.debug.print("{s} int4-check: the GPTQ int4 kernels against the host order, row and tile invariance, plan == dense\n", .{if (ok) "PASS" else "FAIL"});
+          return if (ok) 0 else 1;
+      }
+@@ -103,10 +103,19 @@ index dc7a314..a7c023e 100644
+      if (std.mem.eql(u8, cmd, "fp4-check")) return fp4Check(gpa, init.io, &ctx, kernels, o);
+      if (std.mem.eql(u8, cmd, "glue-check")) return glueCheck(gpa, init.io, &ctx, kernels);
+ diff --git a/zig/src/families/flashnext/cuda_fp8.zig b/zig/src/families/flashnext/cuda_fp8.zig
+-index 427b8e0..50704ac 100644
++index 427b8e0..d9176e2 100644
+ --- a/zig/src/families/flashnext/cuda_fp8.zig
+ +++ b/zig/src/families/flashnext/cuda_fp8.zig
+-@@ -38,9 +38,38 @@ pub fn bucket(m: usize) usize {
++@@ -10,6 +10,8 @@
++ //! Ash Hart (ashhart)).
++ const std = @import("std");
++ const cuda = @import("cuda");
+++/// The shared count-setting reader (refuses a value that is not a count).
+++const envCount = @import("cuda_engine.zig").envCount;
++ 
++ /// Fp8BlockLinear: w8 uint8 [npad/64][K/64][8][32][2][8] (fragment order), bs fp32 [npad/64][K/64][64].
++ pub const Linear = struct { w8: u64 = 0, bs: u64 = 0, n: u32 = 0, k: u32 = 0, npad: u32 = 0 };
++@@ -38,9 +40,37 @@ pub fn bucket(m: usize) usize {
+  
+  /// qmmf.cu Tile<FP8G, BM, 64, 1, 4, 4>::SMEM: max(4 stages, the cluster partials).
+  pub fn smem(bm: usize) u32 {
+@@ -131,14 +140,13 @@ index 427b8e0..50704ac 100644
+ +/// form told half the slices, which the check must see.
+ +pub const Mode = struct { fuse: u8 = 0, fuse_n: usize = 2048, mutant: bool = false };
+ +
+-+fn envInt(name: [*:0]const u8, default: usize) usize {
+-+    const v = std.c.getenv(name) orelse return default;
+-+    return std.fmt.parseInt(usize, std.mem.span(v), 10) catch default;
+-+}
+-+
+-+pub fn modeFromEnv() Mode {
+-+    const fu = envInt("TF_FLASHNEXT_FP8_FUSED_SPLIT", 0);
+-+    const m: Mode = .{ .fuse = if (fu == 4 or fu == 8) @intCast(fu) else 0, .fuse_n = envInt("TF_FLASHNEXT_FP8_FUSED_SPLIT_N", 2048) };
+++pub fn modeFromEnv() !Mode {
+++    const fu = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT") orelse 0);
+++    if (fu != 0 and fu != 4 and fu != 8) {
+++        std.log.warn("TF_FLASHNEXT_FP8_FUSED_SPLIT={d} refused: 0 (the cluster kernel), 4 or 8 (pipeline depths)", .{fu});
+++        return error.BadSetting;
+++    }
+++    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048) };
+ +    if (m.fuse != 0) {
+ +        std.log.info("block-FP8 split-K shapes of {d}+ columns below {d} rows: one block a column tile, its K slices in slice order (TF_FLASHNEXT_FP8_FUSED_SPLIT={d})", .{ m.fuse_n, fused_rows, m.fuse });
+ +    } else std.log.info("block-FP8 split-K shapes below {d} rows on the cluster kernel (TF_FLASHNEXT_FP8_FUSED_SPLIT=0)", .{fused_rows});
+@@ -146,7 +154,7 @@ index 427b8e0..50704ac 100644
+  }
+  
+  /// qmmf.cu launch's L2 band: row tiles whose inputs fill about 12 MB.
+-@@ -51,7 +80,10 @@ pub fn l2Group(rows_t: usize, bm: usize, k: usize) usize {
++@@ -51,7 +81,10 @@ pub fn l2Group(rows_t: usize, bm: usize, k: usize) usize {
+  /// Mangled names of the FP8G instantiations (fn_qmmf.cu's footer): [F32][cluster][bm 16, 32, 64], and the fused [F32].
+  pub const sym = struct {
+      fn name(comptime bm: u32, comptime f32_out: bool, comptime cluster: bool, comptime fuse: bool) [:0]const u8 {
+@@ -158,7 +166,7 @@ index 427b8e0..50704ac 100644
+      }
+      pub const tiled = blk: {
+          var out: [2][2][3][:0]const u8 = undefined;
+-@@ -61,9 +93,20 @@ pub const sym = struct {
++@@ -61,9 +94,20 @@ pub const sym = struct {
+          break :blk out;
+      };
+      pub const fused = [2][:0]const u8{ name(64, false, false, true), name(64, true, false, true) };
+@@ -180,7 +188,7 @@ index 427b8e0..50704ac 100644
+      }
+      pub const ld_tiled = blk: {
+          var out: [2][3][:0]const u8 = undefined;
+-@@ -73,6 +116,13 @@ pub const sym = struct {
++@@ -73,6 +117,13 @@ pub const sym = struct {
+          break :blk out;
+      };
+      pub const ld_fused = ldName(64, false, true);
+@@ -194,7 +202,7 @@ index 427b8e0..50704ac 100644
+  };
+  
+  pub const Kernels = struct {
+-@@ -83,6 +133,10 @@ pub const Kernels = struct {
++@@ -83,6 +134,10 @@ pub const Kernels = struct {
+      ld_module: cuda.Module,
+      ld_tiled: [2][3]cuda.Function,
+      ld_fused: cuda.Function,
+@@ -205,7 +213,7 @@ index 427b8e0..50704ac 100644
+      major: c_int,
+  
+      pub fn load(ctx: *const cuda.Context) !Kernels {
+-@@ -106,6 +160,17 @@ pub const Kernels = struct {
++@@ -106,6 +161,17 @@ pub const Kernels = struct {
+          };
+          k.ld_fused = try k.ld_module.function(sym.ld_fused);
+          try k.ld_fused.allowDynamicShared(smem(64));
+@@ -219,11 +227,11 @@ index 427b8e0..50704ac 100644
+ +                try k.ld_fuse_s[q][b].allowDynamicShared(smemS(@as(usize, 16) << @intCast(b), 4 + 4 * q));
+ +            }
+ +        }
+-+        k.mode = modeFromEnv();
+++        k.mode = try modeFromEnv();
+          k.major = try ctx.attribute(.compute_capability_major);
+          return k;
+      }
+-@@ -145,13 +210,25 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
++@@ -145,13 +211,25 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
+      if (kk % 64 != 0 or l.npad < n) return error.Invalid;
+      const sk = splitK(n, kk);
+      const bm: usize = if (sk > 1 and m >= fused_rows) 0 else bucket(m);
+@@ -253,7 +261,7 @@ index 427b8e0..50704ac 100644
+      var a: cuda.Args = .{};
+      a.add(x);
+      a.add(l.w8);
+-@@ -159,13 +236,13 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
++@@ -159,13 +237,13 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
+      a.add(@as(f32, 1.0));
+      a.add(out);
+      a.add(@as(u64, 0));
+@@ -270,7 +278,7 @@ index 427b8e0..50704ac 100644
+          .cluster = if (cluster) .{ .x = 1, .y = 1, .z = @intCast(sk) } else null,
+      }, s, &a);
+  }
+-@@ -465,3 +542,164 @@ pub fn check(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir:
++@@ -465,3 +543,174 @@ pub fn check(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir:
+      }
+      return ok;
+  }
+@@ -381,25 +389,35 @@ index 427b8e0..50704ac 100644
+ +            }.f;
+ +            k.mode = .{};
+ +            try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+-+            try dy.download(0, ref[0..len]);
+++            // the whole poisoned buffer, past the m rows (and the ld form's gaps between rows) included: a write
+++            // outside a call's rows and columns, by any path, is a difference; the cluster kernel's own bounds too
+++            try dy.download(0, ref[0..out_len]);
+++            var outside = !std.mem.allEqual(u8, ref[len..out_len], 0xA5);
+++            if (kind == 2) for (0..m) |row| {
+++                if (!std.mem.allEqual(u8, ref[row * ldo * 2 + n * 2 .. (row + 1) * ldo * 2], 0xA5)) outside = true;
+++            };
+++            if (outside) {
+++                ok = false;
+++                std.debug.print("  n {d} k {d} m {d} kind {d}: the cluster kernel wrote outside its rows or columns\n", .{ n, kk, m, kind });
+++            }
+ +            for (fused_modes[1..]) |wm| {
+ +                k.mode = wm.m;
+ +                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+-+                try dy.download(0, got[0..len]);
+++                try dy.download(0, got[0..out_len]);
+ +                calls += 1;
+-+                if (!std.mem.eql(u8, ref[0..len], got[0..len])) {
+++                if (!std.mem.eql(u8, ref[0..out_len], got[0..out_len])) {
+ +                    differ += 1;
+ +                    ok = false;
+-+                    std.debug.print("  n {d} k {d} m {d} kind {d} mode {s}: DIFFERS from the cluster kernel\n", .{ n, kk, m, kind, wm.name });
+++                    std.debug.print("  n {d} k {d} m {d} kind {d} mode {s}: DIFFERS from the cluster kernel ({s})\n", .{ n, kk, m, kind, wm.name, if (std.mem.eql(u8, ref[0..len], got[0..len])) "outside the call's rows" else "in the rows" });
+ +                }
+ +            }
+ +            if (sk > 1) {
+ +                k.mode = .{ .fuse = 8, .mutant = true };
+ +                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+-+                try dy.download(0, got[0..len]);
+++                try dy.download(0, got[0..out_len]);
+ +                const bi = bucketIndex(bucket(m));
+ +                mutant_calls[bi] += 1;
+-+                if (!std.mem.eql(u8, ref[0..len], got[0..len])) mutant_differ[bi] += 1;
+++                if (!std.mem.eql(u8, ref[0..out_len], got[0..out_len])) mutant_differ[bi] += 1;
+ +            }
+ +        };
+ +        // the mutant is killed when every row tile's path (16, 32: the decode fused kernels, 64: the prompt's) shows it
+@@ -436,7 +454,7 @@ index 427b8e0..50704ac 100644
+ +    return ok;
+ +}
+ diff --git a/zig/src/families/flashnext/cuda_int4.zig b/zig/src/families/flashnext/cuda_int4.zig
+-index 6fb92eb..df371de 100644
++index 6fb92eb..0d74d3b 100644
+ --- a/zig/src/families/flashnext/cuda_int4.zig
+ +++ b/zig/src/families/flashnext/cuda_int4.zig
+ @@ -128,7 +128,8 @@ const warps = 4;
+@@ -459,17 +477,40 @@ index 6fb92eb..df371de 100644
+  
+      pub fn load(ctx: *const cuda.Context) !Kernels {
+          if (!cuda.kernels.available) return error.BuiltWithoutKernels;
+-@@ -210,6 +214,9 @@ pub const Kernels = struct {
++@@ -210,6 +214,8 @@ pub const Kernels = struct {
+              try k.pdown[g][o].allowDynamicShared(sm);
+              k.pdown_blocks[g][o] = @as(usize, @max(1, try k.pdown[g][o].occupancy(prompt_threads, sm))) * sms;
+          };
+-+        const hm = if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.fmt.parseInt(usize, std.mem.span(v), 10) catch 1 else 1;
+-+        k.head_mt = if (hm == 2) 2 else 1;
+++        k.head_mt = try headRowTiles(if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.mem.span(v) else null);
+ +        std.log.info("int4 lm_head: {s} (TF_FLASHNEXT_HEAD_ROW_TILES={d})", .{ if (k.head_mt == 2) "calls of 17 or more rows in 32-row items" else "16-row items", k.head_mt });
+          return k;
+      }
+  
+-@@ -339,7 +346,8 @@ pub fn denseNt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, m: Ma
++@@ -218,6 +224,23 @@ pub const Kernels = struct {
++     }
++ };
++ 
+++/// TF_FLASHNEXT_HEAD_ROW_TILES: the head's row tiles a pass for calls past 16 rows, 1 (unset) or 2; any other value
+++/// is refused (error.BadSetting), never read as 1.
+++pub fn headRowTiles(v: ?[]const u8) !usize {
+++    const s = v orelse return 1;
+++    if (std.mem.eql(u8, s, "1")) return 1;
+++    if (std.mem.eql(u8, s, "2")) return 2;
+++    std.log.warn("TF_FLASHNEXT_HEAD_ROW_TILES={s} refused: 1 (16-row items) or 2 (32-row items)", .{s});
+++    return error.BadSetting;
+++}
+++
+++test "the head's row tiles setting is 1 or 2, anything else refused" {
+++    try std.testing.expectEqual(@as(usize, 1), try headRowTiles(null));
+++    try std.testing.expectEqual(@as(usize, 1), try headRowTiles("1"));
+++    try std.testing.expectEqual(@as(usize, 2), try headRowTiles("2"));
+++    for ([_][]const u8{ "", "0", "3", "02", "two", "2 ", "-1" }) |v| try std.testing.expectError(error.BadSetting, headRowTiles(v));
+++}
+++
++ fn int(x: usize) c_int {
++     return @intCast(x);
++ }
++@@ -339,7 +362,8 @@ pub fn denseNt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, m: Ma
+          64 => if (f32_out) 3 else 4,
+          else => return error.Invalid,
+      };
+@@ -480,10 +521,10 @@ index 6fb92eb..df371de 100644
+  
+  /// `gateUp` / `down` with the n8 tiles a warp forced (checks).
+ diff --git a/zig/src/families/flashnext/cuda_int4_check.zig b/zig/src/families/flashnext/cuda_int4_check.zig
+-index 80910f8..ec4ac15 100644
++index 80910f8..bbc139a 100644
+ --- a/zig/src/families/flashnext/cuda_int4_check.zig
+ +++ b/zig/src/families/flashnext/cuda_int4_check.zig
+-@@ -614,3 +614,107 @@ pub fn check(gpa: Allocator, ctx: *const cuda.Context, ops: kern.Ops) !bool {
++@@ -614,3 +614,118 @@ pub fn check(gpa: Allocator, ctx: *const cuda.Context, ops: kern.Ops) !bool {
+      try bench(gpa, &k, ops, ctx.d, 2);
+      return rep.ok;
+  }
+@@ -540,26 +581,31 @@ index 80910f8..ec4ac15 100644
+ +        var bad: usize = 0;
+ +        for (rows_list) |rows| for ([_]bool{ true, false }) |f32o| {
+ +            const len = rows * n * @as(usize, if (f32o) 4 else 2);
+++            const all = most * n * 4; // the whole poisoned buffer: a write past the call's rows is a difference
+ +            k.head_mt = 1;
+-+            try poison(d, out, most * n * 4);
+++            try poison(d, out, all);
+ +            try int4.dense(&k, s, xd, kk, m, out, f32o, rows);
+ +            try s.synchronize();
+-+            try dv.get(out, ref[0..len]);
+++            try dv.get(out, ref[0..all]);
+++            if (!std.mem.allEqual(u8, ref[len..all], 0xA5)) {
+++                bad += 1;
+++                std.debug.print("  head n {d} k {d} gs {d} rows {d}: 16-row items wrote past the call's rows\n", .{ n, kk, gs, rows });
+++            }
+ +            {
+ +                const mt: usize = 2;
+ +                k.head_mt = mt;
+-+                try poison(d, out, most * n * 4);
+++                try poison(d, out, all);
+ +                try int4.dense(&k, s, xd, kk, m, out, f32o, rows);
+ +                try s.synchronize();
+-+                try dv.get(out, got[0..len]);
+++                try dv.get(out, got[0..all]);
+ +                calls += 1;
+-+                const same = std.mem.eql(u8, ref[0..len], got[0..len]);
+++                const same = std.mem.eql(u8, ref[0..all], got[0..all]);
+ +                const solo_ok = !f32o or std.mem.eql(u8, got[0..len], solo[0..len]);
+ +                if (!same or !solo_ok) {
+ +                    bad += 1;
+ +                    var diff: usize = 0;
+-+                    for (ref[0..len], got[0..len]) |a, b| diff += @intFromBool(a != b);
+-+                    std.debug.print("  head n {d} k {d} gs {d} rows {d} {s}: head_mt {d} {s} 16-row items ({d} bytes differ), {s} the 1-row calls\n", .{ n, kk, gs, rows, if (f32o) "fp32" else "bf16", mt, if (same) "equal to" else "DIFFERS from", diff, if (solo_ok) "equal to" else "DIFFERS from" });
+++                    for (ref[0..all], got[0..all]) |a, b| diff += @intFromBool(a != b);
+++                    std.debug.print("  head n {d} k {d} gs {d} rows {d} {s}: head_mt {d} {s} 16-row items ({d} bytes differ, {d} past the call's rows), {s} the 1-row calls\n", .{ n, kk, gs, rows, if (f32o) "fp32" else "bf16", mt, if (same) "equal to" else "DIFFERS from", diff, diff - countDiff(ref[0..len], got[0..len]), if (solo_ok) "equal to" else "DIFFERS from" });
+ +                }
+ +            }
+ +        };
+@@ -591,3 +637,9 @@ index 80910f8..ec4ac15 100644
+ +    }
+ +    return ok;
+ +}
+++
+++fn countDiff(a: []const u8, b: []const u8) usize {
+++    var n: usize = 0;
+++    for (a, b) |x, y| n += @intFromBool(x != y);
+++    return n;
+++}

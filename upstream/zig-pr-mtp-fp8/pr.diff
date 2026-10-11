@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..5be46fc 100644
+index 16da5a3..44b63fa 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -3,6 +3,15 @@
+@@ -3,6 +3,16 @@
  Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
  `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
  
@@ -11,9 +11,10 @@ index 16da5a3..5be46fc 100644
 +- `patches/0011-flash-next-mtp-fp8-overlay` and `MTP_FP8=1` (the default): the MTP layer's bf16 linears (attention
 +  q/k/v/o, the hyper-connections and the mixer) on block FP8 for drafting. `scripts/prepare.sh` writes the overlay
 +  once with `tools/mtp_fp8.py` (128x128 blocks, the checkpoint's own block-FP8 format) into
-+  `$HF_CACHE/tensorfold-mtp-fp8/`; `start.sh` passes it as `TF_FLASHNEXT_MTP_FP8`. The head only drafts and every
-+  draft is verified, so every reply stays byte-identical. Decode +4 to +5% on code and about +2% on prose at 1-4 clients.. `MTP_FP8=0` drafts from the bf16
-+  layer as before.
++  `$HF_CACHE/tensorfold-mtp-fp8/<model>/<revision>/tool-<sha>/` (one directory a checkpoint revision and a version of
++  the tool, the sha256 of its bytes checked by `prepare.sh` and `start.sh`); `start.sh` passes it as
++  `TF_FLASHNEXT_MTP_FP8`. The head only drafts and every draft is verified, so every reply stays byte-identical.
++  Decode +4 to +5% on code and about +2% on prose at 1-4 clients. `MTP_FP8=0` drafts from the bf16 layer as before.
 +
  ## [1.0.0] - 2026-10-08
  
@@ -31,14 +32,14 @@ index 33d47f7..71ee3bc 100644
  ## Runtime stack
  
 diff --git a/README.md b/README.md
-index 9b71561..9ff7c47 100644
+index 9b71561..0dfc6df 100644
 --- a/README.md
 +++ b/README.md
 @@ -283,6 +283,7 @@ Every setting lives in [`scripts/config.sh`](scripts/config.sh). Override it fro
  | `PARALLEL` | `8` | requests decoded together. One that would not fit (prompt plus `max_tokens`) is refused |
  | `CONTEXT` | `262144` | prompt + reply window. `1048576` turns on YaRN factor 4 |
  | `DRAFTS` | `1` | MTP drafts; `0` passes `--no-drafts` |
-+| `MTP_FP8` | `1` | the drafts' MTP layer on block FP8 (`patches/0011`): `prepare.sh` writes the overlay with `tools/mtp_fp8.py` into `$HF_CACHE/tensorfold-mtp-fp8/`. Drafts only; replies match. `0` drafts from the bf16 layer |
++| `MTP_FP8` | `1` | the drafts' MTP layer on block FP8 (`patches/0011`): `prepare.sh` writes the overlay with `tools/mtp_fp8.py` into `$HF_CACHE/tensorfold-mtp-fp8/<model>/<revision>/tool-<sha>/` (a new one for a new checkpoint revision or tool version; its sha256 checked at prepare and start). Drafts only; replies match. `0` drafts from the bf16 layer |
  | `TF_FLASHNEXT_DEPTH` | `15` | drafts a round. The stop rule is the engine's hybrid (see `TF_FLASHNEXT_PRODUCT_STREAMS`) |
  | `TEMPERATURE` / `TOP_P` / `TOP_K` | `1.0` / `0.95` / `20` | default sampling; a request's own values win |
  | `THINKING` | `1` | think before answering; `0` passes `--no-thinking` |
@@ -118,7 +119,7 @@ index 0000000..3ce58ac
 +     L.mbase = if (L.has(try L.nameOf("{s}model.language_model.embed_tokens.weight", .{L.prefix}))) "model.language_model." else "model.";
 + 
 diff --git a/scripts/config.sh b/scripts/config.sh
-index 1379319..a06aaa8 100644
+index 1379319..29744f8 100644
 --- a/scripts/config.sh
 +++ b/scripts/config.sh
 @@ -74,6 +74,10 @@ export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
@@ -132,38 +133,47 @@ index 1379319..a06aaa8 100644
  # KV cache (--kv-dtype). fp8 is the default: about 1.84x the pool of bf16, and lossy (~98.8% top-1 agreement with a
  # bf16 cache, so a free-running reply can differ). bf16 is exact: KV_DTYPE=bf16. FP8 works together with --vision.
  KV_DTYPE="${KV_DTYPE:-fp8}"
-@@ -142,6 +146,8 @@ snapshot_rev() {
+@@ -142,6 +146,17 @@ snapshot_rev() {
    if [[ -n "$MODEL_REVISION" ]]; then echo "$MODEL_REVISION"
    else cat "$(model_cache_dir)/refs/main" 2>/dev/null; fi
  }
-+# The MTP FP8 overlay of the pinned checkpoint, relative to the HF cache (start.sh mounts the cache read-only)
-+mtp_fp8_sub() { echo "tensorfold-mtp-fp8/${MODEL_ID//\//--}/$(snapshot_rev)"; }
++# The MTP FP8 overlay of the pinned checkpoint, relative to the HF cache (start.sh mounts the cache read-only): one
++# directory a checkpoint revision and a version of tools/mtp_fp8.py (the first 12 hex of its sha256), so a changed
++# tool writes a new overlay instead of reusing an older one. mtp_fp8_ok: the overlay is there and its bytes match the
++# mtp-fp8.sha256 the tool wrote beside it.
++mtp_fp8_tool() { sha256sum "$(dirname "${BASH_SOURCE[0]}")/../tools/mtp_fp8.py" | cut -c1-12; }
++mtp_fp8_sub() { echo "tensorfold-mtp-fp8/${MODEL_ID//\//--}/$(snapshot_rev)/tool-$(mtp_fp8_tool)"; }
++mtp_fp8_ok() {
++  local d
++  d="$HF_CACHE/$(mtp_fp8_sub)"
++  [[ -f "$d/mtp-fp8.safetensors" && -f "$d/mtp-fp8.sha256" ]] && (cd "$d" && sha256sum -c --status mtp-fp8.sha256)
++}
  
  PREPARED_MARKER="$STATE_DIR/prepared"
  prepared_state() {
-@@ -149,5 +155,9 @@ prepared_state() {
+@@ -149,5 +164,9 @@ prepared_state() {
    hash=$(image_hash)
    label=$(docker image inspect -f '{{.Id}}' "$IMAGE" 2>/dev/null || echo missing)
    rev=$(snapshot_rev)
 -  echo "model=$MODEL_ID@$rev image=$label patches=$hash"
 +  local fp8=off
 +  if [[ "$MTP_FP8" == 1 ]]; then
-+    if [[ -f "$HF_CACHE/$(mtp_fp8_sub)/mtp-fp8.safetensors" ]]; then fp8=present; else fp8=missing; fi
++    if mtp_fp8_ok; then fp8=present; else fp8=missing; fi
 +  fi
 +  echo "model=$MODEL_ID@$rev image=$label patches=$hash mtp_fp8=$fp8"
  }
 diff --git a/scripts/prepare.sh b/scripts/prepare.sh
-index e88530c..032b3d4 100755
+index e88530c..3f3ebbc 100755
 --- a/scripts/prepare.sh
 +++ b/scripts/prepare.sh
-@@ -214,5 +214,18 @@ print("qwen4_exp, AutoRound int4 g%s, %d n-gram table files, %d tensors in %d sh
+@@ -214,5 +214,19 @@ print("qwen4_exp, AutoRound int4 g%s, %d n-gram table files, %d tensors in %d sh
  snap="$dir/snapshots/$rev"
  info=$(python3 -I -c "$CHECK_PY" "$snap" 2>&1) || die "the checkpoint at $snap is not ready: $info"
  log "Checkpoint OK: $info"
 +if [[ "$MTP_FP8" == 1 ]]; then
 +  sub=$(mtp_fp8_sub)
-+  if [[ -f "$HF_CACHE/$sub/mtp-fp8.safetensors" ]]; then
-+    log "MTP FP8 overlay: $HF_CACHE/$sub (present)"
++  if mtp_fp8_ok; then
++    log "MTP FP8 overlay: $HF_CACHE/$sub (present, sha256 checked)"
 +  else
 +    log "Writing the MTP layer's linears on block FP8 (tools/mtp_fp8.py) into $HF_CACHE/$sub"
 +    mkdir -p "$HF_CACHE/$sub"
@@ -171,12 +181,13 @@ index e88530c..032b3d4 100755
 +      -v "$HF_CACHE":/hf --entrypoint python3 "$IMAGE" /tools/mtp_fp8.py \
 +      "/hf/hub/models--${MODEL_ID//\//--}/snapshots/$rev" "/hf/$sub" ||
 +      die "tools/mtp_fp8.py failed (MTP_FP8=0 serves without the overlay)"
++    mtp_fp8_ok || die "the overlay in $HF_CACHE/$sub does not match its mtp-fp8.sha256"
 +  fi
 +fi
  prepared_state > "$PREPARED_MARKER"
  log "Done. Start the server with ./start.sh (port $PORT)."
 diff --git a/start.sh b/start.sh
-index 0c9378b..5a19315 100755
+index 0c9378b..38d7c4f 100755
 --- a/start.sh
 +++ b/start.sh
 @@ -12,7 +12,7 @@
@@ -197,17 +208,18 @@ index 0c9378b..5a19315 100755
  [[ "$TF_FLASHNEXT_YARN" =~ ^(0|4)$ ]] || die "TF_FLASHNEXT_YARN is 0 or 4, not $TF_FLASHNEXT_YARN"
  (( CONTEXT <= 262144 || TF_FLASHNEXT_YARN != 0 )) || die "CONTEXT=$CONTEXT is past 262,144: it needs YaRN (TF_FLASHNEXT_YARN=4)"
  DRY=0; [[ "${DRY_RUN:-0}" == 1 ]] && DRY=1
-@@ -165,6 +165,15 @@ full=$(kv_gib "$(arg_value --context)")
+@@ -165,6 +165,16 @@ full=$(kv_gib "$(arg_value --context)")
  if (( PARALLEL * full + 66 + TENSORFOLD_MEMORY_RESERVE_GIB > 121 )); then
    warn "$PARALLEL full windows are ~$((PARALLEL * full)) GiB of $KV_DTYPE cache beside ~66 GiB of weights: the engine keeps $TENSORFOLD_MEMORY_RESERVE_GIB GiB free and refuses a request that would not fit"
  fi
 +# MTP_FP8=1: the drafts' MTP layer on block FP8 (patches/0011), from the overlay prepare.sh wrote under the HF cache
++# for this checkpoint revision and this tools/mtp_fp8.py, its bytes checked against the sha256 the tool wrote
 +if [[ "$MTP_FP8" == 1 && "$DRAFTS" == 1 && -z "${TF_FLASHNEXT_MTP_FP8:-}" ]]; then
-+  if [[ -f "$HF_CACHE/$(mtp_fp8_sub)/mtp-fp8.safetensors" ]]; then
++  if mtp_fp8_ok; then
 +    TF_FLASHNEXT_MTP_FP8="/root/.cache/huggingface/$(mtp_fp8_sub)"
 +    export TF_FLASHNEXT_MTP_FP8
 +  else
-+    warn "MTP_FP8=1 but $HF_CACHE/$(mtp_fp8_sub) has no overlay: drafting from the bf16 layer (run scripts/prepare.sh)"
++    warn "MTP_FP8=1 but $HF_CACHE/$(mtp_fp8_sub) has no overlay whose sha256 checks: drafting from the bf16 layer (run scripts/prepare.sh)"
 +  fi
 +fi
  
@@ -215,10 +227,10 @@ index 0c9378b..5a19315 100755
  while IFS='=' read -r name _; do
 diff --git a/tools/mtp_fp8.py b/tools/mtp_fp8.py
 new file mode 100644
-index 0000000..de9c550
+index 0000000..7f6b86a
 --- /dev/null
 +++ b/tools/mtp_fp8.py
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,78 @@
 +#!/usr/bin/env python3
 +"""The MTP layer's bf16 linears on block FP8, for TF_FLASHNEXT_MTP_FP8 (patches/0011).
 +
@@ -227,9 +239,12 @@ index 0000000..de9c550
 +INT4-AutoRound keeps the MTP layer in bf16: its attention q/k/v/o, both hyper-connections' down/up and the mixer's,
 +~139 MB that every draft step reads. This writes them as e4m3 codes (`.weight`) and fp32 scales
 +(`.weight_scale_inv`, one per 128x128 block: scale = block amax / 448, weight ~= codes * scale), the format of the
-+checkpoint's own block-FP8 tensors, into OUTDIR/mtp-fp8.safetensors. The engine loads them in place of the bf16 ones.
-+The MTP head only drafts and every draft is verified, so replies stay byte-identical; only the drafts can change.
++checkpoint's own block-FP8 tensors, into OUTDIR/mtp-fp8.safetensors, and its sha256 into OUTDIR/mtp-fp8.sha256
++(`sha256sum -c` format; prepare.sh and start.sh accept the overlay only when it checks). The engine loads them in
++place of the bf16 ones. The MTP head only drafts and every draft is verified, so replies stay byte-identical; only
++the drafts can change.
 +"""
++import hashlib
 +import json
 +import os
 +import sys
@@ -276,8 +291,19 @@ index 0000000..de9c550
 +    os.makedirs(outdir, exist_ok=True)
 +    tmp = os.path.join(outdir, "mtp-fp8.safetensors.tmp")
 +    save_file(out, tmp)
++    digest = hashlib.sha256()
++    with open(tmp, "rb") as f:
++        for block in iter(lambda: f.read(1 << 20), b""):
++            digest.update(block)
++    # the old checksum goes first: an overlay without one is rewritten, never accepted
++    sha = os.path.join(outdir, "mtp-fp8.sha256")
++    if os.path.exists(sha):
++        os.remove(sha)
 +    os.replace(tmp, os.path.join(outdir, "mtp-fp8.safetensors"))
-+    print(f"{len(NAMES)} MTP linears on block FP8 in {outdir}")
++    with open(sha + ".tmp", "w") as f:
++        f.write(f"{digest.hexdigest()}  mtp-fp8.safetensors\n")
++    os.replace(sha + ".tmp", sha)
++    print(f"{len(NAMES)} MTP linears on block FP8 in {outdir}, sha256 {digest.hexdigest()[:12]}")
 +    return 0
 +
 +

@@ -5,6 +5,11 @@
 # exit code is not the verdict: read the "reduce-act-check" line and the "hc_reduce_act" / up-mix lines. Lane w5-opus
 # (~/work/lanes/w5-opus/glue-check-final.log): EQUAL on 134 cases; the slice-order mutant (glue-check-ramut.log)
 # 44 DIFFER = killed; the up-mix's last-row mutant golden 3/6 = killed. Re-run on the clean stack's image:
+# Review round 1 (2026-10-11), on the fixed stack (~/work/lanes/r1-fix, tf branch `stack`): the round's
+# new host tests and a mutant each, judged by exit code (hostmut.py exits 0 only when every one is killed).
+python3 ~/work/lanes/r1-fix/hostmut.py part-scratch-halved || exit 1
+# `boot` passes on the fixed stack and fails with each mutant binary (gmutants.json):
+bash ~/work/lanes/r1-fix/gpucheck.sh boot reduce-act-one-off || exit 1
 set -uo pipefail
 IMG=${1:-tensorfold-qwen38:zpr-stack}
 SNAP=/root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd

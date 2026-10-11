@@ -1,0 +1,111 @@
+diff --git a/patches/0017-flash-next-batched-draws.patch b/patches/0017-flash-next-batched-draws.patch
+index 349a9f5..2402119 100644
+--- a/patches/0017-flash-next-batched-draws.patch
++++ b/patches/0017-flash-next-batched-draws.patch
+@@ -152,10 +152,10 @@ index 56e0c52..549d853 100644
+  
+  static int tf_lse_last_pow2(int v) {
+ diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
+-index 378d138..dc7a314 100644
++index 55d839b..5be6859 100644
+ --- a/zig/src/cli/flashnext_cuda.zig
+ +++ b/zig/src/cli/flashnext_cuda.zig
+-@@ -47,6 +47,8 @@ const usage =
++@@ -51,6 +51,8 @@ const usage =
+      \\           Python's Fp8BlockLinear on tools/zig/check_fp8block.py's cases in DIR, bytes compared, timed)
+      \\  tensorfold int4-check MODEL   (no weights: the GPTQ int4 expert and head kernels (cuda_int4.zig) against a host
+      \\           reference from the GPTQ bytes, row/tile invariance, plan == dense, then their speed)
+@@ -164,7 +164,7 @@ index 378d138..dc7a314 100644
+      \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
+      \\           (each captured prompt's greedy serial reply written to OUT.json; with REF.json, another run's replies
+      \\           teacher-forced: the top-1 agreement of this engine's greedy draws with them, and where the free
+-@@ -275,6 +277,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++@@ -279,6 +281,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
+      if (std.mem.eql(u8, cmd, "qsa-check")) return qsaCheck(gpa, init.io, &ctx, kernels);
+      if (std.mem.eql(u8, cmd, "fp4-check")) return fp4Check(gpa, init.io, &ctx, kernels, o);
+      if (std.mem.eql(u8, cmd, "glue-check")) return glueCheck(gpa, init.io, &ctx, kernels);
+@@ -172,7 +172,7 @@ index 378d138..dc7a314 100644
+      const mtp = !std.mem.eql(u8, cmd, "check-weights-nomtp");
+      // two ranks: both run the same command (every engine call in the same order), rank 0 listening on --master
+      var server: ?flashnext.link.Server = null;
+-@@ -1364,6 +1367,26 @@ fn fp4Check(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
++@@ -1516,6 +1519,26 @@ fn fp4Check(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
+      return if (ok) 0 else 1;
+  }
+  
+@@ -382,10 +382,10 @@ index 0000000..9edd09f
+ +    }
+ +}
+ diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
+-index 765b530..9e18f0f 100644
++index b31f8db..5a60310 100644
+ --- a/zig/src/families/flashnext/cuda_engine.zig
+ +++ b/zig/src/families/flashnext/cuda_engine.zig
+-@@ -327,6 +327,13 @@ pub const Engine = struct {
++@@ -356,6 +356,13 @@ pub const Engine = struct {
+      cand_have: u64 = std.math.maxInt(u64),
+      /// TF_FLASHNEXT_DRAW_ONCE=0: each window's and draft's draws read the candidates again (the old way)
+      draw_once: bool = true,
+@@ -399,7 +399,7 @@ index 765b530..9e18f0f 100644
+      /// generateMany's served hybrid (gate-many --served): a running product applies while at most this many streams
+      /// are live, `wide_confidence` above (maxInt: the request's rule always)
+      product_streams: usize = std.math.maxInt(usize),
+-@@ -451,6 +458,8 @@ pub const Engine = struct {
++@@ -480,6 +487,8 @@ pub const Engine = struct {
+          const rows = @max(8, @max(@max(1, o.streams) * (e.depth + 1), window));
+          e.round_segs = try gpa.alloc(fwd.Seg, @max(1, o.streams));
+          errdefer gpa.free(e.round_segs);
+@@ -408,7 +408,7 @@ index 765b530..9e18f0f 100644
+          const ag = tri.AttnGeometry.init(e.max_len, e.g.index_budget, e.g.index_ratio);
+          e.buf = .{ .b = try state.Buffers.init(d, e.g, rows, .{ .moe_prefill = true, .capacity = e.max_len }), .y_f32 = false, .attn = ag };
+          errdefer e.buf.deinit();
+-@@ -495,6 +504,11 @@ pub const Engine = struct {
++@@ -524,6 +533,11 @@ pub const Engine = struct {
+          // prompt matmuls without split-K partials when the kernel set has them (TF_FLASHNEXT_PROMPT_MM=0: off)
+          e.f.prompt_mm = !envOff(prompt_mm.env) and prompt_mm.available(&e.set);
+          e.draw_once = !envOff("TF_FLASHNEXT_DRAW_ONCE");
+@@ -420,7 +420,7 @@ index 765b530..9e18f0f 100644
+          // the shared expert beside the routed experts on a second stream (TF_FLASHNEXT_SHARED_SIDE=0: in line)
+          if (!envOff("TF_FLASHNEXT_SHARED_SIDE")) try e.f.initSide();
+          // INT4-AutoRound's projections: block-FP8 columns stored in place (TF_FLASHNEXT_FP8_LD=0: scratch + copy)
+-@@ -597,7 +611,7 @@ pub const Engine = struct {
++@@ -631,7 +645,7 @@ pub const Engine = struct {
+          const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
+          const draft_sz = try sampleSizes(&e.torch.f, &.{.{ 1, draft_n, draft_n }});
+          const pack = state.max_rows * (2 * max_k + 1) * 4;
+@@ -429,7 +429,7 @@ index 765b530..9e18f0f 100644
+          e.extra = .{ .buf = try cuda.DeviceBuffer.alloc(d, aligned(&main_sz) + aligned(&draft_sz) + aligned(&fixed)) };
+          errdefer e.extra.buf.free();
+          try e.extra.buf.fill8(0, null);
+-@@ -607,11 +621,12 @@ pub const Engine = struct {
++@@ -641,11 +655,12 @@ pub const Engine = struct {
+          e.last_logits = e.extra.take(fixed[0]);
+          e.last_cand = e.extra.take(fixed[1]);
+          const draft_out = e.extra.take(fixed[2]);
+@@ -443,7 +443,7 @@ index 765b530..9e18f0f 100644
+          }
+          errdefer gpa.free(e.draft_host);
+          if (o.vmm) {
+-@@ -686,6 +701,7 @@ pub const Engine = struct {
++@@ -720,6 +735,7 @@ pub const Engine = struct {
+          e.freeSeq(e.own);
+          e.gpa.free(e.draft_host);
+          e.gpa.free(e.round_segs);
+@@ -451,7 +451,7 @@ index 765b530..9e18f0f 100644
+          e.extra.buf.free();
+          if (e.prof) |p| p.deinit(e.gpa);
+          e.cand_host.deinit(e.gpa);
+-@@ -1511,6 +1527,17 @@ pub const Engine = struct {
++@@ -1549,6 +1565,17 @@ pub const Engine = struct {
+              }
+              return e.chooseFrom(e.cand_host.items, total, sg.a0, sg.a1 - sg.a0, sg.seq.st.pos + 1, smp, out);
+          }
+@@ -469,7 +469,7 @@ index 765b530..9e18f0f 100644
+          try e.drawRows(e.buf.b.logits, e.buf.b.cand_all, total, sg.a0, sg.a1 - sg.a0, sg.seq.st.pos + 1, smp, out);
+      }
+  
+-@@ -1611,11 +1638,25 @@ pub const Engine = struct {
++@@ -1649,11 +1676,25 @@ pub const Engine = struct {
+                  cands = c;
+                  try e.read(mb.b.cand_all, std.mem.sliceAsBytes(c));
+              }

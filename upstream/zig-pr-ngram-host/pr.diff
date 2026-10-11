@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..fae98e2 100644
+index 16da5a3..bdfdd33 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -3,6 +3,14 @@
+@@ -3,6 +3,15 @@
  Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
  `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
  
@@ -12,7 +12,8 @@ index 16da5a3..fae98e2 100644
 +  (the defaults): at one Spark the n-gram table's rows are gathered by a 32-thread gang, rows are touched ahead of
 +  their chunk or draft, and the table's mappings are `MADV_RANDOM`. Cold prompts of new text 2-9x faster (8k 19-26 s
 +  -> 3.0 s, 128k 100 s -> 50 s), decode of new text at four clients +27%; warm prompts unchanged, every reply
-+  byte-identical.
++  byte-identical. A setting past its cap (`TF_FLASHNEXT_NGRAM_THREADS` 128, `TF_FLASHNEXT_NGRAM_AHEAD` 16) or not a number
++  stops the start with the setting named.
 +
  ## [1.0.0] - 2026-10-08
  
@@ -67,10 +68,10 @@ index 9b71561..bf5e2b7 100644
  
 diff --git a/patches/0012-flash-next-ngram-host-gather.patch b/patches/0012-flash-next-ngram-host-gather.patch
 new file mode 100644
-index 0000000..fe5b684
+index 0000000..b3f0bef
 --- /dev/null
 +++ b/patches/0012-flash-next-ngram-host-gather.patch
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,546 @@
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
 +index bfde11b..c3bea72 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig
@@ -211,10 +212,10 @@ index 0000000..fe5b684
 +         for (windows) |w| w.seq.staged = true;
 +diff --git a/zig/src/families/flashnext/cuda_ngram_host.zig b/zig/src/families/flashnext/cuda_ngram_host.zig
 +new file mode 100644
-+index 0000000..32cc757
++index 0000000..e4616c9
 +--- /dev/null
 ++++ b/zig/src/families/flashnext/cuda_ngram_host.zig
-+@@ -0,0 +1,334 @@
++@@ -0,0 +1,371 @@
 ++//! The n-gram (PLE) table at one GPU is host-mapped (cuda_weights.zig openTable) and gathered on the host a row at
 ++//! a time (NgramTable.gather): a row the page cache does not hold is a synchronous page fault, ~120 us with the
 ++//! kernel's 128 KiB read-around, ~60 us with MADV_RANDOM (random 4 KiB reads on a DGX Spark's NVMe), and a prompt
@@ -228,7 +229,7 @@ index 0000000..fe5b684
 ++//! Env: TF_FLASHNEXT_NGRAM_THREADS (worker threads; unset or 0: the caller's thread only, the stock path),
 ++//! TF_FLASHNEXT_NGRAM_MIN (rows below which a gather stays on the caller's thread, default 32),
 ++//! TF_FLASHNEXT_NGRAM_PREFETCH (1: the prompt and draft prefetches), TF_FLASHNEXT_NGRAM_RANDOM (1: MADV_RANDOM),
-++//! TF_FLASHNEXT_NGRAM_AHEAD (prompt chunks queued ahead of the one being staged, default 2).
+++//! TF_FLASHNEXT_NGRAM_AHEAD (prompt chunks queued ahead of the one being staged, default 2, at most `max_ahead`).
 ++const std = @import("std");
 ++const weights = @import("cuda_weights.zig");
 ++const ngram = @import("cuda_ngram.zig");
@@ -240,16 +241,29 @@ index 0000000..fe5b684
 ++    random: bool = false,
 ++    ahead: usize = 2,
 ++
+++    /// gang threads at most
+++    pub const max_threads = 128;
+++    /// prompt chunks queued ahead at most: a prefill queues the rows of (ahead + 1) chunks of up to prefill_rows
+++    /// tokens (TF_FLASHNEXT_PREFILL_ROWS <= 16,384: at most 17 x 16,384 = 278,528 tokens), so the product cannot
+++    /// overflow, and a queue never covers more than about one native window
+++    pub const max_ahead = 16;
+++
 ++    pub fn fromEnv() !Options {
 ++        var o: Options = .{};
-++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_THREADS")) |v| o.threads = std.fmt.parseInt(u32, std.mem.span(v), 10) catch return error.BadNgramThreads;
-++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_MIN")) |v| o.min = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return error.BadNgramThreads;
+++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_THREADS")) |v| o.threads = std.fmt.parseInt(u32, std.mem.span(v), 10) catch return bad("TF_FLASHNEXT_NGRAM_THREADS", v);
+++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_MIN")) |v| o.min = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return bad("TF_FLASHNEXT_NGRAM_MIN", v);
 ++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_PREFETCH")) |v| o.prefetch = !std.mem.eql(u8, std.mem.span(v), "0");
 ++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_RANDOM")) |v| o.random = !std.mem.eql(u8, std.mem.span(v), "0");
-++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_AHEAD")) |v| o.ahead = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return error.BadNgramThreads;
-++        if (o.threads > 128) return error.BadNgramThreads;
-++        if (o.prefetch and o.threads == 0) return error.BadNgramThreads; // the prefetch runs on the workers
+++        if (std.c.getenv("TF_FLASHNEXT_NGRAM_AHEAD")) |v| o.ahead = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return bad("TF_FLASHNEXT_NGRAM_AHEAD", v);
+++        if (o.threads > max_threads) return bad("TF_FLASHNEXT_NGRAM_THREADS", std.c.getenv("TF_FLASHNEXT_NGRAM_THREADS").?);
+++        if (o.ahead > max_ahead) return bad("TF_FLASHNEXT_NGRAM_AHEAD", std.c.getenv("TF_FLASHNEXT_NGRAM_AHEAD").?);
+++        if (o.prefetch and o.threads == 0) return bad("TF_FLASHNEXT_NGRAM_PREFETCH (needs TF_FLASHNEXT_NGRAM_THREADS > 0)", std.c.getenv("TF_FLASHNEXT_NGRAM_PREFETCH").?);
 ++        return o;
+++    }
+++
+++    fn bad(name: []const u8, v: [*:0]const u8) error{BadNgramThreads} {
+++        std.log.warn("{s}={s} refused: threads 0..{d}, min a row count, ahead 0..{d}", .{ name, std.mem.span(v), max_threads, max_ahead });
+++        return error.BadNgramThreads;
 ++    }
 ++};
 ++
@@ -548,6 +562,30 @@ index 0000000..fe5b684
 ++    try std.testing.expectError(error.NgramIdOutOfRange, t.gather(bad, out));
 ++    try std.testing.expectError(error.NgramIdOutOfRange, h.gather(bad, out));
 ++    try std.testing.expectError(error.NgramOutLength, h.gather(bad, out[0..10]));
+++}
+++
+++extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+++extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+++
+++test "the settings are refused past their caps, so (ahead + 1) x the prompt rows cannot overflow" {
+++    defer for ([_][*:0]const u8{ "TF_FLASHNEXT_NGRAM_THREADS", "TF_FLASHNEXT_NGRAM_AHEAD", "TF_FLASHNEXT_NGRAM_PREFETCH" }) |n| {
+++        _ = unsetenv(n);
+++    };
+++    _ = setenv("TF_FLASHNEXT_NGRAM_THREADS", "32", 1);
+++    _ = setenv("TF_FLASHNEXT_NGRAM_PREFETCH", "1", 1);
+++    _ = setenv("TF_FLASHNEXT_NGRAM_AHEAD", "16", 1);
+++    try std.testing.expectEqual(@as(usize, 16), (try Options.fromEnv()).ahead);
+++    for ([_][*:0]const u8{ "17", "18446744073709551615", "-1", "two" }) |v| {
+++        _ = setenv("TF_FLASHNEXT_NGRAM_AHEAD", v, 1);
+++        try std.testing.expectError(error.BadNgramThreads, Options.fromEnv());
+++    }
+++    _ = setenv("TF_FLASHNEXT_NGRAM_AHEAD", "2", 1);
+++    _ = setenv("TF_FLASHNEXT_NGRAM_THREADS", "129", 1);
+++    try std.testing.expectError(error.BadNgramThreads, Options.fromEnv());
+++    _ = setenv("TF_FLASHNEXT_NGRAM_THREADS", "0", 1);
+++    try std.testing.expectError(error.BadNgramThreads, Options.fromEnv()); // the prefetch runs on the workers
+++    // the largest product the engine can form: (max_ahead + 1) chunks of the most prompt rows it accepts
+++    try std.testing.expect((Options.max_ahead + 1) * 16384 < std.math.maxInt(u32));
 ++}
 +diff --git a/zig/src/families/flashnext/cuda_weights.zig b/zig/src/families/flashnext/cuda_weights.zig
 +index 04c2b28..255318e 100644

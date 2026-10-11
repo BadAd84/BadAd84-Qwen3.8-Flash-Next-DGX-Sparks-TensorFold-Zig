@@ -61,10 +61,10 @@ index 9b71561..286d445 100644
  
 diff --git a/patches/0014-flash-next-copy-resync.patch b/patches/0014-flash-next-copy-resync.patch
 new file mode 100644
-index 0000000..74756c7
+index 0000000..e159751
 --- /dev/null
 +++ b/patches/0014-flash-next-copy-resync.patch
-@@ -0,0 +1,397 @@
+@@ -0,0 +1,465 @@
 +diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
 +index 5f87384..34febd6 100644
 +--- a/zig/src/core/lane_host.zig
@@ -134,7 +134,7 @@ index 0000000..74756c7
 +                 } else if (p.kind == .head) {
 +                     if (p.lanes) |l| if (s.odds != null) observeLanes(s, l, path);
 +diff --git a/zig/src/core/lanes/proposer.zig b/zig/src/core/lanes/proposer.zig
-+index f49626e..cb7f72a 100644
++index f49626e..3fa4135 100644
 +--- a/zig/src/core/lanes/proposer.zig
 ++++ b/zig/src/core/lanes/proposer.zig
 +@@ -37,6 +37,26 @@ pub const Params = struct {
@@ -294,7 +294,7 @@ index 0000000..74756c7
 +         try s.recent.append(s.gpa, accepted);
 +         if (s.recent.items.len > s.params.window) {
 +             const drop = s.recent.items.len - s.params.window;
-+@@ -203,3 +287,131 @@ test "suffix lookup copies the continuation after a repeated n-gram" {
++@@ -203,3 +287,199 @@ test "suffix lookup copies the continuation after a repeated n-gram" {
 +     try std.testing.expectEqualSlices(u32, &.{ 4, 5, 9 }, got);
 +     try std.testing.expectEqual(@as(i64, 3), s.last_match);
 + }
@@ -425,6 +425,74 @@ index 0000000..74756c7
 ++    try c2.appendSlice(gpa, &.{ 4, 5, 50 });
 ++    try std.testing.expectEqual(@as(?usize, null), t.resync_miss);
 ++    try std.testing.expectEqual(@as(usize, 0), (try t.propose(c2.items, 3)).len);
+++}
+++
+++/// The round loop's gate on a copy (windows.copyProposal): at least two tokens backed by `enter_match` (8).
+++fn gated(s: *const SuffixLookup, got: []const u32) []const u32 {
+++    return if (got.len < 2 or s.last_match < 8) &.{} else got;
+++}
+++
+++test "raising min_match to the round loop's enter_match changes only the resyncs it lets through" {
+++    // lane_host.zig: with resyncs on, the proposer's min_match is max(min_match, enter_match) = 8 (stock 4). The round
+++    // loop drops every copy under enter_match and the longest match does not depend on min_match, so two proposers
+++    // that differ only in min_match 4 / 8 feed the loop the same copies until the min_match-8 one resyncs where the
+++    // other returned a 4-7 token match the loop drops. Rounds on contexts of copied spans with edits and noise: the
+++    // target keeps a copy's rows up to its first miss, then writes its own token (the loop's observe).
+++    const gpa = std.testing.allocator;
+++    var prng = std.Random.DefaultPrng.init(4408);
+++    const r = prng.random();
+++    for ([_]bool{ false, true }) |resync| {
+++        var diverged: usize = 0;
+++        var copies: usize = 0;
+++        for (0..16) |trial| {
+++            var lo = try SuffixLookup.init(gpa, .{ .min_match = 4, .resync = resync });
+++            defer lo.deinit();
+++            var hi = try SuffixLookup.init(gpa, .{ .min_match = 8, .resync = resync });
+++            defer hi.deinit();
+++            var ctx: std.ArrayList(u32) = .empty;
+++            defer ctx.deinit(gpa);
+++            for (0..200) |_| try ctx.append(gpa, r.uintLessThan(u32, 24 + 8 * @as(u32, @intCast(trial % 8))));
+++            var from: usize = r.uintLessThan(usize, 150);
+++            while (ctx.items.len < 2000) {
+++                const a = gated(&lo, try lo.propose(ctx.items, 15));
+++                const b = gated(&hi, try hi.propose(ctx.items, 15));
+++                if (!std.mem.eql(u32, a, b)) {
+++                    // the first difference: the min_match-8 proposer's resync where the other's match was dropped
+++                    try std.testing.expect(resync and hi.last_resync and a.len == 0);
+++                    diverged += 1;
+++                    break;
+++                }
+++                // the target's next tokens: mostly the copied source, sometimes an edit (a token of its own, the
+++                // source resumed), sometimes a jump to another source
+++                var fut: [16]u32 = undefined;
+++                var froms: [16]usize = undefined;
+++                var f = from;
+++                for (&fut, &froms) |*x, *fr| {
+++                    const u = r.uintLessThan(u32, 20);
+++                    if (u < 17 and f + 1 < ctx.items.len) {
+++                        f += 1;
+++                        x.* = ctx.items[f];
+++                    } else {
+++                        x.* = r.uintLessThan(u32, 64);
+++                        if (u == 19) f = r.uintLessThan(usize, ctx.items.len - 1);
+++                    }
+++                    fr.* = f;
+++                }
+++                var kept: usize = 0;
+++                while (kept < a.len and kept < fut.len - 1 and a[kept] == fut[kept]) kept += 1;
+++                if (a.len > 0) {
+++                    copies += 1;
+++                    try lo.observe(@intCast(a.len), @intCast(kept));
+++                    try hi.observe(@intCast(b.len), @intCast(kept));
+++                }
+++                try ctx.appendSlice(gpa, fut[0 .. kept + 1]);
+++                from = froms[kept];
+++            }
+++        }
+++        try std.testing.expect(copies > 200); // the rounds verify copies
+++        // without resyncs the two never differ; with them they do, and only by a resync (asserted above)
+++        if (resync) try std.testing.expect(diverged > 0) else try std.testing.expectEqual(@as(usize, 0), diverged);
+++    }
 ++}
 +diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
 +index f1af70c..89ff691 100644

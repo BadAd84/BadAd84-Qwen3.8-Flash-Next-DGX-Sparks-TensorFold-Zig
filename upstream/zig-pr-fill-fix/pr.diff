@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..e982926 100644
+index 16da5a3..71076ac 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -3,6 +3,13 @@
@@ -11,7 +11,7 @@ index 16da5a3..e982926 100644
 +- `patches/0021-flash-next-sliced-fill-one-at-a-time` (fix, `TF_FLASHNEXT_FILL=1` only; the setting stays off by
 +  default): two or more prompts filling at once failed every one of them with `PromptBuffersBusy` (empty replies after
 +  ~0.03 s); they now fill one after another. A prompt-cache resume no longer runs its MTP absorb in prompt buffers
-+  another prompt's open chunk holds (a silent wrong reply). Replies equal `FILL=0`'s.
++  another prompt's open chunk holds (a silent wrong reply). Replies equal `FILL=0`'s. Checked on the real engine with `tensorfold fill-check`.
 +
  ## [1.0.0] - 2026-10-08
  
@@ -53,15 +53,121 @@ index 9b71561..f889064 100644
  
 diff --git a/patches/0021-flash-next-sliced-fill-one-at-a-time.patch b/patches/0021-flash-next-sliced-fill-one-at-a-time.patch
 new file mode 100644
-index 0000000..cdc55fc
+index 0000000..ce731b7
 --- /dev/null
 +++ b/patches/0021-flash-next-sliced-fill-one-at-a-time.patch
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,259 @@
++diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
++index b892f80..2147cbd 100644
++--- a/zig/src/cli/flashnext_cuda.zig
+++++ b/zig/src/cli/flashnext_cuda.zig
++@@ -38,6 +38,9 @@ const usage =
++     \\           given back after a drafted request comes back as a fresh one: fields, bytes and the next reply)
++     \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
++     \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
+++    \\  tensorfold fill-check MODEL --tokens-file PATH [--max-tokens N]   (sliced fills on the real engine: a second
+++    \\           fill waits while one holds the prompt buffers, a cancel releases them, a resumed fill's deferred MTP
+++    \\           absorb; each reply equal to a fresh prefill's)
++     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
++     \\           prompt N times in one load: prefill seconds and tok/s, the reply's first token and sha)
++     \\  tensorfold mm-check MODEL [--rows N,N,...]   (no weights: the prompt matmuls' in-program K
++@@ -351,6 +354,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
++     if (std.mem.eql(u8, cmd, "pool-check")) return poolCheck(gpa, init.io, e, o);
++     if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
+++    if (std.mem.eql(u8, cmd, "fill-check")) return fillCheck(gpa, init.io, e, o);
++     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
++     std.debug.print("{s}", .{usage});
++     return 2;
++@@ -1296,6 +1300,83 @@ fn pool(gpa: Allocator, e: *Engine, o: Options) !u8 {
++     return 0;
++ }
++ 
+++/// `fill-check` (one GPU): Engine's sliced fills (fillBegin / fillStep / fillFree, the calls cuda_lanes makes with
+++/// TF_FLASHNEXT_FILL=1) on the real engine. Prompt P's drafted reply on a fresh sequence is the reference, and a state
+++/// is kept at half of P. Fill A (P from the start) opens its chunk and holds the prompt buffers (Engine.pfill); fill B
+++/// (P resumed from the kept state on another sequence, the kept prefix copied in: its MTP tail absorb deferred to its
+++/// first chunk, the tail row parked in its last_streams) must be refused meanwhile (PromptBuffersBusy); A is cancelled
+++/// mid-chunk (fillFree), which must release the buffers; B then fills to the end, and A is filled again from the
+++/// start. Both replies must equal the reference.
+++fn fillCheck(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
+++    const p = o.tokens;
+++    if (p.len < 4) {
+++        std.debug.print("fill-check: --tokens or --tokens-file (4 tokens or more)\n", .{});
+++        return 2;
+++    }
+++    const own = e.bound;
+++    defer e.bind(own);
+++    e.absorbing = true;
+++    var bad: usize = 0;
+++    const ref_seq = try e.newSeq(e.max_len);
+++    defer e.freeSeq(ref_seq);
+++    e.bind(ref_seq);
+++    const ref = try generate(gpa, io, e, p, o.max_tokens, null, true, false);
+++    defer gpa.free(ref.tokens);
+++    const kept = try e.prefillWith(p, null, .{ .keep_at = p.len / 2 });
+++    const snap = kept.kept.?;
+++    defer e.freeSnapshot(snap);
+++    const sa = try e.newSeq(e.max_len);
+++    defer e.freeSeq(sa);
+++    const sb = try e.newSeq(e.max_len);
+++    defer e.freeSeq(sb);
+++    try e.copyPrefix(sb, ref_seq, snap.pos, snap.mtp_len);
+++    const fa = try e.fillBegin(sa, p, null, .{});
+++    var fa_live = true;
+++    defer if (fa_live) e.fillFree(fa);
+++    _ = try e.fillStep(fa, 1);
+++    if (e.pfill == null or e.pfill.? != fa) {
+++        bad += 1;
+++        std.debug.print("  fill A's open chunk does not hold the prompt buffers\n", .{});
+++    }
+++    const fb = try e.fillBegin(sb, p, null, .{ .resume_from = snap });
+++    defer e.fillFree(fb);
+++    if (e.w.mtp != null and !fb.absorb) {
+++        bad += 1;
+++        std.debug.print("  the resumed fill did not defer its MTP tail absorb\n", .{});
+++    }
+++    if (e.fillStep(fb, 1)) |_| {
+++        bad += 1;
+++        std.debug.print("  fill B stepped while fill A held the prompt buffers\n", .{});
+++    } else |err| if (err != error.PromptBuffersBusy) return err;
+++    e.fillFree(fa); // cancelled mid-chunk
+++    fa_live = false;
+++    if (e.pfill != null) {
+++        bad += 1;
+++        std.debug.print("  the cancelled fill still holds the prompt buffers\n", .{});
+++    }
+++    while (!try e.fillStep(fb, 1)) {}
+++    const opts: decode.Options = .{ .count = ref.tokens.len, .depth = e.depth, .confidence = flashnext.engine.confidenceSetting(), .stop_eos = false };
+++    e.bind(sb);
+++    var rb = try decode.drafted(Engine, e, gpa, fb.first, opts);
+++    defer rb.deinit(gpa);
+++    if (!std.mem.eql(u32, rb.tokens.items, ref.tokens)) {
+++        bad += 1;
+++        std.debug.print("  the resumed fill's reply differs from the fresh prefill's\n", .{});
+++    }
+++    const fa2 = try e.fillBegin(sa, p, null, .{});
+++    defer e.fillFree(fa2);
+++    while (!try e.fillStep(fa2, 1)) {}
+++    e.bind(sa);
+++    var ra = try decode.drafted(Engine, e, gpa, fa2.first, opts);
+++    defer ra.deinit(gpa);
+++    if (!std.mem.eql(u32, ra.tokens.items, ref.tokens)) {
+++        bad += 1;
+++        std.debug.print("  the refilled prompt's reply differs from the fresh prefill's\n", .{});
+++    }
+++    std.debug.print("{s} fill-check: {d}-token prompt resumed at {d}, {d}-token replies (sha {s}); {d} failed\n", .{ if (bad == 0) "PASS" else "FAIL", p.len, snap.pos, ref.tokens.len, &(try sha12(gpa, ref.tokens)), bad });
+++    return if (bad == 0) 0 else 1;
+++}
+++
++ fn deviceZero(gpa: Allocator, e: *Engine, ptr: u64, len: usize) !bool {
++     const host = try gpa.alloc(u8, len);
++     defer gpa.free(host);
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
-+index d54650b..4cceb3f 100644
++index 7b15f02..c4ffd0c 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig
 ++++ b/zig/src/families/flashnext/cuda_engine.zig
-+@@ -1280,9 +1280,15 @@ pub const Engine = struct {
++@@ -1338,9 +1338,15 @@ pub const Engine = struct {
 +         first: u32 = 0,
 +         /// prompt tokens before this were queued for the n-gram prefetch (cuda_ngram_host.zig)
 +         queued: usize = 0,
@@ -78,7 +184,7 @@ index 0000000..cdc55fc
 +     pub fn fillBegin(e: *Engine, seq: *Seq, prompt: []const u32, sampling: ?lanes.Sampling, o: PrefillOptions) !*Fill {
 +         if (prompt.len == 0) return error.EmptyPrompt;
 +         if (prompt.len + e.depth + 1 > seq.st.limit) return error.ContextPastWindow;
-+@@ -1297,8 +1303,8 @@ pub const Engine = struct {
++@@ -1355,8 +1361,8 @@ pub const Engine = struct {
 +             if (!std.mem.eql(u32, snap.tokens, prompt[0..snap.pos])) return error.ResumeOtherPrompt;
 +             try e.restore(seq, snap);
 +             if (fl.use_mtp) {
@@ -89,7 +195,7 @@ index 0000000..cdc55fc
 +             }
 +             fl.start = snap.pos;
 +         } else try e.f.reset(seq);
-+@@ -1328,6 +1334,11 @@ pub const Engine = struct {
++@@ -1386,6 +1392,11 @@ pub const Engine = struct {
 +             if (!fl.open) {
 +                 if (e.pfill != null and e.pfill.? != fl) return error.PromptBuffersBusy;
 +                 e.pfill = fl;

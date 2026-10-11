@@ -1,0 +1,289 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 2a3ed84..ffb00c3 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,8 @@ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:
+   `TF_FLASHNEXT_DRAFT_CONTINUE=0.20`, `TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7` (the defaults): the running-product draft
+   stop is split into a propose line and a continue line, the draft head reads the int4 lm_head's own columns (105 MB a
+   step instead of 127.5 MB), and drafts are capped at 7 a stream while 2+ streams draft together. Decode +1.4 to +7%
+-  at 1-2 clients; every reply byte-identical.
++  at 1-2 clients; every reply byte-identical. A checkpoint without the int4 lm_head's draft columns drafts from the 4-bit draft rows, with a warning;
++  `_PROPOSE` and `_CONTINUE` are set together, as numbers with 0 < propose <= continue <= 1, or the start stops.
+ 
+ ## [1.0.0] - 2026-10-08
+ 
+diff --git a/patches/0020-flash-next-draft-stop-lines.patch b/patches/0020-flash-next-draft-stop-lines.patch
+index 411885f..8bdd127 100644
+--- a/patches/0020-flash-next-draft-stop-lines.patch
++++ b/patches/0020-flash-next-draft-stop-lines.patch
+@@ -55,60 +55,94 @@ index a85e807..b3865d6 100644
+  /// the drafts into `out`; returns how many.
+  pub fn draft(comptime E: type, e: *E, source: Source, next_tokens: []const u32, position: u64, count: usize, confidence: f64, out: []u32) !usize {
+ diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
+-index 24bc649..d54650b 100644
++index da35e67..7b15f02 100644
+ --- a/zig/src/families/flashnext/cuda_engine.zig
+ +++ b/zig/src/families/flashnext/cuda_engine.zig
+-@@ -58,6 +58,27 @@ pub fn productStreams() usize {
++@@ -58,6 +58,38 @@ pub fn productStreams() usize {
+      return std.fmt.parseInt(usize, std.mem.span(v), 10) catch product_streams_default;
+  }
+  
+-+/// The running product's split lines (TF_FLASHNEXT_DRAFT_PROPOSE: a draft is proposed while the product is at least
+-+/// this; TF_FLASHNEXT_DRAFT_CONTINUE: the head runs another level while it is at least this), read once; null unless
+-+/// both are set, 0 < propose <= continue (cuda_decode.Stop.tp / tc). They replace -TF_FLASHNEXT_CONFIDENCE's one line
+-+/// wherever the running product applies.
+-+var draft_lines_read = false;
+-+var draft_lines: ?[2]f64 = null;
+-+pub fn draftLines() ?[2]f64 {
+-+    if (!draft_lines_read) {
+-+        draft_lines_read = true;
+-+        const a = std.c.getenv("TF_FLASHNEXT_DRAFT_PROPOSE");
+-+        const b = std.c.getenv("TF_FLASHNEXT_DRAFT_CONTINUE");
+-+        if (a != null and b != null) {
+-+            const tp = std.fmt.parseFloat(f64, std.mem.span(a.?)) catch 0;
+-+            const tc = std.fmt.parseFloat(f64, std.mem.span(b.?)) catch 0;
+-+            if (tp > 0 and tc >= tp) draft_lines = .{ tp, tc };
+-+        }
+-+        if (draft_lines) |l| std.log.info("draft stop: a draft proposed while the running product is >= {d:.3}, another head level while it is >= {d:.3}", .{ l[0], l[1] });
+++/// The running product's split lines from TF_FLASHNEXT_DRAFT_PROPOSE (a draft is proposed while the product is at
+++/// least this) and TF_FLASHNEXT_DRAFT_CONTINUE (the head runs another level while it is at least this): null when
+++/// neither is set (-TF_FLASHNEXT_CONFIDENCE's one line); both set, 0 < propose <= continue <= 1 (cuda_decode.Stop.tp /
+++/// tc), they replace that line wherever the running product applies. One without the other, a value that is not a
+++/// number, or lines out of that order are refused (error.BadDraftLines), never read as the one line. Engine.init
+++/// reads them once into Engine.draft_lines.
+++pub fn parseDraftLines(propose: ?[]const u8, cont: ?[]const u8) !?[2]f64 {
+++    if (propose == null and cont == null) return null;
+++    const a = propose orelse return badLines("TF_FLASHNEXT_DRAFT_CONTINUE is set without TF_FLASHNEXT_DRAFT_PROPOSE (set both, or neither for one line)", .{});
+++    const b = cont orelse return badLines("TF_FLASHNEXT_DRAFT_PROPOSE is set without TF_FLASHNEXT_DRAFT_CONTINUE (set both, or neither for one line)", .{});
+++    const tp = std.fmt.parseFloat(f64, a) catch return badLines("TF_FLASHNEXT_DRAFT_PROPOSE={s} is not a number", .{a});
+++    const tc = std.fmt.parseFloat(f64, b) catch return badLines("TF_FLASHNEXT_DRAFT_CONTINUE={s} is not a number", .{b});
+++    if (!(tp > 0 and tp <= tc and tc <= 1)) return badLines("TF_FLASHNEXT_DRAFT_PROPOSE={s} / _CONTINUE={s}: need 0 < propose <= continue <= 1", .{ a, b });
+++    return .{ tp, tc };
+++}
+++
+++fn badLines(comptime fmt: []const u8, args: anytype) error{BadDraftLines} {
+++    std.log.warn("draft stop lines refused: " ++ fmt, args);
+++    return error.BadDraftLines;
+++}
+++
+++test "the split stop lines are both or neither, numbers with 0 < propose <= continue <= 1" {
+++    try std.testing.expectEqual(@as(?[2]f64, null), try parseDraftLines(null, null));
+++    try std.testing.expectEqual(@as(?[2]f64, .{ 0.05, 0.2 }), try parseDraftLines("0.05", "0.2"));
+++    try std.testing.expectEqual(@as(?[2]f64, .{ 0.1, 0.1 }), try parseDraftLines("0.1", "0.1"));
+++    try std.testing.expectError(error.BadDraftLines, parseDraftLines("0.05", null));
+++    try std.testing.expectError(error.BadDraftLines, parseDraftLines(null, "0.2"));
+++    for ([_][2][]const u8{ .{ "x", "0.2" }, .{ "0.05", "" }, .{ "0", "0.2" }, .{ "0.3", "0.2" }, .{ "0.05", "1.5" }, .{ "-0.1", "0.2" }, .{ "nan", "0.2" } }) |p| {
+++        try std.testing.expectError(error.BadDraftLines, parseDraftLines(p[0], p[1]));
+ +    }
+-+    return draft_lines;
+ +}
+ +
+  pub fn confidenceSetting() f64 {
+      const v = std.c.getenv("TF_FLASHNEXT_CONFIDENCE") orelse return served_confidence;
+      const x = std.fmt.parseFloat(f64, std.mem.span(v)) catch return served_confidence;
+-@@ -509,6 +530,7 @@ pub const Engine = struct {
++@@ -366,6 +398,8 @@ pub const Engine = struct {
++     /// generateMany's served hybrid (gate-many --served): a running product applies while at most this many streams
++     /// are live, `wide_confidence` above (maxInt: the request's rule always)
++     product_streams: usize = std.math.maxInt(usize),
+++    /// the running product's split lines (parseDraftLines at init; null: -confidence's one line)
+++    draft_lines: ?[2]f64 = null,
++     /// shared steps of at most this many streams are captured (TF_FLASHNEXT_MULTI_GRAPHS)
++     multi_graphs: usize = multi_graphs_default,
++     /// shared verify rounds (not MTP steps) of at most this many streams are captured
++@@ -538,6 +572,10 @@ pub const Engine = struct {
+          e.batch_draws = !envOff("TF_FLASHNEXT_BATCH_DRAWS");
+          e.batch_windows = !envOff("TF_FLASHNEXT_BATCH_WINDOWS");
+          if (o.world == 1) std.log.info("greedy draws: a draft level's {s}, a shared round's windows {s}", .{ if (e.batch_draws) "in one launch" else "a stream at a time", if (e.batch_windows) "in one launch" else "a window at a time" });
+-+        if (o.mtp) _ = draftLines(); // the split stop lines logged at boot
+++        if (o.mtp) {
+++            e.draft_lines = try parseDraftLines(envGet("TF_FLASHNEXT_DRAFT_PROPOSE"), envGet("TF_FLASHNEXT_DRAFT_CONTINUE"));
+++            if (e.draft_lines) |l| std.log.info("draft stop: a draft proposed while the running product is >= {d:.3}, another head level while it is >= {d:.3}", .{ l[0], l[1] });
+++        }
+          // the shared expert beside the routed experts on a second stream (TF_FLASHNEXT_SHARED_SIDE=0: in line)
+          if (!envOff("TF_FLASHNEXT_SHARED_SIDE")) try e.f.initSide();
+          // INT4-AutoRound's projections: block-FP8 columns stored in place (TF_FLASHNEXT_FP8_LD=0: scratch + copy)
+-@@ -633,7 +655,7 @@ pub const Engine = struct {
++@@ -653,7 +691,7 @@ pub const Engine = struct {
++         };
++         errdefer if (e.mtpq) |*t| t.deinit();
++         // sampling scratch: the main head's rows and the draft head's one row
++-        const draft_n: usize = if (e.w.draft_head) |q| q.n else e.g.head_n;
+++        const draft_n: usize = e.w.draftColumns() orelse e.g.head_n;
++         const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
++         const draft_sz = try sampleSizes(&e.torch.f, &.{.{ 1, draft_n, draft_n }});
++         const pack = state.max_rows * (2 * max_k + 1) * 4;
++@@ -671,8 +709,8 @@ pub const Engine = struct {
+          if (o.world > 1) e.tp = .{ .s = e.main_sample, .pack = e.extra.take(fixed[3]), .all = e.extra.take(fixed[4]), .max_rows = state.max_rows, .max_k = max_k };
+          e.nsc = .{ .mass = e.extra.take(fixed[5]), .top = e.extra.take(fixed[6]), .sum = e.extra.take(fixed[7]) };
+          if (e.w.mtp != null) {
+ -            if (e.w.draft_head != null) e.draft_host = try weights.draftIds(gpa, weights.draft_vocab, e.c.vocab, o.rank, o.world);
+-+            if (e.w.draft_head != null) e.draft_host = try weights.draftIdsOf(gpa, e.c.vocab, o.rank, o.world);
+-             e.draws = .{ .gpa = gpa, .ids = if (e.w.draft_head != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
++-            e.draws = .{ .gpa = gpa, .ids = if (e.w.draft_head != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
+++            if (e.w.draftColumns() != null) e.draft_host = try weights.draftIdsOf(gpa, e.c.vocab, o.rank, o.world, e.w.draft4 != null);
+++            e.draws = .{ .gpa = gpa, .ids = if (e.w.draftColumns() != null) e.draft_host else null, .columns = draft_n, .world = o.world, .s = draft_s, .out = draft_out, .max_k = draft_n, .rows_out = draft_rows_out, .tp = e.tp, .nsc = e.nsc };
+          }
+          errdefer gpa.free(e.draft_host);
+-@@ -1626,7 +1648,14 @@ pub const Engine = struct {
++         if (o.vmm) {
++@@ -1668,7 +1706,14 @@ pub const Engine = struct {
+          }
+          // each stream's stop rule (cuda_decode.Stop: per draft, running product or none), as its solo chain's
+          var stops: [64]decode.Stop = undefined;
+ -        for (reqs, 0..) |r, i| stops[i] = .{ .c = r.confidence };
+-+        const lines = draftLines();
+++        const lines = e.draft_lines;
+ +        for (reqs, 0..) |r, i| {
+ +            stops[i] = .{ .c = r.confidence };
+ +            if (r.confidence < 0) if (lines) |l| {
+@@ -154,7 +188,7 @@ index b622039..3497560 100644
+                  reqs[i] = .{
+                      .seq = l.seq,
+ diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+-index f8a39f0..900046a 100644
++index f8a39f0..182bf4a 100644
+ --- a/zig/src/families/flashnext/cuda_mtp.zig
+ +++ b/zig/src/families/flashnext/cuda_mtp.zig
+ @@ -17,6 +17,7 @@ const state = @import("cuda_state.zig");
+@@ -178,21 +212,45 @@ index f8a39f0..900046a 100644
+          const q4: kern.Q4 = .{ .w = q.weight, .s = q.scales, .b = q.biases, .n = q.n, .k = q.k, .npad = q.npad };
+          if (b.prefill) try f.ops.qmmPrefill32(rows, D, q4, b.logits, 1, false) else try f.ops.qmm32(rows, D, xs, q4, b.logits, k, false);
+          columns = q.n;
++@@ -182,7 +187,7 @@ pub fn computeSegs(f: *Forward, segs: []const fwd.Seg, x: *const Bufs) !u64 {
++     }
++     try f.mark(.head);
++     if (f.comm) |cm| {
++-        try f.candidates(x, b.logits, k, columns, if (f.w.draft_head != null) f.w.draft_ids else null, f.vocab_offset, cm);
+++        try f.candidates(x, b.logits, k, columns, if (f.w.draftColumns() != null) f.w.draft_ids else null, f.vocab_offset, cm);
++         try f.mark(.cands);
++     }
++     try f.put("head_logits", b.logits, k * columns * 2);
+ diff --git a/zig/src/families/flashnext/cuda_weights.zig b/zig/src/families/flashnext/cuda_weights.zig
+-index 255318e..df3bba9 100644
++index 255318e..51da713 100644
+ --- a/zig/src/families/flashnext/cuda_weights.zig
+ +++ b/zig/src/families/flashnext/cuda_weights.zig
+-@@ -242,6 +242,9 @@ pub const Weights = struct {
++@@ -241,7 +241,10 @@ pub const Weights = struct {
++     vocab_offset: u32 = 0,
+      inv_freq: u64 = 0,
+      mtp: ?Mtp = null,
+++    /// the draft head as the lm_head's draft rows in 4-bit (null with draft4, or no draft head)
+      draft_head: ?Q4 = null,
+-+    /// TF_FLASHNEXT_DRAFT_INT4: the draft head as the int4 lm_head's columns; `draft_head` then holds the
+-+    /// column count only
+++    /// TF_FLASHNEXT_DRAFT_INT4 on an int4 lm_head: the draft head as that head's own columns (draft_head null)
+ +    draft4: ?int4.Mat = null,
+      /// int64 draft ids (this rank's share), in draft-head row order
+      draft_ids: u64 = 0,
+      draft_count: u32 = 0,
+-@@ -1462,6 +1465,28 @@ pub fn draftIds(gpa: std.mem.Allocator, text: []const u8, vocab: u32, rank: u32,
++@@ -264,6 +267,13 @@ pub const Weights = struct {
++         w.* = undefined;
++     }
++ 
+++    /// The draft head's columns, whichever head drafts (draft4 or draft_head); null: no draft head (the full head).
+++    pub fn draftColumns(w: *const Weights) ?usize {
+++        if (w.draft4) |m| return m.n;
+++        if (w.draft_head) |q| return q.n;
+++        return null;
+++    }
+++
++     /// The named buffer, for tests and checks.
++     pub fn find(w: *const Weights, name: []const u8) ?Named {
++         for (w.named.items) |n| if (std.mem.eql(u8, n.name, name)) return n;
++@@ -1462,6 +1472,29 @@ pub fn draftIds(gpa: std.mem.Allocator, text: []const u8, vocab: u32, rank: u32,
+      return gpa.dupe(u32, all.items[start..][0..size]);
+  }
+  
+@@ -202,15 +260,16 @@ index 255318e..df3bba9 100644
+ +    return !std.mem.eql(u8, std.mem.span(v), "0");
+ +}
+ +
+-+/// The draft ids both the loader and the engine use (draftIds over the embedded list); with draftInt4 padded to whole
+-+/// 8-column tiles by repeating the last id (a repeated column scores the same token, so the draws pick the same id).
+-+pub fn draftIdsOf(gpa: std.mem.Allocator, vocab: u32, rank: u32, world: u32) ![]u32 {
+++/// The draft ids both the loader and the engine use (draftIds over the embedded list); for the int4 lm_head's columns
+++/// (`int4_cols`: Weights.draft4) padded to whole 8-column tiles by repeating the last id (a repeated column scores the
+++/// same token, so the draws pick the same id).
+++pub fn draftIdsOf(gpa: std.mem.Allocator, vocab: u32, rank: u32, world: u32, int4_cols: bool) ![]u32 {
+ +    const ids = try draftIds(gpa, draft_vocab, vocab, rank, world);
+ +    if (ids.len == 0) {
+ +        gpa.free(ids);
+ +        return error.DraftVocab;
+ +    }
+-+    if (!draftInt4() or ids.len % 8 == 0) return ids;
+++    if (!int4_cols or ids.len % 8 == 0) return ids;
+ +    defer gpa.free(ids);
+ +    const out = try gpa.alloc(u32, (ids.len + 7) / 8 * 8);
+ +    @memcpy(out[0..ids.len], ids);
+@@ -221,20 +280,24 @@ index 255318e..df3bba9 100644
+  /// Mark every tensor under `prefix` read on purpose (the vision tower), counting them.
+  fn skip(ck: *core.Checkpoint, gpa: std.mem.Allocator, prefix: []const u8) !usize {
+      var n: usize = 0;
+-@@ -1557,10 +1582,40 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
++@@ -1557,10 +1590,43 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
+  
+      // the draft head: the lm_head's draft rows quantized 4-bit (groups of 32), packed for the lane matmul
+      if (o.draft_head) {
+ -        const ids = try draftIds(gpa, draft_vocab, c.vocab, o.rank, o.world);
+-+        const ids = try draftIdsOf(gpa, c.vocab, o.rank, o.world);
+++        // TF_FLASHNEXT_DRAFT_INT4 takes the int4 lm_head's columns when the checkpoint has one; else the 4-bit copy
+++        // of the head's rows below, as without the setting (the drafts change, the replies do not)
+++        const int4_cols = draftInt4() and head_src != null;
+++        if (draftInt4() and head_src == null) std.log.warn("TF_FLASHNEXT_DRAFT_INT4: the checkpoint's lm_head is not int4; the draft head is its rows in 4-bit", .{});
+++        const ids = try draftIdsOf(gpa, c.vocab, o.rank, o.world, int4_cols);
+          defer gpa.free(ids);
+          const k = c.hidden;
+          const n = ids.len;
+ +        q4: {
+ +        // TF_FLASHNEXT_DRAFT_INT4: the draft head as the int4 lm_head's own columns (GPTQ groups of 128,
+ +        // gathered by draft id, run by int4.dense): no second quantization, 105 MB instead of 127.5 MB
+-+        if (draftInt4()) {
+-+            const src = head_src orelse return error.UnsupportedQuantization;
+++        if (int4_cols) {
+++            const src = head_src.?;
+ +            const gqw = try gpa.alloc(u8, k / 8 * n * 4);
+ +            defer gpa.free(gqw);
+ +            const gsc = try gpa.alloc(u8, k / int4.checkpoint_group * n * 2);
+@@ -256,14 +319,13 @@ index 255318e..df3bba9 100644
+ +            L.out.ours();
+ +            w.draft4 = m;
+ +            std.log.info("draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), {d} ids, {d:.1} MB", .{ n, @as(f64, @floatFromInt(words.len * 4 + scales.len * 2)) / 1e6 });
+-+            // the columns only (cuda_mtp runs draft4 first)
+-+            w.draft_head = .{ .n = @intCast(n), .k = @intCast(k), .npad = @intCast(n) };
+++            // draft_head stays null: draftColumns() answers for either head
+ +            break :q4;
+ +        }
+          const rows = try gpa.alloc(u16, n * k);
+          defer gpa.free(rows);
+          if (head_src) |src| {
+-@@ -1618,6 +1673,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
++@@ -1618,6 +1684,7 @@ pub fn load(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, c: *const Confi
+          lay.majorQ4(bi, n, kg, major);
+          q.biases = try L.out.whole("draft_head.biases", "bfloat16", &.{ kg, npad }, std.mem.sliceAsBytes(major));
+          w.draft_head = q;
+@@ -271,3 +333,21 @@ index 255318e..df3bba9 100644
+          const wide = try gpa.alloc(i64, n);
+          defer gpa.free(wide);
+          for (ids, wide) |id, *x| x.* = id;
++@@ -1712,3 +1779,17 @@ test "ropeOf maps cuda_config's YaRN onto cuda_rope's" {
++     lay.invFreq(1e7, 32, &b);
++     try std.testing.expectEqualSlices(f32, &b, &a);
++ }
+++
+++test "the draft ids pad to whole 8-column tiles only for the int4 head's own columns" {
+++    const gpa = std.testing.allocator;
+++    // the 4-bit draft head (and TF_FLASHNEXT_DRAFT_INT4 on a checkpoint without an int4 head): the ids as they are
+++    const plain = try draftIdsOf(gpa, 248320, 0, 1, false);
+++    defer gpa.free(plain);
+++    try std.testing.expectEqual(@as(usize, 79591), plain.len);
+++    // the int4 lm_head's columns: the last id repeated up to the tile
+++    const cols = try draftIdsOf(gpa, 248320, 0, 1, true);
+++    defer gpa.free(cols);
+++    try std.testing.expectEqual(@as(usize, 79592), cols.len);
+++    try std.testing.expectEqualSlices(u32, plain, cols[0..plain.len]);
+++    try std.testing.expectEqual(plain[plain.len - 1], cols[cols.len - 1]);
+++}

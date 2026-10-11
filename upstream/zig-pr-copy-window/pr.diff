@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..81e9021 100644
+index 16da5a3..094a15f 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -3,6 +3,13 @@
@@ -11,7 +11,7 @@ index 16da5a3..81e9021 100644
 +- `patches/0013-flash-next-copy-window` and `TF_FLASHNEXT_WINDOW=64` (the default): a lone stream's verify window
 +  holds 64 rows, so copied continuations (file edits, verbatim repeats) grow 15 -> 31 -> 63 rows; the MTP chain stays
 +  at `TF_FLASHNEXT_DEPTH`. One client: file copies 2.3x, one-word rewrites +54%, one-line edits +84%; prose and code
-+  decode unchanged; every reply byte-identical. `16` is the old window.
++  decode unchanged; every reply byte-identical. `16` is the old window. Every row of a 1-64 row window gives its one-row step's logits bytes (`tensorfold window-check`).
 +
  ## [1.0.0] - 2026-10-08
  
@@ -61,15 +61,24 @@ index 9b71561..eee7432 100644
  
 diff --git a/patches/0013-flash-next-copy-window.patch b/patches/0013-flash-next-copy-window.patch
 new file mode 100644
-index 0000000..2b01a16
+index 0000000..030e753
 --- /dev/null
 +++ b/patches/0013-flash-next-copy-window.patch
-@@ -0,0 +1,420 @@
+@@ -0,0 +1,492 @@
 +diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
-+index 727cc16..378d138 100644
++index 727cc16..b58435c 100644
 +--- a/zig/src/cli/flashnext_cuda.zig
 ++++ b/zig/src/cli/flashnext_cuda.zig
-+@@ -300,7 +300,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++@@ -34,6 +34,8 @@ const usage =
++     \\           aggregate tok/s; code greedy, prose and chat sampled; TF_FLASHNEXT_PROFILE=1 times rounds by part)
++     \\  tensorfold pool MODEL --streams N   (N sequences grown in turn until the memory budget refuses: the tokens
++     \\           the rank's caches hold at N streams)
+++    \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
+++    \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
++     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
++     \\           prompt N times in one load: prefill seconds and tok/s, the reply's first token and sha)
++     \\  tensorfold mm-check MODEL [--rows N,N,...]   (no weights: the prompt matmuls' in-program K
++@@ -300,7 +302,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
 +     std.debug.print("loading {s} (kernels {s})\n", .{ o.model, kernels });
 +     const yarn = try yarnFor(gpa, init.io, o.model, init.environ_map.get(flashnext.rope.env_factor), init.environ_map.get(flashnext.rope.env_ramp));
 +     if (yarn) |y| std.debug.print("YaRN: factor {d} over {d} positions\n", .{ y.factor, y.original });
@@ -78,6 +87,69 @@ index 0000000..2b01a16
 +     if (o.graphs and (std.mem.eql(u8, cmd, "gate") or std.mem.eql(u8, cmd, "run"))) {
 +         const t0 = now(init.io);
 +         const n = try e.warmGraphs();
++@@ -322,6 +324,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++     if (std.mem.eql(u8, cmd, "bench-many")) return benchMany(gpa, init.io, e, o);
++     if (std.mem.eql(u8, cmd, "reuse") and rest.len == 1) return reuse(gpa, init.io, e, rest[0], o);
++     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
+++    if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
++     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
++     std.debug.print("{s}", .{usage});
++     return 2;
++@@ -1176,6 +1179,54 @@ fn reuse(gpa: Allocator, io: std.Io, e: *Engine, capture: []const u8, o: Options
++     return if (bad == 0) 0 else 1;
++ }
++ 
+++/// `window-check`: a verify window's rows are row-invariant at every width up to the engine's window (e.window: run
+++/// with TF_FLASHNEXT_WINDOW=64, the served default, so 17 to 64 rows past the 16 the MTP chain fills). The prompt is
+++/// prefilled without the MTP head and its greedy continuation decoded a row at a time (decode.serial's calls), each
+++/// row's main-head logits hashed; then for every width W from 1 the prompt is prefilled again and the continuation's
+++/// first W tokens run as one window (Engine.forward, the verify window's call, graphs included): each of its W rows
+++/// must be byte-equal to its one-row step. Exit 0: every row of every width equal.
+++fn windowCheck(gpa: Allocator, e: *Engine, o: Options) !u8 {
+++    if (o.tokens.len == 0) {
+++        std.debug.print("window-check: --tokens or --tokens-file\n", .{});
+++        return 2;
+++    }
+++    const W = e.window;
+++    const row_bytes = e.g.head_n * 2;
+++    e.absorbing = false;
+++    const want = try gpa.alloc([64]u8, W);
+++    defer gpa.free(want);
+++    const cont = try gpa.alloc(u32, W);
+++    defer gpa.free(cont);
+++    cont[0] = try e.prefill(o.tokens, null);
+++    var one: [1]u32 = undefined;
+++    for (0..W) |r| {
+++        try e.forward(cont[r .. r + 1]);
+++        want[r] = try deviceSha(gpa, e, e.buf.b.logits, row_bytes);
+++        try e.sample(1, e.pos() + 1, &one);
+++        if (r + 1 < W) cont[r + 1] = one[0];
+++        try e.commit(1, 1);
+++    }
+++    var bad: usize = 0;
+++    var rows: usize = 0;
+++    for (1..W + 1) |w| {
+++        if (try e.prefill(o.tokens, null) != cont[0]) {
+++            std.debug.print("window-check: the prompt's first draw changed between prefills\n", .{});
+++            return 1;
+++        }
+++        try e.forward(cont[0..w]);
+++        var differ: usize = 0;
+++        for (0..w) |r| {
+++            const got = try deviceSha(gpa, e, e.buf.b.logits + r * row_bytes, row_bytes);
+++            if (!std.mem.eql(u8, &got, &want[r])) differ += 1;
+++        }
+++        rows += w;
+++        bad += differ;
+++        if (differ > 0 or w == W or w == 16 or w == 17) std.debug.print("{s} window {d} rows at position {d}: {d} rows differ from their one-row steps\n", .{ if (differ == 0) "EQUAL" else "DIFFER", w, o.tokens.len, differ });
+++    }
+++    std.debug.print("{s} window-check: windows of 1-{d} rows, {d} rows, {d} differ from the one-row steps\n", .{ if (bad == 0) "PASS" else "FAIL", W, rows, bad });
+++    return if (bad == 0) 0 else 1;
+++}
+++
++ /// The tokens the sequences' budget holds at N streams: N sequences grown a step at a time in turn until every
++ /// one is refused (error.NoRoom) or at its window.
++ fn pool(gpa: Allocator, e: *Engine, o: Options) !u8 {
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
 +index c3bea72..43dbd84 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig

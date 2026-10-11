@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..5832d88 100644
+index 16da5a3..60de13f 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -3,6 +3,14 @@
@@ -12,7 +12,7 @@ index 16da5a3..5832d88 100644
 +  defaults): the sparse-attention indexer's block lists come from one read of each row's scores (`fn_qsa_stream.cu`,
 +  one CTA a row or a cluster of 4), and the prompt indexer's scores use `fma.rn.f32.bf16` on the packed bf16 words.
 +  Cold prefill +4.2% at 128k and +5.5% at 200k through the server; decode -6.5% time a token at 200k; every reply
-+  byte-identical (`qsa-check`).
++  byte-identical (`qsa-check`). `TF_FLASHNEXT_QSA_SELECT=0` makes the calls from before the option.
 +
  ## [1.0.0] - 2026-10-08
  
@@ -62,10 +62,10 @@ index 9b71561..d6b209a 100644
  
 diff --git a/patches/0023-flash-next-indexer-select-scores-tile.patch b/patches/0023-flash-next-indexer-select-scores-tile.patch
 new file mode 100644
-index 0000000..88c18ee
+index 0000000..1ad40aa
 --- /dev/null
 +++ b/patches/0023-flash-next-indexer-select-scores-tile.patch
-@@ -0,0 +1,979 @@
+@@ -0,0 +1,1082 @@
 +diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
 +index 3ac2240..493ab03 100644
 +--- a/zig/build/cuda.zig
@@ -595,10 +595,10 @@ index 0000000..88c18ee
 ++  }
 ++TF_QSA_CSTREAM(fn_qsa_cstream_c4k4v4, 4, 4096, 4)
 +diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
-+index 38f9e7b..9eaf060 100644
++index e27f0fa..33fc428 100644
 +--- a/zig/src/cli/flashnext_cuda.zig
 ++++ b/zig/src/cli/flashnext_cuda.zig
-+@@ -1352,7 +1352,8 @@ fn expertsCheck(gpa: Allocator, ctx: *const cuda.Context, o: Options) !u8 {
++@@ -1585,7 +1585,8 @@ fn expertsCheck(gpa: Allocator, ctx: *const cuda.Context, o: Options) !u8 {
 +     return if (ok) 0 else 1;
 + }
 + 
@@ -608,7 +608,7 @@ index 0000000..88c18ee
 + fn qsaCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []const u8) !u8 {
 +     var set = try cuda.aot.Set.load(gpa, io, ctx.d, ctx.device, kernels);
 +     defer set.deinit();
-+@@ -1360,7 +1361,9 @@ fn qsaCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
++@@ -1593,7 +1594,9 @@ fn qsaCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []con
 +     defer stream.deinit();
 +     var fast = try flashnext.prompt.QsaScores.init(ctx.d);
 +     defer fast.deinit();
@@ -632,10 +632,10 @@ index 0000000..88c18ee
 + /// Symbols in the gdn image as cuobjdump lists them for the built fatbin (named namespace tf_gdn).
 + pub const gdn_symbols = struct {
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
-+index 98c1e6b..7c34fc7 100644
++index cf3e8ff..c5a7681 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig
 ++++ b/zig/src/families/flashnext/cuda_engine.zig
-+@@ -439,6 +439,8 @@ pub const Engine = struct {
++@@ -496,6 +496,8 @@ pub const Engine = struct {
 +     pass_times: bool = false,
 +     /// TF_FLASHNEXT_QSA_FAST (default on): fn_qsa_scores for the prompt indexer's scores
 +     qsa_fast: ?prompt_mm.QsaScores = null,
@@ -644,7 +644,7 @@ index 0000000..88c18ee
 + 
 +     pub fn init(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, dir: []const u8, kernels_dir: []const u8, o: Options) !*Engine {
 +         const t0 = std.Io.Clock.awake.now(io);
-+@@ -608,6 +610,12 @@ pub const Engine = struct {
++@@ -677,6 +679,12 @@ pub const Engine = struct {
 +         if (envGet("TF_FLASHNEXT_QSA_SPLIT_KEYS")) |v| {
 +             e.f.qsa_split_keys = std.fmt.parseInt(usize, v, 10) catch 0;
 +         }
@@ -657,7 +657,7 @@ index 0000000..88c18ee
 +         // measured ~1% (research/R2-measured.md): off unless asked
 +         if (e.f.glue_split and envGet("TF_FLASHNEXT_OVERLAP") != null and !envOff("TF_FLASHNEXT_OVERLAP")) {
 +             if (envGet("TF_FLASHNEXT_OVERLAP")) |v| e.f.overlap = std.fmt.parseInt(u8, v, 10) catch 1;
-+@@ -752,6 +760,7 @@ pub const Engine = struct {
++@@ -823,6 +831,7 @@ pub const Engine = struct {
 +         if (e.mtpq) |*t| t.deinit();
 +         if (e.hcq) |*t| t.deinit(e.gpa);
 +         if (e.qsa_fast) |*q| q.deinit();
@@ -666,10 +666,10 @@ index 0000000..88c18ee
 +             cs.synchronize() catch {};
 +             cs.deinit();
 +diff --git a/zig/src/families/flashnext/cuda_forward.zig b/zig/src/families/flashnext/cuda_forward.zig
-+index bde5aa0..6e2837c 100644
++index 790c455..8d7d49a 100644
 +--- a/zig/src/families/flashnext/cuda_forward.zig
 ++++ b/zig/src/families/flashnext/cuda_forward.zig
-+@@ -573,6 +573,9 @@ pub const Forward = struct {
++@@ -579,6 +579,9 @@ pub const Forward = struct {
 +     qsa_tiles_from: usize = 8192,
 +     /// fn_qsa_scores.cu for the prompt indexer's scores (`_scores`' bits); null: Python's `_scores`
 +     qsa_fast: ?*const prompt.QsaScores = null,
@@ -679,42 +679,45 @@ index 0000000..88c18ee
 + 
 +     pub fn init(gpa: Allocator, d: *const cuda.Driver, s: cuda.Stream, ops: kern.Ops, t: tri.Tri, th: tops.Torch, w: *const W.Weights, c: *const cfgs.Config, g: state.Geometry, dims: tri.Dims, max_rows: usize) !Forward {
 +         var f: Forward = .{ .gpa = gpa, .d = d, .s = s, .ops = ops, .t = t, .th = th, .w = w, .c = c, .dims = dims, .g = g, .sc = undefined, .pin = undefined, .pin_rows = max_rows, .staged = undefined, .eps = @floatCast(c.eps), .vocab_offset = w.vocab_offset };
-+@@ -830,6 +833,21 @@ pub const Forward = struct {
++@@ -836,6 +839,28 @@ pub const Forward = struct {
 +         if (f.prof) |p| try p.mark(f.s, part);
 +     }
 + 
-++    /// A decode window's (or MTP step's) indexer rows: Tri.qsaRows' `_scores` and `_select`, or with `qsa_sel`
-++    /// (or a profile, which marks the two launches apart) `_scores` and the same lists from QsaSelect.
+++    /// A decode window's indexer: pool the blocks it completes, score, select. QSA_SELECT=0 (`qsa_sel` null):
+++    /// Tri.qsaSelectRope, the call as before the option, so the same launches; else the pool, marked, and qsaDecode.
+++    fn qsaIndex(f: *Forward, iq: u64, ikc: u64, pooled: u64, pos0: u64, w: u64, sc: tri.AttnScratch, rows: usize, ag: tri.AttnGeometry, keys: usize, rope: ?tri.Tri.Rope) !void {
+++        if (f.qsa_sel == null) return f.t.qsaSelectRope(iq, ikc, pooled, pos0, w, f.w.inv_freq, sc, rows, ag, keys, f.dims, rope);
+++        try f.t.qsaPoolRope(ikc, pooled, pos0, w, f.w.inv_freq, rows, ag, f.dims, rope);
+++        try f.mark(.qsa_pool);
+++        try f.qsaDecode(iq, pooled, pos0, sc, rows, ag, keys);
+++    }
+++
+++    /// A decode window's (or MTP step's) indexer rows: QSA_SELECT=0 (`qsa_sel` null), Tri.qsaRows' `_scores` and
+++    /// `_select` as before the option, profile or not; with `qsa_sel` `_scores` and the same lists from QsaSelect
+++    /// (`_select` where it does not fit).
 ++    fn qsaDecode(f: *Forward, iq: u64, pooled: u64, pos0: u64, sc: tri.AttnScratch, rows: usize, ag: tri.AttnGeometry, keys: usize) !void {
-++        if (f.qsa_sel == null and f.prof == null) return f.t.qsaRows(iq, pooled, pos0, sc, rows, ag, keys, f.dims);
+++        const q = f.qsa_sel orelse return f.t.qsaRows(iq, pooled, pos0, sc, rows, ag, keys, f.dims);
 ++        try prompt.qsaScores(f.t, iq, pooled, pos0, sc, rows, ag, keys, f.dims);
 ++        try f.mark(.qsa_scores);
-++        if (f.qsa_sel) |q| if (prompt.QsaSelect.fits(q.decFor(ag.blocks(keys)), ag)) {
+++        if (prompt.QsaSelect.fits(q.decFor(ag.blocks(keys)), ag)) {
 ++            try q.run(q.decFor(ag.blocks(keys)), f.s, pos0, sc, rows, ag);
-++            try f.mark(.qsa_select);
-++            return;
-++        };
-++        try prompt.qsaSelect(f.t, pos0, sc, rows, ag, keys);
+++        } else try prompt.qsaSelect(f.t, pos0, sc, rows, ag, keys);
 ++        try f.mark(.qsa_select);
 ++    }
 ++
 +     pub fn put(f: *Forward, name: []const u8, ptr: u64, bytes: usize) !void {
 +         if (f.dump) |d| try d.put(f, name, ptr, bytes);
 +     }
-+@@ -1713,7 +1731,11 @@ pub const Forward = struct {
++@@ -1725,7 +1750,7 @@ pub const Forward = struct {
 +                 continue;
 +             }
 +             const keys = if (f.contexts) |cs| cs[si] else f.context orelse host_pos + n;
 +-            if (ag.qsa) try f.t.qsaSelectRope(iq, ikc, pooled, pos, a.ik_scale, f.w.inv_freq, sc, n, ag, keys, d, rope);
-++            if (ag.qsa) {
-++                try f.t.qsaPoolRope(ikc, pooled, pos, a.ik_scale, f.w.inv_freq, n, ag, d, rope);
-++                try f.mark(.qsa_pool);
-++                try f.qsaDecode(iq, pooled, pos, sc, n, ag, keys);
-++            }
+++            if (ag.qsa) try f.qsaIndex(iq, ikc, pooled, pos, a.ik_scale, sc, n, ag, keys, rope);
 +             try f.t.attention(q, cache, pos, sc, b.att_out, n, ag, keys, d);
 +             // the scratch output is the next stream's too
 +             if (segs.len > 1) try f.th.copy(b.attn_o + sg.a0 * qrow, b.att_out, n * qrow);
-+@@ -1764,7 +1786,9 @@ pub const Forward = struct {
++@@ -1776,7 +1801,9 @@ pub const Forward = struct {
 +             try prompt.qsaScoresRows(f.t, iq, pooled, pos0, sc, m, ag, ends, f.dims, f.qsa_rt);
 +         } else try prompt.qsaScores(f.t, iq, pooled, pos0, sc, m, ag, ends, f.dims);
 +         try f.mark(.qsa_scores);
@@ -725,7 +728,7 @@ index 0000000..88c18ee
 +             try prompt.qsaSelectTiles(f.t, pos0, sc, m, ag);
 +         } else try prompt.qsaSelect(f.t, pos0, sc, m, ag, ends);
 +         try f.mark(.qsa_select);
-+@@ -1803,7 +1827,7 @@ pub const Forward = struct {
++@@ -1815,7 +1842,7 @@ pub const Forward = struct {
 +                 if (end / ag.ratio <= top) continue;
 +                 const a0 = sg.a0;
 +                 const sc: tri.AttnScratch = .{ .po = b.att_po, .pm = b.att_pm, .pl = b.att_pl, .ids = b.att_ids + a0 * ag.idw * 4, .nk = b.att_nk + a0 * 4, .sparse = b.att_sparse + a0 * 4, .scores = b.att_scores + a0 * ag.nb * 4 };
@@ -734,8 +737,52 @@ index 0000000..88c18ee
 +             }
 +             try f.mark(.qsa_rows);
 +         }
++@@ -2142,6 +2169,43 @@ test "the partial scratch covers the widest split-K matmul of a prompt chunk" {
++     }
++ }
++ 
+++test "QSA_SELECT=0: the decode indexer's launches are the calls from before the option" {
+++    // qsaIndex (a decode window) and qsaDecode (an MTP step) with no QsaSelect, recorded, against Tri.qsaSelectRope
+++    // and Tri.qsaRows recorded directly: the same kernels, grids, arguments and constants, rope or not, at window
+++    // widths and contexts on both sides of `_select`'s register width
+++    var w: W.Weights = undefined;
+++    w.inv_freq = 0x7f0000100000;
+++    const dims: tri.Dims = .{};
+++    const ag = tri.AttnGeometry.init(262144, 2048, 4);
+++    const sc: tri.AttnScratch = .{ .po = 0x7f0000200000, .pm = 0x7f0000300000, .pl = 0x7f0000400000, .ids = 0x7f0000500000, .nk = 0x7f0000600000, .sparse = 0x7f0000700000, .scores = 0x7f0000800000 };
+++    const A = [_]u64{ 0x7f0000900000, 0x7f0000a00000, 0x7f0000b00000, 0x7f0000c00000, 0x7f0000d00000 };
+++    const ropes = [_]?tri.Tri.Rope{ null, .{ .table = 0x7f0000e00000, .delta = 0x7f0000f00000, .length = 300 } };
+++    for ([_]usize{ 1, 7, 16, 64 }) |rows| for ([_]usize{ 100, 9000, 200000 }) |keys| for (ropes) |rope| {
+++        var want: tri.Recorder = .{};
+++        var got: tri.Recorder = .{};
+++        const tw: tri.Tri = .{ .set = null, .rec = &want };
+++        try tw.qsaSelectRope(A[0], A[1], A[2], A[3], A[4], w.inv_freq, sc, rows, ag, keys, dims, rope);
+++        try tw.qsaRows(A[0], A[2], A[3], sc, rows, ag, keys, dims);
+++        var f: Forward = undefined;
+++        f.t = .{ .set = null, .rec = &got };
+++        f.w = &w;
+++        f.dims = dims;
+++        f.qsa_sel = null;
+++        f.prof = null;
+++        try f.qsaIndex(A[0], A[1], A[2], A[3], A[4], sc, rows, ag, keys, rope);
+++        try f.qsaDecode(A[0], A[2], A[3], sc, rows, ag, keys);
+++        try std.testing.expectEqual(want.n, got.n);
+++        for (want.launches[0..want.n], got.launches[0..got.n]) |a, b| {
+++            try std.testing.expectEqualStrings(a.name, b.name);
+++            try std.testing.expectEqual(a.grid, b.grid);
+++            try std.testing.expectEqual(a.nargs, b.nargs);
+++            try std.testing.expectEqual(a.nconsts, b.nconsts);
+++            try std.testing.expectEqualDeep(a.args[0..a.nargs], b.args[0..b.nargs]);
+++            try std.testing.expectEqualDeep(a.consts[0..a.nconsts], b.consts[0..b.nconsts]);
+++        }
+++    };
+++}
+++
++ test {
++     std.testing.refAllDecls(@This());
++     std.testing.refAllDecls(Forward);
 +diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-+index dc760a4..ef48126 100644
++index 80a9af8..aa00546 100644
 +--- a/zig/src/families/flashnext/cuda_prompt.zig
 ++++ b/zig/src/families/flashnext/cuda_prompt.zig
 +@@ -368,14 +368,16 @@ pub fn qsaScoresRows(t: tri.Tri, iq: u64, pooled: u64, pos0: u64, sc: tri.AttnSc
@@ -849,8 +896,8 @@ index 0000000..88c18ee
 +-/// lengths, flags) on random and tie-heavy indexer keys, rows past several positions. True when all equal.
 +-pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast: ?*const QsaScores) !bool {
 ++/// `qsa-check`: `_scores_rows` against `_scores` (score bytes) and `_select_tiles` (and each fn_qsa_stream kind)
-++/// against `_select` (key lists, lengths, flags) on random and tie-heavy indexer keys, rows past several positions.
-++/// True when all equal.
+++/// against `_select` (key lists, lengths, flags) on random and tie-heavy indexer keys, rows past several positions,
+++/// then on score rows of NaN, +-inf, +-0 and ties written directly (qsaDirectScores). True when all equal.
 ++pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast: ?*const QsaScores, sel: ?*const QsaSelect) !bool {
 +     const capacity: usize = 262144 + 8;
 +     const g = tri.AttnGeometry.init(capacity, 2048, 4);
@@ -879,7 +926,7 @@ index 0000000..88c18ee
 +             }
 +             // the lists from the same scores by the tiled select
 +             try qsaSelectTiles(t, pos.ptr, scs[1], n, g);
-+@@ -494,11 +567,156 @@ pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast:
++@@ -494,11 +567,212 @@ pub fn qsaCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, fast:
 +             }
 +             if (!ok) all = false;
 +             std.debug.print("{s} _select_tiles = _select position {d} rows {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", p0, n, if (ties) " tie-heavy" else if (kind == 2) " special" else "" });
@@ -887,7 +934,7 @@ index 0000000..88c18ee
 ++                if (!try selCheck(t, q, bufs, scs, pos.ptr, n, g, ends, host1, host2, p0, kind)) all = false;
 ++                if (kind == 0) try qsaPromptSelTimes(d, t, q, pos.ptr, scs[1], n, g, ends, p0);
 ++            }
-++        }
++         }
 ++        // decode windows (1-16 rows) at the graph's bucket bound and at the exact one: each fn_qsa_scores tile and
 ++        // `_select_tiles` (a decode window's TB 8192) against `_scores` + `_select` (Tri.qsaRows); random keys also timed
 ++        for ([_]usize{ 2045, 2049, 8000, 32000, 70000, 100000, 131000, 200000, 261000 }) |p0| for ([_]usize{ 1, 3, 16 }) |n| for ([_]bool{ true, false }) |bucketed| {
@@ -932,6 +979,62 @@ index 0000000..88c18ee
 ++            if (kind == 0 and bucketed) try qsaDecodeTimes(d, t, fast, sel, iq.ptr, pooled.ptr, pos.ptr, scs, n, g, keys, dims, p0);
 ++        };
 ++    }
+++    if (!try qsaDirectScores(gpa, t, sel, g, bufs, &pos, host1, host2)) all = false;
+++    return all;
+++}
+++
+++/// `qsa-check`'s direct-scores pass: score rows written straight into the scratch (no `_scores`, which seldom makes
+++/// these values), each row one pattern: NaN of both signs (quiet, signalling, all-ones payloads) among normals, +-inf
+++/// among normals, +-0 only (a few positives), three-value ties, every special value mixed, and half NaN over ties.
+++/// `_select_tiles` and each QsaSelect kind against Python's choice for the row's width (`_select` while its
+++/// registers hold the row, else `_select_tiles`: Tri.qsaRows): key lists, lengths and flags.
+++fn qsaDirectScores(gpa: std.mem.Allocator, t: tri.Tri, sel: ?*const QsaSelect, g: tri.AttnGeometry, bufs: [2][4]cuda.DeviceBuffer, pos: *cuda.DeviceBuffer, host1: []u8, host2: []u8) !bool {
+++    const specials = [_]u32{ 0x7fc00000, 0xffc00000, 0x7f800001, 0xff800001, 0x7fffffff, 0xffffffff, 0x7f800000, 0xff800000, 0x00000000, 0x80000000, 0x00000001, 0x80000001 };
+++    const nans = specials[0..6];
+++    const ties = [_]f32{ 0.5, 1.0, 2.0 };
+++    var prng = std.Random.DefaultPrng.init(0x95a_0002);
+++    const r = prng.random();
+++    var all = true;
+++    const rows_max = 16;
+++    const host = try gpa.alloc(u32, rows_max * g.nb);
+++    defer gpa.free(host);
+++    for ([_]usize{ 1000, 2040, 20000, 131000, 200000, 261000 }, 0..) |p0, pi| for ([_]usize{ 1, 3, rows_max }) |n| {
+++        for (0..n) |row| for (0..g.nb) |b| {
+++            const v = &host[row * g.nb + b];
+++            const normal: u32 = @bitCast(r.floatNorm(f32));
+++            v.* = switch ((row + pi) % 6) {
+++                0 => if (r.uintLessThan(u32, 50) == 0) nans[r.uintLessThan(usize, nans.len)] else normal,
+++                1 => if (r.uintLessThan(u32, 50) == 0) (if (r.boolean()) @as(u32, 0x7f800000) else 0xff800000) else normal,
+++                2 => if (r.uintLessThan(u32, 200) == 0) @as(u32, @bitCast(@abs(r.floatNorm(f32)))) else (if (r.boolean()) @as(u32, 0x80000000) else 0),
+++                3 => @bitCast(ties[r.uintLessThan(usize, ties.len)]),
+++                4 => if (r.uintLessThan(u32, 10) == 0) specials[r.uintLessThan(usize, specials.len)] else normal,
+++                else => if (r.boolean()) nans[r.uintLessThan(usize, nans.len)] else @as(u32, @bitCast(@as(f32, 1.0))),
+++            };
+++        };
+++        try pos.fill32(@intCast(p0), t.s.handle);
+++        var scs: [2]tri.AttnScratch = undefined;
+++        for (&scs, bufs) |*sc, set| {
+++            for (set[1..]) |b| try b.fill8(0xA7, t.s.handle);
+++            try set[0].upload(0, std.mem.sliceAsBytes(host[0 .. n * g.nb]));
+++            sc.* = .{ .po = 0, .pm = 0, .pl = 0, .ids = set[1].ptr, .nk = set[2].ptr, .sparse = set[3].ptr, .scores = set[0].ptr };
+++        }
+++        const keys = p0 + n;
+++        try qsaSelect(t, pos.ptr, scs[0], n, g, keys);
+++        try qsaSelectTiles(t, pos.ptr, scs[1], n, g);
+++        try t.s.synchronize();
+++        var ok = true;
+++        for (1..4) |k| {
+++            const bytes = if (k == 1) n * g.idw * 4 else n * 4;
+++            try bufs[0][k].download(0, host1[0..bytes]);
+++            try bufs[1][k].download(0, host2[0..bytes]);
+++            ok = ok and std.mem.eql(u8, host1[0..bytes], host2[0..bytes]);
+++        }
+++        if (!ok) all = false;
+++        std.debug.print("{s} _select_tiles = _select position {d} rows {d} direct scores: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", p0, n });
+++        if (sel) |q| if (!try selCheck(t, q, bufs, scs, pos.ptr, n, g, keys, host1, host2, p0, 3)) {
+++            all = false;
+++        };
+++    };
 ++    return all;
 ++}
 ++
@@ -950,9 +1053,9 @@ index 0000000..88c18ee
 ++            try bufs[0][b].download(0, host1[0..bytes]);
 ++            try bufs[1][b].download(0, host2[0..bytes]);
 ++            ok = ok and std.mem.eql(u8, host1[0..bytes], host2[0..bytes]);
-+         }
+++        }
 ++        if (!ok) all = false;
-++        std.debug.print("{s} qsa select {s} = _select position {d} rows {d} keys {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", kd.label, p0, n, keys, if (kind == 1) " tie-heavy" else if (kind == 2) " special" else "" });
+++        std.debug.print("{s} qsa select {s} = _select position {d} rows {d} keys {d}{s}: key lists, lengths, flags\n", .{ if (ok) "EQUAL" else "DIFFER", kd.label, p0, n, keys, if (kind == 1) " tie-heavy" else if (kind == 2) " special" else if (kind == 3) " direct scores" else "" });
 +     }
 +     return all;
 + }
@@ -1036,7 +1139,7 @@ index 0000000..88c18ee
 + /// Scoring time of 256 rows: `_scores` against fn_qsa_scores at several key counts (keys are random).
 + pub fn qsaBench(d: *const cuda.Driver, t: tri.Tri, fast: *const QsaScores) !void {
 +     const capacity: usize = 1048576 + 8;
-+@@ -533,7 +751,7 @@ pub fn qsaBench(d: *const cuda.Driver, t: tri.Tri, fast: *const QsaScores) !void
++@@ -533,7 +807,7 @@ pub fn qsaBench(d: *const cuda.Driver, t: tri.Tri, fast: *const QsaScores) !void
 +             try e2.synchronize();
 +         }
 +         const a = try cuda.Event.elapsedMs(e0, e1) / 5;

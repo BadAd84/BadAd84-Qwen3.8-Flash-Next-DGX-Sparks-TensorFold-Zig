@@ -4,6 +4,11 @@
 # prompt blocks and decode windows on random, tie-heavy and special inputs; it exits 1 on any DIFFER. The mutants
 # were run on the lane's standalone checks (~/work/lanes/r2a-opus/selcheck.log: six select mutants killed;
 # scorescheck.log: the fma-order mutant DIFFER in 8/8). Re-run the in-engine check on the clean stack's image:
+# Review round 1 (2026-10-11), on the fixed stack (~/work/lanes/r1-fix, tf branch `stack`): the round's
+# new host tests and a mutant each, judged by exit code (hostmut.py exits 0 only when every one is killed).
+python3 ~/work/lanes/r1-fix/hostmut.py qsa-off-path-not-the-old-call || exit 1
+# `qsa-check` passes on the fixed stack and fails with each mutant binary (gmutants.json):
+bash ~/work/lanes/r1-fix/gpucheck.sh qsa-check qsa-stream-minus-zero-is-zero qsa-stream-nan-is-zero || exit 1
 set -uo pipefail
 IMG=${1:-tensorfold-qwen38:zpr3-stack}
 SNAP=/root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd

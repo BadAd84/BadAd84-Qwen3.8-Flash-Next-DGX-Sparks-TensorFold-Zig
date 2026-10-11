@@ -1,0 +1,368 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index f7024eb..590c039 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,8 @@ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:
+   `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1` (the defaults): prompt chunks run the wide block-FP8 projections on 128 x 128
+   tiles and the fused split-K form in 2 stages, and the routed experts' gate/up on `int4_prompt_kernel` with 64-pair
+   items. Cold prefill +5.5% at 8k and 32k, +5.3% at 128k; every reply byte-identical (`fp8-tiles-check`,
+-  `int4-check`).
++  `int4-check`). The prompt gate/up runs only where its 99,840-byte block fits the GPU's shared memory and the gate/up width is
++  whole 128-column blocks; otherwise `int4_kernel`.
+ 
+ ## [1.0.0] - 2026-10-08
+ 
+diff --git a/patches/0024-flash-next-prompt-fp8-tiles-int4-gate-up.patch b/patches/0024-flash-next-prompt-fp8-tiles-int4-gate-up.patch
+index c02da5b..494cf14 100644
+--- a/patches/0024-flash-next-prompt-fp8-tiles-int4-gate-up.patch
++++ b/patches/0024-flash-next-prompt-fp8-tiles-int4-gate-up.patch
+@@ -102,10 +102,10 @@ index b3e24d8..f7503b9 100644
+ +TF_QMMF_LD_PROMPT(128, 128, 2, 4, 3, false)
+ +TF_QMMF_LD_PROMPT(64, 64, 1, 4, 2, true)
+ diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
+-index 9eaf060..c2f3f31 100644
++index 33fc428..9b71af6 100644
+ --- a/zig/src/cli/flashnext_cuda.zig
+ +++ b/zig/src/cli/flashnext_cuda.zig
+-@@ -51,6 +51,8 @@ const usage =
++@@ -58,6 +58,8 @@ const usage =
+      \\           (TF_FLASHNEXT_FP8_FUSED_SPLIT 4 and 8) against the cluster kernel, bytes compared, a mutant, timed)
+      \\  tensorfold int4-head-check MODEL   (no weights: the int4 head's 32-row items (TF_FLASHNEXT_HEAD_ROW_TILES=2)
+      \\           against 16-row items and 1-row calls, bytes compared, then both timed)
+@@ -114,7 +114,7 @@ index 9eaf060..c2f3f31 100644
+      \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
+      \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
+      \\  tensorfold hc-check MODEL   (no weights: the read-outs' 12-bit-weight down/up kernels (cuda_hc_q12.zig)
+-@@ -287,6 +289,13 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++@@ -294,6 +296,13 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
+          std.debug.print("{s} fp8-fused-check: every fused split-K tile byte-equal to the cluster kernel\n", .{if (ok) "PASS" else "FAIL"});
+          return if (ok) 0 else 1;
+      }
+@@ -129,23 +129,23 @@ index 9eaf060..c2f3f31 100644
+          var k = try flashnext.kernels.Kernels.load(&ctx);
+          defer k.deinit();
+ diff --git a/zig/src/families/flashnext/cuda_forward.zig b/zig/src/families/flashnext/cuda_forward.zig
+-index 6e2837c..9f22982 100644
++index 8d7d49a..9a5c07f 100644
+ --- a/zig/src/families/flashnext/cuda_forward.zig
+ +++ b/zig/src/families/flashnext/cuda_forward.zig
+-@@ -1989,8 +1989,10 @@ pub const Forward = struct {
++@@ -2004,8 +2004,10 @@ pub const Forward = struct {
+          const k8 = f.k8 orelse return error.NoFp8Kernels;
+          if (ex4.width != ni or ex4.dims != D) return error.ExpertShape;
+          const skip: c_int = @intCast(E);
+ -        // items of 16 pairs (int4.tileFor; the prompt tile is opt-in, the same bits)
+ -        const tile = int4.tileFor(R * slots);
+ +        // items of 16 pairs (int4.tileFor; the prompt tile is opt-in, the same bits); the prompt gate/up on
+-+        // int4_prompt_kernel takes 64-pair items (the prompt down reuses that plan)
+-+        const pgu = int4.promptGu(k4, R * slots);
+++        // int4_prompt_kernel takes 64-pair items (the prompt down reuses that plan) when it takes the call
+++        const pgu = int4.promptGu(k4, R * slots, ex4, xin, D, act);
+ +        const tile = if (pgu) int4.prompt_tile else int4.tileFor(R * slots);
+          try f.ops.plan(pick, R * slots, E + 1, tile, plan);
+          try f.mark(.topk_plan);
+          const sh = m.shared8 orelse return error.NoSharedExpert;
+-@@ -2006,7 +2008,7 @@ pub const Forward = struct {
++@@ -2021,7 +2023,7 @@ pub const Forward = struct {
+              try fp8.matmul(k8, sd.s, f.sc.sh_a, sh.width, sh.down, f.sc.shared_y, x.y_f32, R);
+              try th2.slotCopy(f.sc.shared_y, D * es, y + top * D * es, slots * D * es, D * es, R);
+              try sd.join.record(sd.s);
+@@ -154,7 +154,7 @@ index 6e2837c..9f22982 100644
+              try f.mark(.experts_gate_up);
+              try f.int4Down(k4, pick, act, ex4, plan, slots, E, y, x.y_f32, R, skip, tile);
+              try f.mark(.experts_down);
+-@@ -2014,7 +2016,7 @@ pub const Forward = struct {
++@@ -2029,7 +2031,7 @@ pub const Forward = struct {
+              try f.mark(.shared_down);
+              return;
+          }
+@@ -163,7 +163,7 @@ index 6e2837c..9f22982 100644
+          try f.mark(.experts_gate_up);
+          try fp8.matmul(k8, f.s, xin, D, sh.gu, f.sc.sh_g, false, R);
+          try f.th.sharedSwiglu(f.sc.sh_g, f.sc.sh_a, R, sh.width, sh.width);
+-@@ -2031,7 +2033,7 @@ pub const Forward = struct {
++@@ -2046,7 +2048,7 @@ pub const Forward = struct {
+      /// again after gate/up read the 16-pair one; the same bytes as int4_kernel's, int4-check), else int4_kernel.
+      fn int4Down(f: *Forward, k4: *const int4.Kernels, pick: u64, act: u64, ex4: int4.Experts, plan: kern.Plan, slots: usize, E: usize, y: u64, y_f32: bool, R: usize, skip: c_int, tile: usize) !void {
+          if (int4.promptDown(R * slots)) {
+@@ -173,10 +173,10 @@ index 6e2837c..9f22982 100644
+          }
+          return int4.down(k4, f.s, act, ex4.width, ex4, plan, slots, E + 1, y, y_f32, R, skip, tile);
+ diff --git a/zig/src/families/flashnext/cuda_fp8.zig b/zig/src/families/flashnext/cuda_fp8.zig
+-index 50704ac..19e8340 100644
++index d9176e2..d4fe964 100644
+ --- a/zig/src/families/flashnext/cuda_fp8.zig
+ +++ b/zig/src/families/flashnext/cuda_fp8.zig
+-@@ -48,15 +48,32 @@ pub fn smemS(bm: usize, stages: usize) u32 {
++@@ -50,15 +50,32 @@ pub fn smemS(bm: usize, stages: usize) u32 {
+      return @intCast(@max(stages * stage, partials));
+  }
+  
+@@ -210,15 +210,15 @@ index 50704ac..19e8340 100644
+ +pub const tile_rows: usize = 256;
+ +pub const tile_n: usize = 8192;
+  
+- fn envInt(name: [*:0]const u8, default: usize) usize {
+-     const v = std.c.getenv(name) orelse return default;
+-@@ -65,10 +82,12 @@ fn envInt(name: [*:0]const u8, default: usize) usize {
+- 
+- pub fn modeFromEnv() Mode {
+-     const fu = envInt("TF_FLASHNEXT_FP8_FUSED_SPLIT", 0);
+--    const m: Mode = .{ .fuse = if (fu == 4 or fu == 8) @intCast(fu) else 0, .fuse_n = envInt("TF_FLASHNEXT_FP8_FUSED_SPLIT_N", 2048) };
+-+    const tiles = envInt("TF_FLASHNEXT_FP8_PROMPT_TILES", 0) == 1;
+-+    const m: Mode = .{ .fuse = if (fu == 4 or fu == 8) @intCast(fu) else 0, .fuse_n = envInt("TF_FLASHNEXT_FP8_FUSED_SPLIT_N", 2048), .wide = tiles, .pfuse = tiles };
++ pub fn modeFromEnv() !Mode {
++     const fu = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT") orelse 0);
++@@ -66,10 +83,12 @@ pub fn modeFromEnv() !Mode {
++         std.log.warn("TF_FLASHNEXT_FP8_FUSED_SPLIT={d} refused: 0 (the cluster kernel), 4 or 8 (pipeline depths)", .{fu});
++         return error.BadSetting;
++     }
++-    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048) };
+++    const tiles = (try envCount("TF_FLASHNEXT_FP8_PROMPT_TILES") orelse 0) == 1;
+++    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048), .wide = tiles, .pfuse = tiles };
+      if (m.fuse != 0) {
+          std.log.info("block-FP8 split-K shapes of {d}+ columns below {d} rows: one block a column tile, its K slices in slice order (TF_FLASHNEXT_FP8_FUSED_SPLIT={d})", .{ m.fuse_n, fused_rows, m.fuse });
+      } else std.log.info("block-FP8 split-K shapes below {d} rows on the cluster kernel (TF_FLASHNEXT_FP8_FUSED_SPLIT=0)", .{fused_rows});
+@@ -226,7 +226,7 @@ index 50704ac..19e8340 100644
+      return m;
+  }
+  
+-@@ -123,6 +142,18 @@ pub const sym = struct {
++@@ -124,6 +143,18 @@ pub const sym = struct {
+          };
+          break :blk out;
+      };
+@@ -245,7 +245,7 @@ index 50704ac..19e8340 100644
+  };
+  
+  pub const Kernels = struct {
+-@@ -136,6 +167,12 @@ pub const Kernels = struct {
++@@ -137,6 +168,12 @@ pub const Kernels = struct {
+      /// the fused decode tiles (Mode.fuse): [depth 4, 8][F32][bm 16, 32], and their ld forms
+      fuse_s: [2][2][2]cuda.Function,
+      ld_fuse_s: [2][2]cuda.Function,
+@@ -258,7 +258,7 @@ index 50704ac..19e8340 100644
+      mode: Mode,
+      major: c_int,
+  
+-@@ -170,6 +207,16 @@ pub const Kernels = struct {
++@@ -171,6 +208,16 @@ pub const Kernels = struct {
+                  try k.ld_fuse_s[q][b].allowDynamicShared(smemS(@as(usize, 16) << @intCast(b), 4 + 4 * q));
+              }
+          }
+@@ -272,10 +272,10 @@ index 50704ac..19e8340 100644
+ +        try k.ld_wide128.allowDynamicShared(smemT(128, 128, 2, 4, 3));
+ +        k.ld_fused2 = try k.ld_module.function(sym.ld_fused2);
+ +        try k.ld_fused2.allowDynamicShared(smemS(64, 2));
+-         k.mode = modeFromEnv();
++         k.mode = try modeFromEnv();
+          k.major = try ctx.attribute(.compute_capability_major);
+          return k;
+-@@ -211,6 +258,12 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
++@@ -212,6 +259,12 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
+      const sk = splitK(n, kk);
+      const bm: usize = if (sk > 1 and m >= fused_rows) 0 else bucket(m);
+      const md = k.mode;
+@@ -288,7 +288,7 @@ index 50704ac..19e8340 100644
+      // Mode.fuse: a split shape below FUSED_ROWS on the fused form (its K slices added in slice order by one block):
+      // row tile 64 on the prompt's fused kernel, 16 and 32 on the decode instantiations
+      const fuse_ok = sk > 1 and md.fuse != 0 and n >= md.fuse_n;
+-@@ -225,10 +278,16 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
++@@ -226,10 +279,16 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
+      const ci = @intFromBool(cluster);
+      const fi = @intFromBool(f32_out);
+      const bi = bucketIndex(bm);
+@@ -308,7 +308,7 @@ index 50704ac..19e8340 100644
+      var a: cuda.Args = .{};
+      a.add(x);
+      a.add(l.w8);
+-@@ -247,6 +306,33 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
++@@ -248,6 +307,33 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
+      }, s, &a);
+  }
+  
+@@ -342,7 +342,7 @@ index 50704ac..19e8340 100644
+  // ---- host layouts (Fp8BlockLinear.from_checkpoint) ------------------------------------------------------------------
+  
+  /// Fp8BlockLinear.column_scales: fp32 `scale_inv` [ceil(n/128), k/128] -> `out` [n, k/64], each (row, 64 inputs)'s
+-@@ -299,6 +385,12 @@ test "split_k, buckets and shared memory follow qmm.py and qmmf.cu" {
++@@ -300,6 +386,12 @@ test "split_k, buckets and shared memory follow qmm.py and qmmf.cu" {
+      try std.testing.expectEqual(@as(usize, 25600), smem(16));
+      try std.testing.expectEqual(@as(usize, 33792), smem(32));
+      try std.testing.expectEqual(@as(usize, 50176), smem(64));
+@@ -355,7 +355,7 @@ index 50704ac..19e8340 100644
+      try std.testing.expectEqual(@as(usize, 13312), npadOf(13312));
+      try std.testing.expectEqual(@as(usize, 128), npadOf(96));
+      try std.testing.expectEqual(@as(usize, 64), bucket(33));
+-@@ -703,3 +795,170 @@ pub fn fusedCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
++@@ -714,3 +806,170 @@ pub fn fusedCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
+      k.mode = .{};
+      return ok;
+  }
+@@ -527,10 +527,10 @@ index 50704ac..19e8340 100644
+ +    return ok;
+ +}
+ diff --git a/zig/src/families/flashnext/cuda_int4.zig b/zig/src/families/flashnext/cuda_int4.zig
+-index df371de..d12dd0a 100644
++index 0d74d3b..a7033a4 100644
+ --- a/zig/src/families/flashnext/cuda_int4.zig
+ +++ b/zig/src/families/flashnext/cuda_int4.zig
+-@@ -186,6 +186,32 @@ pub fn promptSmem(gs: usize, stages: usize) u32 {
++@@ -186,6 +186,72 @@ pub fn promptSmem(gs: usize, stages: usize) u32 {
+      return @intCast(stages * (64 * gs * 2 + 16 * 32 * (gs / 32) * 4 + 16 * 16));
+  }
+  
+@@ -559,48 +559,98 @@ index df371de..d12dd0a 100644
+ +pub fn promptGuSmem(p: PromptGu) u32 {
+ +    return promptSmemOf(128, 2, promptGuRows(p), promptGuTiles(p), p.stages);
+ +}
+++
+++/// sm_121's (GB10's) opt-in shared memory a block. prompt_gu takes 99,840 of it dynamically and none statically: a
+++/// shape change past the limit fails to compile here; Kernels.load checks the device's own limit (promptGuFits).
+++pub const sm121_smem_optin = 101376;
+++comptime {
+++    std.debug.assert(promptGuSmem(prompt_gu) <= sm121_smem_optin);
+++}
+++
+++/// Whether a block of prompt_gu fits a GPU: its dynamic shared memory plus the kernel's `static` shared memory
+++/// within the device's opt-in limit a block (`optin`). Kernels.load opts the function in only then.
+++pub fn promptGuFits(static: usize, optin: usize) bool {
+++    return promptGuSmem(prompt_gu) + static <= optin;
+++}
+++
+++/// Whether gateUpPrompt takes a call on `ex` (x rows `x_stride` apart, out): the gate/up width a multiple of the
+++/// block's columns (128), K groups of 128, uint4 input rows and weight words, scales and bf16x2 stores aligned.
+++/// promptGu keeps int4_kernel for the rest; gateUpPrompt refuses it.
+++pub fn gateUpPromptFits(ex: Experts, x: u64, x_stride: usize, out: u64) bool {
+++    const cols = 8 * promptGuTiles(prompt_gu);
+++    return ex.width % cols == 0 and ex.dims % 128 == 0 and x_stride % 8 == 0 and x % 16 == 0 and ex.up % 16 == 0 and ex.up_s % 16 == 0 and out % 8 == 0;
+++}
+++
+++test "the prompt gate/up fits sm_121's shared memory, and takes widths of whole column blocks" {
+++    try std.testing.expectEqual(@as(u32, 99840), promptGuSmem(prompt_gu));
+++    try std.testing.expect(promptGuFits(0, sm121_smem_optin));
+++    try std.testing.expect(!promptGuFits(sm121_smem_optin - 99840 + 1, sm121_smem_optin)); // static memory past it
+++    try std.testing.expect(!promptGuFits(0, 99839));
+++    try std.testing.expect(!promptGuFits(0, 49152)); // a 48 KiB GPU
+++    const ex: Experts = .{ .up = 0x1000, .up_s = 0x2000, .width = 640, .dims = 2560 };
+++    try std.testing.expect(gateUpPromptFits(ex, 0x3000, 2560, 0x4000));
+++    var odd = ex;
+++    odd.width = 640 + 64; // half a column block: int4_kernel
+++    try std.testing.expect(!gateUpPromptFits(odd, 0x3000, 2560, 0x4000));
+++    odd = ex;
+++    odd.dims = 2560 + 64; // K not whole groups of 128
+++    try std.testing.expect(!gateUpPromptFits(odd, 0x3000, 2560 + 64, 0x4000));
+++    try std.testing.expect(!gateUpPromptFits(ex, 0x3008, 2560, 0x4000)); // input rows not 16-byte aligned
+++    try std.testing.expect(!gateUpPromptFits(ex, 0x3000, 2564, 0x4000));
+++    try std.testing.expect(!gateUpPromptFits(ex, 0x3000, 2560, 0x4004));
+++}
+ +
+  pub const Kernels = struct {
+      module: cuda.Module,
+      fns: [n_kinds][nts.len][mts.len]cuda.Function,
+-@@ -197,6 +223,11 @@ pub const Kernels = struct {
++@@ -197,6 +263,12 @@ pub const Kernels = struct {
+      /// the row tiles a pass the head (`dense`) takes for calls of more than 16 rows: 2 (TF_FLASHNEXT_HEAD_ROW_TILES=2)
+      /// reads the weights once for 32 rows, 1 takes 16-row items. The same bits either way (int4-head-check).
+      head_mt: usize = 1,
+-+    /// the prompt gate/up (prompt_gu), its resident blocks, and whether prompt calls take it
+-+    /// (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1)
+++    /// the prompt gate/up (prompt_gu), its resident blocks; `pgu_ready`: opted into its shared memory (it fits this
+++    /// GPU, promptGuFits); `pgu`: prompt calls take it (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1 and ready)
+ +    pgu_fn: cuda.Function,
+ +    pgu_blocks: usize,
+++    pgu_ready: bool = false,
+ +    pgu: bool = false,
+  
+      pub fn load(ctx: *const cuda.Context) !Kernels {
+          if (!cuda.kernels.available) return error.BuiltWithoutKernels;
+-@@ -214,6 +245,12 @@ pub const Kernels = struct {
++@@ -214,6 +286,20 @@ pub const Kernels = struct {
+              try k.pdown[g][o].allowDynamicShared(sm);
+              k.pdown_blocks[g][o] = @as(usize, @max(1, try k.pdown[g][o].occupancy(prompt_threads, sm))) * sms;
+          };
+ +        const sm_gu = promptGuSmem(prompt_gu);
+ +        k.pgu_fn = try k.module.function(prompt_gu_symbol);
+-+        try k.pgu_fn.allowDynamicShared(sm_gu);
+-+        k.pgu_blocks = @as(usize, @max(1, try k.pgu_fn.occupancy(@intCast(prompt_gu.wr * prompt_gu.wc * 32), sm_gu))) * sms;
+-+        k.pgu = if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_GATE_UP")) |v| std.mem.eql(u8, std.mem.span(v), "1") else false;
+++        const optin: usize = @intCast(try ctx.attribute(.max_shared_memory_per_block_optin));
+++        const static: usize = @intCast(try k.pgu_fn.attribute(.shared_size_bytes));
+++        k.pgu_ready = promptGuFits(static, optin);
+++        k.pgu_blocks = 0;
+++        if (k.pgu_ready) {
+++            try k.pgu_fn.allowDynamicShared(sm_gu);
+++            k.pgu_blocks = @as(usize, @max(1, try k.pgu_fn.occupancy(@intCast(prompt_gu.wr * prompt_gu.wc * 32), sm_gu))) * sms;
+++        }
+++        const want_pgu = if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_GATE_UP")) |v| std.mem.eql(u8, std.mem.span(v), "1") else false;
+++        k.pgu = want_pgu and k.pgu_ready;
+ +        if (k.pgu) std.log.info("int4 prompt gate/up: int4_prompt_kernel on 64-pair items, {d}x{d} warps, {d}x{d} tiles, {d} stages (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1)", .{ prompt_gu.wr, prompt_gu.wc, prompt_gu.rt, prompt_gu.wn, prompt_gu.stages });
+-         const hm = if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.fmt.parseInt(usize, std.mem.span(v), 10) catch 1 else 1;
+-         k.head_mt = if (hm == 2) 2 else 1;
+++        if (want_pgu and !k.pgu_ready) std.log.warn("int4 prompt gate/up off: a block needs {d} + {d} bytes of shared memory, this GPU allows {d}; int4_kernel kept", .{ sm_gu, static, optin });
++         k.head_mt = try headRowTiles(if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.mem.span(v) else null);
+          std.log.info("int4 lm_head: {s} (TF_FLASHNEXT_HEAD_ROW_TILES={d})", .{ if (k.head_mt == 2) "calls of 17 or more rows in 32-row items" else "16-row items", k.head_mt });
+-@@ -333,6 +370,42 @@ pub fn promptDown(pairs: usize) bool {
++         return k;
++@@ -349,6 +435,44 @@ pub fn promptDown(pairs: usize) bool {
+      return pairs >= prompt_pairs;
+  }
+  
+ +/// The routed gate/up of a prompt call on int4_prompt_kernel (prompt_gu): `gateUp`'s outputs, byte for byte, from a
+ +/// plan whose items hold at most `prompt_tile` (64) pairs. A block is an (item, column block) unit; the grid loops
+-+/// over the units (the same bits at any grid).
+++/// over the units (the same bits at any grid). A call gateUpPromptFits refuses, or a GPU it does not fit
+++/// (`pgu_ready`), is an error: promptGu asks both first.
+ +pub fn gateUpPrompt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, ex: Experts, p: kern.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int) !void {
+ +    const sh = prompt_gu;
+ +    const n: usize = ex.width;
+ +    const kk: usize = ex.dims;
+ +    const cols = 8 * promptGuTiles(sh);
+-+    if (n % cols != 0 or kk % 128 != 0 or x_stride % 8 != 0 or x % 16 != 0 or ex.up % 16 != 0 or ex.up_s % 16 != 0 or out % 8 != 0) return error.Invalid;
+++    if (!k.pgu_ready or !gateUpPromptFits(ex, x, x_stride, out)) return error.Invalid;
+ +    const items = kern.maxItems(rows * plan_slots, plan_experts, prompt_tile);
+ +    const units = items * (n / cols);
+ +    const grid = @min(units, k.pgu_blocks);
+@@ -623,25 +673,26 @@ index df371de..d12dd0a 100644
+ +    try cuda.launch.launch(k.pgu_fn, .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = @intCast(sh.wr * sh.wc * 32) }, .shared = promptGuSmem(sh) }, s, &a);
+ +}
+ +
+-+/// Whether a prompt call of `pairs` routed pairs takes `gateUpPrompt` (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1).
+-+pub fn promptGu(k: *const Kernels, pairs: usize) bool {
+-+    return k.pgu and pairs >= prompt_pairs;
+++/// Whether a prompt call of `pairs` routed pairs takes `gateUpPrompt` (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1, the GPU
+++/// holds its block, gateUpPromptFits); else int4_kernel on 16-pair items, the same bits.
+++pub fn promptGu(k: *const Kernels, pairs: usize, ex: Experts, x: u64, x_stride: usize, out: u64) bool {
+++    return k.pgu and pairs >= prompt_pairs and gateUpPromptFits(ex, x, x_stride, out);
+ +}
+ +
+  /// A dense matmul (the head): x [rows, k] -> out [rows, n] bf16 (or fp32), rows `x_stride` apart.
+  pub fn dense(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, m: Mat, out: u64, f32_out: bool, rows: usize) !void {
+      try denseNt(k, s, x, x_stride, m, out, f32_out, rows, null);
+ diff --git a/zig/src/families/flashnext/cuda_int4_check.zig b/zig/src/families/flashnext/cuda_int4_check.zig
+-index ec4ac15..dae1b4a 100644
++index bbc139a..b127c9b 100644
+ --- a/zig/src/families/flashnext/cuda_int4_check.zig
+ +++ b/zig/src/families/flashnext/cuda_int4_check.zig
+ @@ -408,6 +408,28 @@ fn checkExperts(gpa: Allocator, k: *const int4.Kernels, ops: kern.Ops, dv: *Dev,
+                  break;
+              }
+          }
+-+        // the prompt gate/up (int4_prompt_kernel, when its column block divides the width) on the same 64-pair items:
+-+        // bf16 SwiGLU bytes equal to int4_kernel's, the shared slot's sentinel kept
+-+        if (ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+++        // the prompt gate/up (int4_prompt_kernel, when its column block divides the width and its block fits the
+++        // GPU) on the same 64-pair items: bf16 SwiGLU bytes equal to int4_kernel's, the shared slot's sentinel kept
+++        if (k.pgu_ready and ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+ +            const agp = try dv.zeros(pairs * ni * 2);
+ +            const agph = try gpa.alloc(u16, pairs * ni);
+ +            defer gpa.free(agph);
+@@ -669,7 +720,7 @@ index ec4ac15..dae1b4a 100644
+                      }
+                  }.f);
+ +                // the prompt gate/up on the same 64-pair items (when its column block divides the width)
+-+                if (ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+++                if (k.pgu_ready and ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+ +                    const Cg = struct { k: *const int4.Kernels, s: cuda.Stream, x: u64, ex: int4.Experts, pl: kern.Plan, slots: usize, E: usize, act: u64, R: usize };
+ +                    const tg = try timeIt(s, d, 5, Cg{ .k = k, .s = s, .x = x, .ex = ex, .pl = pl64, .slots = slots, .E = E, .act = act, .R = R }, struct {
+ +                        fn f(c: Cg) anyerror!void {

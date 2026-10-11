@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 16da5a3..a3bbe3d 100644
+index 16da5a3..22333b0 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -3,6 +3,12 @@
+@@ -3,6 +3,13 @@
  Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:zig-db28187`, built by
  `scripts/prepare.sh` from TensorFold `db281878` plus `patches/`.
  
@@ -10,7 +10,8 @@ index 16da5a3..a3bbe3d 100644
 +
 +- `patches/0022-flash-next-readout-12bit-weights` and `TF_FLASHNEXT_HC_Q12=1` (the default; `0`: the bf16 kernels):
 +  decode read-outs read a lossless 12-bit copy of their weights (0.77 of the bf16 bytes, built at load, +0.97 GB).
-+  Decode +2.6% code and +3.7% prose at 1 client, +2.3% prose at 2; every reply byte-identical (`hc-check`).
++  Decode +2.6% code and +3.7% prose at 1 client, +2.3% prose at 2; every reply byte-identical (`hc-check`). Only where the fused read-out tail gave the kernel set's bytes at load; the start's memory check counts the
++  copy (+1 GiB).
 +
  ## [1.0.0] - 2026-10-08
  
@@ -60,10 +61,10 @@ index 9b71561..d58855b 100644
  
 diff --git a/patches/0022-flash-next-readout-12bit-weights.patch b/patches/0022-flash-next-readout-12bit-weights.patch
 new file mode 100644
-index 0000000..752f6c6
+index 0000000..bab3efb
 --- /dev/null
 +++ b/patches/0022-flash-next-readout-12bit-weights.patch
-@@ -0,0 +1,1049 @@
+@@ -0,0 +1,1190 @@
 +diff --git a/zig/kernels/cuda/torch_ops/fn_ops.cu b/zig/kernels/cuda/torch_ops/fn_ops.cu
 +index 14484f0..a52a597 100644
 +--- a/zig/kernels/cuda/torch_ops/fn_ops.cu
@@ -429,10 +430,10 @@ index 0000000..752f6c6
 ++        if (flags >> j & 1) esc[at++] = ((16u * lane + j) << 16) | v[j];
 ++}
 +diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
-+index 730e4c5..38f9e7b 100644
++index 2147cbd..e27f0fa 100644
 +--- a/zig/src/cli/flashnext_cuda.zig
 ++++ b/zig/src/cli/flashnext_cuda.zig
-+@@ -53,6 +53,8 @@ const usage =
++@@ -60,6 +60,8 @@ const usage =
 +     \\           against 16-row items and 1-row calls, bytes compared, then both timed)
 +     \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
 +     \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
@@ -441,7 +442,7 @@ index 0000000..752f6c6
 +     \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
 +     \\           (each captured prompt's greedy serial reply written to OUT.json; with REF.json, another run's replies
 +     \\           teacher-forced: the top-1 agreement of this engine's greedy draws with them, and where the free
-+@@ -297,6 +299,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++@@ -304,6 +306,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
 +     if (std.mem.eql(u8, cmd, "qsa-check")) return qsaCheck(gpa, init.io, &ctx, kernels);
 +     if (std.mem.eql(u8, cmd, "fp4-check")) return fp4Check(gpa, init.io, &ctx, kernels, o);
 +     if (std.mem.eql(u8, cmd, "glue-check")) return glueCheck(gpa, init.io, &ctx, kernels);
@@ -449,7 +450,7 @@ index 0000000..752f6c6
 +     if (std.mem.eql(u8, cmd, "draft-check")) return draftCheck(gpa, &ctx, o);
 +     const mtp = !std.mem.eql(u8, cmd, "check-weights-nomtp");
 +     // two ranks: both run the same command (every engine call in the same order), rank 0 listening on --master
-+@@ -1669,6 +1672,21 @@ fn benchMany(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
++@@ -1902,6 +1905,21 @@ fn benchMany(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
 +     return 0;
 + }
 + 
@@ -484,10 +485,32 @@ index 0000000..752f6c6
 + pub const prompt = @import("cuda_prompt.zig");
 + pub const fp4_serial = @import("cuda_fp4_serial.zig");
 +diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
-+index 4cceb3f..98c1e6b 100644
++index c4ffd0c..cf3e8ff 100644
 +--- a/zig/src/families/flashnext/cuda_engine.zig
 ++++ b/zig/src/families/flashnext/cuda_engine.zig
-+@@ -332,6 +332,8 @@ pub const Engine = struct {
++@@ -311,6 +311,21 @@ fn envOff(name: [:0]const u8) bool {
++     return std.mem.eql(u8, v, "0") or std.mem.eql(u8, v, "off");
++ }
++ 
+++/// TF_FLASHNEXT_HC_Q12 (`setting`) asks for the read-outs' 12-bit copies (set and not "0"), and they may run: the q12
+++/// down's reduce + act is tf_fn_hc_reduce_act_kernel's code, so only where it gave the loaded kernel set's bytes at
+++/// load (`act_exact`; one GPU). Otherwise the bf16 read-outs, and no copy is built (0.97 GB).
+++fn hcQ12On(setting: ?[]const u8, act_exact: bool) bool {
+++    const v = setting orelse return false;
+++    return !std.mem.eql(u8, v, "0") and act_exact;
+++}
+++
+++test "HC_Q12 builds the 12-bit copies only where the fused read-out tail matched the kernel set" {
+++    try std.testing.expect(hcQ12On("1", true));
+++    try std.testing.expect(!hcQ12On("1", false));
+++    try std.testing.expect(!hcQ12On("0", true));
+++    try std.testing.expect(!hcQ12On(null, true));
+++}
+++
++ /// A count setting: null when unset; a value that is not a count is refused (error.BadSetting, logged with its
++ /// name), never read as the default.
++ pub fn envCount(name: [:0]const u8) !?usize {
++@@ -372,6 +387,8 @@ pub const Engine = struct {
 +     draws: ?mtp.Draws = null,
 +     /// decode D5: the MTP head's matrices in 4-bit (TF_FLASHNEXT_MTP_Q4=1), drafts only
 +     mtpq: ?@import("cuda_mtp_q4.zig").Table = null,
@@ -496,22 +519,24 @@ index 0000000..752f6c6
 +     /// host copy of the draft ids (this rank's), column -> token
 +     draft_host: []u32 = &.{},
 +     /// sampling scratch, the prompt's last logits and gathered candidates, the draft read-back
-+@@ -636,6 +638,14 @@ pub const Engine = struct {
++@@ -690,6 +707,16 @@ pub const Engine = struct {
 +             std.log.info("MTP head in 4-bit for the drafts: {d} matrices, {d:.1} -> {d:.1} MB", .{ e.mtpq.?.n, @as(f64, @floatFromInt(e.mtpq.?.bytes_bf16)) / 1e6, @as(f64, @floatFromInt(e.mtpq.?.bytes_q4)) / 1e6 });
 +         };
 +         errdefer if (e.mtpq) |*t| t.deinit();
 ++        // decode read-outs' down/up matrices from a lossless 12-bit copy (cuda_hc_q12.zig; the Triton kernels'
-++        // bytes, hc-check), built from the loaded bf16 rows
-++        if (envGet("TF_FLASHNEXT_HC_Q12")) |v| if (!std.mem.eql(u8, v, "0") and o.comm == null) {
+++        // bytes, hc-check), built from the loaded bf16 rows; only with `act_exact` (hcQ12On)
+++        if (hcQ12On(envGet("TF_FLASHNEXT_HC_Q12"), e.f.act_exact)) {
 ++            e.hcq = try @import("cuda_hc_q12.zig").Table.build(gpa, d, e.torch.on(e.stream), &e.w);
 ++            e.f.hc_q12 = &e.hcq.?;
 ++            std.log.info("hc q12: decode read-outs from 12-bit copies: {d} matrices, {d:.1} -> {d:.1} MB, {d} escapes", .{ e.hcq.?.map.count(), @as(f64, @floatFromInt(e.hcq.?.bytes_bf16)) / 1e6, @as(f64, @floatFromInt(e.hcq.?.bytes_q12)) / 1e6, e.hcq.?.escapes });
-++        };
+++        } else if (hcQ12On(envGet("TF_FLASHNEXT_HC_Q12"), true) and o.comm == null) {
+++            std.log.warn("hc q12 off: tf_fn_hc_reduce_act_kernel differs from this kernel set's _reduce + _hc_act (the q12 down runs it); the bf16 read-outs kept", .{});
+++        }
 ++        errdefer if (e.hcq) |*t| t.deinit(gpa);
 +         // sampling scratch: the main head's rows and the draft head's one row
-+         const draft_n: usize = if (e.w.draft_head) |q| q.n else e.g.head_n;
++         const draft_n: usize = e.w.draftColumns() orelse e.g.head_n;
 +         const main_sz = try sampleSizes(&e.torch.f, &.{ .{ state.max_rows, e.g.head_n, max_k }, .{ 1, e.g.head_n, max_k }, .{ rows, e.g.head_n, state.cand }, .{ 1, draft_n, state.cand }, .{ rows, draft_n, state.cand } });
-+@@ -740,6 +750,7 @@ pub const Engine = struct {
++@@ -794,6 +821,7 @@ pub const Engine = struct {
 +         if (e.k8) |*q| q.deinit();
 +         if (e.k4) |*q| q.deinit();
 +         if (e.mtpq) |*t| t.deinit();
@@ -520,20 +545,20 @@ index 0000000..752f6c6
 +         if (e.f.cs) |*cs| {
 +             cs.synchronize() catch {};
 +diff --git a/zig/src/families/flashnext/cuda_forward.zig b/zig/src/families/flashnext/cuda_forward.zig
-+index 8dc5135..bde5aa0 100644
++index ff2da12..790c455 100644
 +--- a/zig/src/families/flashnext/cuda_forward.zig
 ++++ b/zig/src/families/flashnext/cuda_forward.zig
-+@@ -552,6 +552,9 @@ pub const Forward = struct {
-+     /// on unless TF_FLASHNEXT_REDUCE_ACT=0: decode read-outs' `_reduce` + `_hc_act` as one fn_ops kernel
-+     /// (`reduceActTakes`)
-+     reduce_act: bool = false,
++@@ -558,6 +558,9 @@ pub const Forward = struct {
++     /// tf_fn_hc_reduce_act_kernel gave the loaded kernel set's `_reduce` + `_hc_act` bytes at load (one GPU;
++     /// cuda_prompt.zig reduceActAgrees): the fused read-out tails may run
++     act_exact: bool = false,
 ++    /// TF_FLASHNEXT_HC_Q12=1: the layers' read-out matrices' lossless 12-bit copies; decode windows run
 ++    /// their down (+ reduce + act) and up (+ mix) from them (`q12Down` / `q12Up`), with the Triton kernels' bytes
 ++    hc_q12: ?*const @import("cuda_hc_q12.zig").Table = null,
 +     /// on unless TF_FLASHNEXT_WB_NORM=0: prompt chunks' write-back and norm in one pass (`_hc_wb_norm`)
 +     wb_norm: bool = false,
 +     /// two ranks, split prompt glue: the exchanges run on this stream beside the next rows' work (TF_FLASHNEXT_OVERLAP)
-+@@ -1391,6 +1394,38 @@ pub const Forward = struct {
++@@ -1400,6 +1403,41 @@ pub const Forward = struct {
 +         return if (inject != null) ndn == g.low + g.streams else ndn == g.low;
 +     }
 + 
@@ -547,15 +572,18 @@ index 0000000..752f6c6
 ++    /// the down matrix's q12 copy when a read-out's down projection runs from it (tops.Torch.hcDownQ12: the
 ++    /// split `_b16mm` + tf_fn_hc_reduce_act_kernel's bytes): one GPU, a decode window of <= q12_down_rows rows, slices of 320 K,
 ++    /// no 4-bit MTP matrices (readers of act's 32-group sums), inject rows exactly when the caller asks for the gates,
-++    /// no launch recorder.
+++    /// no launch recorder, the partials inside `part`, and operands tops.q12DownTakes takes (alignment, the counters'
+++    /// column groups when the reduce runs in the same launch); anything else keeps the kernel set's launches.
 ++    fn q12Down(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, R: usize, inject: ?u64) ?tops.Q12 {
 ++        const t = f.hc_q12 orelse return null;
 ++        if (b.prefill or f.comm != null or f.mtp_q4 != null or f.t.rec != null or R > q12_down_rows or hc.down8 != null) return null;
 ++        const g = f.g;
 ++        const ndn: usize = hc.down.n;
-++        if (!std.math.isPowerOfTwo(g.streams) or tri.b16SplitK(ndn, hc.down.k) * 320 != hc.down.k) return null;
+++        if (tri.b16SplitK(ndn, hc.down.k) * 320 != hc.down.k) return null;
 ++        if (if (inject != null) ndn != g.low + g.streams else ndn != g.low) return null;
-++        return t.find(hc.down.weight);
+++        if (tri.b16PartBytes(R, ndn, hc.down.k) > f.sc.part_len) return null;
+++        const q = t.find(hc.down.weight) orelse return null;
+++        return if (tops.q12DownTakes(q, b.normed, g.wide(), g.low, g.streams, R <= q12_fuse_rows)) q else null;
 ++    }
 ++
 ++    /// the up matrix's q12 copy when a layer read-out's up projection and mix run from it
@@ -572,7 +600,7 @@ index 0000000..752f6c6
 +     /// Whether this write-back also makes the read-out's normed rows (`_hc_wb_norm`): prompt chunks, no 4-bit MTP
 +     /// matrices (the only readers of normed's 32-group sums), and a branch the kernel set has an entry for.
 +     fn fusesNorm(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, pending: ?Pending) bool {
-+@@ -1427,6 +1462,16 @@ pub const Forward = struct {
++@@ -1436,6 +1474,16 @@ pub const Forward = struct {
 +                 try f.th.slotCopy(f.sc.pb, hc.down.n * 4, f.sc.dn + d8.n * 4, dn_n * 4, hc.down.n * 4, R);
 +             }
 +             try f.mark(.hc_down);
@@ -589,7 +617,7 @@ index 0000000..752f6c6
 +         } else if (f.reduceActTakes(hc, b, R, inject)) {
 +             // a decode window's down projection as its K slices, then `_reduce` and `_hc_act` in one launch
 +             // (fn_ops.cu tf_fn_hc_reduce_act_kernel: their bits; no 32-group sums of act, read only by mtp_q4)
-+@@ -1446,6 +1491,11 @@ pub const Forward = struct {
++@@ -1455,6 +1503,11 @@ pub const Forward = struct {
 +         // prompt chunks, and with `upmix_decode` a decode window's layer read-outs past one row (the kernel set has
 +         // no M == 1 variant: Triton folds a 1): the up projection and the mix in one pass (cuda_prompt.zig upMix, the
 +         // same mixed bytes; no 32-group sums of mixed, which only the 4-bit MTP draft matrices read)
@@ -603,10 +631,10 @@ index 0000000..752f6c6
 +             try prompt.upMix(f.t, b.act, hc.up.weight, b.normed, mixed, R, g.hidden, g.streams, g.low, if (b.prefill) 64 else 32);
 +diff --git a/zig/src/families/flashnext/cuda_hc_q12.zig b/zig/src/families/flashnext/cuda_hc_q12.zig
 +new file mode 100644
-+index 0000000..1f005ab
++index 0000000..8c74471
 +--- /dev/null
 ++++ b/zig/src/families/flashnext/cuda_hc_q12.zig
-+@@ -0,0 +1,374 @@
++@@ -0,0 +1,458 @@
 ++//! The main layers' hyper-connection read-out matrices (each layer's attention and MLP `down` [low (+ the
 ++//! streams' inject rows), wide] and `up` [wide, low], bf16 in the checkpoint) in a lossless 12-bit copy for decode
 ++//! windows (TF_FLASHNEXT_HC_Q12=1). Per (row, 64 k) the maximum exponent `base`; per weight its sign|mantissa byte
@@ -626,8 +654,8 @@ index 0000000..752f6c6
 ++
 ++const Allocator = std.mem.Allocator;
 ++
-++/// The down kernel's column groups (4 tiles of 8 columns) for the widest down matrix it takes, with room.
-++pub const max_groups = 64;
+++/// The down kernel's column groups (4 tiles of 8 columns): tops.q12DownTakes refuses a fused launch with more.
+++pub const max_groups = tops.q12_max_groups;
 ++
 ++fn alignUp(v: usize) usize {
 ++    return (v + 255) / 256 * 256;
@@ -659,6 +687,18 @@ index 0000000..752f6c6
 ++    /// Every main layer's attention and MLP read-out down and up matrices of `w` (the MTP layer and the final
 ++    /// mixer keep bf16: the head's 4-bit draft matrices read the mixer's 32-group sums, the copy writes none).
 ++    pub fn build(gpa: Allocator, d: *const cuda.Driver, th: tops.Torch, w: *const W.Weights) !Table {
+++        var rows: std.ArrayList(W.Rows) = .empty;
+++        defer rows.deinit(gpa);
+++        for (w.layers) |l| for ([_]*const W.Hc{ &l.attn_hc, &l.mlp_hc }) |hc| {
+++            if (hc.down8 == null) try rows.append(gpa, hc.down);
+++            if (hc.up8 == null) try rows.append(gpa, hc.up);
+++        };
+++        return fromRows(gpa, d, th, rows.items);
+++    }
+++
+++    /// The table of `rows`' q12 copies and the zeroed counters (build; hc-check's matrices). On an error every device
+++    /// buffer it allocated is freed once (hc-check's allocation failure pass).
+++    pub fn fromRows(gpa: Allocator, d: *const cuda.Driver, th: tops.Torch, rows: []const W.Rows) !Table {
 ++        var t: Table = .{};
 ++        errdefer t.deinit(gpa);
 ++        t.counters = try cuda.DeviceBuffer.alloc(d, max_groups * 4);
@@ -668,13 +708,12 @@ index 0000000..752f6c6
 ++        defer counts.free();
 ++        var host: std.ArrayList(u32) = .empty;
 ++        defer host.deinit(gpa);
-++        for (w.layers) |l| for ([_]*const W.Hc{ &l.attn_hc, &l.mlp_hc }) |hc| {
-++            if (hc.down8 == null) try t.add(gpa, d, th, hc.down, &counts, &host);
-++            if (hc.up8 == null) try t.add(gpa, d, th, hc.up, &counts, &host);
-++        };
+++        for (rows) |r| try t.add(gpa, d, th, r, &counts, &host);
 ++        return t;
 ++    }
 ++
+++    /// The q12 copy of `r` into the table. On an error the table holds what it held before and `counts` is still one
+++    /// live buffer (build frees it once).
 ++    pub fn add(t: *Table, gpa: Allocator, d: *const cuda.Driver, th: tops.Torch, r: W.Rows, counts: *cuda.DeviceBuffer, host: *std.ArrayList(u32)) !void {
 ++        if (r.weight == 0 or r.n == 0 or t.map.contains(r.weight)) return;
 ++        const n: usize = r.n;
@@ -682,8 +721,10 @@ index 0000000..752f6c6
 ++        if (k % 64 != 0) return error.HcQ12Shape;
 ++        const blocks = (n + 7) / 8 * (k / 64);
 ++        if (counts.len < blocks * 4) {
+++            // the larger buffer first: a failed allocation leaves the old one for build's free
+++            const bigger = try cuda.DeviceBuffer.alloc(d, blocks * 4);
 ++            counts.free();
-++            counts.* = try cuda.DeviceBuffer.alloc(d, blocks * 4);
+++            counts.* = bigger;
 ++        }
 ++        var q: tops.Q12 = .{ .n = n, .k = k };
 ++        try th.hcQ12Pack(r.weight, counts.ptr, q, false);
@@ -702,6 +743,10 @@ index 0000000..752f6c6
 ++        const base_b = alignUp(blocks * 8);
 ++        const off_b = alignUp((blocks + 1) * 4);
 ++        const esc_b = alignUp(@max(sum, 1) * 4);
+++        // room in the list and the map first, so nothing after the allocation fails but the GPU work, and on that
+++        // the buffer is freed here and in neither container (Table.deinit frees the list's)
+++        try t.bufs.ensureUnusedCapacity(gpa, 1);
+++        try t.map.ensureUnusedCapacity(gpa, 1);
 ++        var buf = try cuda.DeviceBuffer.alloc(d, sm_b + ex_b + base_b + off_b + esc_b);
 ++        errdefer buf.free();
 ++        q.sm = buf.ptr;
@@ -712,8 +757,8 @@ index 0000000..752f6c6
 ++        try buf.upload(sm_b + ex_b + base_b, std.mem.sliceAsBytes(host.items));
 ++        try th.hcQ12Pack(r.weight, counts.ptr, q, true);
 ++        try th.s.synchronize();
-++        try t.bufs.append(gpa, buf);
-++        try t.map.put(gpa, r.weight, q);
+++        t.bufs.appendAssumeCapacity(buf);
+++        t.map.putAssumeCapacityNoClobber(r.weight, q);
 ++        t.bytes_bf16 += n * k * 2;
 ++        t.bytes_q12 += blocks * (32 * 16 + 32 * 8 + 8 + 4) + sum * 4;
 ++        t.escapes += sum;
@@ -759,8 +804,8 @@ index 0000000..752f6c6
 ++/// `hc-check` (no checkpoint): the q12 down (+ reduce + act) and up (+ mix) against the kernel set's split `_b16mm`
 ++/// + tf_fn_hc_reduce_act_kernel and `_hc_up_mix` (rows > 1) / `_b16mm` + `_hc_mix` (one row): partial, act, inject
 ++/// and mixed bytes at 1-128 rows, inject rows and none, on weights with exponents over 44 binades (escapes) and on
-++/// every bf16 bit pattern; the reversed-chunk mutant must differ; then both timed at decode widths over rotating
-++/// weight copies (no L2 reuse), eager, back to back.
+++/// every bf16 bit pattern; the reversed-chunk mutant must differ; the table's allocation failure pass (allocCheck);
+++/// then both timed at decode widths over rotating weight copies (no L2 reuse), eager, back to back.
 ++pub fn check(gpa: Allocator, d: *const cuda.Driver, t: tri.Tri, th0: tops.Torch) !bool {
 ++    const S: usize = 4;
 ++    const LOW: usize = 320;
@@ -805,18 +850,8 @@ index 0000000..752f6c6
 ++        // wd2: the first LOW rows of wd at its own address (the no-inject matrix: the table is keyed by address)
 ++        try d.check(d.api.cuMemcpyDtoD_v2(wd2.ptr, wd.ptr, LOW * K * 2), "cuMemcpyDtoD");
 ++        try fillBf16(gpa, wu, WIDE * LOW, r, wf);
-++        var tab: Table = .{};
+++        var tab = try Table.fromRows(gpa, d, th, &.{ .{ .weight = wd.ptr, .n = NDN, .k = K }, .{ .weight = wd2.ptr, .n = LOW, .k = K }, .{ .weight = wu.ptr, .n = WIDE, .k = LOW } });
 ++        defer tab.deinit(gpa);
-++        tab.counters = try cuda.DeviceBuffer.alloc(d, max_groups * 4);
-++        tab.have_counters = true;
-++        try tab.counters.fill8(0, null);
-++        {
-++            var counts = try cuda.DeviceBuffer.alloc(d, 4);
-++            defer counts.free();
-++            var host: std.ArrayList(u32) = .empty;
-++            defer host.deinit(gpa);
-++            for ([_]W.Rows{ .{ .weight = wd.ptr, .n = NDN, .k = K }, .{ .weight = wd2.ptr, .n = LOW, .k = K }, .{ .weight = wu.ptr, .n = WIDE, .k = LOW } }) |rows| try tab.add(gpa, d, th, rows, &counts, &host);
-++        }
 ++        const qd = tab.find(wd.ptr).?;
 ++        const qd2 = tab.find(wd2.ptr).?;
 ++        const qu = tab.find(wu.ptr).?;
@@ -882,8 +917,93 @@ index 0000000..752f6c6
 ++    }
 ++    std.debug.print("{s} hc q12: {d} cases (down + reduce + act against the split _b16mm + tf_fn_hc_reduce_act_kernel; up + mix against _hc_up_mix / _b16mm + _hc_mix), mutant killed {d} of {d}\n", .{ if (all) "EQUAL" else "DIFFER", cases, killed, mut_cases });
 ++    if (killed == 0) all = false;
+++    if (!try allocCheck(gpa, d, th)) all = false;
 ++    try timing(gpa, d, t, th);
 ++    return all;
+++}
+++
+++/// `hc-check`'s allocation failure pass: Table.fromRows with each host allocation failing in turn, then each device
+++/// allocation (cuMemAlloc / cuMemFree hooked in a copy of the driver), until a run reaches no failure point. Every
+++/// run must return OutOfMemory / OutOfDeviceMemory exactly when a failure was injected (else a whole table), free each
+++/// device buffer it allocated once, and free none twice. Three matrices; the third takes a larger escape-count buffer
+++/// than the first two (the path that replaces it).
+++fn allocCheck(gpa: Allocator, d: *const cuda.Driver, th: tops.Torch) !bool {
+++    const abi = cuda.abi;
+++    const Hook = struct {
+++        var real_alloc: @FieldType(abi.Api, "cuMemAlloc_v2") = undefined;
+++        var real_free: @FieldType(abi.Api, "cuMemFree_v2") = undefined;
+++        var live: [64]abi.DevicePtr = undefined;
+++        var n_live: usize = 0;
+++        var twice: usize = 0;
+++        var calls: usize = 0;
+++        var fail_at: usize = 0;
+++        fn alloc(p: *abi.DevicePtr, len: usize) callconv(.c) abi.Result {
+++            calls += 1;
+++            if (calls == fail_at or n_live == live.len) return 2; // CUDA_ERROR_OUT_OF_MEMORY
+++            const res = real_alloc(p, len);
+++            if (res == abi.success) {
+++                live[n_live] = p.*;
+++                n_live += 1;
+++            }
+++            return res;
+++        }
+++        fn free(p: abi.DevicePtr) callconv(.c) abi.Result {
+++            for (live[0..n_live], 0..) |v, i| if (v == p) {
+++                live[i] = live[n_live - 1];
+++                n_live -= 1;
+++                return real_free(p);
+++            };
+++            twice += 1;
+++            return 1; // CUDA_ERROR_INVALID_VALUE: not a live allocation (already freed)
+++        }
+++    };
+++    Hook.real_alloc = d.api.cuMemAlloc_v2;
+++    Hook.real_free = d.api.cuMemFree_v2;
+++    var dd = d.*;
+++    dd.api.cuMemAlloc_v2 = &Hook.alloc;
+++    dd.api.cuMemFree_v2 = &Hook.free;
+++    const shapes = [3][2]usize{ .{ 16, 640 }, .{ 8, 640 }, .{ 64, 1280 } };
+++    var w: [3]cuda.DeviceBuffer = undefined;
+++    var rows: [3]W.Rows = undefined;
+++    var prng = std.Random.DefaultPrng.init(0xa110c);
+++    for (&w, &rows, shapes, 0..) |*b, *r, s, i| {
+++        errdefer for (w[0..i]) |*o| o.free();
+++        b.* = try cuda.DeviceBuffer.alloc(d, s[0] * s[1] * 2);
+++        try fillBf16(gpa, b.*, s[0] * s[1], prng.random(), .wide);
+++        r.* = .{ .weight = b.ptr, .n = @intCast(s[0]), .k = @intCast(s[1]) };
+++    }
+++    defer for (&w) |*b| b.free();
+++    var runs: usize = 0;
+++    var bad: usize = 0;
+++    for ([_]bool{ false, true }) |device| {
+++        var i: usize = 0;
+++        while (true) : (i += 1) {
+++            Hook.calls = 0;
+++            Hook.fail_at = if (device) i + 1 else 0;
+++            Hook.twice = 0;
+++            Hook.n_live = 0;
+++            var fa = std.testing.FailingAllocator.init(gpa, .{ .fail_index = if (device) std.math.maxInt(usize) else i });
+++            const a = fa.allocator();
+++            var ok = true;
+++            if (Table.fromRows(a, &dd, th, &rows)) |built| {
+++                var tab = built;
+++                tab.deinit(a);
+++                if (fa.has_induced_failure or (device and Hook.calls >= Hook.fail_at)) ok = false;
+++            } else |err| {
+++                if (err != error.OutOfMemory and err != error.OutOfDeviceMemory) ok = false;
+++            }
+++            const injected = if (device) Hook.calls >= Hook.fail_at else fa.has_induced_failure;
+++            if (Hook.twice != 0 or Hook.n_live != 0) ok = false;
+++            runs += 1;
+++            if (!ok) {
+++                bad += 1;
+++                std.debug.print("DIFFER hc q12 table: {s} allocation {d} failing: {d} buffers freed twice, {d} not freed\n", .{ if (device) "device" else "host", i + 1, Hook.twice, Hook.n_live });
+++            }
+++            if (!injected) break;
+++        }
+++    }
+++    std.debug.print("{s} hc q12 table allocation failures: {d} runs, {d} wrong\n", .{ if (bad == 0) "EQUAL" else "DIFFER", runs, bad });
+++    return bad == 0;
 ++}
 ++
 ++/// Decode-width timing: NC read-outs over distinct weight copies (> 3x L2), the kernel set's down + reduce-act +
@@ -911,21 +1031,13 @@ index 0000000..752f6c6
 ++        a.free();
 ++        b.free();
 ++    };
-++    var tab: Table = .{};
-++    defer tab.deinit(gpa);
-++    tab.counters = try cuda.DeviceBuffer.alloc(d, max_groups * 4);
-++    tab.have_counters = true;
-++    try tab.counters.fill8(0, null);
-++    {
-++        var counts = try cuda.DeviceBuffer.alloc(d, 4);
-++        defer counts.free();
-++        var host: std.ArrayList(u32) = .empty;
-++        defer host.deinit(gpa);
-++        for (wd, wu) |a, b| {
-++            try tab.add(gpa, d, th, .{ .weight = a.ptr, .n = NDN, .k = K }, &counts, &host);
-++            try tab.add(gpa, d, th, .{ .weight = b.ptr, .n = WIDE, .k = LOW }, &counts, &host);
-++        }
+++    var rows: [2 * NC]W.Rows = undefined;
+++    for (wd, wu, 0..) |a, b, i| {
+++        rows[2 * i] = .{ .weight = a.ptr, .n = NDN, .k = K };
+++        rows[2 * i + 1] = .{ .weight = b.ptr, .n = WIDE, .k = LOW };
 ++    }
+++    var tab = try Table.fromRows(gpa, d, th, &rows);
+++    defer tab.deinit(gpa);
 ++    const max_m = 16;
 ++    var x = try cuda.DeviceBuffer.alloc(d, max_m * K * 2);
 ++    defer x.free();
@@ -982,7 +1094,7 @@ index 0000000..752f6c6
 ++    }
 ++}
 +diff --git a/zig/src/families/flashnext/cuda_torch_ops.zig b/zig/src/families/flashnext/cuda_torch_ops.zig
-+index 3ea3baa..942058c 100644
++index 3ea3baa..62c4f25 100644
 +--- a/zig/src/families/flashnext/cuda_torch_ops.zig
 ++++ b/zig/src/families/flashnext/cuda_torch_ops.zig
 +@@ -65,6 +65,11 @@ pub const Functions = struct {
@@ -997,7 +1109,7 @@ index 0000000..752f6c6
 +     lse: Lse,
 + 
 +     pub fn resolve(m: []const cuda.Module) !Functions {
-+@@ -91,11 +96,35 @@ pub const Functions = struct {
++@@ -91,11 +96,64 @@ pub const Functions = struct {
 +             .nucleus_mass = try m[i(.ops)].function("tf_fn_nucleus_mass_kernel"),
 +             .fp4_serial = try m[i(.ops)].function("tf_fn_fp4_serial_kernel"),
 +             .hc_reduce_act = try m[i(.ops)].function("tf_fn_hc_reduce_act_kernel"),
@@ -1030,10 +1142,39 @@ index 0000000..752f6c6
 ++    }
 ++};
 ++
+++/// The down kernel's last-CTA counters (cuda_hc_q12.zig Table.counters): one word a column group (4 tiles of 8
+++/// columns), so a fused down launch takes at most this many groups (ndn <= 2048).
+++pub const q12_max_groups = 64;
+++
+++/// Whether tf_fn_hc_down_q12_kernel takes these operands (`hcDownQ12` refuses the rest, `Forward.q12Down` falls back
+++/// to the kernel set): K slices of 320, at most 32 of them; a power-of-two stream count; n >= low; x 16-byte aligned
+++/// with rows a multiple of 8 elements apart (the kernel stages x with 16-byte cp.async); with `counters` (the reduce
+++/// and act in the same launch) at most q12_max_groups column groups.
+++pub fn q12DownTakes(q: Q12, x: u64, x_stride: usize, low: usize, streams: usize, counters: bool) bool {
+++    if (q.k % 320 != 0 or q.k / 320 > 32 or !std.math.isPowerOfTwo(streams) or q.n < low) return false;
+++    if (x % 16 != 0 or x_stride % 8 != 0) return false;
+++    return !counters or ((q.n + 7) / 8 + 3) / 4 <= q12_max_groups;
+++}
+++
+++test "q12DownTakes: K slices, alignment, counters" {
+++    const q: Q12 = .{ .n = 324, .k = 10240 };
+++    try std.testing.expect(q12DownTakes(q, 0x1000, 10240, 320, 4, true));
+++    try std.testing.expect(!q12DownTakes(q, 0x1008, 10240, 320, 4, true)); // x not 16-byte aligned
+++    try std.testing.expect(!q12DownTakes(q, 0x1000, 10244, 320, 4, true)); // rows 8 bytes off
+++    try std.testing.expect(!q12DownTakes(q, 0x1000, 10240, 320, 3, true)); // streams not a power of two
+++    try std.testing.expect(!q12DownTakes(.{ .n = 324, .k = 10240 + 64 }, 0x1000, 10240, 320, 4, true)); // K not 320s
+++    try std.testing.expect(!q12DownTakes(.{ .n = 324, .k = 33 * 320 }, 0x1000, 33 * 320, 320, 4, true)); // 33 slices
+++    try std.testing.expect(!q12DownTakes(q, 0x1000, 10240, 325, 4, true)); // n < low
+++    // 2048 columns are 64 groups: the counters' words; one more column is a 65th group, partials-only still takes it
+++    try std.testing.expect(q12DownTakes(.{ .n = 2048, .k = 10240 }, 0x1000, 10240, 320, 4, true));
+++    try std.testing.expect(!q12DownTakes(.{ .n = 2049, .k = 10240 }, 0x1000, 10240, 320, 4, true));
+++    try std.testing.expect(q12DownTakes(.{ .n = 2049, .k = 10240 }, 0x1000, 10240, 320, 4, false));
+++}
+++
 + /// fn_logsumexp.cu: torch.logsumexp(x, dim=-1, keepdim=True) on contiguous fp32 rows in ATen's reduction order:
 + /// the row maxima (|max| == inf -> 0), the exp(x - max) sum by ATen's reduce config for (rows, n) on this device,
 + /// its per-CTA partials folded, then log(sum) + max. The config needs n >= 128 and rows <= 65535.
-+@@ -225,6 +254,10 @@ pub const Torch = struct {
++@@ -225,6 +283,10 @@ pub const Torch = struct {
 +         try cuda.launch.launch(f, .{ .grid = .{ .x = @intCast(grid[0]), .y = @intCast(grid[1]) }, .block = .{ .x = block } }, t.s, args);
 +     }
 + 
@@ -1044,7 +1185,7 @@ index 0000000..752f6c6
 +     fn check(t: Torch, rc: anytype, what: []const u8) !void {
 +         try t.s.d.check(rc, what);
 +     }
-+@@ -312,6 +345,68 @@ pub const Torch = struct {
++@@ -312,6 +374,69 @@ pub const Torch = struct {
 +         try t.go(t.f.hc_reduce_act, .{ (ndn + 127) / 128, rows }, 128, &a);
 +     }
 + 
@@ -1052,11 +1193,12 @@ index 0000000..752f6c6
 ++    /// `part` [SK, rows, ndn] (SK = k / 320 <= 32), one CTA a (4 tiles, slice, 16 rows; past 16 rows 32 rows, the
 ++    /// weights decoded once for both row tiles); with `counters` (else 0:
 ++    /// partials only, for `hcReduceAct`) `hcReduceAct`'s act / inject bytes by the CTA arriving last at a column group
-++    /// (fn_ops.cu tf_fn_hc_down_q12_kernel). `counters`: ceil(ceil(ndn / 8) / 4) zeroed words, left zeroed.
+++    /// (fn_ops.cu tf_fn_hc_down_q12_kernel). `counters`: ceil(ceil(ndn / 8) / 4) zeroed words, left zeroed. Operands
+++    /// `q12DownTakes` refuses are an error (Forward.q12Down asks it first and keeps the kernel set's launches).
 ++    /// `mut` 1 (hc-check only): the k16 chunks reversed in each block, wrong bits; 0 otherwise.
 ++    pub fn hcDownQ12(t: Torch, x: u64, x_stride: usize, rows: usize, q: Q12, part: u64, act: u64, inj: u64, low: usize, streams: usize, counters: u64, mut: i32) !void {
 ++        if (rows == 0) return;
-++        if (q.k % 320 != 0 or q.k / 320 > 32 or !std.math.isPowerOfTwo(streams) or q.n < low) return error.HcQ12Shape;
+++        if (!q12DownTakes(q, x, x_stride, low, streams, counters != 0)) return error.HcQ12Shape;
 ++        var a: cuda.Args = .{};
 ++        a.add(x);
 ++        a.add(@as(u32, @intCast(x_stride)));
@@ -1114,7 +1256,7 @@ index 0000000..752f6c6
 + 
 +     /// `.float()` of `count` bf16 values (exact).
 diff --git a/scripts/config.sh b/scripts/config.sh
-index 1379319..d7e4498 100644
+index 1379319..d053f93 100644
 --- a/scripts/config.sh
 +++ b/scripts/config.sh
 @@ -74,6 +74,9 @@ export TF_FLASHNEXT_DEPTH="${TF_FLASHNEXT_DEPTH:-15}"
@@ -1127,3 +1269,19 @@ index 1379319..d7e4498 100644
  # KV cache (--kv-dtype). fp8 is the default: about 1.84x the pool of bf16, and lossy (~98.8% top-1 agreement with a
  # bf16 cache, so a free-running reply can differ). bf16 is exact: KV_DTYPE=bf16. FP8 works together with --vision.
  KV_DTYPE="${KV_DTYPE:-fp8}"
+@@ -116,11 +119,12 @@ kv_gib() {
+   echo $(( (bytes * ctx + 1073741823) / 1073741824 ))
+ }
+ # mem_need_gib <context>: MemAvailable a start needs: weights, one full window, scratch slack, the vision workspace
+-# when VISION=1, floor, 2 GiB.
++# when VISION=1, the read-outs' 12-bit copies when TF_FLASHNEXT_HC_Q12 is on (0.97 GB, patches/0022), floor, 2 GiB.
+ mem_need_gib() {
+-  local ctx=${1:-$CONTEXT} vision=0
++  local ctx=${1:-$CONTEXT} vision=0 q12=0
+   [[ "$VISION" == 1 ]] && vision=2
+-  echo $(( 66 + $(kv_gib "$ctx") + 8 + vision + MEM_FLOOR_GIB + 2 ))
++  [[ "${TF_FLASHNEXT_HC_Q12:-0}" != 0 ]] && q12=1
++  echo $(( 66 + $(kv_gib "$ctx") + 8 + vision + q12 + MEM_FLOOR_GIB + 2 ))
+ }
+ 
+ HF_CACHE="${HF_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}}"

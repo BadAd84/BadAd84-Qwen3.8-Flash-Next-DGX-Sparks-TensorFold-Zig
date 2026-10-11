@@ -1,0 +1,502 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 4b45bdf..c488411 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -9,7 +9,9 @@ Newest first. This recipe serves one DGX Spark. The image is `tensorfold-qwen38:
+   `TF_FLASHNEXT_MULTI_LRU=1`, `TF_FLASHNEXT_SOLO_MAX=1024`, `TF_FLASHNEXT_MULTI_VERIFY=1` (the defaults): finished
+   sequences are reset and kept with their CUDA graphs, captured at load, graph tables evict the least recently used,
+   and shared verify rounds run eagerly. Short one-client replies 9% faster, the first request after boot 14%; every
+-  reply byte-identical.
++  reply byte-identical. `TF_FLASHNEXT_SEQ_POOL`, `TF_FLASHNEXT_WARM_POOL`, `TF_FLASHNEXT_MULTI_MAX`, `TF_FLASHNEXT_MULTI_VERIFY` or
++  `TF_FLASHNEXT_SOLO_MAX` that is not a count, or a sequence pool at two GPUs, stops the start; a reused sequence
++  equals a fresh one (`tensorfold pool-check`).
+ 
+ ## [1.0.0] - 2026-10-08
+ 
+diff --git a/patches/0016-flash-next-sequence-pool.patch b/patches/0016-flash-next-sequence-pool.patch
+index ed54fe9..22ec42a 100644
+--- a/patches/0016-flash-next-sequence-pool.patch
++++ b/patches/0016-flash-next-sequence-pool.patch
+@@ -1,5 +1,131 @@
++diff --git a/zig/src/cli/flashnext_cuda.zig b/zig/src/cli/flashnext_cuda.zig
++index b58435c..55d839b 100644
++--- a/zig/src/cli/flashnext_cuda.zig
+++++ b/zig/src/cli/flashnext_cuda.zig
++@@ -34,6 +34,8 @@ const usage =
++     \\           aggregate tok/s; code greedy, prose and chat sampled; TF_FLASHNEXT_PROFILE=1 times rounds by part)
++     \\  tensorfold pool MODEL --streams N   (N sequences grown in turn until the memory budget refuses: the tokens
++     \\           the rank's caches hold at N streams)
+++    \\  tensorfold pool-check MODEL --tokens-file PATH [--max-tokens N]   (TF_FLASHNEXT_SEQ_POOL=1: a pooled sequence
+++    \\           given back after a drafted request comes back as a fresh one: fields, bytes and the next reply)
++     \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
++     \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
++     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
++@@ -324,6 +326,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
++     if (std.mem.eql(u8, cmd, "bench-many")) return benchMany(gpa, init.io, e, o);
++     if (std.mem.eql(u8, cmd, "reuse") and rest.len == 1) return reuse(gpa, init.io, e, rest[0], o);
++     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
+++    if (std.mem.eql(u8, cmd, "pool-check")) return poolCheck(gpa, init.io, e, o);
++     if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
++     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
++     std.debug.print("{s}", .{usage});
++@@ -1270,6 +1273,104 @@ fn pool(gpa: Allocator, e: *Engine, o: Options) !u8 {
++     return 0;
++ }
++ 
+++fn deviceZero(gpa: Allocator, e: *Engine, ptr: u64, len: usize) !bool {
+++    const host = try gpa.alloc(u8, len);
+++    defer gpa.free(host);
+++    try e.stream.synchronize();
+++    const buf: cuda.DeviceBuffer = .{ .d = e.ctx.d, .ptr = ptr, .len = len };
+++    try buf.download(0, host);
+++    return std.mem.allEqual(u8, host, 0);
+++}
+++
+++/// `pool-check` (TF_FLASHNEXT_SEQ_POOL >= 1): a pooled sequence given back after a drafted request, with an image
+++/// attachment on it, comes back from the pool as a fresh sequence: every host field of the sequence and of its state
+++/// as newSeq leaves them (positions, the MTP head's length and drafts, the n-gram history, the DeltaNet parities,
+++/// the window, held rows, the attachment dropped, capacity and charge), the fixed state's bytes equal a fresh
+++/// sequence's and every cache region's mapped bytes zero, and a drafted reply on it equal to one on a fresh sequence.
+++fn poolCheck(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
+++    if (e.pool_max == 0 or e.vm == null) {
+++        std.debug.print("pool-check: needs TF_FLASHNEXT_SEQ_POOL >= 1 (and the caches in reserved address space)\n", .{});
+++        return 2;
+++    }
+++    if (o.tokens.len == 0) {
+++        std.debug.print("pool-check: --tokens or --tokens-file\n", .{});
+++        return 2;
+++    }
+++    const keep = e.bound;
+++    defer e.bind(keep);
+++    e.absorbing = true;
+++    const fresh = try e.newSeq(e.max_len);
+++    defer e.freeSeq(fresh);
+++    const s = try e.takeSeq(e.max_len);
+++    e.bind(s);
+++    const dirty = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+++    gpa.free(dirty.tokens);
+++    // what an image prompt leaves on its sequence until a reset: an attachment (its table)
+++    s.media = .{ .table = try cuda.DeviceBuffer.alloc(e.ctx.d, 256), .len = 1, .width = 1 };
+++    std.debug.print("pool-check: the request left pos {d}, MTP length {d}, history {any}, {d} window tokens, an attachment\n", .{ s.st.pos, s.st.mtp_len, s.st.history, s.window.items.len });
+++    e.bind(keep);
+++    e.retire(s);
+++    const back = try e.takeSeq(e.max_len);
+++    defer e.retire(back);
+++    var bad: usize = 0;
+++    if (back != s) {
+++        std.debug.print("FAIL pool-check: the pool did not give the sequence back\n", .{});
+++        return 1;
+++    }
+++    const a = &back.st;
+++    const f = &fresh.st;
+++    const Field = struct { name: []const u8, got: u64, want: u64 };
+++    const fields = [_]Field{
+++        .{ .name = "st.pos", .got = a.pos, .want = f.pos },
+++        .{ .name = "st.mtp_len", .got = a.mtp_len, .want = f.mtp_len },
+++        .{ .name = "st.mtp_drafted", .got = a.mtp_drafted, .want = f.mtp_drafted },
+++        .{ .name = "st.rope_delta", .got = @bitCast(@as(i64, a.rope_delta)), .want = @bitCast(@as(i64, f.rope_delta)) },
+++        .{ .name = "st.capacity", .got = a.capacity, .want = f.capacity },
+++        .{ .name = "st.limit", .got = a.limit, .want = f.limit },
+++        .{ .name = "st.history[0]", .got = @bitCast(a.history[0]), .want = @bitCast(f.history[0]) },
+++        .{ .name = "st.history[1]", .got = @bitCast(a.history[1]), .want = @bitCast(f.history[1]) },
+++        .{ .name = "st.history[2]", .got = @bitCast(a.history[2]), .want = @bitCast(f.history[2]) },
+++        .{ .name = "st.cur", .got = @intFromBool(!std.mem.eql(u1, &a.cur, &f.cur)), .want = 0 },
+++        .{ .name = "window", .got = back.window.items.len, .want = fresh.window.items.len },
+++        .{ .name = "staged", .got = @intFromBool(back.staged), .want = @intFromBool(fresh.staged) },
+++        .{ .name = "held", .got = back.held, .want = fresh.held },
+++        .{ .name = "held_a0", .got = back.held_a0, .want = fresh.held_a0 },
+++        .{ .name = "held_par", .got = back.held_par, .want = fresh.held_par },
+++        .{ .name = "media", .got = @intFromBool(back.media != null), .want = @intFromBool(fresh.media != null) },
+++        .{ .name = "charged", .got = back.charged, .want = fresh.charged },
+++        .{ .name = "regions", .got = back.regions.items.len, .want = fresh.regions.items.len },
+++    };
+++    for (fields) |x| if (x.got != x.want) {
+++        bad += 1;
+++        std.debug.print("  {s}: {d} after the pool, {d} fresh\n", .{ x.name, x.got, x.want });
+++    };
+++    if (!std.mem.eql(u8, &(try deviceSha(gpa, e, a.fixed.buf.ptr, a.fixed.buf.len)), &(try deviceSha(gpa, e, f.fixed.buf.ptr, f.fixed.buf.len)))) {
+++        bad += 1;
+++        std.debug.print("  the fixed state's bytes differ from a fresh sequence's\n", .{});
+++    }
+++    for (back.regions.items, fresh.regions.items, 0..) |r, fr, i| {
+++        const bytes = if (r.ring) (if (r.maps.items.len > 0) r.maps.items[0][1] else 0) else r.mapped;
+++        if (r.mapped != fr.mapped or !try deviceZero(gpa, e, r.base, bytes)) {
+++            bad += 1;
+++            std.debug.print("  cache region {d}: {d} bytes mapped ({d} fresh), {s}\n", .{ i, r.mapped, fr.mapped, if (try deviceZero(gpa, e, r.base, bytes)) "zeroed" else "NOT zeroed" });
+++        }
+++    }
+++    // the next request on it decodes as on a fresh sequence
+++    e.bind(back);
+++    const again = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+++    defer gpa.free(again.tokens);
+++    e.bind(fresh);
+++    const want = try generate(gpa, io, e, o.tokens, o.max_tokens, null, true, false);
+++    defer gpa.free(want.tokens);
+++    e.bind(keep);
+++    if (!std.mem.eql(u32, again.tokens, want.tokens)) {
+++        bad += 1;
+++        std.debug.print("  the reply on the pooled sequence differs from a fresh one's\n", .{});
+++    }
+++    std.debug.print("{s} pool-check: {d} host fields, the fixed state, {d} cache regions and a {d}-token reply against a fresh sequence; {d} differ\n", .{ if (bad == 0) "PASS" else "FAIL", fields.len, back.regions.items.len, want.tokens.len, bad });
+++    return if (bad == 0) 0 else 1;
+++}
+++
++ /// `bench`: every prompt file (ids) `repeat` times in one load; prefill seconds, tok/s and the reply's first tokens.
++ fn bench(gpa: Allocator, io: std.Io, e: *Engine, o: Options, files: []const []const u8) !u8 {
++     var prompts: std.ArrayList([]u32) = .empty;
+ diff --git a/zig/src/families/flashnext/cuda_engine.zig b/zig/src/families/flashnext/cuda_engine.zig
+-index 43dbd84..765b530 100644
++index 43dbd84..b31f8db 100644
+ --- a/zig/src/families/flashnext/cuda_engine.zig
+ +++ b/zig/src/families/flashnext/cuda_engine.zig
+ @@ -118,11 +118,15 @@ pub const Seq = fwd.Seq;
+@@ -21,7 +147,43 @@ index 43dbd84..765b530 100644
+  const max_multi_graphs = 192;
+  
+  /// The state of a class of captures after failures: rounds left to run eagerly, and the failures in a row.
+-@@ -328,6 +332,9 @@ pub const Engine = struct {
++@@ -275,6 +279,35 @@ fn envOff(name: [:0]const u8) bool {
++     return std.mem.eql(u8, v, "0") or std.mem.eql(u8, v, "off");
++ }
++ 
+++/// A count setting: null when unset; a value that is not a count is refused (error.BadSetting, logged with its
+++/// name), never read as the default.
+++pub fn envCount(name: [:0]const u8) !?usize {
+++    const v = envGet(name) orelse return null;
+++    return std.fmt.parseInt(usize, v, 10) catch {
+++        std.log.warn("{s}={s} refused: a count (0, 1, 2, ...)", .{ name, v });
+++        return error.BadSetting;
+++    };
+++}
+++
+++test "count settings (TF_FLASHNEXT_SEQ_POOL, WARM_POOL, ...) refuse a value that is not a count, never read it as unset" {
+++    const c = struct {
+++        extern "c" fn setenv(name: [*:0]const u8, value: [*:0]const u8, overwrite: c_int) c_int;
+++        extern "c" fn unsetenv(name: [*:0]const u8) c_int;
+++    };
+++    const name = "TF_FLASHNEXT_TEST_COUNT";
+++    _ = c.unsetenv(name);
+++    try std.testing.expectEqual(@as(?usize, null), try envCount(name));
+++    for ([_]struct { v: [:0]const u8, n: usize }{ .{ .v = "0", .n = 0 }, .{ .v = "4", .n = 4 }, .{ .v = "16", .n = 16 } }) |ok| {
+++        _ = c.setenv(name, ok.v, 1);
+++        try std.testing.expectEqual(@as(?usize, ok.n), try envCount(name));
+++    }
+++    for ([_][:0]const u8{ "", "x", "-1", "4 ", "2.5", "1e3" }) |bad| {
+++        _ = c.setenv(name, bad, 1);
+++        try std.testing.expectError(error.BadSetting, envCount(name));
+++    }
+++    _ = c.unsetenv(name);
+++}
+++
++ /// TF_FLASHNEXT_PREFILL_ROWS: the prompt chunk's rows (both ranks the same; any chunking gives the same bits), else
++ /// the caller's.
++ /// Two ranks' prompt chunk rows: with the in-program K slices and the prompt expert kernel 4096 rows a call are
++@@ -328,6 +361,9 @@ pub const Engine = struct {
+      product_streams: usize = std.math.maxInt(usize),
+      /// shared steps of at most this many streams are captured (TF_FLASHNEXT_MULTI_GRAPHS)
+      multi_graphs: usize = multi_graphs_default,
+@@ -31,7 +193,7 @@ index 43dbd84..765b530 100644
+      /// the Triton variants each launch site picked (the forward's launches skip `find`'s scan)
+      memo: tri.Memo = undefined,
+      /// the rows the context caches hold (Python max_len: the window plus depth + 1 speculative rows)
+-@@ -361,7 +368,7 @@ pub const Engine = struct {
++@@ -361,7 +397,7 @@ pub const Engine = struct {
+      vm: ?vmm.Vmm = null,
+      /// the fill whose chunk holds the prompt buffers between slices (one at a time; prefill waits for it)
+      pfill: ?*const Fill = null,
+@@ -40,7 +202,7 @@ index 43dbd84..765b530 100644
+      captures: usize = 0,
+      /// a failed capture, instantiate or upload is not fatal: that round runs eagerly (the same bits) and captures
+      /// pause for a while (solo windows and shared rounds apart); TF_FLASHNEXT_GRAPH_LOG=1 logs the graph counts,
+-@@ -374,6 +381,16 @@ pub const Engine = struct {
++@@ -374,6 +410,16 @@ pub const Engine = struct {
+      /// shared rounds' and shared MTP steps' graphs by composition (multiKey), and compositions seen once
+      multi: std.AutoHashMapUnmanaged(u64, MultiGraph) = .empty,
+      seen: std.AutoHashMapUnmanaged(u64, void) = .empty,
+@@ -57,21 +219,26 @@ index 43dbd84..765b530 100644
+      /// TF_FLASHNEXT_PROFILE: each prompt chunk's GPU time by part (cuda_prof.zig)
+      prof: ?*profs.Prof = null,
+      /// TF_FLASHNEXT_PROMPT_EXPERTS (default on): prompt chunks' experts read weights once a call
+-@@ -488,6 +505,13 @@ pub const Engine = struct {
++@@ -488,6 +534,18 @@ pub const Engine = struct {
+          e.graph_log = envGet("TF_FLASHNEXT_GRAPH_LOG") != null;
+          if (envGet("TF_FLASHNEXT_GRAPH_FAIL")) |v| e.inject_every = std.fmt.parseInt(u64, v, 10) catch 0;
+          if (envGet("TF_FLASHNEXT_MULTI_GRAPHS")) |v| e.multi_graphs = std.fmt.parseInt(usize, v, 10) catch multi_graphs_default;
+ +        e.multi_verify = e.multi_graphs;
+-+        if (envGet("TF_FLASHNEXT_MULTI_VERIFY")) |v| e.multi_verify = @min(e.multi_graphs, std.fmt.parseInt(usize, v, 10) catch e.multi_graphs);
+-+        if (envGet("TF_FLASHNEXT_MULTI_MAX")) |v| e.multi_max = @max(1, std.fmt.parseInt(usize, v, 10) catch max_multi_graphs);
+++        if (try envCount("TF_FLASHNEXT_MULTI_VERIFY")) |v| e.multi_verify = @min(e.multi_graphs, v);
+++        if (try envCount("TF_FLASHNEXT_MULTI_MAX")) |v| e.multi_max = @max(1, v);
+ +        e.multi_lru = if (envGet("TF_FLASHNEXT_MULTI_LRU")) |v| std.mem.eql(u8, v, "1") else false;
+-+        if (envGet("TF_FLASHNEXT_SOLO_MAX")) |v| e.solo_max = std.fmt.parseInt(usize, v, 10) catch 0;
+-+        if (envGet("TF_FLASHNEXT_SEQ_POOL")) |v| e.pool_max = std.fmt.parseInt(usize, v, 10) catch 0;
+++        if (try envCount("TF_FLASHNEXT_SOLO_MAX")) |v| e.solo_max = v;
+++        if (try envCount("TF_FLASHNEXT_SEQ_POOL")) |v| e.pool_max = v;
+++        // the pool is one rank's: both ranks of a TP=2 engine would have to take and give back the same sequences
+++        if (e.pool_max > 0 and o.world > 1) {
+++            std.log.warn("TF_FLASHNEXT_SEQ_POOL={d} refused: the sequence pool runs at one GPU only", .{e.pool_max});
+++            return error.BadSetting;
+++        }
+ +        std.log.info("graphs: shared verify rounds of up to {d} streams captured, MTP steps of up to {d}; {d} shared graphs kept ({s}), solo graphs {s}; sequence pool {d}", .{ e.multi_verify, e.multi_graphs, e.multi_max, if (e.multi_lru) "least recently used out first" else "all dropped when full", if (e.solo_max > 0) "least recently used out past TF_FLASHNEXT_SOLO_MAX" else "unbounded", e.pool_max });
+          // shared rounds past the captured widths run their attention in one launch a kernel (attn_multi.py's
+          // kernels, aot/w6-ks1 and later; without them, a stream at a time): TF_FLASHNEXT_ATTN_MULTI=N from N
+          // streams (never at a captured width), 0 off
+-@@ -620,6 +644,7 @@ pub const Engine = struct {
++@@ -620,6 +678,7 @@ pub const Engine = struct {
+              e.budget.limit = @min(both[0], both[1]);
+          }
+          e.f.budget = &e.budget;
+@@ -79,7 +246,7 @@ index 43dbd84..765b530 100644
+          e.budget.floor = @intFromFloat(@min(reserve_gib, 10) * (1 << 30));
+          std.log.info("sequence memory: {d:.2} GiB ({d:.2} GiB free, {d:.1} GiB kept free); {s} KV cache, {d} bytes a position a layer", .{ @as(f64, @floatFromInt(e.budget.limit)) / (1 << 30), @as(f64, @floatFromInt(free)) / (1 << 30), reserve_gib, @tagName(e.g.kv), e.g.kRow() + e.g.vRow() });
+          e.own = try e.newSeq(e.max_len);
+-@@ -647,8 +672,10 @@ pub const Engine = struct {
++@@ -647,8 +706,10 @@ pub const Engine = struct {
+  
+      pub fn deinit(e: *Engine) void {
+          e.stream.synchronize() catch {};
+@@ -91,7 +258,7 @@ index 43dbd84..765b530 100644
+          e.graphs.deinit(e.gpa);
+          e.graphs = .empty;
+          e.dropMulti(null);
+-@@ -698,7 +725,7 @@ pub const Engine = struct {
++@@ -698,7 +759,7 @@ pub const Engine = struct {
+          errdefer e.gpa.destroy(s);
+          // caches start at one growth step and grow with the stream (State.ensure), up to `limit`
+          const first = @min(limit, state.grow_step);
+@@ -100,7 +267,7 @@ index 43dbd84..765b530 100644
+          s.* = .{ .st = try state.State.init(e.ctx.d, e.g, if (e.vm != null) 1 else first, limit) };
+          errdefer s.deinit(e.gpa);
+          s.charged = s.st.fixed.buf.len + (if (s.st.ctx) |c| c.buf.len else 0) + e.g.wide() * 2;
+-@@ -759,6 +786,75 @@ pub const Engine = struct {
++@@ -759,6 +820,79 @@ pub const Engine = struct {
+          e.gpa.destroy(s);
+      }
+  
+@@ -132,8 +299,13 @@ index 43dbd84..765b530 100644
+ +    }
+ +
+ +    /// A pooled sequence back to exactly what newSeq gives: physical memory past the first growth step unmapped
+-+    /// (addresses stay reserved), every byte the caches and the fixed state hold zeroed, then Forward.reset. It
+-+    /// leaves the forward's registry until taken again.
+++    /// (addresses stay reserved), every byte the caches hold zeroed, the window and held rows cleared, then
+++    /// Forward.reset, newSeq's own last step: the fixed state (DeltaNet conv and recurrent state, PLE tail, the device
+++    /// position, rope delta and MTP length), positions, the n-gram history (initialHistory), the MTP head's length
+++    /// and drafts, the rope delta, the DeltaNet parities, `staged`, and the attachment dropped
+++    /// (dropMedia). Every field of Seq and State is classified by the test "every field of a pooled sequence is
+++    /// reset ..." below and compared with a fresh sequence's by `tensorfold pool-check`. It leaves the forward's
+++    /// registry until taken again.
+ +    fn recycle(e: *Engine, s: *Seq) !void {
+ +        try e.stream.synchronize(); // launches in flight may read its caches
+ +        if (e.bound == s and s != e.own) e.bound = e.own;
+@@ -154,7 +326,6 @@ index 43dbd84..765b530 100644
+ +        s.window.clearRetainingCapacity();
+ +        s.held_a0 = 0;
+ +        s.held_par = 0;
+-+        try e.f.th.zero(s.st.fixed.buf.ptr, s.st.fixed.buf.len);
+ +        try e.f.reset(s);
+ +        try e.stream.synchronize();
+ +    }
+@@ -176,7 +347,7 @@ index 43dbd84..765b530 100644
+      /// One cache layer's indexer-key ring (physical bytes): a prompt chunk's rows and the 3 before them that a pool
+      /// reads, at least `ring_min_rows`, a power of two of rows (mapSeq aligns the reservation to it) in whole granules.
+      fn ringBytes(e: *const Engine, v: *const vmm.Vmm) usize {
+-@@ -1827,7 +1923,7 @@ pub const Engine = struct {
++@@ -1827,7 +1961,7 @@ pub const Engine = struct {
+              } else null;
+              const k = found orelse return;
+              var g = e.graphs.fetchRemove(k).?.value;
+@@ -185,7 +356,7 @@ index 43dbd84..765b530 100644
+          }
+      }
+  
+-@@ -1859,7 +1955,11 @@ pub const Engine = struct {
++@@ -1859,7 +1993,11 @@ pub const Engine = struct {
+          const key: GraphKey = .{ .seq = @intFromPtr(seq), .version = seq.st.version, .mtp = head, .rows = @intCast(rows), .parity = par, .ctx = ctx, .media = mediaKey(seq) };
+          e.f.context = ctx;
+          defer e.f.context = null;
+@@ -198,7 +369,7 @@ index 43dbd84..765b530 100644
+          e.dropGraphsOf(key.seq, key.version, key.media);
+          try e.body(head, rows);
+          // the eager run above is this call's result; a capture that fails from here on only costs the graph
+-@@ -1868,15 +1968,45 @@ pub const Engine = struct {
++@@ -1868,15 +2006,45 @@ pub const Engine = struct {
+              return;
+          }
+          try e.stream.synchronize();
+@@ -245,7 +416,7 @@ index 43dbd84..765b530 100644
+      /// Starts a thread-local capture on the engine's stream; false (noted) when the driver refuses.
+      fn capBegin(e: *Engine, f: *CaptureFault, comptime class: []const u8) bool {
+          cuda.graph.beginCapture(e.stream, .thread_local) catch |err| {
+-@@ -1957,6 +2087,37 @@ pub const Engine = struct {
++@@ -1957,6 +2125,37 @@ pub const Engine = struct {
+          return e.captures - before;
+      }
+  
+@@ -283,7 +454,7 @@ index 43dbd84..765b530 100644
+      /// Shared graphs released: those baking in sequence `seq`, or all (null).
+      fn dropMulti(e: *Engine, seq: ?usize) void {
+          while (true) {
+-@@ -1995,19 +2156,24 @@ pub const Engine = struct {
++@@ -1995,19 +2194,24 @@ pub const Engine = struct {
+          const media = !e.media_graphs and for (segs) |sg| {
+              if (sg.seq.media != null) break true;
+          } else false;
+@@ -311,7 +482,7 @@ index 43dbd84..765b530 100644
+              e.dropMulti(null);
+              e.seen.clearRetainingCapacity();
+          }
+-@@ -2016,6 +2182,7 @@ pub const Engine = struct {
++@@ -2016,6 +2220,7 @@ pub const Engine = struct {
+              return;
+          }
+          try e.stream.synchronize();
+@@ -319,7 +490,7 @@ index 43dbd84..765b530 100644
+          if (!e.capBegin(&e.multi_fault, "shared")) return;
+          const r = if (head) mtp.computeSegs(&e.f, segs, x) else e.f.computeSegs(segs, x, true);
+          const ok = if (r) |_| true else |err| e.capNote(&e.multi_fault, "shared", "capture", err);
+-@@ -2024,7 +2191,7 @@ pub const Engine = struct {
++@@ -2024,7 +2229,7 @@ pub const Engine = struct {
+          const seqs = try e.gpa.alloc(usize, segs.len);
+          errdefer e.gpa.free(seqs);
+          for (segs, seqs) |sg, *q| q.* = @intFromPtr(sg.seq);
+@@ -328,6 +499,105 @@ index 43dbd84..765b530 100644
+          e.captures += 1;
+          e.capLog("shared");
+      }
++@@ -2139,6 +2344,98 @@ test "geometry and dims follow the config's split" {
++     try std.testing.expectEqual(@as(usize, 16480), d.projWidth());
++ }
++ 
+++/// The text of the function `sig` opens in `src` (from its signature to the first line closing it at four spaces).
+++fn bodyOf(src: []const u8, sig: []const u8) ![]const u8 {
+++    const at = std.mem.indexOf(u8, src, sig) orelse return error.NoSuchFunction;
+++    const end = std.mem.indexOfPos(u8, src, at, "\n    }\n") orelse return error.NoSuchFunction;
+++    return src[at..end];
+++}
+++
+++/// How a pooled sequence's field gets newSeq's value back: the statement in recycle or in Forward.reset, or kept.
+++const ResetHow = struct { field: []const u8, in: enum { recycle, reset, kept }, does: []const u8 };
+++
+++/// Every field of T is in `table` (or among `addresses`: device addresses whose bytes are zeroed), every entry is
+++/// a field of T, and each reset statement is in its function's body.
+++fn checkResets(comptime T: type, table: []const ResetHow, addresses: []const []const u8, recycle_body: []const u8, reset_body: []const u8) !void {
+++    const names = @typeInfo(T).@"struct".field_names;
+++    try std.testing.expectEqual(names.len, table.len + addresses.len);
+++    inline for (names) |name| {
+++        var how: ?ResetHow = null;
+++        for (table) |h| if (std.mem.eql(u8, h.field, name)) {
+++            how = h;
+++        };
+++        for (addresses) |a| if (std.mem.eql(u8, a, name)) {
+++            how = .{ .field = a, .in = .kept, .does = "an address" };
+++        };
+++        const h = how orelse {
+++            std.debug.print("{s}.{s} is not classified\n", .{ @typeName(T), name });
+++            return error.UnclassifiedField;
+++        };
+++        if (h.in != .kept) {
+++            const body = if (h.in == .recycle) recycle_body else reset_body;
+++            if (std.mem.indexOf(u8, body, h.does) == null) {
+++                std.debug.print("{s}.{s}: `{s}` is not in {s}\n", .{ @typeName(T), name, h.does, @tagName(h.in) });
+++                return error.ResetMissing;
+++            }
+++        }
+++    }
+++}
+++
+++test "every field of a pooled sequence is reset by recycle and Forward.reset, or kept on purpose" {
+++    // Each field of Seq and of State, and how a pooled sequence gets newSeq's value back: the statement that resets it
+++    // in recycle (this file) or Forward.reset (cuda_forward.zig, which newSeq ends with too), or why it is kept. A field
+++    // added to either struct fails here until it is classified; a reset statement removed fails too. `tensorfold
+++    // pool-check` compares the values themselves with a fresh sequence's on the GPU.
+++    const How = ResetHow;
+++    const seq = [_]How{
+++        .{ .field = "st", .in = .kept, .does = "State: classified below" },
+++        .{ .field = "window", .in = .recycle, .does = "s.window.clearRetainingCapacity();" },
+++        .{ .field = "staged", .in = .reset, .does = "seq.staged = false;" },
+++        .{ .field = "last_streams", .in = .kept, .does = "newSeq's buffer: every prompt writes it before an absorb reads it" },
+++        .{ .field = "charged", .in = .recycle, .does = "s.charged -|= freed;" },
+++        .{ .field = "regions", .in = .recycle, .does = "freed += r.shrinkToFirst();" },
+++        .{ .field = "ring_rows", .in = .kept, .does = "the ring's size, fixed by newSeq" },
+++        .{ .field = "held", .in = .reset, .does = "seq.held = 0;" },
+++        .{ .field = "held_a0", .in = .recycle, .does = "s.held_a0 = 0;" },
+++        .{ .field = "held_par", .in = .recycle, .does = "s.held_par = 0;" },
+++        .{ .field = "media", .in = .reset, .does = "f.dropMedia(seq);" },
+++        .{ .field = "pooled", .in = .kept, .does = "the pool's mark" },
+++        .{ .field = "pool_capacity", .in = .kept, .does = "the capacity recycle restores" },
+++    };
+++    const st = [_]How{
+++        .{ .field = "d", .in = .kept, .does = "the driver" },
+++        .{ .field = "g", .in = .kept, .does = "the geometry" },
+++        .{ .field = "limit", .in = .kept, .does = "the engine's window: pooled sequences reserve it whole" },
+++        .{ .field = "capacity", .in = .recycle, .does = "s.st.capacity = s.pool_capacity;" },
+++        .{ .field = "version", .in = .kept, .does = "the graphs' key: the addresses never move" },
+++        .{ .field = "pos", .in = .reset, .does = "try f.setPos(st, 0);" },
+++        .{ .field = "mtp_len", .in = .reset, .does = "try f.setMtpLen(st, 0);" },
+++        .{ .field = "mtp_drafted", .in = .reset, .does = "st.mtp_drafted = 0;" },
+++        .{ .field = "rope_delta", .in = .reset, .does = "st.rope_delta = 0;" },
+++        .{ .field = "fixed", .in = .kept, .does = "newSeq's arena (zeroed by State.init); its parts are reset below" },
+++        .{ .field = "conv", .in = .reset, .does = "try f.th.zero(st.conv, " },
+++        .{ .field = "rec", .in = .reset, .does = "try f.th.zero(st.rec, " },
+++        .{ .field = "ple_tail", .in = .reset, .does = "try f.th.zero(st.ple_tail, " },
+++        .{ .field = "pos_dev", .in = .reset, .does = "try f.setPos(st, 0);" },
+++        .{ .field = "rope_delta_dev", .in = .reset, .does = "try f.th.fill32(st.rope_delta_dev, 0, 1);" },
+++        .{ .field = "mtp_pos", .in = .reset, .does = "try f.setMtpLen(st, 0);" },
+++        .{ .field = "gdn_k", .in = .kept, .does = "0 bytes (State.fixedSizes): the replay inputs are round scratch" },
+++        .{ .field = "gdn_v", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+++        .{ .field = "gdn_g", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+++        .{ .field = "gdn_b", .in = .kept, .does = "0 bytes (State.fixedSizes)" },
+++        .{ .field = "cur", .in = .reset, .does = "st.cur = @splat(0);" },
+++        .{ .field = "history", .in = .reset, .does = "p.ngram.initialHistory(st.history[0 .. p.ngram.n - 1]);" },
+++        .{ .field = "ctx", .in = .kept, .does = "null with reserved address space (the regions hold the caches)" },
+++    };
+++    // the caches' device addresses: the bytes behind them are zeroed (regions above)
+++    const addresses = [_][]const u8{ "kc", "vc", "ikc", "pooled" };
+++    const recycle_body = try bodyOf(@embedFile("cuda_engine.zig"), "fn recycle(e: *Engine, s: *Seq) !void {");
+++    const reset_body = try bodyOf(@embedFile("cuda_forward.zig"), "pub fn reset(f: *Forward, seq: *Seq) !void {");
+++    try std.testing.expect(std.mem.indexOf(u8, recycle_body, "try e.f.reset(s);") != null);
+++    try checkResets(fwd.Seq, &seq, &.{}, recycle_body, reset_body);
+++    try checkResets(state.State, &st, &addresses, recycle_body, reset_body);
+++}
+++
++ test {
++     std.testing.refAllDecls(@This());
++     std.testing.refAllDecls(Engine);
+ diff --git a/zig/src/families/flashnext/cuda_forward.zig b/zig/src/families/flashnext/cuda_forward.zig
+ index 3a9f5ce..dbca23b 100644
+ --- a/zig/src/families/flashnext/cuda_forward.zig
+@@ -460,23 +730,28 @@ index 6d69ee3..b622039 100644
+          }
+  
+ diff --git a/zig/src/families/flashnext/cuda_native.zig b/zig/src/families/flashnext/cuda_native.zig
+-index 6f820a7..955e73a 100644
++index 6f820a7..440e9da 100644
+ --- a/zig/src/families/flashnext/cuda_native.zig
+ +++ b/zig/src/families/flashnext/cuda_native.zig
+-@@ -157,6 +157,17 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const
++@@ -157,6 +157,22 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const
+      }
+      var backend = own.lanes.backend();
+      own.lanes.follower = o.tp == 2 and o.rank == 1;
+ +    // TF_FLASHNEXT_WARM_POOL=N pooled sequences carry the served one-stream graphs before serving (one rank)
+ +    if (comptime @hasDecl(M.Engine, "warmPool")) {
+-+        if (o.tp == 1) if (getenv("TF_FLASHNEXT_WARM_POOL")) |v| {
+-+            const n = std.fmt.parseInt(usize, v, 10) catch 0;
+++        // a count, else refused (envCount, as TF_FLASHNEXT_SEQ_POOL)
+++        if (try @import("cuda_engine.zig").envCount("TF_FLASHNEXT_WARM_POOL")) |n| {
+++            // the pool runs at one GPU (Engine.init refuses TF_FLASHNEXT_SEQ_POOL at two ranks)
+++            if (o.tp != 1) {
+++                std.log.warn("TF_FLASHNEXT_WARM_POOL={d} refused: the sequence pool runs at one GPU only", .{n});
+++                return error.BadSetting;
+++            }
+ +            const got = own.e.warmPool(n) catch |err| blk: {
+ +                std.log.warn("graph warm-up failed ({s}); serving without it", .{@errorName(err)});
+ +                break :blk 0;
+ +            };
+ +            std.log.info("graph warm-up: {d} graphs on {d} pooled sequences", .{ got, n });
+-+        };
+++        }
+ +    }
+      if (o.tp == 2) {
+          own.bcast = try mirror.Broadcast.init(ctx.d, &own.comm.?, streamOf(own.e));
