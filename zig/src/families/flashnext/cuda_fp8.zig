@@ -50,15 +50,32 @@ pub fn smemS(bm: usize, stages: usize) u32 {
     return @intCast(@max(stages * stage, partials));
 }
 
+/// Tile<FP8G, bm, bn, wm, wn, stages>::SMEM (the prompt tiles' shapes).
+pub fn smemT(bm: usize, bn: usize, wm: usize, wn: usize, stages: usize) u32 {
+    const stage = std.mem.alignForward(usize, bm * 128 + bn * 64 + bn * 4, 128);
+    const threads = wm * wn * 32;
+    const partials = (bm / wm / 16) * (bn / wn / 8) * 4 * threads * 4;
+    return @intCast(@max(stages * stage, partials));
+}
+
 /// How split-K shapes below FUSED_ROWS run (fp8-fused-check: the same bits as the cluster kernel): `fuse` 0 on the
 /// cluster kernel (one block a K slice, the slices added in the cluster), 4 or 8 on the fused form (one block a
 /// 64-column tile walks its K slices and adds them in slice order, as the cluster does) at that pipeline depth for
 /// row tiles 16 and 32 (row tile 64 takes the prompt's fused kernel). Only shapes of at least `fuse_n` columns (n /
 /// 64 blocks walk all slices; a narrow shape such as the MTP layer's hyper-connection down, a few column tiles over
 /// K 10240, would leave the GPU nearly empty: measured 0.51 -> 1.16 ms a round). TF_FLASHNEXT_FP8_FUSED_SPLIT (0, 4,
-/// 8) and TF_FLASHNEXT_FP8_FUSED_SPLIT_N. `mutant` (fp8-fused-check only, never from the environment): the fused
-/// form told half the slices, which the check must see.
-pub const Mode = struct { fuse: u8 = 0, fuse_n: usize = 2048, mutant: bool = false };
+/// 8) and TF_FLASHNEXT_FP8_FUSED_SPLIT_N. `mutant` (fp8-fused-check and fp8-tiles-check only, never from the
+/// environment): the fused forms told half the slices and the wide tile a K of 64 less, which the checks must see.
+/// Prompt tiles from `tile_rows` rows (the same bytes: a row's bits depend only on the K order, never on the tile):
+/// `wide`, one-slice shapes of at least `tile_n` columns on a 128x128 tile (2 x 4 warps, 3 stages) instead of the
+/// stock 64x64 in 4 stages; `pfuse`, the fused prompt form in 2 stages instead of 4 for shapes of at least `fuse_n`
+/// columns (half the shared memory a block, so more blocks a multiprocessor). TF_FLASHNEXT_FP8_PROMPT_TILES=1 sets
+/// both (fp8-tiles-check on GB10: +13-16% on the wide shapes, +12-18% on the fused ones).
+pub const Mode = struct { fuse: u8 = 0, fuse_n: usize = 2048, mutant: bool = false, wide: bool = false, pfuse: bool = false };
+
+/// The prompt tiles' row and column floors (Mode.wide, Mode.pfuse).
+pub const tile_rows: usize = 256;
+pub const tile_n: usize = 8192;
 
 pub fn modeFromEnv() !Mode {
     const fu = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT") orelse 0);
@@ -66,10 +83,12 @@ pub fn modeFromEnv() !Mode {
         std.log.warn("TF_FLASHNEXT_FP8_FUSED_SPLIT={d} refused: 0 (the cluster kernel), 4 or 8 (pipeline depths)", .{fu});
         return error.BadSetting;
     }
-    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048) };
+    const tiles = (try envCount("TF_FLASHNEXT_FP8_PROMPT_TILES") orelse 0) == 1;
+    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048), .wide = tiles, .pfuse = tiles };
     if (m.fuse != 0) {
         std.log.info("block-FP8 split-K shapes of {d}+ columns below {d} rows: one block a column tile, its K slices in slice order (TF_FLASHNEXT_FP8_FUSED_SPLIT={d})", .{ m.fuse_n, fused_rows, m.fuse });
     } else std.log.info("block-FP8 split-K shapes below {d} rows on the cluster kernel (TF_FLASHNEXT_FP8_FUSED_SPLIT=0)", .{fused_rows});
+    if (tiles) std.log.info("block-FP8 prompt tiles from {d} rows: one-slice shapes of {d}+ columns on 128x128 tiles, the fused form in 2 stages (TF_FLASHNEXT_FP8_PROMPT_TILES=1)", .{ tile_rows, tile_n });
     return m;
 }
 
@@ -124,6 +143,18 @@ pub const sym = struct {
         };
         break :blk out;
     };
+    /// the prompt tiles (fn_qmmf.cu's TF_QMMF_PROMPT footer): <3, bm, bn, wm, wn, stages, F32, false, fuse>
+    fn nameT(comptime bm: u32, comptime bn: u32, comptime wm: u32, comptime wn: u32, comptime st: u32, comptime f32_out: bool, comptime fuse: bool) [:0]const u8 {
+        return std.fmt.comptimePrint("_ZN10tf_fn_qmmf11qmmf_kernelILi3ELi{d}ELi{d}ELi{d}ELi{d}ELi{d}ELb{d}ELb0ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", .{ bm, bn, wm, wn, st, @intFromBool(f32_out), @intFromBool(fuse) });
+    }
+    fn ldNameT(comptime bm: u32, comptime bn: u32, comptime wm: u32, comptime wn: u32, comptime st: u32, comptime fuse: bool) [:0]const u8 {
+        return std.fmt.comptimePrint("_ZN13tf_fn_qmmf_ld11qmmf_kernelILi3ELi{d}ELi{d}ELi{d}ELi{d}ELi{d}ELb0ELb0ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiiii", .{ bm, bn, wm, wn, st, @intFromBool(fuse) });
+    }
+    /// [F32] the one-slice 128x128 tile (2 x 4 warps, 3 stages) and the fused prompt form in 2 stages; their ld forms
+    pub const wide128 = [2][:0]const u8{ nameT(128, 128, 2, 4, 3, false, false), nameT(128, 128, 2, 4, 3, true, false) };
+    pub const fused2 = [2][:0]const u8{ nameT(64, 64, 1, 4, 2, false, true), nameT(64, 64, 1, 4, 2, true, true) };
+    pub const ld_wide128 = ldNameT(128, 128, 2, 4, 3, false);
+    pub const ld_fused2 = ldNameT(64, 64, 1, 4, 2, true);
 };
 
 pub const Kernels = struct {
@@ -137,6 +168,12 @@ pub const Kernels = struct {
     /// the fused decode tiles (Mode.fuse): [depth 4, 8][F32][bm 16, 32], and their ld forms
     fuse_s: [2][2][2]cuda.Function,
     ld_fuse_s: [2][2]cuda.Function,
+    /// the prompt tiles (Mode.wide, Mode.pfuse): [F32] the one-slice 128x128 tile and the fused prompt form in 2 stages, and
+    /// their ld forms
+    wide128: [2]cuda.Function,
+    fused2: [2]cuda.Function,
+    ld_wide128: cuda.Function,
+    ld_fused2: cuda.Function,
     mode: Mode,
     major: c_int,
 
@@ -171,6 +208,16 @@ pub const Kernels = struct {
                 try k.ld_fuse_s[q][b].allowDynamicShared(smemS(@as(usize, 16) << @intCast(b), 4 + 4 * q));
             }
         }
+        for (0..2) |f| {
+            k.wide128[f] = try k.module.function(sym.wide128[f]);
+            try k.wide128[f].allowDynamicShared(smemT(128, 128, 2, 4, 3));
+            k.fused2[f] = try k.module.function(sym.fused2[f]);
+            try k.fused2[f].allowDynamicShared(smemS(64, 2));
+        }
+        k.ld_wide128 = try k.ld_module.function(sym.ld_wide128);
+        try k.ld_wide128.allowDynamicShared(smemT(128, 128, 2, 4, 3));
+        k.ld_fused2 = try k.ld_module.function(sym.ld_fused2);
+        try k.ld_fused2.allowDynamicShared(smemS(64, 2));
         k.mode = try modeFromEnv();
         k.major = try ctx.attribute(.compute_capability_major);
         return k;
@@ -212,6 +259,12 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
     const sk = splitK(n, kk);
     const bm: usize = if (sk > 1 and m >= fused_rows) 0 else bucket(m);
     const md = k.mode;
+    // prompt rows (from tile_rows) on the prompt tiles (Mode.wide, Mode.pfuse). A wide one-slice shape on the 128x128
+    // tile (its blocks read two 64-column tiles: npad is a multiple of 128 by npadOf); the fused prompt form in 2
+    // stages. The same per-output K order, so the same bytes (fp8-tiles-check).
+    const prompt_rows = m >= tile_rows;
+    const wide_shape = prompt_rows and sk == 1 and n >= tile_n;
+    if (wide_shape and md.wide and l.npad % 128 == 0) return matmulWide(k, s, x, x_stride, l, out, f32_out, m, ldo);
     // Mode.fuse: a split shape below FUSED_ROWS on the fused form (its K slices added in slice order by one block):
     // row tile 64 on the prompt's fused kernel, 16 and 32 on the decode instantiations
     const fuse_ok = sk > 1 and md.fuse != 0 and n >= md.fuse_n;
@@ -226,10 +279,16 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
     const ci = @intFromBool(cluster);
     const fi = @intFromBool(f32_out);
     const bi = bucketIndex(bm);
-    const stages: usize = if (small) md.fuse else 4;
+    // the fused prompt form in 2 stages only for shapes of at least fuse_n columns (measured on the MTP layer's hc
+    // down, n 324 over K 10240 = 192 blocks, 2 stages lose 18% at 2048 rows; out_proj and the shared expert, n 2560,
+    // gain 12-18%)
+    const prompt_fused2 = fused and bm == 0 and prompt_rows and md.pfuse and n >= md.fuse_n;
+    const stages: usize = if (prompt_fused2) 2 else if (small) md.fuse else 4;
     const deep = @intFromBool(md.fuse == 8);
-    const f = if (ldo != null) (if (fused) k.ld_fused else if (small) k.ld_fuse_s[deep][bi] else k.ld_tiled[ci][bi]) else if (fused) k.fused[fi] else if (small) k.fuse_s[deep][fi][bi] else k.tiled[fi][ci][bi];
-    const sk_arg: usize = if ((small or fused64) and md.mutant) sk / 2 else sk;
+    const f = if (ldo != null) (if (prompt_fused2) k.ld_fused2 else if (fused) k.ld_fused else if (small) k.ld_fuse_s[deep][bi] else k.ld_tiled[ci][bi]) else if (prompt_fused2) k.fused2[fi] else if (fused) k.fused[fi] else if (small) k.fuse_s[deep][fi][bi] else k.tiled[fi][ci][bi];
+    // the mutant (checks only): the fused forms told half the slices (fp8-fused-check; fp8-tiles-check for the
+    // prompt form)
+    const sk_arg: usize = if ((small or fused64 or prompt_fused2) and md.mutant) sk / 2 else sk;
     var a: cuda.Args = .{};
     a.add(x);
     a.add(l.w8);
@@ -245,6 +304,33 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
         .block = .{ .x = 128 },
         .shared = smemS(tile, stages),
         .cluster = if (cluster) .{ .x = 1, .y = 1, .z = @intCast(sk) } else null,
+    }, s, &a);
+}
+
+/// `matmulAt` of a one-slice shape on the 128x128 tile (2 x 4 warps, 3 stages): the stock tile's values and
+/// stores from blocks of (128 rows, 128 columns).
+fn matmulWide(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linear, out: u64, f32_out: bool, m: usize, ldo: ?usize) !void {
+    const n: usize = l.n;
+    // the mutant (fp8-tiles-check only): the tile told a K of 64 less (one group fewer and the wrong weight-tile stride, a
+    // layout slip); the check must see it
+    const kk: usize = if (k.mode.mutant) l.k - 64 else l.k;
+    const rows_t = (m + 127) / 128;
+    const cols_t = (n + 127) / 128;
+    const f = if (ldo != null) k.ld_wide128 else k.wide128[@intFromBool(f32_out)];
+    var a: cuda.Args = .{};
+    a.add(x);
+    a.add(l.w8);
+    a.add(l.bs);
+    a.add(@as(f32, 1.0));
+    a.add(out);
+    a.add(@as(u64, 0));
+    for ([_]usize{ m, n, kk, 1, l.npad, x_stride, l2Group(rows_t, 128, kk) }) |v| a.add(@as(c_int, @intCast(v)));
+    if (ldo) |ld| a.add(@as(c_int, @intCast(ld)));
+    try cuda.launch.launch(f, .{
+        .grid = .{ .x = @intCast(rows_t * cols_t), .y = 1, .z = 1 },
+        .block = .{ .x = 256 },
+        .shared = smemT(128, 128, 2, 4, 3),
+        .cluster = null,
     }, s, &a);
 }
 
@@ -300,6 +386,12 @@ test "split_k, buckets and shared memory follow qmm.py and qmmf.cu" {
     try std.testing.expectEqual(@as(usize, 25600), smem(16));
     try std.testing.expectEqual(@as(usize, 33792), smem(32));
     try std.testing.expectEqual(@as(usize, 50176), smem(64));
+    // the prompt tiles' shared memory (the kernels' own SMEM for these shapes)
+    try std.testing.expectEqual(@as(u32, 75264), smemT(128, 128, 2, 4, 3));
+    try std.testing.expectEqual(@as(u32, 25088), smemS(64, 2));
+    try std.testing.expectEqual(smemS(64, 4), smemT(64, 64, 1, 4, 4));
+    try std.testing.expectEqualStrings("_ZN10tf_fn_qmmf11qmmf_kernelILi3ELi128ELi128ELi2ELi4ELi3ELb0ELb0ELb0EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", sym.wide128[0]);
+    try std.testing.expectEqualStrings("_ZN13tf_fn_qmmf_ld11qmmf_kernelILi3ELi64ELi64ELi1ELi4ELi2ELb0ELb0ELb1EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiiii", sym.ld_fused2);
     try std.testing.expectEqual(@as(usize, 13312), npadOf(13312));
     try std.testing.expectEqual(@as(usize, 128), npadOf(96));
     try std.testing.expectEqual(@as(usize, 64), bucket(33));
@@ -707,6 +799,173 @@ pub fn fusedCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
             for (&t, fused_modes) |*a, wm| {
                 std.mem.sort(f64, a, {}, std.sort.asc(f64));
                 std.debug.print(" {s} {d:.1} us [{d:.1}-{d:.1}] {d:.0} GB/s;", .{ wm.name, a[2], a[0], a[4], @as(f64, @floatFromInt(wbytes)) / a[2] / 1e3 });
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+    k.mode = .{};
+    return ok;
+}
+
+// ---- `fp8-tiles-check`: the prompt tiles (Mode.wide, Mode.pfuse) against the stock kernels ---------------------------
+
+const tile_modes = [_]struct { name: []const u8, m: Mode }{
+    .{ .name = "stock", .m = .{} },
+    .{ .name = "wide(128x128 s3)", .m = .{ .wide = true } },
+    .{ .name = "fused s2", .m = .{ .pfuse = true } },
+    .{ .name = "tiles(wide+fused s2)", .m = .{ .wide = true, .pfuse = true } },
+};
+
+/// Random block-FP8 weights at the checkpoint's prompt shapes (random e4m3 codes without NaN, scales 2^-9..2^-4, as
+/// fusedCheck): every prompt tile mode's outputs (bf16 and fp32,
+/// the ld form for the projections with its gaps poisoned) byte-compared with the stock kernel's at prompt row
+/// counts (256 on, the odd ones too), the output poisoned before every call; the mutants (the fused form told half
+/// the slices, the wide tile told a K of 64 less) must differ; then each mode's time at 2048 and 4096 rows, the
+/// weights rotated over copies that do not fit the 24 MB L2, modes interleaved, median of 5.
+pub fn tilesCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
+    const d = ctx.d;
+    var k = try Kernels.load(ctx);
+    defer k.deinit();
+    var stream = try cuda.Stream.init(d, true);
+    defer stream.deinit();
+    var e0 = try cuda.Event.init(d, true);
+    defer e0.deinit();
+    var e1 = try cuda.Event.init(d, true);
+    defer e1.deinit();
+    var prng = std.Random.DefaultPrng.init(2026);
+    const r = prng.random();
+    var ok = true;
+    const Shape = struct { name: []const u8, n: usize, k: usize, ld: bool, fp32: bool };
+    const shapes = [_]Shape{
+        .{ .name = "gdn_qkvz", .n = 16384, .k = 2560, .ld = true, .fp32 = false },
+        .{ .name = "attn_qkv", .n = 13312, .k = 2560, .ld = true, .fp32 = false },
+        .{ .name = "out_proj", .n = 2560, .k = 6144, .ld = false, .fp32 = true },
+        .{ .name = "shared_gu", .n = 2560, .k = 2560, .ld = false, .fp32 = false },
+        .{ .name = "shared_down", .n = 2560, .k = 1280, .ld = false, .fp32 = true },
+        .{ .name = "mtp_hc_down", .n = 324, .k = 10240, .ld = false, .fp32 = false },
+    };
+    const rows_list = [_]usize{ 255, 256, 300, 1024, 2048, 2049 };
+    const max_m: usize = 4096;
+    for (shapes) |sh| {
+        const n = sh.n;
+        const kk = sh.k;
+        const npad = npadOf(n);
+        const sk = splitK(n, kk);
+        const codes = try gpa.alloc(u8, n * kk);
+        defer gpa.free(codes);
+        r.bytes(codes);
+        // no NaN codes (0x7F / 0xFF): one in a column would make every output of that column NaN and the compare vacuous
+        for (codes) |*c| if ((c.* & 0x7F) == 0x7F) {
+            c.* ^= 0x01;
+        };
+        const inv = try gpa.alloc(f32, ((n + 127) / 128) * (kk / 128));
+        defer gpa.free(inv);
+        for (inv) |*v| v.* = std.math.ldexp(1.0 + r.float(f32), -9 + @as(i32, r.intRangeLessThan(i32, 0, 5)));
+        const cols = try gpa.alloc(f32, n * (kk / 64));
+        defer gpa.free(cols);
+        try columnScales(inv, n, kk, cols);
+        const bs = try gpa.alloc(f32, npad * (kk / 64));
+        defer gpa.free(bs);
+        try tileScales(cols, n, kk, npad, bs);
+        const w8 = try gpa.alloc(u8, npad * kk);
+        defer gpa.free(w8);
+        try fragmentOrder(codes, n, kk, npad, w8);
+        const wbytes = npad * kk + npad * (kk / 64) * 4;
+        const copies = @max(2, (96 << 20) / wbytes + 1);
+        var dws: [16]cuda.DeviceBuffer = undefined;
+        var dbs: [16]cuda.DeviceBuffer = undefined;
+        const nc = @min(copies, 16);
+        for (0..nc) |i| {
+            dws[i] = try cuda.DeviceBuffer.fromHost(d, w8);
+            dbs[i] = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(bs));
+        }
+        defer for (0..nc) |i| {
+            dws[i].free();
+            dbs[i].free();
+        };
+        const xh = try gpa.alloc(u16, max_m * kk);
+        defer gpa.free(xh);
+        for (xh) |*v| {
+            const f: f32 = r.floatNorm(f32);
+            v.* = @intCast(@as(u32, @bitCast(f)) >> 16);
+        }
+        var dx = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(xh));
+        defer dx.free();
+        const ldo = n + 72;
+        const out_len = max_m * @max(n * 4, ldo * 2);
+        var dy = try cuda.DeviceBuffer.alloc(d, out_len);
+        defer dy.free();
+        const ref = try gpa.alloc(u8, out_len);
+        defer gpa.free(ref);
+        const got = try gpa.alloc(u8, out_len);
+        defer gpa.free(got);
+        const lin: Linear = .{ .w8 = dws[0].ptr, .bs = dbs[0].ptr, .n = @intCast(n), .k = @intCast(kk), .npad = @intCast(npad) };
+        var calls: usize = 0;
+        var differ: usize = 0;
+        var mutant_calls: usize = 0;
+        var mutant_differ: usize = 0;
+        const run = struct {
+            fn f(kp: *const Kernels, st: cuda.Stream, y: cuda.DeviceBuffer, xp: u64, l: Linear, kd: usize, mm: usize, ld: usize) !void {
+                try y.fill8(0xA5, st.handle);
+                if (kd == 2) try matmulLd(kp, st, xp, l.k, l, y.ptr, ld, mm) else try matmul(kp, st, xp, l.k, l, y.ptr, kd == 1, mm);
+                try st.synchronize();
+            }
+        }.f;
+        // kinds 0 bf16, 1 fp32, 2 ld (bf16 rows ldo apart)
+        for (rows_list) |m| for (0..3) |kind| {
+            if (kind == 2 and !sh.ld) continue;
+            const len = if (kind == 2) m * ldo * 2 else m * n * @as(usize, if (kind == 1) 4 else 2);
+            k.mode = .{};
+            try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo);
+            try dy.download(0, ref[0..len]);
+            for (tile_modes[1..]) |rm| {
+                k.mode = rm.m;
+                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo);
+                try dy.download(0, got[0..len]);
+                calls += 1;
+                if (!std.mem.eql(u8, ref[0..len], got[0..len])) {
+                    differ += 1;
+                    ok = false;
+                    std.debug.print("  {s} n {d} k {d} m {d} kind {d} mode {s}: DIFFERS from stock\n", .{ sh.name, n, kk, m, kind, rm.name });
+                }
+            }
+            // the mutants, where the mode's new kernel runs (prompt rows): the fused form at split shapes of at least
+            // fuse_n columns, the wide tile at one-slice shapes of at least tile_n columns
+            if (m >= tile_rows and ((sk > 1 and n >= (Mode{}).fuse_n) or (sk == 1 and n >= tile_n))) {
+                k.mode = if (sk > 1) Mode{ .pfuse = true, .mutant = true } else Mode{ .wide = true, .mutant = true };
+                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo);
+                try dy.download(0, got[0..len]);
+                mutant_calls += 1;
+                if (!std.mem.eql(u8, ref[0..len], got[0..len])) mutant_differ += 1;
+            }
+        };
+        const mutant_ok = mutant_calls == 0 or mutant_differ == mutant_calls;
+        if (!mutant_ok) ok = false;
+        std.debug.print("{s} {s} n {d} k {d} split_k {d}: {d} mode calls (rows {any}), {d} differ from stock; mutant differs on {d}/{d} calls: {s}\n", .{ if (differ == 0 and mutant_ok) "PASS" else "FAIL", sh.name, n, kk, sk, calls, rows_list, differ, mutant_differ, mutant_calls, if (mutant_calls == 0) "no new kernel at this shape" else if (mutant_ok) "KILLED" else "SURVIVED (the check cannot see the change)" });
+        // speed at prompt row counts: the kernel the engine runs for this shape (ld for the projections, fp32 where the
+        // engine asks for it), weights rotated over copies past L2
+        for ([_]usize{ 2048, 4096 }) |m| {
+            var t: [tile_modes.len][5]f64 = undefined;
+            const reps: usize = 8;
+            for (0..5) |rep| for (tile_modes, 0..) |rm, mi| {
+                k.mode = rm.m;
+                var l = lin;
+                if (sh.ld) try matmulLd(&k, stream, dx.ptr, kk, l, dy.ptr, ldo, m) else try matmul(&k, stream, dx.ptr, kk, l, dy.ptr, sh.fp32, m);
+                try e0.record(stream);
+                for (0..reps) |i| {
+                    l.w8 = dws[(i + 1) % nc].ptr;
+                    l.bs = dbs[(i + 1) % nc].ptr;
+                    if (sh.ld) try matmulLd(&k, stream, dx.ptr, kk, l, dy.ptr, ldo, m) else try matmul(&k, stream, dx.ptr, kk, l, dy.ptr, sh.fp32, m);
+                }
+                try e1.record(stream);
+                try e1.synchronize();
+                t[mi][rep] = @as(f64, try cuda.Event.elapsedMs(e0, e1)) * 1000.0 / @as(f64, @floatFromInt(reps));
+            };
+            const flops: f64 = 2.0 * @as(f64, @floatFromInt(m * n * kk));
+            std.debug.print("  {s} m {d}:", .{ sh.name, m });
+            for (&t, tile_modes) |*a, rm| {
+                std.mem.sort(f64, a, {}, std.sort.asc(f64));
+                std.debug.print(" {s} {d:.0} us [{d:.0}-{d:.0}] {d:.1} TFLOPS {d:.1}%;", .{ rm.name, a[2], a[0], a[4], flops / a[2] / 1e6, (t[0][2] / a[2] - 1.0) * 100.0 });
             }
             std.debug.print("\n", .{});
         }

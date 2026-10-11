@@ -59,7 +59,7 @@ __global__ void __launch_bounds__(WM * WN * 32) qmmf_kernel(
         float scale, void* __restrict__ out, float* __restrict__ part, int M, int N, int K, int SK, int npad, int ldx,
         int group) {
     using T = Tile<MODE, BM, BN, WM, WN, STAGES>;
-    static_assert(BN == 64, "a block reads one 64-column tile of words and scales");
+    static_assert(BN % 64 == 0, "a block reads whole 64-column tiles of words and scales");
     extern __shared__ __align__(128) unsigned char buf[];
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const int wm = warp / WN, wn = warp % WN;
@@ -82,10 +82,13 @@ __global__ void __launch_bounds__(WM * WN * 32) qmmf_kernel(
             const int t = c / (TILE_BYTES / 16), off = c % (TILE_BYTES / 16);
             cp16(pw + c * 16, w + (static_cast<size_t>(n0 / 64 + t) * KG + g) * TILE_BYTES + off * 16);
         }
-        if constexpr (T::S > 0) {                          // block scales [npad/64][K/64][64][4|2]: one tile's
+        if constexpr (T::S > 0) {                          // block scales [npad/64][K/64][64][4|2]: each tile's
             unsigned char* ps = pw + T::W;
-            for (int c = tid; c < T::S / 16; c += T::THREADS)
-                cp16(ps + c * 16, bs + (static_cast<size_t>(n0 / 64) * KG + g) * T::S + c * 16);
+            constexpr int SCALE_BYTES = 64 * (MODE == MXFP8 ? 2 : 4);
+            for (int c = tid; c < T::S / 16; c += T::THREADS) {
+                const int t = c / (SCALE_BYTES / 16), off = c % (SCALE_BYTES / 16);
+                cp16(ps + c * 16, bs + (static_cast<size_t>(n0 / 64 + t) * KG + g) * SCALE_BYTES + off * 16);
+            }
         }
     };
 
@@ -320,3 +323,15 @@ TF_QMMF(64, true, false, true)
     TF_QMMF_S(16, true, false, true, ST) TF_QMMF_S(32, true, false, true, ST)
 TF_QMMF_F(4)
 TF_QMMF_F(8)
+// Prompt tiles of the same kernel (a tile sweep, bytes equal in every cell; cuda_fp8.zig Mode.wide / Mode.pfuse). The
+// one-slice 128x128 tile on 8 warps (2 x 4) in 3 stages for the wide projections (gdn qkvz, attention qkv), and the
+// fused prompt form in 2 stages (half the shared memory a block, so more blocks a multiprocessor: out_proj, the shared
+// expert). A block of BN 128 reads two 64-column tiles of words and scales; the per-output MMA and scale sequence and
+// the slice order are the 64x64 tile's, so the same bytes (fp8-tiles-check).
+#define TF_QMMF_PROMPT(BM, BN, WM, WN, ST, F32, FUSE) template __global__ void tf_fn_qmmf::qmmf_kernel<3, BM, BN, WM, \
+    WN, ST, F32, false, FUSE>(const __nv_bfloat16*, const unsigned char*, const uint8_t*, float, void*, float*, int, \
+    int, int, int, int, int, int);
+TF_QMMF_PROMPT(128, 128, 2, 4, 3, false, false)
+TF_QMMF_PROMPT(128, 128, 2, 4, 3, true, false)
+TF_QMMF_PROMPT(64, 64, 1, 4, 2, false, true)
+TF_QMMF_PROMPT(64, 64, 1, 4, 2, true, true)

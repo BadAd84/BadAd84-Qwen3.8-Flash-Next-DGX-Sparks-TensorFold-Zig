@@ -489,3 +489,11 @@ TF_INT4_PROMPT(64, 0, 3)
 TF_INT4_PROMPT(64, 3, 3)
 TF_INT4_PROMPT(128, 0, 2)
 TF_INT4_PROMPT(128, 3, 2)
+// Prompt calls of the routed gate/up on the same kernel (2 matrices, the SwiGLU epilogue, groups of 128 at one GPU),
+// items of up to 64 pairs: an expert's gate/up words read once an item instead of once a 16-pair item (int4_kernel).
+// 2 x 4 warps, 2 x 4 tiles a warp (64 rows x 128 columns a block), 3 stages (cuda_int4.zig prompt_gu). The same
+// per-output arithmetic as int4_kernel: the same bits (int4-check).
+#define TF_INT4_PROMPT_GU(WR, WC, RT, WN, ST) template __global__ void tf_fn_int4::int4_prompt_kernel<128, 2, 2, WR, WC, \
+    RT, WN, ST>(const __nv_bfloat16*, int, int, const uint32_t*, const __half*, int, int, const int*, const int*, \
+    const int*, void*, int, float, int);
+TF_INT4_PROMPT_GU(2, 4, 2, 4, 3)

@@ -186,6 +186,72 @@ pub fn promptSmem(gs: usize, stages: usize) u32 {
     return @intCast(stages * (64 * gs * 2 + 16 * 32 * (gs / 32) * 4 + 16 * 16));
 }
 
+/// The routed gate/up of prompt calls on int4_prompt_kernel (fn_int4.cu's TF_INT4_PROMPT_GU footer: 2 matrices, the
+/// SwiGLU epilogue, groups of 128, items of up to 64 pairs, an expert's words read once an item instead of once a
+/// 16-pair item): {row warps, column warps, row tiles a warp, n8 tiles a warp, stages}, a block 64 rows x 128 columns.
+/// TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1 (else int4_kernel on 16-pair items, stock). The same per-output arithmetic, so
+/// the same bits (int4-check).
+pub const PromptGu = struct { wr: usize, wc: usize, rt: usize, wn: usize, stages: usize };
+pub const prompt_gu: PromptGu = .{ .wr = 2, .wc = 4, .rt = 2, .wn = 4, .stages = 3 };
+
+pub const prompt_gu_symbol = std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi2ELi2ELi{d}ELi{d}ELi{d}ELi{d}ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ prompt_gu.wr, prompt_gu.wc, prompt_gu.rt, prompt_gu.wn, prompt_gu.stages });
+
+/// int4_prompt_kernel's dynamic shared memory for `mats` matrices, `br` rows and `bt` n8 tiles a block (PromptShape).
+pub fn promptSmemOf(gs: usize, mats: usize, br: usize, bt: usize, stages: usize) u32 {
+    return @intCast(stages * (br * gs * 2 + mats * bt * 32 * (gs / 32) * 4 + mats * bt * 16));
+}
+
+/// A gate/up prompt shape's rows a block (its items' pairs), n8 tiles a block, threads and shared memory.
+pub fn promptGuRows(p: PromptGu) usize {
+    return p.wr * p.rt * 16;
+}
+pub fn promptGuTiles(p: PromptGu) usize {
+    return p.wc * p.wn;
+}
+pub fn promptGuSmem(p: PromptGu) u32 {
+    return promptSmemOf(128, 2, promptGuRows(p), promptGuTiles(p), p.stages);
+}
+
+/// sm_121's (GB10's) opt-in shared memory a block. prompt_gu takes 99,840 of it dynamically and none statically: a
+/// shape change past the limit fails to compile here; Kernels.load checks the device's own limit (promptGuFits).
+pub const sm121_smem_optin = 101376;
+comptime {
+    std.debug.assert(promptGuSmem(prompt_gu) <= sm121_smem_optin);
+}
+
+/// Whether a block of prompt_gu fits a GPU: its dynamic shared memory plus the kernel's `static` shared memory
+/// within the device's opt-in limit a block (`optin`). Kernels.load opts the function in only then.
+pub fn promptGuFits(static: usize, optin: usize) bool {
+    return promptGuSmem(prompt_gu) + static <= optin;
+}
+
+/// Whether gateUpPrompt takes a call on `ex` (x rows `x_stride` apart, out): the gate/up width a multiple of the
+/// block's columns (128), K groups of 128, uint4 input rows and weight words, scales and bf16x2 stores aligned.
+/// promptGu keeps int4_kernel for the rest; gateUpPrompt refuses it.
+pub fn gateUpPromptFits(ex: Experts, x: u64, x_stride: usize, out: u64) bool {
+    const cols = 8 * promptGuTiles(prompt_gu);
+    return ex.width % cols == 0 and ex.dims % 128 == 0 and x_stride % 8 == 0 and x % 16 == 0 and ex.up % 16 == 0 and ex.up_s % 16 == 0 and out % 8 == 0;
+}
+
+test "the prompt gate/up fits sm_121's shared memory, and takes widths of whole column blocks" {
+    try std.testing.expectEqual(@as(u32, 99840), promptGuSmem(prompt_gu));
+    try std.testing.expect(promptGuFits(0, sm121_smem_optin));
+    try std.testing.expect(!promptGuFits(sm121_smem_optin - 99840 + 1, sm121_smem_optin)); // static memory past it
+    try std.testing.expect(!promptGuFits(0, 99839));
+    try std.testing.expect(!promptGuFits(0, 49152)); // a 48 KiB GPU
+    const ex: Experts = .{ .up = 0x1000, .up_s = 0x2000, .width = 640, .dims = 2560 };
+    try std.testing.expect(gateUpPromptFits(ex, 0x3000, 2560, 0x4000));
+    var odd = ex;
+    odd.width = 640 + 64; // half a column block: int4_kernel
+    try std.testing.expect(!gateUpPromptFits(odd, 0x3000, 2560, 0x4000));
+    odd = ex;
+    odd.dims = 2560 + 64; // K not whole groups of 128
+    try std.testing.expect(!gateUpPromptFits(odd, 0x3000, 2560 + 64, 0x4000));
+    try std.testing.expect(!gateUpPromptFits(ex, 0x3008, 2560, 0x4000)); // input rows not 16-byte aligned
+    try std.testing.expect(!gateUpPromptFits(ex, 0x3000, 2564, 0x4000));
+    try std.testing.expect(!gateUpPromptFits(ex, 0x3000, 2560, 0x4004));
+}
+
 pub const Kernels = struct {
     module: cuda.Module,
     fns: [n_kinds][nts.len][mts.len]cuda.Function,
@@ -197,6 +263,12 @@ pub const Kernels = struct {
     /// the row tiles a pass the head (`dense`) takes for calls of more than 16 rows: 2 (TF_FLASHNEXT_HEAD_ROW_TILES=2)
     /// reads the weights once for 32 rows, 1 takes 16-row items. The same bits either way (int4-head-check).
     head_mt: usize = 1,
+    /// the prompt gate/up (prompt_gu), its resident blocks; `pgu_ready`: opted into its shared memory (it fits this
+    /// GPU, promptGuFits); `pgu`: prompt calls take it (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1 and ready)
+    pgu_fn: cuda.Function,
+    pgu_blocks: usize,
+    pgu_ready: bool = false,
+    pgu: bool = false,
 
     pub fn load(ctx: *const cuda.Context) !Kernels {
         if (!cuda.kernels.available) return error.BuiltWithoutKernels;
@@ -214,6 +286,20 @@ pub const Kernels = struct {
             try k.pdown[g][o].allowDynamicShared(sm);
             k.pdown_blocks[g][o] = @as(usize, @max(1, try k.pdown[g][o].occupancy(prompt_threads, sm))) * sms;
         };
+        const sm_gu = promptGuSmem(prompt_gu);
+        k.pgu_fn = try k.module.function(prompt_gu_symbol);
+        const optin: usize = @intCast(try ctx.attribute(.max_shared_memory_per_block_optin));
+        const static: usize = @intCast(try k.pgu_fn.attribute(.shared_size_bytes));
+        k.pgu_ready = promptGuFits(static, optin);
+        k.pgu_blocks = 0;
+        if (k.pgu_ready) {
+            try k.pgu_fn.allowDynamicShared(sm_gu);
+            k.pgu_blocks = @as(usize, @max(1, try k.pgu_fn.occupancy(@intCast(prompt_gu.wr * prompt_gu.wc * 32), sm_gu))) * sms;
+        }
+        const want_pgu = if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_GATE_UP")) |v| std.mem.eql(u8, std.mem.span(v), "1") else false;
+        k.pgu = want_pgu and k.pgu_ready;
+        if (k.pgu) std.log.info("int4 prompt gate/up: int4_prompt_kernel on 64-pair items, {d}x{d} warps, {d}x{d} tiles, {d} stages (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1)", .{ prompt_gu.wr, prompt_gu.wc, prompt_gu.rt, prompt_gu.wn, prompt_gu.stages });
+        if (want_pgu and !k.pgu_ready) std.log.warn("int4 prompt gate/up off: a block needs {d} + {d} bytes of shared memory, this GPU allows {d}; int4_kernel kept", .{ sm_gu, static, optin });
         k.head_mt = try headRowTiles(if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.mem.span(v) else null);
         std.log.info("int4 lm_head: {s} (TF_FLASHNEXT_HEAD_ROW_TILES={d})", .{ if (k.head_mt == 2) "calls of 17 or more rows in 32-row items" else "16-row items", k.head_mt });
         return k;
@@ -347,6 +433,44 @@ pub fn downPrompt(k: *const Kernels, s: cuda.Stream, act: u64, act_stride: usize
 pub fn promptDown(pairs: usize) bool {
     if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_DOWN")) |v| if (std.mem.eql(u8, std.mem.span(v), "0")) return false;
     return pairs >= prompt_pairs;
+}
+
+/// The routed gate/up of a prompt call on int4_prompt_kernel (prompt_gu): `gateUp`'s outputs, byte for byte, from a
+/// plan whose items hold at most `prompt_tile` (64) pairs. A block is an (item, column block) unit; the grid loops
+/// over the units (the same bits at any grid). A call gateUpPromptFits refuses, or a GPU it does not fit
+/// (`pgu_ready`), is an error: promptGu asks both first.
+pub fn gateUpPrompt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, ex: Experts, p: kern.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int) !void {
+    const sh = prompt_gu;
+    const n: usize = ex.width;
+    const kk: usize = ex.dims;
+    const cols = 8 * promptGuTiles(sh);
+    if (!k.pgu_ready or !gateUpPromptFits(ex, x, x_stride, out)) return error.Invalid;
+    const items = kern.maxItems(rows * plan_slots, plan_experts, prompt_tile);
+    const units = items * (n / cols);
+    const grid = @min(units, k.pgu_blocks);
+    if (grid < 1) return;
+    var a: cuda.Args = .{};
+    a.add(x);
+    a.add(int(x_stride));
+    a.add(int(plan_slots));
+    a.add(ex.up);
+    a.add(ex.up_s);
+    a.add(int(kk));
+    a.add(int(n));
+    a.add(p.items);
+    a.add(p.counts);
+    a.add(p.members);
+    a.add(out);
+    a.add(int(n));
+    a.add(@as(f32, 0));
+    a.add(skip);
+    try cuda.launch.launch(k.pgu_fn, .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = @intCast(sh.wr * sh.wc * 32) }, .shared = promptGuSmem(sh) }, s, &a);
+}
+
+/// Whether a prompt call of `pairs` routed pairs takes `gateUpPrompt` (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1, the GPU
+/// holds its block, gateUpPromptFits); else int4_kernel on 16-pair items, the same bits.
+pub fn promptGu(k: *const Kernels, pairs: usize, ex: Experts, x: u64, x_stride: usize, out: u64) bool {
+    return k.pgu and pairs >= prompt_pairs and gateUpPromptFits(ex, x, x_stride, out);
 }
 
 /// A dense matmul (the head): x [rows, k] -> out [rows, n] bf16 (or fp32), rows `x_stride` apart.

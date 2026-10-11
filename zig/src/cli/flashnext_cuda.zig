@@ -58,6 +58,8 @@ const usage =
     \\           (TF_FLASHNEXT_FP8_FUSED_SPLIT 4 and 8) against the cluster kernel, bytes compared, a mutant, timed)
     \\  tensorfold int4-head-check MODEL   (no weights: the int4 head's 32-row items (TF_FLASHNEXT_HEAD_ROW_TILES=2)
     \\           against 16-row items and 1-row calls, bytes compared, then both timed)
+    \\  tensorfold fp8-tiles-check MODEL   (no weights: the block-FP8 prompt tiles (TF_FLASHNEXT_FP8_PROMPT_TILES)
+    \\           against the stock kernel at prompt row counts, bytes compared, mutants, then their speed)
     \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
     \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
     \\  tensorfold hc-check MODEL   (no weights: the read-outs' 12-bit-weight down/up kernels (cuda_hc_q12.zig)
@@ -292,6 +294,13 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "fp8-fused-check")) {
         const ok = try flashnext.fp8.fusedCheck(gpa, &ctx);
         std.debug.print("{s} fp8-fused-check: every fused split-K tile byte-equal to the cluster kernel\n", .{if (ok) "PASS" else "FAIL"});
+        return if (ok) 0 else 1;
+    }
+    // the block-FP8 prompt tiles against the stock kernels at prompt row counts (bytes, mutants, then speed without
+    // L2 reuse)
+    if (std.mem.eql(u8, cmd, "fp8-tiles-check")) {
+        const ok = try flashnext.fp8.tilesCheck(gpa, &ctx);
+        std.debug.print("{s} fp8-tiles-check: every prompt tile mode byte-equal to the stock kernel, mutants killed\n", .{if (ok) "PASS" else "FAIL"});
         return if (ok) 0 else 1;
     }
     if (std.mem.eql(u8, cmd, "int4-head-check")) {

@@ -61,7 +61,7 @@ __global__ void __launch_bounds__(WM * WN * 32) qmmf_kernel(
         float scale, void* __restrict__ out, float* __restrict__ part, int M, int N, int K, int SK, int npad, int ldx,
         int group, int ldo) {
     using T = Tile<MODE, BM, BN, WM, WN, STAGES>;
-    static_assert(BN == 64, "a block reads one 64-column tile of words and scales");
+    static_assert(BN % 64 == 0, "a block reads whole 64-column tiles of words and scales");
     extern __shared__ __align__(128) unsigned char buf[];
     const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
     const int wm = warp / WN, wn = warp % WN;
@@ -84,10 +84,13 @@ __global__ void __launch_bounds__(WM * WN * 32) qmmf_kernel(
             const int t = c / (TILE_BYTES / 16), off = c % (TILE_BYTES / 16);
             cp16(pw + c * 16, w + (static_cast<size_t>(n0 / 64 + t) * KG + g) * TILE_BYTES + off * 16);
         }
-        if constexpr (T::S > 0) {                          // block scales [npad/64][K/64][64][4|2]: one tile's
+        if constexpr (T::S > 0) {                          // block scales [npad/64][K/64][64][4|2]: each tile's
             unsigned char* ps = pw + T::W;
-            for (int c = tid; c < T::S / 16; c += T::THREADS)
-                cp16(ps + c * 16, bs + (static_cast<size_t>(n0 / 64) * KG + g) * T::S + c * 16);
+            constexpr int SCALE_BYTES = 64 * (MODE == MXFP8 ? 2 : 4);
+            for (int c = tid; c < T::S / 16; c += T::THREADS) {
+                const int t = c / (SCALE_BYTES / 16), off = c % (SCALE_BYTES / 16);
+                cp16(ps + c * 16, bs + (static_cast<size_t>(n0 / 64 + t) * KG + g) * SCALE_BYTES + off * 16);
+            }
         }
     };
 
@@ -311,3 +314,10 @@ TF_QMMF_LD(64, false, true)
     int, int, int, int, int, int);
 TF_QMMF_LD_S(16, false, true, 4) TF_QMMF_LD_S(32, false, true, 4) TF_QMMF_LD_S(16, false, true, 8)
 TF_QMMF_LD_S(32, false, true, 8)
+// fn_qmmf.cu's prompt tiles (the one-slice 128x128 tile on 2 x 4 warps in 3 stages, the fused prompt form in 2
+// stages), bf16 out with the row stride.
+#define TF_QMMF_LD_PROMPT(BM, BN, WM, WN, ST, FUSE) template __global__ void tf_fn_qmmf_ld::qmmf_kernel<3, BM, BN, WM, \
+    WN, ST, false, false, FUSE>(const __nv_bfloat16*, const unsigned char*, const uint8_t*, float, void*, float*, \
+    int, int, int, int, int, int, int, int);
+TF_QMMF_LD_PROMPT(128, 128, 2, 4, 3, false)
+TF_QMMF_LD_PROMPT(64, 64, 1, 4, 2, true)

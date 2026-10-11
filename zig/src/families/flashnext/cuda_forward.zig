@@ -2004,8 +2004,10 @@ pub const Forward = struct {
         const k8 = f.k8 orelse return error.NoFp8Kernels;
         if (ex4.width != ni or ex4.dims != D) return error.ExpertShape;
         const skip: c_int = @intCast(E);
-        // items of 16 pairs (int4.tileFor; the prompt tile is opt-in, the same bits)
-        const tile = int4.tileFor(R * slots);
+        // items of 16 pairs (int4.tileFor; the prompt tile is opt-in, the same bits); the prompt gate/up on
+        // int4_prompt_kernel takes 64-pair items (the prompt down reuses that plan) when it takes the call
+        const pgu = int4.promptGu(k4, R * slots, ex4, xin, D, act);
+        const tile = if (pgu) int4.prompt_tile else int4.tileFor(R * slots);
         try f.ops.plan(pick, R * slots, E + 1, tile, plan);
         try f.mark(.topk_plan);
         const sh = m.shared8 orelse return error.NoSharedExpert;
@@ -2021,7 +2023,7 @@ pub const Forward = struct {
             try fp8.matmul(k8, sd.s, f.sc.sh_a, sh.width, sh.down, f.sc.shared_y, x.y_f32, R);
             try th2.slotCopy(f.sc.shared_y, D * es, y + top * D * es, slots * D * es, D * es, R);
             try sd.join.record(sd.s);
-            try int4.gateUp(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip, tile);
+            if (pgu) try int4.gateUpPrompt(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip) else try int4.gateUp(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip, tile);
             try f.mark(.experts_gate_up);
             try f.int4Down(k4, pick, act, ex4, plan, slots, E, y, x.y_f32, R, skip, tile);
             try f.mark(.experts_down);
@@ -2029,7 +2031,7 @@ pub const Forward = struct {
             try f.mark(.shared_down);
             return;
         }
-        try int4.gateUp(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip, tile);
+        if (pgu) try int4.gateUpPrompt(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip) else try int4.gateUp(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip, tile);
         try f.mark(.experts_gate_up);
         try fp8.matmul(k8, f.s, xin, D, sh.gu, f.sc.sh_g, false, R);
         try f.th.sharedSwiglu(f.sc.sh_g, f.sc.sh_a, R, sh.width, sh.width);
@@ -2046,7 +2048,7 @@ pub const Forward = struct {
     /// again after gate/up read the 16-pair one; the same bytes as int4_kernel's, int4-check), else int4_kernel.
     fn int4Down(f: *Forward, k4: *const int4.Kernels, pick: u64, act: u64, ex4: int4.Experts, plan: kern.Plan, slots: usize, E: usize, y: u64, y_f32: bool, R: usize, skip: c_int, tile: usize) !void {
         if (int4.promptDown(R * slots)) {
-            try f.ops.plan(pick, R * slots, E + 1, int4.prompt_down_tile, plan);
+            if (tile != int4.prompt_down_tile) try f.ops.plan(pick, R * slots, E + 1, int4.prompt_down_tile, plan);
             return int4.downPrompt(k4, f.s, act, ex4.width, ex4, plan, slots, E + 1, y, y_f32, R, skip);
         }
         return int4.down(k4, f.s, act, ex4.width, ex4, plan, slots, E + 1, y, y_f32, R, skip, tile);

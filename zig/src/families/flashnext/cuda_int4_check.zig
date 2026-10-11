@@ -408,6 +408,28 @@ fn checkExperts(gpa: Allocator, k: *const int4.Kernels, ops: kern.Ops, dv: *Dev,
                 break;
             }
         }
+        // the prompt gate/up (int4_prompt_kernel, when its column block divides the width and its block fits the
+        // GPU) on the same 64-pair items: bf16 SwiGLU bytes equal to int4_kernel's, the shared slot's sentinel kept
+        if (k.pgu_ready and ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+            const agp = try dv.zeros(pairs * ni * 2);
+            const agph = try gpa.alloc(u16, pairs * ni);
+            defer gpa.free(agph);
+            try (cuda.DeviceBuffer{ .d = dv.d, .ptr = agp, .len = pairs * ni * 2 }).upload(0, sentinel[0 .. pairs * ni * 2]);
+            try int4.gateUpPrompt(k, s, xd, D, ex, pl64, slots, E + 1, agp, R, @intCast(E));
+            try s.synchronize();
+            try dv.get(agp, std.mem.sliceAsBytes(agph));
+            for (0..pairs) |p| {
+                const ours = @as(usize, @intCast(picks[p])) < E;
+                const raw = std.mem.sliceAsBytes(agph[p * ni ..][0..ni]);
+                const bad = if (ours) !std.mem.eql(u16, ha[p * ni ..][0..ni], agph[p * ni ..][0..ni]) else !std.mem.allEqual(u8, raw, 0x5A);
+                if (bad) {
+                    std.debug.print("  experts prompt gate/up: pair {d} differs from int4_kernel (or the skipped slot was written)\n", .{p});
+                    rep.ok = false;
+                    break;
+                }
+            }
+            std.debug.print("  experts prompt gate/up: checked at width {d}\n", .{ni});
+        }
     }
     for ([_]usize{ 1, 2, 4 }) |nt| {
         if (ni % (8 * nt) == 0) {
@@ -569,6 +591,16 @@ pub fn bench(gpa: Allocator, k: *const int4.Kernels, ops: kern.Ops, d: *const cu
                         try int4.downPrompt(c.k, c.s, c.act, c.ex.width, c.ex, c.pl, c.slots, c.E + 1, c.y, false, c.R, @intCast(c.E));
                     }
                 }.f);
+                // the prompt gate/up on the same 64-pair items (when its column block divides the width)
+                if (k.pgu_ready and ni % (8 * int4.promptGuTiles(int4.prompt_gu)) == 0) {
+                    const Cg = struct { k: *const int4.Kernels, s: cuda.Stream, x: u64, ex: int4.Experts, pl: kern.Plan, slots: usize, E: usize, act: u64, R: usize };
+                    const tg = try timeIt(s, d, 5, Cg{ .k = k, .s = s, .x = x, .ex = ex, .pl = pl64, .slots = slots, .E = E, .act = act, .R = R }, struct {
+                        fn f(c: Cg) anyerror!void {
+                            try int4.gateUpPrompt(c.k, c.s, c.x, D, c.ex, c.pl, c.slots, c.E + 1, c.act, c.R, @intCast(c.E));
+                        }
+                    }.f);
+                    std.debug.print("  experts width {d}, {d} rows: prompt gate/up {d:.1} us (64-pair items)\n", .{ ni, R, tg });
+                }
             }
             for (0..2) |part| {
                 t[part] = try timeIt(s, d, if (R > 64) 5 else 50, C{ .k = k, .s = s, .x = x, .ex = ex, .pl = pl, .slots = slots, .E = E, .act = act, .y = y, .R = R, .part = @intCast(part) }, struct {
