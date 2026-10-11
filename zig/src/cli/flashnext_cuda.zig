@@ -51,6 +51,10 @@ const usage =
     \\           Python's Fp8BlockLinear on tools/zig/check_fp8block.py's cases in DIR, bytes compared, timed)
     \\  tensorfold int4-check MODEL   (no weights: the GPTQ int4 expert and head kernels (cuda_int4.zig) against a host
     \\           reference from the GPTQ bytes, row/tile invariance, plan == dense, then their speed)
+    \\  tensorfold fp8-fused-check MODEL   (no weights: block-FP8 split-K shapes below 256 rows on the fused form
+    \\           (TF_FLASHNEXT_FP8_FUSED_SPLIT 4 and 8) against the cluster kernel, bytes compared, a mutant, timed)
+    \\  tensorfold int4-head-check MODEL   (no weights: the int4 head's 32-row items (TF_FLASHNEXT_HEAD_ROW_TILES=2)
+    \\           against 16-row items and 1-row calls, bytes compared, then both timed)
     \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
     \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
     \\  tensorfold agree MODEL CAPTURE_DIR --report OUT.json [--against REF.json] [--max-tokens N] [--only NAME,...]
@@ -276,6 +280,22 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
         defer stream.deinit();
         const ok = try flashnext.int4_check.check(gpa, &ctx, .{ .k = &k, .s = stream });
         std.debug.print("{s} int4-check: the GPTQ int4 kernels against the host order, row and tile invariance, plan == dense\n", .{if (ok) "PASS" else "FAIL"});
+        return if (ok) 0 else 1;
+    }
+    // the fused split-K block-FP8 decode tiles against the cluster kernel (bytes, then speed without L2 reuse), and
+    // the int4 head's 32-row items against 16-row ones
+    if (std.mem.eql(u8, cmd, "fp8-fused-check")) {
+        const ok = try flashnext.fp8.fusedCheck(gpa, &ctx);
+        std.debug.print("{s} fp8-fused-check: every fused split-K tile byte-equal to the cluster kernel\n", .{if (ok) "PASS" else "FAIL"});
+        return if (ok) 0 else 1;
+    }
+    if (std.mem.eql(u8, cmd, "int4-head-check")) {
+        var k = try flashnext.kernels.Kernels.load(&ctx);
+        defer k.deinit();
+        var stream = try cuda.Stream.init(ctx.d, true);
+        defer stream.deinit();
+        const ok = try flashnext.int4_check.headRowsCheck(gpa, &ctx, .{ .k = &k, .s = stream });
+        std.debug.print("{s} int4-head-check: the head at 32-row items byte-equal to 16-row items and to 1-row calls\n", .{if (ok) "PASS" else "FAIL"});
         return if (ok) 0 else 1;
     }
     if (std.mem.eql(u8, cmd, "qsa-check")) return qsaCheck(gpa, init.io, &ctx, kernels);

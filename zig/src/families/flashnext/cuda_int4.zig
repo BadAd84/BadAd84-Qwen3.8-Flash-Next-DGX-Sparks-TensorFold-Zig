@@ -128,7 +128,8 @@ const warps = 4;
 /// [kind: gate/up SwiGLU (gs 128), down fp32 gs 128, down bf16 gs 128, fp32 gs 64, bf16 gs 64][NT: 1, 2, 4]
 const n_kinds = 5;
 const nts = [_]usize{ 1, 2, 4 };
-/// row tiles of 16 a pass: 1 (decode), 2 (prompt items of up to 64 pairs: the weights read once for 32 rows)
+/// row tiles of 16 a pass: 1 (decode), 2 (prompt items of up to 64 pairs, the head's 32-row items: the weights read
+/// once for 32 rows)
 const mts = [_]usize{ 1, 2 };
 
 fn symbol(comptime gs: usize, comptime nt: usize, comptime mt: usize, comptime mats: usize, comptime epi: usize) [:0]const u8 {
@@ -193,6 +194,9 @@ pub const Kernels = struct {
     /// the prompt down: [gs 128, 64][fp32, bf16] and their resident blocks
     pdown: [2][2]cuda.Function,
     pdown_blocks: [2][2]usize,
+    /// the row tiles a pass the head (`dense`) takes for calls of more than 16 rows: 2 (TF_FLASHNEXT_HEAD_ROW_TILES=2)
+    /// reads the weights once for 32 rows, 1 takes 16-row items. The same bits either way (int4-head-check).
+    head_mt: usize = 1,
 
     pub fn load(ctx: *const cuda.Context) !Kernels {
         if (!cuda.kernels.available) return error.BuiltWithoutKernels;
@@ -210,6 +214,8 @@ pub const Kernels = struct {
             try k.pdown[g][o].allowDynamicShared(sm);
             k.pdown_blocks[g][o] = @as(usize, @max(1, try k.pdown[g][o].occupancy(prompt_threads, sm))) * sms;
         };
+        k.head_mt = try headRowTiles(if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.mem.span(v) else null);
+        std.log.info("int4 lm_head: {s} (TF_FLASHNEXT_HEAD_ROW_TILES={d})", .{ if (k.head_mt == 2) "calls of 17 or more rows in 32-row items" else "16-row items", k.head_mt });
         return k;
     }
 
@@ -217,6 +223,23 @@ pub const Kernels = struct {
         k.module.unload();
     }
 };
+
+/// TF_FLASHNEXT_HEAD_ROW_TILES: the head's row tiles a pass for calls past 16 rows, 1 (unset) or 2; any other value
+/// is refused (error.BadSetting), never read as 1.
+pub fn headRowTiles(v: ?[]const u8) !usize {
+    const s = v orelse return 1;
+    if (std.mem.eql(u8, s, "1")) return 1;
+    if (std.mem.eql(u8, s, "2")) return 2;
+    std.log.warn("TF_FLASHNEXT_HEAD_ROW_TILES={s} refused: 1 (16-row items) or 2 (32-row items)", .{s});
+    return error.BadSetting;
+}
+
+test "the head's row tiles setting is 1 or 2, anything else refused" {
+    try std.testing.expectEqual(@as(usize, 1), try headRowTiles(null));
+    try std.testing.expectEqual(@as(usize, 1), try headRowTiles("1"));
+    try std.testing.expectEqual(@as(usize, 2), try headRowTiles("2"));
+    for ([_][]const u8{ "", "0", "3", "02", "two", "2 ", "-1" }) |v| try std.testing.expectError(error.BadSetting, headRowTiles(v));
+}
 
 fn int(x: usize) c_int {
     return @intCast(x);
@@ -339,7 +362,8 @@ pub fn denseNt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, m: Ma
         64 => if (f32_out) 3 else 4,
         else => return error.Invalid,
     };
-    try launch(k, s, kind, (rows + 15) / 16, x, if (rows == 1) m.k else x_stride, 0, m.w, m.s, m.k, m.n, null, rows, out, m.n, -1, nt, 1);
+    const mt: usize = if (rows <= 16 or k.head_mt == 1) 1 else 2;
+    try launch(k, s, kind, (rows + 16 * mt - 1) / (16 * mt), x, if (rows == 1) m.k else x_stride, 0, m.w, m.s, m.k, m.n, null, rows, out, m.n, -1, nt, mt);
 }
 
 /// `gateUp` / `down` with the n8 tiles a warp forced (checks).

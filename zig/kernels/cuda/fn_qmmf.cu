@@ -310,3 +310,13 @@ TF_QMMF(32, true, true, false)
 TF_QMMF(64, true, true, false)
 TF_QMMF(64, false, false, true)
 TF_QMMF(64, true, false, true)
+// The fused form (one block adds its tile's K slices in slice order, as the cluster does) at the decode row tiles 16
+// and 32, pipeline depths 4 and 8 (cuda_fp8.zig Mode.fuse; the per-output arithmetic and the slice order do not depend
+// on STAGES).
+#define TF_QMMF_S(BM, F32, CLUSTER, FUSE, ST) template __global__ void tf_fn_qmmf::qmmf_kernel<3, BM, 64, 1, 4, ST, \
+    F32, CLUSTER, FUSE>(const __nv_bfloat16*, const unsigned char*, const uint8_t*, float, void*, float*, int, int, \
+    int, int, int, int, int);
+#define TF_QMMF_F(ST) TF_QMMF_S(16, false, false, true, ST) TF_QMMF_S(32, false, false, true, ST) \
+    TF_QMMF_S(16, true, false, true, ST) TF_QMMF_S(32, true, false, true, ST)
+TF_QMMF_F(4)
+TF_QMMF_F(8)

@@ -10,6 +10,8 @@
 //! Ash Hart (ashhart)).
 const std = @import("std");
 const cuda = @import("cuda");
+/// The shared count-setting reader (refuses a value that is not a count).
+const envCount = @import("cuda_engine.zig").envCount;
 
 /// Fp8BlockLinear: w8 uint8 [npad/64][K/64][8][32][2][8] (fragment order), bs fp32 [npad/64][K/64][64].
 pub const Linear = struct { w8: u64 = 0, bs: u64 = 0, n: u32 = 0, k: u32 = 0, npad: u32 = 0 };
@@ -38,9 +40,37 @@ pub fn bucket(m: usize) usize {
 
 /// qmmf.cu Tile<FP8G, BM, 64, 1, 4, 4>::SMEM: max(4 stages, the cluster partials).
 pub fn smem(bm: usize) u32 {
+    return smemS(bm, 4);
+}
+
+/// Tile<FP8G, BM, 64, 1, 4, STAGES>::SMEM.
+pub fn smemS(bm: usize, stages: usize) u32 {
     const stage = std.mem.alignForward(usize, bm * 128 + 64 * 64 + 64 * 4, 128);
     const partials = (bm / 16) * 2 * 4 * 128 * 4;
-    return @intCast(@max(4 * stage, partials));
+    return @intCast(@max(stages * stage, partials));
+}
+
+/// How split-K shapes below FUSED_ROWS run (fp8-fused-check: the same bits as the cluster kernel): `fuse` 0 on the
+/// cluster kernel (one block a K slice, the slices added in the cluster), 4 or 8 on the fused form (one block a
+/// 64-column tile walks its K slices and adds them in slice order, as the cluster does) at that pipeline depth for
+/// row tiles 16 and 32 (row tile 64 takes the prompt's fused kernel). Only shapes of at least `fuse_n` columns (n /
+/// 64 blocks walk all slices; a narrow shape such as the MTP layer's hyper-connection down, a few column tiles over
+/// K 10240, would leave the GPU nearly empty: measured 0.51 -> 1.16 ms a round). TF_FLASHNEXT_FP8_FUSED_SPLIT (0, 4,
+/// 8) and TF_FLASHNEXT_FP8_FUSED_SPLIT_N. `mutant` (fp8-fused-check only, never from the environment): the fused
+/// form told half the slices, which the check must see.
+pub const Mode = struct { fuse: u8 = 0, fuse_n: usize = 2048, mutant: bool = false };
+
+pub fn modeFromEnv() !Mode {
+    const fu = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT") orelse 0);
+    if (fu != 0 and fu != 4 and fu != 8) {
+        std.log.warn("TF_FLASHNEXT_FP8_FUSED_SPLIT={d} refused: 0 (the cluster kernel), 4 or 8 (pipeline depths)", .{fu});
+        return error.BadSetting;
+    }
+    const m: Mode = .{ .fuse = @intCast(fu), .fuse_n = (try envCount("TF_FLASHNEXT_FP8_FUSED_SPLIT_N") orelse 2048) };
+    if (m.fuse != 0) {
+        std.log.info("block-FP8 split-K shapes of {d}+ columns below {d} rows: one block a column tile, its K slices in slice order (TF_FLASHNEXT_FP8_FUSED_SPLIT={d})", .{ m.fuse_n, fused_rows, m.fuse });
+    } else std.log.info("block-FP8 split-K shapes below {d} rows on the cluster kernel (TF_FLASHNEXT_FP8_FUSED_SPLIT=0)", .{fused_rows});
+    return m;
 }
 
 /// qmmf.cu launch's L2 band: row tiles whose inputs fill about 12 MB.
@@ -51,7 +81,10 @@ pub fn l2Group(rows_t: usize, bm: usize, k: usize) usize {
 /// Mangled names of the FP8G instantiations (fn_qmmf.cu's footer): [F32][cluster][bm 16, 32, 64], and the fused [F32].
 pub const sym = struct {
     fn name(comptime bm: u32, comptime f32_out: bool, comptime cluster: bool, comptime fuse: bool) [:0]const u8 {
-        return std.fmt.comptimePrint("_ZN10tf_fn_qmmf11qmmf_kernelILi3ELi{d}ELi64ELi1ELi4ELi4ELb{d}ELb{d}ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", .{ bm, @intFromBool(f32_out), @intFromBool(cluster), @intFromBool(fuse) });
+        return nameS(bm, f32_out, cluster, fuse, 4);
+    }
+    fn nameS(comptime bm: u32, comptime f32_out: bool, comptime cluster: bool, comptime fuse: bool, comptime st: u32) [:0]const u8 {
+        return std.fmt.comptimePrint("_ZN10tf_fn_qmmf11qmmf_kernelILi3ELi{d}ELi64ELi1ELi4ELi{d}ELb{d}ELb{d}ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", .{ bm, st, @intFromBool(f32_out), @intFromBool(cluster), @intFromBool(fuse) });
     }
     pub const tiled = blk: {
         var out: [2][2][3][:0]const u8 = undefined;
@@ -61,9 +94,20 @@ pub const sym = struct {
         break :blk out;
     };
     pub const fused = [2][:0]const u8{ name(64, false, false, true), name(64, true, false, true) };
+    /// the fused form at the decode row tiles (Mode.fuse): [depth 4, 8][F32][bm 16, 32]
+    pub const fuse_s = blk: {
+        var out: [2][2][2][:0]const u8 = undefined;
+        for (0..2) |q| for (0..2) |f| for (0..2) |b| {
+            out[q][f][b] = nameS(16 << b, f == 1, false, true, 4 + 4 * q);
+        };
+        break :blk out;
+    };
     /// fn_qmmf_ld.cu's (tools/zig/flashnext_qmmf_ld.py): bf16 out with a row stride, [cluster][bm 16, 32, 64] and fused
     fn ldName(comptime bm: u32, comptime cluster: bool, comptime fuse: bool) [:0]const u8 {
-        return std.fmt.comptimePrint("_ZN13tf_fn_qmmf_ld11qmmf_kernelILi3ELi{d}ELi64ELi1ELi4ELi4ELb0ELb{d}ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiiii", .{ bm, @intFromBool(cluster), @intFromBool(fuse) });
+        return ldNameS(bm, cluster, fuse, 4);
+    }
+    fn ldNameS(comptime bm: u32, comptime cluster: bool, comptime fuse: bool, comptime st: u32) [:0]const u8 {
+        return std.fmt.comptimePrint("_ZN13tf_fn_qmmf_ld11qmmf_kernelILi3ELi{d}ELi64ELi1ELi4ELi{d}ELb0ELb{d}ELb{d}EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiiii", .{ bm, st, @intFromBool(cluster), @intFromBool(fuse) });
     }
     pub const ld_tiled = blk: {
         var out: [2][3][:0]const u8 = undefined;
@@ -73,6 +117,13 @@ pub const sym = struct {
         break :blk out;
     };
     pub const ld_fused = ldName(64, false, true);
+    pub const ld_fuse_s = blk: {
+        var out: [2][2][:0]const u8 = undefined;
+        for (0..2) |q| for (0..2) |b| {
+            out[q][b] = ldNameS(16 << b, false, true, 4 + 4 * q);
+        };
+        break :blk out;
+    };
 };
 
 pub const Kernels = struct {
@@ -83,6 +134,10 @@ pub const Kernels = struct {
     ld_module: cuda.Module,
     ld_tiled: [2][3]cuda.Function,
     ld_fused: cuda.Function,
+    /// the fused decode tiles (Mode.fuse): [depth 4, 8][F32][bm 16, 32], and their ld forms
+    fuse_s: [2][2][2]cuda.Function,
+    ld_fuse_s: [2][2]cuda.Function,
+    mode: Mode,
     major: c_int,
 
     pub fn load(ctx: *const cuda.Context) !Kernels {
@@ -106,6 +161,17 @@ pub const Kernels = struct {
         };
         k.ld_fused = try k.ld_module.function(sym.ld_fused);
         try k.ld_fused.allowDynamicShared(smem(64));
+        for (0..2) |q| {
+            for (0..2) |f| for (0..2) |b| {
+                k.fuse_s[q][f][b] = try k.module.function(sym.fuse_s[q][f][b]);
+                try k.fuse_s[q][f][b].allowDynamicShared(smemS(@as(usize, 16) << @intCast(b), 4 + 4 * q));
+            };
+            for (0..2) |b| {
+                k.ld_fuse_s[q][b] = try k.ld_module.function(sym.ld_fuse_s[q][b]);
+                try k.ld_fuse_s[q][b].allowDynamicShared(smemS(@as(usize, 16) << @intCast(b), 4 + 4 * q));
+            }
+        }
+        k.mode = try modeFromEnv();
         k.major = try ctx.attribute(.compute_capability_major);
         return k;
     }
@@ -145,13 +211,25 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
     if (kk % 64 != 0 or l.npad < n) return error.Invalid;
     const sk = splitK(n, kk);
     const bm: usize = if (sk > 1 and m >= fused_rows) 0 else bucket(m);
-    const fused = bm == 0;
-    const cluster = !fused and sk > 1 and sk <= 8 and k.major >= 9;
+    const md = k.mode;
+    // Mode.fuse: a split shape below FUSED_ROWS on the fused form (its K slices added in slice order by one block):
+    // row tile 64 on the prompt's fused kernel, 16 and 32 on the decode instantiations
+    const fuse_ok = sk > 1 and md.fuse != 0 and n >= md.fuse_n;
+    const fused64 = fuse_ok and bm == 64;
+    const fused = bm == 0 or fused64;
+    const small = !fused and fuse_ok and bm <= 32;
+    const cluster = !fused and !small and sk > 1 and sk <= 8 and k.major >= 9;
     // sm_89 and older would add slices in the reduce (part + reduce_kernel): never on GB10, not ported
-    if (!fused and sk > 1 and !cluster) return error.SplitWithoutCluster;
+    if (!fused and !small and sk > 1 and !cluster) return error.SplitWithoutCluster;
     const tile: usize = if (fused) 64 else bm;
     const rows_t = (m + tile - 1) / tile;
-    const f = if (ldo != null) (if (fused) k.ld_fused else k.ld_tiled[@intFromBool(cluster)][bucketIndex(bm)]) else if (fused) k.fused[@intFromBool(f32_out)] else k.tiled[@intFromBool(f32_out)][@intFromBool(cluster)][bucketIndex(bm)];
+    const ci = @intFromBool(cluster);
+    const fi = @intFromBool(f32_out);
+    const bi = bucketIndex(bm);
+    const stages: usize = if (small) md.fuse else 4;
+    const deep = @intFromBool(md.fuse == 8);
+    const f = if (ldo != null) (if (fused) k.ld_fused else if (small) k.ld_fuse_s[deep][bi] else k.ld_tiled[ci][bi]) else if (fused) k.fused[fi] else if (small) k.fuse_s[deep][fi][bi] else k.tiled[fi][ci][bi];
+    const sk_arg: usize = if ((small or fused64) and md.mutant) sk / 2 else sk;
     var a: cuda.Args = .{};
     a.add(x);
     a.add(l.w8);
@@ -159,13 +237,13 @@ fn matmulAt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, l: Linea
     a.add(@as(f32, 1.0));
     a.add(out);
     a.add(@as(u64, 0));
-    for ([_]usize{ m, n, kk, sk, l.npad, if (m == 1) kk else x_stride, l2Group(rows_t, tile, kk) }) |v| a.add(@as(c_int, @intCast(v)));
+    for ([_]usize{ m, n, kk, sk_arg, l.npad, if (m == 1) kk else x_stride, l2Group(rows_t, tile, kk) }) |v| a.add(@as(c_int, @intCast(v)));
     if (ldo) |ld| a.add(@as(c_int, @intCast(ld)));
-    const z: u32 = if (fused) 1 else @intCast(sk);
+    const z: u32 = if (fused or small) 1 else @intCast(sk);
     try cuda.launch.launch(f, .{
         .grid = .{ .x = @intCast(rows_t * ((n + 63) / 64)), .y = 1, .z = z },
         .block = .{ .x = 128 },
-        .shared = smem(tile),
+        .shared = smemS(tile, stages),
         .cluster = if (cluster) .{ .x = 1, .y = 1, .z = @intCast(sk) } else null,
     }, s, &a);
 }
@@ -463,5 +541,176 @@ pub fn check(gpa: std.mem.Allocator, io: std.Io, ctx: *const cuda.Context, dir: 
             us[0], wbytes / us[0] / 1000.0, max_m, us[1], flops / us[1] / 1e6,
         });
     }
+    return ok;
+}
+
+// ---- `fp8-fused-check`: the fused split-K decode tiles (Mode.fuse) against the cluster kernel ----------------------
+
+const fused_modes = [_]struct { name: []const u8, m: Mode }{
+    .{ .name = "cluster", .m = .{} },
+    .{ .name = "fused4", .m = .{ .fuse = 4 } },
+    .{ .name = "fused8", .m = .{ .fuse = 8 } },
+};
+
+/// Random block-FP8 weights at the checkpoint's decode shapes (no NaN codes, scales 2^-9..2^-4): each fused depth's
+/// outputs (bf16 and fp32; the ld form for the projections, its gaps poisoned) byte-compared with the cluster
+/// kernel's at decode row counts, the output poisoned before every call; a mutant (the fused form told half the
+/// slices) must differ; then each mode's time at 1-64 rows, the weights rotated over copies that do not fit the 24 MB
+/// L2 (the engine reads each layer's weights once a round), modes interleaved, median of 5.
+pub fn fusedCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
+    const d = ctx.d;
+    var k = try Kernels.load(ctx);
+    defer k.deinit();
+    var stream = try cuda.Stream.init(d, true);
+    defer stream.deinit();
+    var e0 = try cuda.Event.init(d, true);
+    defer e0.deinit();
+    var e1 = try cuda.Event.init(d, true);
+    defer e1.deinit();
+    var prng = std.Random.DefaultPrng.init(808);
+    const r = prng.random();
+    var ok = true;
+    const Shape = struct { n: usize, k: usize, ld: bool };
+    const shapes = [_]Shape{
+        .{ .n = 2560, .k = 6144, .ld = false }, .{ .n = 2560, .k = 3072, .ld = false },  .{ .n = 2560, .k = 2560, .ld = false },
+        .{ .n = 2560, .k = 1280, .ld = false }, .{ .n = 16384, .k = 2560, .ld = true }, .{ .n = 13312, .k = 2560, .ld = true },
+    };
+    const rows_list = [_]usize{ 1, 2, 3, 5, 8, 13, 16, 17, 20, 31, 32, 33, 48, 64 };
+    const max_m: usize = 64;
+    for (shapes) |sh| {
+        const n = sh.n;
+        const kk = sh.k;
+        const npad = npadOf(n);
+        const sk = splitK(n, kk);
+        // the weights
+        const codes = try gpa.alloc(u8, n * kk);
+        defer gpa.free(codes);
+        r.bytes(codes);
+        for (codes) |*c| if ((c.* & 0x7F) == 0x7F) {
+            c.* ^= 0x01;
+        };
+        const inv = try gpa.alloc(f32, ((n + 127) / 128) * (kk / 128));
+        defer gpa.free(inv);
+        for (inv) |*v| v.* = std.math.ldexp(1.0 + r.float(f32), -9 + @as(i32, r.intRangeLessThan(i32, 0, 5)));
+        const cols = try gpa.alloc(f32, n * (kk / 64));
+        defer gpa.free(cols);
+        try columnScales(inv, n, kk, cols);
+        const bs = try gpa.alloc(f32, npad * (kk / 64));
+        defer gpa.free(bs);
+        try tileScales(cols, n, kk, npad, bs);
+        const w8 = try gpa.alloc(u8, npad * kk);
+        defer gpa.free(w8);
+        try fragmentOrder(codes, n, kk, npad, w8);
+        const wbytes = npad * kk + npad * (kk / 64) * 4;
+        const copies = @max(2, (96 << 20) / wbytes + 1);
+        var dws: [16]cuda.DeviceBuffer = undefined;
+        var dbs: [16]cuda.DeviceBuffer = undefined;
+        const nc = @min(copies, 16);
+        for (0..nc) |i| {
+            dws[i] = try cuda.DeviceBuffer.fromHost(d, w8);
+            dbs[i] = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(bs));
+        }
+        defer for (0..nc) |i| {
+            dws[i].free();
+            dbs[i].free();
+        };
+        const xh = try gpa.alloc(u16, max_m * kk);
+        defer gpa.free(xh);
+        for (xh) |*v| {
+            const f: f32 = r.floatNorm(f32);
+            v.* = @intCast(@as(u32, @bitCast(f)) >> 16);
+        }
+        var dx = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(xh));
+        defer dx.free();
+        const ldo = n + 72;
+        const out_len = max_m * @max(n * 4, ldo * 2);
+        var dy = try cuda.DeviceBuffer.alloc(d, out_len);
+        defer dy.free();
+        const ref = try gpa.alloc(u8, out_len);
+        defer gpa.free(ref);
+        const got = try gpa.alloc(u8, out_len);
+        defer gpa.free(got);
+        const lin: Linear = .{ .w8 = dws[0].ptr, .bs = dbs[0].ptr, .n = @intCast(n), .k = @intCast(kk), .npad = @intCast(npad) };
+        // bytes: each mode (and the mutant) against the cluster kernel; kinds 0 bf16, 1 fp32, 2 ld (bf16 rows ldo apart)
+        var calls: usize = 0;
+        var differ: usize = 0;
+        var mutant_differ: [3]usize = .{ 0, 0, 0 };
+        var mutant_calls: [3]usize = .{ 0, 0, 0 };
+        for (rows_list) |m| for (0..3) |kind| {
+            if (kind == 2 and !sh.ld) continue;
+            if (kind != 2 and sh.ld and kind == 1) continue;
+            const len = if (kind == 2) m * ldo * 2 else m * n * @as(usize, if (kind == 1) 4 else 2);
+            const run = struct {
+                fn f(kp: *const Kernels, st: cuda.Stream, y: cuda.DeviceBuffer, xp: u64, l: Linear, kd: usize, mm: usize, ld: usize, all: usize) !void {
+                    try y.fill8(0xA5, st.handle);
+                    _ = all;
+                    if (kd == 2) try matmulLd(kp, st, xp, l.k, l, y.ptr, ld, mm) else try matmul(kp, st, xp, l.k, l, y.ptr, kd == 1, mm);
+                    try st.synchronize();
+                }
+            }.f;
+            k.mode = .{};
+            try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+            // the whole poisoned buffer, past the m rows (and the ld form's gaps between rows) included: a write
+            // outside a call's rows and columns, by any path, is a difference; the cluster kernel's own bounds too
+            try dy.download(0, ref[0..out_len]);
+            var outside = !std.mem.allEqual(u8, ref[len..out_len], 0xA5);
+            if (kind == 2) for (0..m) |row| {
+                if (!std.mem.allEqual(u8, ref[row * ldo * 2 + n * 2 .. (row + 1) * ldo * 2], 0xA5)) outside = true;
+            };
+            if (outside) {
+                ok = false;
+                std.debug.print("  n {d} k {d} m {d} kind {d}: the cluster kernel wrote outside its rows or columns\n", .{ n, kk, m, kind });
+            }
+            for (fused_modes[1..]) |wm| {
+                k.mode = wm.m;
+                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+                try dy.download(0, got[0..out_len]);
+                calls += 1;
+                if (!std.mem.eql(u8, ref[0..out_len], got[0..out_len])) {
+                    differ += 1;
+                    ok = false;
+                    std.debug.print("  n {d} k {d} m {d} kind {d} mode {s}: DIFFERS from the cluster kernel ({s})\n", .{ n, kk, m, kind, wm.name, if (std.mem.eql(u8, ref[0..len], got[0..len])) "outside the call's rows" else "in the rows" });
+                }
+            }
+            if (sk > 1) {
+                k.mode = .{ .fuse = 8, .mutant = true };
+                try run(&k, stream, dy, dx.ptr, lin, kind, m, ldo, out_len);
+                try dy.download(0, got[0..out_len]);
+                const bi = bucketIndex(bucket(m));
+                mutant_calls[bi] += 1;
+                if (!std.mem.eql(u8, ref[0..out_len], got[0..out_len])) mutant_differ[bi] += 1;
+            }
+        };
+        // the mutant is killed when every row tile's path (16, 32: the decode fused kernels, 64: the prompt's) shows it
+        const mutant_ok = sk == 1 or (mutant_differ[0] > 0 and mutant_differ[1] > 0 and mutant_differ[2] > 0);
+        if (!mutant_ok) ok = false;
+        std.debug.print("{s} n {d} k {d} split_k {d}: {d} fused calls (rows {any}), {d} differ from the cluster kernel; mutant (fused, half the slices) differs on {d}/{d} (tile 16), {d}/{d} (32), {d}/{d} (64) calls: {s}\n", .{ if (differ == 0 and mutant_ok) "PASS" else "FAIL", n, kk, sk, calls, rows_list, differ, mutant_differ[0], mutant_calls[0], mutant_differ[1], mutant_calls[1], mutant_differ[2], mutant_calls[2], if (sk == 1) "no split" else if (mutant_ok) "KILLED" else "SURVIVED (the check cannot see a slice change)" });
+        // speed
+        for ([_]usize{ 1, 4, 16, 17, 32, 33, 64 }) |m| {
+            var t: [fused_modes.len][5]f64 = undefined;
+            const reps: usize = 48;
+            for (0..5) |rep| for (fused_modes, 0..) |wm, mi| {
+                k.mode = wm.m;
+                var l = lin;
+                if (sh.ld) try matmulLd(&k, stream, dx.ptr, kk, l, dy.ptr, ldo, m) else try matmul(&k, stream, dx.ptr, kk, l, dy.ptr, false, m);
+                try e0.record(stream);
+                for (0..reps) |i| {
+                    l.w8 = dws[(i + 1) % nc].ptr;
+                    l.bs = dbs[(i + 1) % nc].ptr;
+                    if (sh.ld) try matmulLd(&k, stream, dx.ptr, kk, l, dy.ptr, ldo, m) else try matmul(&k, stream, dx.ptr, kk, l, dy.ptr, false, m);
+                }
+                try e1.record(stream);
+                try e1.synchronize();
+                t[mi][rep] = @as(f64, try cuda.Event.elapsedMs(e0, e1)) * 1000.0 / @as(f64, @floatFromInt(reps));
+            };
+            std.debug.print("  n {d} k {d} m {d}:", .{ n, kk, m });
+            for (&t, fused_modes) |*a, wm| {
+                std.mem.sort(f64, a, {}, std.sort.asc(f64));
+                std.debug.print(" {s} {d:.1} us [{d:.1}-{d:.1}] {d:.0} GB/s;", .{ wm.name, a[2], a[0], a[4], @as(f64, @floatFromInt(wbytes)) / a[2] / 1e3 });
+            }
+            std.debug.print("\n", .{});
+        }
+    }
+    k.mode = .{};
     return ok;
 }

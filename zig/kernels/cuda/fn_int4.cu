@@ -186,9 +186,10 @@ __device__ __forceinline__ void store(const float (&acc)[MATS][NT][4], void* out
 }
 
 // A warp a unit: (item, NT n8 tiles of every matrix). Items (expert, first member, count) from the experts plan, or,
-// with `items` null, the dense rows [16 i, 16 i + 16) of `rows` (the head: one matrix, members the rows themselves).
-// `slots`: a member p reads input row p / slots (gate/up from token rows), 0: row p (down from pair rows). A pass
-// takes MT tiles of 16 rows: the weights a group are loaded once for them (prompt items of up to 64 pairs).
+// with `items` null, the dense rows [16 MT i, 16 MT (i + 1)) of `rows` (the head: one matrix, members the rows
+// themselves). `slots`: a member p reads input row p / slots (gate/up from token rows), 0: row p (down from pair
+// rows). A pass takes MT tiles of 16 rows: the weights a group are loaded once for them (prompt items of up to 64
+// pairs, the head's 32-row items).
 template <int GS, int NT, int MT, int MATS, int EPI, int WARPS>
 __global__ void __launch_bounds__(WARPS * 32)
     int4_kernel(const __nv_bfloat16* __restrict__ X, int x_stride, int slots, const uint32_t* __restrict__ W,
@@ -197,12 +198,13 @@ __global__ void __launch_bounds__(WARPS * 32)
                 int out_stride, float limit, int skip) {
   const int lane = threadIdx.x & 31, gq = lane >> 2, t = lane & 3;
   const int KG = K / GS, NB = N / (8 * NT);
-  const int n_items = items ? __ldg(counts) : (rows + 15) / 16;
+  // dense items of 16 MT rows (the head of rows > 16 at MT 2: its weights read once for 32 rows)
+  const int n_items = items ? __ldg(counts) : (rows + 16 * MT - 1) / (16 * MT);
   const int units = n_items * NB;
   const size_t mat_words = (size_t)N * K / 8, mat_scales = (size_t)N * KG;
   for (int unit = blockIdx.x * WARPS + (threadIdx.x >> 5); unit < units; unit += gridDim.x * WARPS) {
     const int it = unit / NB, cb = unit - it * NB;
-    int e = 0, first = 16 * it, cnt = min(16, rows - 16 * it);
+    int e = 0, first = 16 * MT * it, cnt = min(16 * MT, rows - 16 * MT * it);
     if (items) {
       e = __ldg(items + 3 * it);
       first = __ldg(items + 3 * it + 1);

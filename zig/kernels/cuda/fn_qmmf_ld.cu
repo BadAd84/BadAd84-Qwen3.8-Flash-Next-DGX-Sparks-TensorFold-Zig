@@ -305,3 +305,9 @@ TF_QMMF_LD(16, true, false)
 TF_QMMF_LD(32, true, false)
 TF_QMMF_LD(64, true, false)
 TF_QMMF_LD(64, false, true)
+// fn_qmmf.cu's fused decode tiles 16, 32 (STAGES 4, 8), bf16 out.
+#define TF_QMMF_LD_S(BM, CLUSTER, FUSE, ST) template __global__ void tf_fn_qmmf_ld::qmmf_kernel<3, BM, 64, 1, 4, ST, \
+    false, CLUSTER, FUSE>(const __nv_bfloat16*, const unsigned char*, const uint8_t*, float, void*, float*, int, int, \
+    int, int, int, int, int, int);
+TF_QMMF_LD_S(16, false, true, 4) TF_QMMF_LD_S(32, false, true, 4) TF_QMMF_LD_S(16, false, true, 8)
+TF_QMMF_LD_S(32, false, true, 8)

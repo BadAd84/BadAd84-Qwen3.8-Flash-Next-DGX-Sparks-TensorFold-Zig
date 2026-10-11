@@ -614,3 +614,118 @@ pub fn check(gpa: Allocator, ctx: *const cuda.Context, ops: kern.Ops) !bool {
     try bench(gpa, &k, ops, ctx.d, 2);
     return rep.ok;
 }
+
+fn poison(d: *const cuda.Driver, ptr: u64, len: usize) !void {
+    const b: cuda.DeviceBuffer = .{ .d = d, .ptr = ptr, .len = len };
+    try b.fill8(0xA5, null);
+    try d.check(d.api.cuCtxSynchronize(), "cuCtxSynchronize");
+}
+
+/// `int4-head-check`: the head's 32-row items (head_mt 2) against 16-row items: every row count's fp32 and bf16
+/// outputs byte-equal (the output poisoned before each call, so a row left unwritten fails), and each row equal to
+/// its 1-row call; then the head's speed at both, interleaved.
+pub fn headRowsCheck(gpa: Allocator, ctx: *const cuda.Context, ops: kern.Ops) !bool {
+    var k = try int4.Kernels.load(ctx);
+    defer k.deinit();
+    var dv: Dev = .{ .d = ctx.d, .gpa = gpa };
+    defer dv.deinit();
+    var prng = std.Random.DefaultPrng.init(4321);
+    const r = prng.random();
+    const s = ops.s;
+    const d = ctx.d;
+    var ok = true;
+    const rows_list = [_]usize{ 1, 15, 16, 17, 18, 20, 24, 31, 32, 33, 47, 48, 49, 64, 65, 100, 128 };
+    const most: usize = 128;
+    // [n, k_full, k0, k, gs]: the head's shape (a slice), gate/up, down at one GPU and a TP=2 rank's down (as `check`)
+    const shapes = [_][5]usize{ .{ 4096, 2560, 0, 2560, 128 }, .{ 2560, 640, 0, 640, 128 }, .{ 2560, 640, 320, 320, 64 } };
+    for (shapes) |sh| {
+        const n = sh[0];
+        const kk = sh[3];
+        const gs = sh[4];
+        var g = try Gen.init(gpa, r, n, sh[1]);
+        defer g.deinit(gpa);
+        const p = try packDev(gpa, &dv, g, .{ .n0 = 0, .n = n, .k0 = sh[2], .k = kk, .gs = gs });
+        const m: int4.Mat = .{ .w = p[0], .s = p[1], .n = @intCast(n), .k = @intCast(kk), .gs = @intCast(gs) };
+        const x = try randRows(gpa, r, most, kk);
+        defer gpa.free(x);
+        const xd = try dv.put(std.mem.sliceAsBytes(x));
+        const out = try dv.zeros(most * n * 4);
+        const ref = try gpa.alloc(u8, most * n * 4);
+        defer gpa.free(ref);
+        const got = try gpa.alloc(u8, most * n * 4);
+        defer gpa.free(got);
+        // the 1-row calls (fp32), stock
+        const solo = try gpa.alloc(u8, most * n * 4);
+        defer gpa.free(solo);
+        k.head_mt = 1;
+        for (0..most) |row| {
+            try int4.dense(&k, s, xd + row * kk * 2, kk, m, out, true, 1);
+            try s.synchronize();
+            try dv.get(out, solo[row * n * 4 ..][0 .. n * 4]);
+        }
+        var calls: usize = 0;
+        var bad: usize = 0;
+        for (rows_list) |rows| for ([_]bool{ true, false }) |f32o| {
+            const len = rows * n * @as(usize, if (f32o) 4 else 2);
+            const all = most * n * 4; // the whole poisoned buffer: a write past the call's rows is a difference
+            k.head_mt = 1;
+            try poison(d, out, all);
+            try int4.dense(&k, s, xd, kk, m, out, f32o, rows);
+            try s.synchronize();
+            try dv.get(out, ref[0..all]);
+            if (!std.mem.allEqual(u8, ref[len..all], 0xA5)) {
+                bad += 1;
+                std.debug.print("  head n {d} k {d} gs {d} rows {d}: 16-row items wrote past the call's rows\n", .{ n, kk, gs, rows });
+            }
+            {
+                const mt: usize = 2;
+                k.head_mt = mt;
+                try poison(d, out, all);
+                try int4.dense(&k, s, xd, kk, m, out, f32o, rows);
+                try s.synchronize();
+                try dv.get(out, got[0..all]);
+                calls += 1;
+                const same = std.mem.eql(u8, ref[0..all], got[0..all]);
+                const solo_ok = !f32o or std.mem.eql(u8, got[0..len], solo[0..len]);
+                if (!same or !solo_ok) {
+                    bad += 1;
+                    var diff: usize = 0;
+                    for (ref[0..all], got[0..all]) |a, b| diff += @intFromBool(a != b);
+                    std.debug.print("  head n {d} k {d} gs {d} rows {d} {s}: head_mt {d} {s} 16-row items ({d} bytes differ, {d} past the call's rows), {s} the 1-row calls\n", .{ n, kk, gs, rows, if (f32o) "fp32" else "bf16", mt, if (same) "equal to" else "DIFFERS from", diff, diff - countDiff(ref[0..len], got[0..len]), if (solo_ok) "equal to" else "DIFFERS from" });
+                }
+            }
+        };
+        if (bad > 0) ok = false;
+        std.debug.print("  head n {d} k {d} gs {d}: {d} calls (rows {any}, fp32 and bf16), {d} differ\n", .{ n, kk, gs, calls, rows_list, bad });
+    }
+    // speed: the full head [248320, 2560], random-free (zero) words: the bits do not matter for speed
+    const V: usize = 248320;
+    const D: usize = 2560;
+    const w = try dv.zeros(V * D / 2);
+    const sc = try dv.zeros(V * D / 128 * 2);
+    const hm: int4.Mat = .{ .w = w, .s = sc, .n = @intCast(V), .k = D };
+    const x = try dv.zeros(most * D * 2);
+    const out = try dv.zeros(most * V * 2);
+    const bytes: f64 = @floatFromInt(V * D / 2 + V * D / 128 * 2);
+    for ([_]usize{ 1, 8, 16, 17, 20, 24, 32, 33, 40, 48, 64 }) |rows| {
+        var t: [2][5]f64 = undefined;
+        for (0..5) |rep| for ([_]usize{ 1, 2 }, 0..) |mt, i| {
+            k.head_mt = mt;
+            const C = struct { k: *const int4.Kernels, s: cuda.Stream, x: u64, m: int4.Mat, out: u64, rows: usize };
+            t[i][rep] = try timeIt(s, d, 20, C{ .k = &k, .s = s, .x = x, .m = hm, .out = out, .rows = rows }, struct {
+                fn f(c: C) anyerror!void {
+                    try int4.dense(c.k, c.s, c.x, D, c.m, c.out, false, c.rows);
+                }
+            }.f);
+        };
+        for (&t) |*a| std.mem.sort(f64, a, {}, std.sort.asc(f64));
+        std.debug.print("  head [{d}, {d}] int4, {d} rows: 16-row items {d:.1} us [{d:.1}-{d:.1}] {d:.0} GB/s; 32-row items {d:.1} us [{d:.1}-{d:.1}]\n", .{ V, D, rows, t[0][2], t[0][0], t[0][4], bytes / t[0][2] / 1e3, t[1][2], t[1][0], t[1][4] });
+    }
+    return ok;
+}
+
+fn countDiff(a: []const u8, b: []const u8) usize {
+    var n: usize = 0;
+    for (a, b) |x, y| n += @intFromBool(x != y);
+    return n;
+}
