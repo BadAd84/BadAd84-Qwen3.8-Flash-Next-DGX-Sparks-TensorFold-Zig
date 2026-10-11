@@ -64,6 +64,7 @@ pub const Functions = struct {
     candidates: cuda.Function,
     nucleus_mass: cuda.Function,
     fp4_serial: cuda.Function,
+    hc_reduce_act: cuda.Function,
     lse: Lse,
 
     pub fn resolve(m: []const cuda.Module) !Functions {
@@ -89,6 +90,7 @@ pub const Functions = struct {
             .candidates = try m[i(.ops)].function("tf_fn_candidates_kernel"),
             .nucleus_mass = try m[i(.ops)].function("tf_fn_nucleus_mass_kernel"),
             .fp4_serial = try m[i(.ops)].function("tf_fn_fp4_serial_kernel"),
+            .hc_reduce_act = try m[i(.ops)].function("tf_fn_hc_reduce_act_kernel"),
             .lse = try Lse.resolve(m[i(.lse)]),
         };
     }
@@ -291,6 +293,23 @@ pub const Torch = struct {
         a.add(out);
         for ([_]u64{ rows, ni, out_stride }) |v| a.add(v);
         try t.go(t.f.swiglu, .{ blocks(rows * ni, 256), 1 }, 256, &a);
+    }
+
+    // -- the hyper-connection read-out -----------------------------------------------------------------------
+
+    /// bf16._reduce of the down projection's `sk` fp32 slices (part [sk, rows, ndn]) and glue._hc_act in one launch:
+    /// act [rows, low] bf16 and, when ndn > low, the inject gates [rows, ndn - low] bf16, the two kernels' bits
+    /// (fn_ops.cu tf_fn_hc_reduce_act_kernel; the act's 32-group sums are not written). `streams` a power of two.
+    pub fn hcReduceAct(t: Torch, part: u64, act: u64, inj: u64, rows: usize, sk: usize, ndn: usize, low: usize, streams: usize) !void {
+        if (rows == 0) return;
+        if (!std.math.isPowerOfTwo(streams) or ndn < low or rows > 65535) return error.HcReduceActShape;
+        var a: cuda.Args = .{};
+        a.add(part);
+        a.add(act);
+        a.add(inj);
+        for ([_]u32{ @intCast(rows), @intCast(sk), @intCast(ndn), @intCast(low) }) |v| a.add(v);
+        a.add(1.0 / @as(f32, @floatFromInt(streams)));
+        try t.go(t.f.hc_reduce_act, .{ (ndn + 127) / 128, rows }, 128, &a);
     }
 
     // -- sampling ------------------------------------------------------------------------------------------

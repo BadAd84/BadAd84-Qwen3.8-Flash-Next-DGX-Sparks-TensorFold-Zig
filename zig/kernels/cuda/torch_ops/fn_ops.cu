@@ -27,6 +27,55 @@ extern "C" __global__ void tf_fn_shared_swiglu_kernel(const __nv_bfloat16* g, __
     }
 }
 
+// bf16._reduce (F32: the K slices' fp32 partials summed in slice order) fused with glue._hc_act, the
+// hyper-connection read-out's down projection [rows, ndn] -> act [rows, low] bf16 and, with ndn = low + streams,
+// the inject gates [rows, streams] bf16. The operations are the Triton kernels' own (their SASS: v * 0.25 for v / S,
+// cvt.rn.bf16, 0 - v, * log2(e) as 1.4426950216293334961f, ex2.approx.f32 without ftz, + 1, div.full.f32), so act and
+// the gates have their bits; the 32-group sums of act (XS) are not written (only the 4-bit MTP matrices read them).
+// Part slice s of row r at part + (s * rows + r) * ndn (the split _b16mm's layout). Grid (ceil(ndn / 128), rows).
+__device__ __forceinline__ float tf_ex2_approx(float x) {
+    float y;
+    asm("ex2.approx.f32 %0, %1;" : "=f"(y) : "f"(x));
+    return y;
+}
+
+__device__ __forceinline__ float tf_div_full(float a, float b) {
+    float y;
+    asm("div.full.f32 %0, %1, %2;" : "=f"(y) : "f"(a), "f"(b));
+    return y;
+}
+
+__device__ __forceinline__ float tf_bf16_round(float x) {
+    return __bfloat162float(__float2bfloat16_rn(x));
+}
+
+// glue._bsilu / _bsig's exp(-x): Triton's 0 - x, then exp as ex2.approx(x * log2(e))
+__device__ __forceinline__ float tf_exp_neg(float x) {
+    return tf_ex2_approx(__fmul_rn(__fsub_rn(0.0f, x), 1.4426950216293334961f));
+}
+
+extern "C" __global__ void tf_fn_hc_reduce_act_kernel(const float* part, __nv_bfloat16* act, __nv_bfloat16* inj,
+                                                      uint32_t rows, uint32_t sk, uint32_t ndn, uint32_t low,
+                                                      float inv_s) {
+    const uint32_t r = blockIdx.y;
+    const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= ndn) return;
+    const uint64_t total = uint64_t(rows) * ndn;
+    const float* p = part + uint64_t(r) * ndn + i;
+    float acc = p[0];
+    for (uint32_t s = 1; s < sk; ++s) acc = __fadd_rn(acc, p[s * total]);
+    const float v = tf_bf16_round(__fmul_rn(acc, inv_s));
+    if (i < low) {
+        // _bsilu: bf16(v / (1 + exp(-v)))
+        const float a = tf_div_full(v, __fadd_rn(tf_exp_neg(v), 1.0f));
+        act[uint64_t(r) * low + i] = __float2bfloat16_rn(a);
+    } else {
+        // 2 * _bsig: bf16(2 * bf16(1 / (1 + exp(-v))))
+        const float g = tf_bf16_round(tf_div_full(1.0f, __fadd_rn(tf_exp_neg(v), 1.0f)));
+        inj[uint64_t(r) * (ndn - low) + (i - low)] = __float2bfloat16_rn(__fmul_rn(2.0f, g));
+    }
+}
+
 // Tensor.fill_ of `count` 64-bit words.
 extern "C" __global__ void tf_fn_fill_u64_kernel(uint64_t* out, uint64_t value, uint64_t count) {
     for (uint64_t i = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x; i < count;

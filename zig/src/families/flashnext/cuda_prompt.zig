@@ -594,7 +594,7 @@ pub fn glueCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri) !boo
         try fillBuf(gpa, act, max_m * K, r, if (fill == .wide) .normal else fill);
         try fillBuf(gpa, w, S * D * K, r, if (fill == .special) .normal else fill);
         try fillBuf(gpa, normed, max_m * S * D, r, if (fill == .special) .normal else fill);
-        for ([_]usize{ 16, 17, 129, 1024, 2048, 4096 }) |m| {
+        for ([_]usize{ 2, 3, 4, 5, 7, 8, 11, 15, 16, 17, 129, 1024, 2048, 4096 }) |m| {
             for ([_]usize{ 64, 32 }) |bm| {
                 try m1.fill8(0xA5, t.s.handle);
                 try m2.fill8(0x5A, t.s.handle);
@@ -631,6 +631,25 @@ pub fn glueCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri) !boo
     const a = try cuda.Event.elapsedMs(e0, e1) / 10;
     const b = try cuda.Event.elapsedMs(e1, e2) / 10;
     std.debug.print("bench up+mix 2048 rows: _b16mm + _hc_mix {d:.3} ms, _hc_up_mix {d:.3} ms ({d:.2}x)\n", .{ a, b, a / b });
+    // decode widths, the two launches against `_hc_up_mix` at BM 32 (eager, back to back, 200 a side, best of 3)
+    for ([_]usize{ 2, 4, 5, 8, 16 }) |m| {
+        var best_a: f32 = 1e9;
+        var best_b: f32 = 1e9;
+        for (0..3) |_| {
+            try e0.record(t.s);
+            for (0..200) |_| {
+                try t.b16mm(act.ptr, K, w.ptr, up.ptr, false, 0, m, S * D, K);
+                try t.hcMix(up.ptr, normed.ptr, m1.ptr, xs.ptr, m, D, S);
+            }
+            try e1.record(t.s);
+            for (0..200) |_| try upMix(t, act.ptr, w.ptr, normed.ptr, m2.ptr, m, D, S, K, 32);
+            try e2.record(t.s);
+            try e2.synchronize();
+            best_a = @min(best_a, try cuda.Event.elapsedMs(e0, e1) / 200);
+            best_b = @min(best_b, try cuda.Event.elapsedMs(e1, e2) / 200);
+        }
+        std.debug.print("bench up+mix {d} rows: _b16mm + _hc_mix {d:.2} us, _hc_up_mix BM 32 {d:.2} us ({d:.2}x)\n", .{ m, best_a * 1000, best_b * 1000, best_a / best_b });
+    }
     return all;
 }
 
@@ -640,6 +659,171 @@ fn fillF32(gpa: std.mem.Allocator, buf: cuda.DeviceBuffer, count: usize, r: std.
     defer gpa.free(h);
     for (h, 0..) |*v, i| v.* = @as(u32, sample(r, fill, i)) << 16;
     try buf.upload(0, std.mem.sliceAsBytes(h));
+}
+
+/// The engine's boot check of tf_fn_hc_reduce_act_kernel against the loaded kernel set's `_reduce` + `_hc_act`, in
+/// the model's geometry (read-outs with inject rows and without), rows 1, 2, 5, 16, 17, 64 and 128, on random fp32
+/// bit patterns (NaN, infinities, subnormals) and on slices that cancel: act and inject gate bytes. The kernel
+/// reproduces the Triton kernels' own instructions (cvt.rn.bf16, ex2.approx, div.full: their SASS on this build), so
+/// a kernel set from another Triton or ptxas that changed them disagrees here and the engine keeps the two launches
+/// (Forward.reduce_act off) instead of serving other bits.
+pub fn reduceActAgrees(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, th0: @import("cuda_torch_ops.zig").Torch, streams: usize, low: usize, k: usize) !bool {
+    const ndn_most = low + streams;
+    const SK = tri.b16SplitK(ndn_most, k);
+    if (SK < 2 or tri.b16SplitK(low, k) != SK) return false;
+    const max_m: usize = 128;
+    var th = th0;
+    th.s = t.s;
+    var prng = std.Random.DefaultPrng.init(0x2ed_ac8);
+    const r = prng.random();
+    var part = try cuda.DeviceBuffer.alloc(d, SK * max_m * ndn_most * 4);
+    defer part.free();
+    var dn = try cuda.DeviceBuffer.alloc(d, max_m * ndn_most * 4);
+    defer dn.free();
+    var xs = try cuda.DeviceBuffer.alloc(d, max_m * (low / 32 + 1) * 4);
+    defer xs.free();
+    var outs: [4]cuda.DeviceBuffer = undefined;
+    for (&outs, [_]usize{ low, low, streams, streams }) |*b, w| b.* = try cuda.DeviceBuffer.alloc(d, max_m * w * 2);
+    defer for (&outs) |*b| b.free();
+    const a1, const a2, const g1, const g2 = outs;
+    const hp = try gpa.alloc(u32, SK * max_m * ndn_most);
+    defer gpa.free(hp);
+    const ha = try gpa.alloc(u8, max_m * low * 2);
+    defer gpa.free(ha);
+    const hb = try gpa.alloc(u8, max_m * low * 2);
+    defer gpa.free(hb);
+    for ([_]bool{ true, false }) |bits| for ([_]usize{ 1, 2, 5, 16, 17, 64, 128 }) |m| for ([_]bool{ true, false }) |has_inj| {
+        const ndn = if (has_inj) ndn_most else low;
+        const total = m * ndn;
+        for (hp[0 .. SK * total], 0..) |*v, i| v.* = if (bits) r.int(u32) else @bitCast(if (i / total == 0) std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else if (i / total == 1) -std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else r.floatNorm(f32) * 0.01);
+        try part.upload(0, std.mem.sliceAsBytes(hp[0 .. SK * total]));
+        for (outs, [_]u8{ 0xA5, 0x5A, 0xA5, 0x5A }) |b, v| try b.fill8(v, t.s.handle);
+        try reduce(t, part.ptr, dn.ptr, true, total, SK);
+        try t.hcAct(dn.ptr, a1.ptr, xs.ptr, if (has_inj) g1.ptr else null, m, ndn, streams, low);
+        try th.hcReduceAct(part.ptr, a2.ptr, if (has_inj) g2.ptr else a2.ptr, m, SK, ndn, low, streams);
+        try t.s.synchronize();
+        try a1.download(0, ha[0 .. m * low * 2]);
+        try a2.download(0, hb[0 .. m * low * 2]);
+        if (!std.mem.eql(u8, ha[0 .. m * low * 2], hb[0 .. m * low * 2])) return false;
+        if (has_inj) {
+            try g1.download(0, ha[0 .. m * streams * 2]);
+            try g2.download(0, hb[0 .. m * streams * 2]);
+            if (!std.mem.eql(u8, ha[0 .. m * streams * 2], hb[0 .. m * streams * 2])) return false;
+        }
+    };
+    return true;
+}
+
+/// `glue-check`'s decode part: tf_fn_hc_reduce_act_kernel against `_reduce` (SK 32, fp32) + `_hc_act` (act and inject
+/// gate bytes) for the read-outs with inject rows (ndn 324) and without (320), 1-128 rows: on adversarial fp32
+/// partials (random bit patterns: subnormals, infinities, NaNs; wide exponents; sums that cancel), then on the split
+/// `_b16mm`'s own partials of random rows; then both timed at decode widths (eager, back to back).
+pub fn reduceActCheck(gpa: std.mem.Allocator, d: *const cuda.Driver, t: tri.Tri, th: @import("cuda_torch_ops.zig").Torch) !bool {
+    const S: usize = 4;
+    const LOW: usize = 320;
+    const K: usize = 10240;
+    const SK: usize = tri.b16SplitK(LOW + S, K);
+    const max_m: usize = 128;
+    var prng = std.Random.DefaultPrng.init(0x2ed_ac7);
+    const r = prng.random();
+    var part = try cuda.DeviceBuffer.alloc(d, SK * max_m * (LOW + S) * 4);
+    defer part.free();
+    var dn = try cuda.DeviceBuffer.alloc(d, max_m * (LOW + S) * 4);
+    defer dn.free();
+    var xs = try cuda.DeviceBuffer.alloc(d, max_m * (LOW / 32) * 4);
+    defer xs.free();
+    var a1 = try cuda.DeviceBuffer.alloc(d, max_m * LOW * 2);
+    defer a1.free();
+    var a2 = try cuda.DeviceBuffer.alloc(d, max_m * LOW * 2);
+    defer a2.free();
+    var g1 = try cuda.DeviceBuffer.alloc(d, max_m * S * 2);
+    defer g1.free();
+    var g2 = try cuda.DeviceBuffer.alloc(d, max_m * S * 2);
+    defer g2.free();
+    var x = try cuda.DeviceBuffer.alloc(d, max_m * K * 2);
+    defer x.free();
+    var w = try cuda.DeviceBuffer.alloc(d, (LOW + S) * K * 2);
+    defer w.free();
+    const ha = try gpa.alloc(u8, max_m * LOW * 2);
+    defer gpa.free(ha);
+    const hb = try gpa.alloc(u8, max_m * LOW * 2);
+    defer gpa.free(hb);
+    const hp = try gpa.alloc(u32, SK * max_m * (LOW + S));
+    defer gpa.free(hp);
+    var all = true;
+    var n_cases: usize = 0;
+    const Src = enum { bits, wide, cancel, normal, matmul };
+    for ([_]Src{ .bits, .wide, .cancel, .normal, .matmul }) |src| {
+        for ([_]usize{ 1, 2, 3, 4, 5, 7, 8, 11, 15, 16, 17, 33, 64, 128 }) |m| {
+            // the split _b16mm's own partials at decode widths (the kernel set's M variants: 1, % 16, the rest)
+            if (src == .matmul and m > 17) continue;
+            for ([_]bool{ true, false }) |has_inj| {
+                const ndn: usize = if (has_inj) LOW + S else LOW;
+                const total = m * ndn;
+                if (src == .matmul) {
+                    try fillBuf(gpa, x, m * K, r, .normal);
+                    try fillBuf(gpa, w, ndn * K, r, .normal);
+                    try b16Slices(t, x.ptr, K, w.ptr, part.ptr, true, m, ndn, K);
+                } else {
+                    for (hp[0 .. SK * total], 0..) |*v, i| v.* = switch (src) {
+                        .bits => r.int(u32),
+                        .wide => @bitCast(std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, -140, 100)) * @as(f32, if (r.boolean()) -1.0 else 1.0)),
+                        .cancel => @bitCast(if (i / total == 0) std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else if (i / total == 1) -std.math.ldexp(1.0 + r.float(f32), r.intRangeAtMost(i32, 0, 30)) else r.floatNorm(f32) * 0.01),
+                        else => @bitCast(r.floatNorm(f32) * 3.0),
+                    };
+                    try part.upload(0, std.mem.sliceAsBytes(hp[0 .. SK * total]));
+                }
+                for ([_]cuda.DeviceBuffer{ a1, a2, g1, g2 }, [_]u8{ 0xA5, 0x5A, 0xA5, 0x5A }) |bf, v| try bf.fill8(v, t.s.handle);
+                try reduce(t, part.ptr, dn.ptr, true, total, SK);
+                try t.hcAct(dn.ptr, a1.ptr, xs.ptr, if (has_inj) g1.ptr else null, m, ndn, S, LOW);
+                var th2 = th;
+                th2.s = t.s;
+                try th2.hcReduceAct(part.ptr, a2.ptr, if (has_inj) g2.ptr else a2.ptr, m, SK, ndn, LOW, S);
+                try t.s.synchronize();
+                try a1.download(0, ha[0 .. m * LOW * 2]);
+                try a2.download(0, hb[0 .. m * LOW * 2]);
+                var ok = std.mem.eql(u8, ha[0 .. m * LOW * 2], hb[0 .. m * LOW * 2]);
+                if (has_inj) {
+                    try g1.download(0, ha[0 .. m * S * 2]);
+                    try g2.download(0, hb[0 .. m * S * 2]);
+                    ok = ok and std.mem.eql(u8, ha[0 .. m * S * 2], hb[0 .. m * S * 2]);
+                }
+                n_cases += 1;
+                if (!ok) {
+                    all = false;
+                    std.debug.print("DIFFER hc_reduce_act rows {d} ndn {d} {s}: act/inject bytes\n", .{ m, ndn, @tagName(src) });
+                }
+            }
+        }
+    }
+    std.debug.print("{s} hc_reduce_act: {d} cases (_reduce SK {d} + _hc_act against tf_fn_hc_reduce_act_kernel, act and inject bytes)\n", .{ if (all) "EQUAL" else "DIFFER", n_cases, SK });
+    var e0 = try cuda.Event.init(d, true);
+    defer e0.deinit();
+    var e1 = try cuda.Event.init(d, true);
+    defer e1.deinit();
+    var e2 = try cuda.Event.init(d, true);
+    defer e2.deinit();
+    for ([_]usize{ 1, 2, 5, 16 }) |m| {
+        var best_a: f32 = 1e9;
+        var best_b: f32 = 1e9;
+        for (0..3) |_| {
+            try e0.record(t.s);
+            for (0..200) |_| {
+                try reduce(t, part.ptr, dn.ptr, true, m * (LOW + S), SK);
+                try t.hcAct(dn.ptr, a1.ptr, xs.ptr, g1.ptr, m, LOW + S, S, LOW);
+            }
+            try e1.record(t.s);
+            var th2 = th;
+            th2.s = t.s;
+            for (0..200) |_| try th2.hcReduceAct(part.ptr, a2.ptr, g2.ptr, m, SK, LOW + S, LOW, S);
+            try e2.record(t.s);
+            try e2.synchronize();
+            best_a = @min(best_a, try cuda.Event.elapsedMs(e0, e1) / 200);
+            best_b = @min(best_b, try cuda.Event.elapsedMs(e1, e2) / 200);
+        }
+        std.debug.print("bench reduce+act {d} rows: _reduce + _hc_act {d:.2} us, tf_fn_hc_reduce_act {d:.2} us\n", .{ m, best_a * 1000, best_b * 1000 });
+    }
+    return all;
 }
 
 /// `glue-check`'s second part: `_hc_wb_norm` against `_hc_writeback` + `_hc_normed` (the streams, the squared sums

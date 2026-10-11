@@ -185,6 +185,8 @@ pub const Window = struct { seq: *Seq, tokens: []const u32 };
 pub const Scratch = struct {
     arena: state.Arena,
     part: u64,
+    /// `part`'s bytes (partBytes: the widest split-K matmul of the widest window)
+    part_len: usize,
     dn: u64, // [rows, low + streams] fp32
     shared_g: u64, // [rows, 2 NI] bf16
     shared_y: u64, // [rows, D] fp32 or bf16
@@ -236,6 +238,7 @@ pub const Scratch = struct {
         try s.arena.buf.fill8(0, null);
         const ptrs = [_]*u64{ &s.part, &s.dn, &s.shared_g, &s.shared_y, &s.gq, &s.gk, &s.gv, &s.gg, &s.gb, &s.gy, &s.kv_scale, &s.invalid, &s.vote, &s.gdn_t, &s.ngram_ids, &s.ple_half, &s.xs_half, &s.ple_all, &s.xs_all, &s.qsa_pos, &s.p8, &s.pb, &s.sh_g, &s.sh_a };
         for (ptrs, sz) |p, n| p.* = s.arena.take(n);
+        s.part_len = part;
         return s;
     }
 
@@ -544,6 +547,17 @@ pub const Forward = struct {
     mtp_q4: ?*const @import("cuda_mtp_q4.zig").Table = null,
     /// on unless TF_FLASHNEXT_GLUE_FUSE=0: prompt read-outs' up projection and mix in one pass (`_hc_up_mix`)
     up_mix: bool = false,
+    /// on unless TF_FLASHNEXT_UPMIX_DECODE=0: decode windows' layer read-outs on `_hc_up_mix` at BM 32 too;
+    /// `layer_ro` marks a layer's read-out (hcBlock) apart from the final mixer's, whose 32-group sums of mixed feed
+    /// the MTP draft head's 4-bit matmul
+    upmix_decode: bool = false,
+    layer_ro: bool = false,
+    /// on unless TF_FLASHNEXT_REDUCE_ACT=0, and only with `act_exact`: decode read-outs' `_reduce` + `_hc_act` as one
+    /// fn_ops kernel (`reduceActTakes`)
+    reduce_act: bool = false,
+    /// tf_fn_hc_reduce_act_kernel gave the loaded kernel set's `_reduce` + `_hc_act` bytes at load (one GPU;
+    /// cuda_prompt.zig reduceActAgrees): the fused read-out tails may run
+    act_exact: bool = false,
     /// on unless TF_FLASHNEXT_WB_NORM=0: prompt chunks' write-back and norm in one pass (`_hc_wb_norm`)
     wb_norm: bool = false,
     /// two ranks, split prompt glue: the exchanges run on this stream beside the next rows' work (TF_FLASHNEXT_OVERLAP)
@@ -1366,7 +1380,24 @@ pub const Forward = struct {
             try f.t.hcWritebackNorm(h, h, x.b.pss, p.inject, p.branch, R, g.hidden, g.streams, nm);
         } else try f.t.hcWritebackNorm(h, h, x.b.pss, null, .none, R, g.hidden, g.streams, nm);
         try f.mark(.hc_writeback);
+        // a layer's read-out (`upmix_decode`: nothing reads its 32-group sums of mixed without mtp_q4)
+        f.layer_ro = true;
+        defer f.layer_ro = false;
         try f.readoutAt(hc, x, h, x.b.pss, R, if (hc.inject) inject_out else null, x.b.mixed, x.b.xs_mixed, fuse);
+    }
+
+    /// Whether a read-out's bf16 down projection ends in tf_fn_hc_reduce_act_kernel (`reduce_act`): one GPU, a decode
+    /// window, split K, no 4-bit MTP matrices (the only readers of act's 32-group sums), inject rows exactly when
+    /// the caller asks for the gates, the streams' 1/S exact, and no launch recorder (tests keep Python's launches).
+    fn reduceActTakes(f: *const Forward, hc: *const W.Hc, b: *const state.Buffers, R: usize, inject: ?u64) bool {
+        if (!f.reduce_act or b.prefill or f.comm != null or f.mtp_q4 != null or f.t.rec != null or R > 128) return false;
+        const g = f.g;
+        const ndn: usize = hc.down.n;
+        if (tri.b16SplitK(ndn, hc.down.k) < 2 or hc.down.k % 64 != 0 or !std.math.isPowerOfTwo(g.streams)) return false;
+        // its K slices' partials in the part scratch, sized for the same split of the same matrix at the widest
+        // window (partBytes holds `_b16mm`'s for [low + streams, wide] at max_rows): never past it
+        if (tri.b16PartBytes(R, ndn, hc.down.k) > f.sc.part_len) return false;
+        return if (inject != null) ndn == g.low + g.streams else ndn == g.low;
     }
 
     /// Whether this write-back also makes the read-out's normed rows (`_hc_wb_norm`): prompt chunks, no 4-bit MTP
@@ -1405,13 +1436,28 @@ pub const Forward = struct {
                 try f.th.slotCopy(f.sc.pb, hc.down.n * 4, f.sc.dn + d8.n * 4, dn_n * 4, hc.down.n * 4, R);
             }
             try f.mark(.hc_down);
-        } else try f.mmxAt(.hc_down, b.normed, Wd, b.xs_normed, hc.down, f.sc.dn, true, R);
-        try f.t.hcAct(f.sc.dn, b.act, b.xs_act, inject, R, dn_n, g.streams, g.low);
-        try f.mark(.hc_act);
-        // prompt chunks: the up projection and the mix in one pass (cuda_prompt.zig upMix, the same mixed bytes; no
-        // 32-group sums of mixed, which only the 4-bit MTP draft matrices read)
-        if (f.up_mix and b.prefill and R >= 16 and hc.up8 == null and f.mtp_q4 == null and hc.up.n == g.wide() and hc.up.k == g.low and g.low % 64 == 0) {
-            try prompt.upMix(f.t, b.act, hc.up.weight, b.normed, mixed, R, g.hidden, g.streams, g.low, 64);
+        } else if (f.reduceActTakes(hc, b, R, inject)) {
+            // a decode window's down projection as its K slices, then `_reduce` and `_hc_act` in one launch
+            // (fn_ops.cu tf_fn_hc_reduce_act_kernel: their bits; no 32-group sums of act, read only by mtp_q4)
+            try prompt.b16Slices(f.t, b.normed, Wd, hc.down.weight, f.sc.part, true, R, hc.down.n, hc.down.k);
+            try f.mark(.hc_down);
+            try f.th.hcReduceAct(f.sc.part, b.act, inject orelse b.act, R, tri.b16SplitK(hc.down.n, hc.down.k), dn_n, g.low, g.streams);
+            try f.mark(.hc_act);
+        } else {
+            try f.mmxAt(.hc_down, b.normed, Wd, b.xs_normed, hc.down, f.sc.dn, true, R);
+            try f.t.hcAct(f.sc.dn, b.act, b.xs_act, inject, R, dn_n, g.streams, g.low);
+            try f.mark(.hc_act);
+        }
+        if (hc.down8 != null) {
+            try f.t.hcAct(f.sc.dn, b.act, b.xs_act, inject, R, dn_n, g.streams, g.low);
+            try f.mark(.hc_act);
+        }
+        // prompt chunks, and with `upmix_decode` a decode window's layer read-outs past one row (the kernel set has
+        // no M == 1 variant: Triton folds a 1): the up projection and the mix in one pass (cuda_prompt.zig upMix, the
+        // same mixed bytes; no 32-group sums of mixed, which only the 4-bit MTP draft matrices read)
+        const decode_ok = f.upmix_decode and f.layer_ro and !b.prefill and R > 1 and f.comm == null and f.t.rec == null;
+        if (f.up_mix and ((b.prefill and R >= 16) or decode_ok) and hc.up8 == null and f.mtp_q4 == null and hc.up.n == g.wide() and hc.up.k == g.low and g.low % 64 == 0) {
+            try prompt.upMix(f.t, b.act, hc.up.weight, b.normed, mixed, R, g.hidden, g.streams, g.low, if (b.prefill) 64 else 32);
             try f.mark(.hc_mix);
             return;
         }
@@ -2035,6 +2081,12 @@ test "the partial scratch covers the widest split-K matmul of a prompt chunk" {
     try std.testing.expectEqual(@as(usize, 4 * 4 * 2048 * 2560 * 4), partBytes(g, 2048));
     // the MTP head's fc_h at 8 rows takes 32 stream rows of [2560, 2560]
     try std.testing.expect(partBytes(g, 8) >= tri.b16PartBytes(32, 2560, 2560));
+    // a read-out's down projection [low + streams, wide] as K slices (tf_fn_hc_reduce_act_kernel reads them from
+    // `part`): 32 slices of rows x 324 fp32, inside the scratch at every window width up to the scratch's rows
+    try std.testing.expectEqual(@as(usize, 32), tri.b16SplitK(g.low + g.streams, g.wide()));
+    for ([_]usize{ 1, 16, 17, 64, 128, 2048 + 512 }) |rows| {
+        for (1..rows + 1) |r| try std.testing.expect(tri.b16PartBytes(r, g.low + g.streams, g.wide()) <= partBytes(g, rows));
+    }
 }
 
 test {

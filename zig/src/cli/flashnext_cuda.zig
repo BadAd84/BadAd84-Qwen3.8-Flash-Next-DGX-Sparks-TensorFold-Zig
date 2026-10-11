@@ -1828,7 +1828,21 @@ fn glueCheck(gpa: Allocator, io: std.Io, ctx: *const cuda.Context, kernels: []co
     var stream = try cuda.Stream.init(ctx.d, true);
     defer stream.deinit();
     const t: flashnext.triton.Tri = .{ .set = &set, .s = stream };
-    const ok = (try flashnext.prompt.glueCheck(gpa, ctx.d, t)) and (try flashnext.prompt.wbNormCheck(gpa, ctx.d, t));
+    var ops = try flashnext.torch_ops.Ops.load(ctx);
+    defer ops.deinit();
+    const ra = try flashnext.prompt.reduceActCheck(gpa, ctx.d, t, ops.on(stream));
+    std.debug.print("{s} reduce-act-check\n", .{if (ra) "PASS" else "FAIL"});
+    const um = try flashnext.prompt.glueCheck(gpa, ctx.d, t);
+    // the write-back + norm part needs a _hc_writeback launch the release's kernel set has no variant for (the stock
+    // image stops there too): reported as a skip with its reason, never as a pass of that part
+    const wb = flashnext.prompt.wbNormCheck(gpa, ctx.d, t) catch |e| switch (e) {
+        error.MissingTritonVariant => blk: {
+            std.debug.print("SKIP wb-norm-check: the kernel set has no _hc_writeback variant for its launch\n", .{});
+            break :blk true;
+        },
+        else => return e,
+    };
+    const ok = ra and um and wb;
     std.debug.print("{s} glue-check\n", .{if (ok) "PASS" else "FAIL"});
     return if (ok) 0 else 1;
 }

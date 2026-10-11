@@ -594,6 +594,18 @@ pub const Engine = struct {
         e.poison = envGet("TF_FLASHNEXT_POISON_PADS") != null;
         e.pass_times = envGet("TF_FLASHNEXT_PASS_TIMES") != null;
         e.f.up_mix = !envOff("TF_FLASHNEXT_GLUE_FUSE") and prompt_mm.upMixAvailable(&e.set);
+        // decode windows' layer read-outs on `_hc_up_mix` too (rows > 1; glue-check: the same mixed bytes as
+        // `_b16mm` + `_hc_mix` at 2-16 rows); TF_FLASHNEXT_UPMIX_DECODE=0 keeps the two launches
+        e.f.upmix_decode = e.f.up_mix and !envOff("TF_FLASHNEXT_UPMIX_DECODE");
+        if (e.f.upmix_decode) std.log.info("decode read-outs: up projection and mix in one pass (_hc_up_mix BM 32)", .{});
+        // decode read-outs' `_reduce` + `_hc_act` in one fn_ops kernel (glue-check's reduce-act-check: their
+        // bytes); TF_FLASHNEXT_REDUCE_ACT=0 keeps the two launches. The kernel reproduces the kernel set's own
+        // instructions, so it runs only when it gives their bytes on the loaded kernel set (`act_exact`: a set from
+        // another Triton or ptxas keeps the two launches; cuda_prompt.zig reduceActAgrees)
+        e.f.act_exact = o.comm == null and try prompt_mm.reduceActAgrees(gpa, d, e.f.t, e.f.th, e.g.streams, e.g.low, e.g.wide());
+        e.f.reduce_act = !envOff("TF_FLASHNEXT_REDUCE_ACT") and e.f.act_exact;
+        if (o.comm == null and !e.f.act_exact) std.log.warn("decode read-outs: tf_fn_hc_reduce_act_kernel differs from this kernel set's _reduce + _hc_act; the two launches kept", .{});
+        if (e.f.reduce_act) std.log.info("decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel, checked against the kernel set at load)", .{});
         e.f.wb_norm = !envOff("TF_FLASHNEXT_WB_NORM") and prompt_mm.wbNormAvailable(&e.set);
         // the split glue's exchanges on their own stream beside the other rows' work (TF_FLASHNEXT_OVERLAP=0: in line)
         if (!envOff("TF_FLASHNEXT_QSA_FAST")) {
