@@ -26,6 +26,7 @@ const prompt = @import("cuda_prompt.zig");
 const moep = @import("cuda_moe_prompt.zig");
 const fp8 = @import("cuda_fp8.zig");
 const int4 = @import("cuda_int4.zig");
+const ngh = @import("cuda_ngram_host.zig");
 
 const Allocator = std.mem.Allocator;
 const W = weights;
@@ -492,6 +493,9 @@ pub const Forward = struct {
     seqs: std.ArrayList(*Seq) = .empty,
     /// two ranks: the n-gram table's GPU gather of this rank's heads (fn_pack.cu)
     gather: ?W.Gather = null,
+    /// one GPU: the host gather over a gang of threads and the prefetch queue (cuda_ngram_host.zig; null: the
+    /// stock gather on the caller's thread). The engine owns it.
+    ngh: ?*ngh.Host = null,
     eps: f32,
     vocab_offset: i64 = 0,
     /// the sampling scratch (cuda_engine.zig sizes it for the head rows); `candidates` reads it at two ranks
@@ -1196,7 +1200,7 @@ pub const Forward = struct {
                 continue;
             }
             const out = std.mem.bytesAsSlice(u16, f.pin.bytes[rows_at..][0 .. R * heads * table.width * 2]);
-            try table.gather(nid, @alignCast(out));
+            if (f.ngh) |h| try h.gather(nid, @alignCast(out)) else try table.gather(nid, @alignCast(out));
             try f.upload(x.b.ple_v, rows_at, R * heads * table.width * 2);
         };
         for (windows) |w| w.seq.staged = true;

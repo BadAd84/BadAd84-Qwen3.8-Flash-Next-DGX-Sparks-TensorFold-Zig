@@ -164,6 +164,26 @@ pub const NgramTable = struct {
             }
         }
     }
+
+    /// The rows' pages touched (a byte at each end of every row, so a row across two pages brings both): a later
+    /// gather finds them resident (cuda_ngram_host.zig's prefetch). Ids out of range are skipped.
+    pub fn touch(t: *const NgramTable, ids: []const i64) void {
+        for (ids) |id| {
+            if (id < 0 or id >= t.rows) continue;
+            const r = t.row(@intCast(id));
+            std.mem.doNotOptimizeAway(@as(*const volatile u8, @ptrCast(r.ptr)).*);
+            std.mem.doNotOptimizeAway(@as(*const volatile u8, @ptrCast(r.ptr + r.len - 1)).*);
+        }
+    }
+
+    /// MADV_RANDOM over every shard file's mapping: a page fault reads that page alone, not the kernel's 128 KiB
+    /// read-around (rows are 160 B at hashed offsets, so the neighbours are never the next rows).
+    pub fn adviseRandom(t: *NgramTable) void {
+        for (t.files.items) |*f| {
+            const m = f.map.memory;
+            std.posix.madvise(m.ptr, m.len, std.posix.MADV.RANDOM) catch |err| std.log.warn("madvise(MADV_RANDOM) over the n-gram table: {s}", .{@errorName(err)});
+        }
+    }
 };
 
 /// The n-gram table's GPU gather (zig/kernels/cuda/fn_pack.cu): a window's global row ids (device int64

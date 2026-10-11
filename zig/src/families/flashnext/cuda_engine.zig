@@ -26,6 +26,7 @@ const fwd = @import("cuda_forward.zig");
 const fp8 = @import("cuda_fp8.zig");
 const int4 = @import("cuda_int4.zig");
 const mtp = @import("cuda_mtp.zig");
+const ngh = @import("cuda_ngram_host.zig");
 const vmm = @import("cuda_vmm.zig");
 const nucleus = @import("cuda_nucleus.zig");
 const profs = @import("cuda_prof.zig");
@@ -433,6 +434,17 @@ pub const Engine = struct {
         errdefer e.memo.deinit();
         e.f = try fwd.Forward.init(gpa, d, e.stream, .{ .k = &e.k, .s = e.stream }, .{ .set = &e.set, .s = e.stream, .memo = &e.memo }, th, &e.w, &e.c, e.g, e.dims, e.prefill_rows + e.prefill_tail);
         errdefer e.f.deinit();
+        // one GPU: the host-mapped n-gram table's gather over a gang of threads, its prefetch queue and MADV_RANDOM
+        // (cuda_ngram_host.zig; env TF_FLASHNEXT_NGRAM_*, unset: the stock gather on this thread)
+        if (e.w.table) |*tab| if (tab.gpu == null) {
+            const no = try ngh.Options.fromEnv();
+            if (no.random) tab.adviseRandom();
+            if (no.threads > 0) for (e.w.layers) |l| if (l.ple) |p| {
+                e.f.ngh = try ngh.Host.create(gpa, io, tab, p.ngram, no);
+                break;
+            };
+        };
+        errdefer if (e.f.ngh) |h| h.destroy();
         e.f.comm = o.comm;
         // decode rounds' DeltaNet scratch: every stream's window rows, two rounds' kept inputs
         try e.f.initRound(rows, @max(1, o.streams));
@@ -642,6 +654,8 @@ pub const Engine = struct {
             cs.deinit();
             for (&e.f.cs_ev) |*ev| ev.deinit();
         }
+        if (e.f.ngh) |h| h.destroy();
+        e.f.ngh = null;
         e.f.deinit();
         e.pbuf.deinit();
         if (e.mbuf) |*m| m.deinit();
@@ -927,8 +941,18 @@ pub const Engine = struct {
         if (e.pass_times) pw[0] += try e.passLap(&t_pw);
         var kept: ?*Snapshot = null;
         errdefer if (kept) |k| e.freeSnapshot(k);
+        errdefer if (e.f.ngh) |h| h.dropTouches(); // a pass that failed leaves no rows queued for the next one
         var chunk: usize = 0;
+        // the prompt's n-gram rows touched ahead of their chunks (cuda_ngram_host.zig): chunk 0 is gathered at once
+        // by the gang, the next `ahead` chunks are queued now, each later chunk when it is `ahead` chunks away
+        var queued: usize = start;
         while (start < prompt.len) : (chunk += 1) {
+            if (e.f.ngh) |h| if (h.o.prefetch) {
+                const to = @min(prompt.len, start + (h.o.ahead + 1) * e.prefill_rows);
+                const from = @max(queued, e.chunkEnd(start, prompt.len));
+                if (to > from) h.touchPrompt(prompt, from, to);
+                queued = @max(queued, to);
+            };
             var end = e.chunkEnd(start, prompt.len);
             if (o.keep_at) |k| if (start < k and k < end) {
                 end = k;
@@ -1093,6 +1117,8 @@ pub const Engine = struct {
         kept: ?*Snapshot = null,
         done: bool = false,
         first: u32 = 0,
+        /// prompt tokens before this were queued for the n-gram prefetch (cuda_ngram_host.zig)
+        queued: usize = 0,
     };
 
     /// prefillWith's start (reset, or restore and the MTP tail absorbed) for a prompt that then fills in slices.
@@ -1121,6 +1147,7 @@ pub const Engine = struct {
 
     pub fn fillFree(e: *Engine, fl: *Fill) void {
         if (e.pfill == fl) e.pfill = null;
+        if (!fl.done) if (e.f.ngh) |h| h.dropTouches(); // a cancelled fill: its rows ahead are not wanted
         if (fl.kept) |k| e.freeSnapshot(k);
         e.gpa.free(fl.prompt);
         e.gpa.destroy(fl);
@@ -1141,6 +1168,13 @@ pub const Engine = struct {
                 if (e.pfill != null and e.pfill.? != fl) return error.PromptBuffersBusy;
                 e.pfill = fl;
                 var end = e.chunkEnd(fl.start, fl.prompt.len);
+                if (e.f.ngh) |h| if (h.o.prefetch) {
+                    // as prefillWith: the next `ahead` chunks' rows touched while this one computes
+                    const to = @min(fl.prompt.len, fl.start + (h.o.ahead + 1) * e.prefill_rows);
+                    const from = @max(@max(fl.queued, fl.start), end);
+                    if (to > from) h.touchPrompt(fl.prompt, from, to);
+                    fl.queued = @max(fl.queued, to);
+                };
                 if (fl.keep_at) |k| if (fl.start < k and k < end) {
                     end = k;
                 };
@@ -1443,6 +1477,9 @@ pub const Engine = struct {
         // each stream's stop rule (cuda_decode.Stop: per draft, running product or none), as its solo chain's
         var stops: [64]decode.Stop = undefined;
         for (reqs, 0..) |r, i| stops[i] = .{ .c = r.confidence };
+        // the next window's rows touched ahead of its stage: its pending token now (its predecessors are the
+        // committed history), each draft as the chain draws it (cuda_ngram_host.zig)
+        if (e.f.ngh) |h| for (reqs) |r| if (r.next.len > 0) h.touchTokens(r.seq.st.history[0 .. h.g.n - 1], &.{@as(i64, @intCast(r.next[r.next.len - 1]))});
         var lg = logits;
         var rows = reqs.len; // the head's rows of the step just run, active[k] at row k
         var row_of: [64]usize = undefined; // active k's row in that step
@@ -1470,6 +1507,7 @@ pub const Engine = struct {
                 if (!t.propose) continue;
                 r.out[r.drafted] = @intCast(got.token);
                 r.drafted += 1;
+                if (e.f.ngh) |h| if (r.next.len > 0) h.touchDraft(&r.seq.st.history, r.next[r.next.len - 1], r.out[0..r.drafted]);
                 if (t.more and j + 1 < @min(r.count, r.out.len)) {
                     next[n_next] = .{ .req = a.req, .row = a.row, .tok = @intCast(got.token) };
                     n_next += 1;
