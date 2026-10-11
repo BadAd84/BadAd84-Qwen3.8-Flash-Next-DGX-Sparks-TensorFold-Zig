@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Qwen3.8 Flash Next stock vs ours</title>
+<style>
+  :root {
+    --bg: #0b1017;
+    --panel: #111826;
+    --panel-br: #1e293b;
+    --ink: #e6edf6;
+    --muted: #8b99ad;
+    --faint: #5b6a7e;
+    --accent: #34d399;        /* ours */
+    --accent-dim: #10b981;
+    --py: #93a6bd;            /* Python stock - clearly lighter, cooler grey */
+    --py-ink: #aebccf;
+    --zig: #3d4c61;           /* Zig stock - darker grey */
+    --zig-ink: #8292a8;
+    --chip: #0f2a22;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 2400px; height: 1350px; overflow: hidden; }
+  body {
+    background: var(--bg);
+    background-image: radial-gradient(1400px 700px at 18% -10%, rgba(52,211,153,0.07), transparent 60%);
+    color: var(--ink);
+    font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+    display: flex; flex-direction: column;
+    padding: 64px 72px 40px;
+  }
+
+  /* ---------- header ---------- */
+  header { display: flex; align-items: flex-start; justify-content: space-between; }
+  h1 { font-size: 58px; font-weight: 700; letter-spacing: -0.5px; }
+  h1 .dim { color: var(--muted); font-weight: 600; }
+  .sub { margin-top: 12px; font-size: 28px; color: var(--muted); font-weight: 400; }
+  .badge {
+    margin-top: 6px;
+    display: inline-flex; align-items: center; gap: 12px;
+    background: var(--chip); border: 1px solid rgba(52,211,153,0.35);
+    color: var(--accent); border-radius: 999px;
+    font-size: 25px; font-weight: 600; padding: 12px 26px;
+    white-space: nowrap;
+  }
+  .badge svg { flex: none; }
+
+  /* ---------- headline cards ---------- */
+  .heroes { display: flex; gap: 28px; margin-top: 40px; }
+  .hero {
+    flex: 1; background: var(--panel);
+    border: 1px solid var(--panel-br); border-radius: 20px;
+    padding: 30px 34px 26px;
+  }
+  .hero.key { border-color: rgba(52,211,153,0.45); background: linear-gradient(180deg, rgba(16,185,129,0.10), rgba(16,185,129,0.02)), var(--panel); }
+  .hero .k { font-size: 24px; font-weight: 600; color: var(--muted); letter-spacing: 0.4px; text-transform: uppercase; }
+  .hero .v { margin-top: 10px; font-size: 64px; font-weight: 750; letter-spacing: -1px; }
+  .hero .v .accent { color: var(--accent); }
+  .hero .v .base { color: var(--zig-ink); }
+  .hero .d { margin-top: 8px; font-size: 25px; color: var(--muted); line-height: 1.35; }
+  .hero .d b { color: var(--ink); font-weight: 600; }
+
+  /* ---------- panels ---------- */
+  .panels { display: flex; gap: 28px; margin-top: 30px; flex: 1; min-height: 0; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--panel-br);
+    border-radius: 20px; padding: 30px 34px;
+    display: flex; flex-direction: column;
+  }
+  .panel h2 { font-size: 31px; font-weight: 700; }
+  .panel h2 span { color: var(--muted); font-weight: 500; font-size: 26px; }
+  .panel-decode { flex: 55; }
+  .panel-ttft { flex: 45; }
+
+  /* decode table */
+  table { width: 100%; border-collapse: collapse; margin-top: 18px; }
+  th, td { text-align: right; padding: 18px 14px; font-size: 28px; }
+  th { color: var(--faint); font-weight: 600; font-size: 22px; letter-spacing: 0.6px; text-transform: uppercase; border-bottom: 1px solid var(--panel-br); }
+  th:first-child, td:first-child { text-align: left; }
+  td { border-bottom: 1px solid #16202f; font-variant-numeric: tabular-nums; }
+  tr:last-child td { border-bottom: none; }
+  td.test { color: var(--ink); font-weight: 500; }
+  td.py { color: var(--py-ink); }
+  td.zig { color: var(--zig-ink); }
+  td.ours { color: var(--ink); font-weight: 650; }
+  td.chg { color: var(--accent); font-weight: 700; }
+
+  /* TTFT bars */
+  .bars { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; flex: 1; justify-content: space-between; min-height: 0; }
+  .pgroup .plabel { font-size: 25px; font-weight: 650; margin-bottom: 6px; }
+  .row { display: flex; align-items: center; gap: 14px; margin-top: 5px; }
+  .row .track { flex: 1; height: 22px; position: relative; }
+  .row .bar { height: 100%; border-radius: 6px; }
+  .bar.py-bar { background: var(--py); opacity: 0.85; }
+  .bar.zig-bar { background: var(--zig); }
+  .bar.ours-bar { background: linear-gradient(90deg, var(--accent-dim), var(--accent)); }
+  .row .val { flex: none; width: 250px; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .val.py { color: var(--py-ink); }
+  .val.zig { color: var(--zig-ink); }
+  .val.ours { color: var(--ink); font-weight: 650; }
+  .val .pct { color: var(--accent); font-weight: 700; margin-left: 10px; }
+
+  .phead { display: flex; align-items: baseline; justify-content: space-between; }
+  .phead h2 { white-space: nowrap; }
+  .legend { display: flex; gap: 22px; font-size: 21px; color: var(--muted); flex: none; }
+  .legend .sw { display: inline-block; width: 24px; height: 15px; border-radius: 4px; margin-right: 7px; vertical-align: -1px; }
+  .sw.p { background: var(--py); opacity: 0.85; }
+  .sw.z { background: var(--zig); }
+  .sw.o { background: var(--accent); }
+
+  footer { margin-top: 26px; display: flex; justify-content: space-between; font-size: 22px; color: var(--faint); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Qwen3.8 Flash Next on one DGX Spark <span class="dim">· stock vs ours</span></h1>
+    <div class="sub">125B-A5B INT4 · TensorFold · 1x GB10 · Python 0.6.1 vs Zig 1.0.0 vs Zig + our patches</div>
+  </div>
+  <div class="badge">
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="#34d399" stroke-width="2"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    identical outputs to stock Zig, every reply checked
+  </div>
+</header>
+
+<div class="heroes">
+  <div class="hero">
+    <div class="k">Decode speed · code, 1 client</div>
+    <div class="v"><span class="base">104.6</span> <span class="accent">→ 129.7 tok/s</span></div>
+    <div class="d"><b>+24% over stock Zig,</b> +61% over stock Python (80.7)</div>
+  </div>
+  <div class="hero key">
+    <div class="k">Time to first token · 120k-token prompt</div>
+    <div class="v"><span class="accent">42.9 s</span> <span class="base">vs 57.2 s</span></div>
+    <div class="d"><b>25% faster</b> than stock Python,<br><b>14% faster</b> than stock Zig (49.6 s)</div>
+  </div>
+  <div class="hero">
+    <div class="k">4 agents at once · RigMark C4</div>
+    <div class="v"><span class="accent">up to +33%</span></div>
+    <div class="d"><b>172 tok/s aggregate</b> vs 150 stock Zig, 129 stock Python</div>
+  </div>
+</div>
+
+<div class="panels">
+  <div class="panel panel-decode">
+    <h2>Decode, tokens/s <span>· higher is better</span></h2>
+    <table>
+      <tr>
+        <th>Test</th><th>Python</th><th>Zig</th><th>Ours</th><th>vs Zig</th>
+      </tr>
+      <tr><td class="test">prose, 1 client</td><td class="py">68.8</td><td class="zig">62.3</td><td class="ours">74.6</td><td class="chg">+20%</td></tr>
+      <tr><td class="test">prose, 4 clients</td><td class="py">28.9</td><td class="zig">37.3</td><td class="ours">39.8</td><td class="chg">+7%</td></tr>
+      <tr><td class="test">code, 1 client</td><td class="py">80.7</td><td class="zig">104.6</td><td class="ours">129.7</td><td class="chg">+24%</td></tr>
+      <tr><td class="test">code, 4 clients</td><td class="py">37.8</td><td class="zig">52.5</td><td class="ours">63.1</td><td class="chg">+20%</td></tr>
+      <tr><td class="test">RigMark code</td><td class="py">88.0</td><td class="zig">95.4</td><td class="ours">112</td><td class="chg">+17%</td></tr>
+      <tr><td class="test">RigMark prose</td><td class="py">50.5</td><td class="zig">50.1</td><td class="ours">59</td><td class="chg">+18%</td></tr>
+      <tr><td class="test">RigMark structured</td><td class="py">103.3</td><td class="zig">136.6</td><td class="ours">159</td><td class="chg">+16%</td></tr>
+    </table>
+  </div>
+
+  <div class="panel panel-ttft">
+    <div class="phead">
+      <h2>Time to first token, seconds <span>· lower is better</span></h2>
+      <div class="legend">
+        <span><span class="sw p"></span>python</span>
+        <span><span class="sw z"></span>zig</span>
+        <span><span class="sw o"></span>ours</span>
+      </div>
+    </div>
+    <div class="bars">
+      <!-- bars scale within each group; group max (Python) = 100% -->
+      <div class="pgroup">
+        <div class="plabel">cold 8k tokens</div>
+        <div class="row"><div class="track"><div class="bar py-bar" style="width:100%"></div></div><div class="val py">3.82</div></div>
+        <div class="row"><div class="track"><div class="bar zig-bar" style="width:78.3%"></div></div><div class="val zig">2.99</div></div>
+        <div class="row"><div class="track"><div class="bar ours-bar" style="width:69.9%"></div></div><div class="val ours">2.67<span class="pct">-30%</span></div></div>
+      </div>
+      <div class="pgroup">
+        <div class="plabel">cold 32k tokens</div>
+        <div class="row"><div class="track"><div class="bar py-bar" style="width:100%"></div></div><div class="val py">13.8</div></div>
+        <div class="row"><div class="track"><div class="bar zig-bar" style="width:87.7%"></div></div><div class="val zig">12.1</div></div>
+        <div class="row"><div class="track"><div class="bar ours-bar" style="width:77.5%"></div></div><div class="val ours">10.7<span class="pct">-22%</span></div></div>
+      </div>
+      <div class="pgroup">
+        <div class="plabel">cold 120k tokens</div>
+        <div class="row"><div class="track"><div class="bar py-bar" style="width:100%"></div></div><div class="val py">57.2</div></div>
+        <div class="row"><div class="track"><div class="bar zig-bar" style="width:86.7%"></div></div><div class="val zig">49.6</div></div>
+        <div class="row"><div class="track"><div class="bar ours-bar" style="width:75.0%"></div></div><div class="val ours">42.9<span class="pct">-25%</span></div></div>
+      </div>
+      <div class="pgroup">
+        <div class="plabel">agent turn (+2k on a 100k chat)</div>
+        <div class="row"><div class="track"><div class="bar py-bar" style="width:100%"></div></div><div class="val py">1.50</div></div>
+        <div class="row"><div class="track"><div class="bar zig-bar" style="width:82.0%"></div></div><div class="val zig">1.23</div></div>
+        <div class="row"><div class="track"><div class="bar ours-bar" style="width:75.3%"></div></div><div class="val ours">1.13<span class="pct">-25%</span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div>Measured 2026-10-10/11 on one DGX Spark through each recipe's own server · RigMark (alexellis/rigmark) + client-measured TTFT</div>
+  <div>Qwen3.8 Flash Next 125B-A5B · INT4 · NVIDIA DGX Spark (ASUS GX10, GB10)</div>
+</footer>
+
+</body>
+</html>
