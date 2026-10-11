@@ -81,10 +81,17 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     own.* = .{ .gpa = gpa, .rank = o.rank, .world = o.tp };
     errdefer own.closeLink();
     const yarn = try yarnFor(gpa, io, dir, o.context);
-    // the window: 15 drafts (16 rows: deeper MTP chains and copy windows; decode D4, TP=2 served edits +37%, code and
-    // prose unchanged at confidence 0.5; aot/fnaot3 holds every width to 16) unless TF_FLASHNEXT_DEPTH says (Python's 6)
+    // the head's chain: 15 drafts (16 rows: deeper MTP chains and copy windows; decode D4, TP=2 served edits +37%, code
+    // and prose unchanged at confidence 0.5) unless TF_FLASHNEXT_DEPTH says (Python's 6)
     const depth: usize = if (getenv("TF_FLASHNEXT_DEPTH")) |v| std.fmt.parseInt(usize, v, 10) catch return error.BadDepth else 15;
     if (depth < 1 or depth > lane_backend.max_drafts) return error.BadDepth;
+    // a lone stream's verify window, TF_FLASHNEXT_WINDOW rows (depth + 1 .. 64, 64 by default): copied continuations
+    // (file edits, verbatim repeats) grow past the chain's 16 rows (15 -> 31 -> 63 kept rows), every row kernel
+    // row-invariant (the shared rounds run 17..128 rows through the same kernels); the chain stays at `depth`. A
+    // window of depth + 1 is the engine without wide copy windows.
+    const window: usize = if (getenv("TF_FLASHNEXT_WINDOW")) |v| std.fmt.parseInt(usize, v, 10) catch return error.BadWindow else lane_backend.max_rows;
+    if (window < depth + 1 or window > lane_backend.max_rows) return error.BadWindow;
+    if (o.drafts) std.log.info("copy windows: a lone stream verifies up to {d} rows (TF_FLASHNEXT_WINDOW; the MTP chain {d})", .{ window, depth + 1 });
     if (o.tp == 2) {
         // a rank stops on SIGTERM / SIGINT while it loads and, rank 1, while it follows (in a container it is PID 1,
         // where a signal's default action is ignored); rank 0's server takes them over once it serves
@@ -117,6 +124,7 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     own.e = try M.Engine.init(gpa, io, ctx, dir, kernels, .{
         .context = o.context,
         .depth = depth,
+        .window = window,
         .streams = streams,
         .mtp = o.drafts,
         .rank = o.rank,
@@ -127,7 +135,10 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
         .kv = o.kv_dtype,
     });
     errdefer own.e.deinit();
-    own.lanes = lane_backend.Lanes(M.Engine).init(gpa, own.e, o.drafts, o.context, depth + 1);
+    own.lanes = lane_backend.Lanes(M.Engine).init(gpa, own.e, o.drafts, o.context, window);
+    own.lanes.depth = depth;
+    // a shared forward's rows at most: the engine's decode buffers (streams x (depth + 1), or the window)
+    own.lanes.rows = if (@hasField(M.Engine, "buf")) own.e.buf.b.rows else streams * window;
     own.lanes.streams = streams;
     own.lanes.confidence = @import("cuda_engine.zig").confidenceSetting();
     own.lanes.product_streams = @import("cuda_engine.zig").productStreams();
@@ -142,6 +153,7 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
         const ids = try costText(gpa, io, dir);
         defer gpa.free(ids);
         try own.lanes.measure(io, ids);
+
     }
     var backend = own.lanes.backend();
     own.lanes.follower = o.tp == 2 and o.rank == 1;
@@ -160,7 +172,7 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     return .{
         .backend = backend,
         .facts = own.lanes.facts(),
-        .rows = if (o.drafts) @intCast(depth + 1) else 1,
+        .rows = if (o.drafts) @intCast(window) else 1,
         .ctx = own,
         .deinit = Own.release,
         .follow = if (o.tp == 2 and o.rank == 1) Own.follow else null,
@@ -367,8 +379,8 @@ fn settingsText(gpa: std.mem.Allocator, base: []const u8, snapshot: [32]u8, kern
     const yt = if (yarn) |v| try std.fmt.bufPrint(&y, "{d}x{d}/ramp{d}/att{d}", .{ v.factor, v.original, v.ramp_positions, v.attention() }) else "off";
     const fill = getenv("TF_FLASHNEXT_FILL") orelse "0";
     const fill_layers = getenv("TF_FLASHNEXT_FILL_LAYERS") orelse "8";
-    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} confidence={d}/{d} yarn={s} fill={s}/{s} kv={s} kernels={x}", .{
-        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, @tagName(o.kv_dtype), kernel_set,
+    return std.fmt.allocPrint(gpa, "flashnext tp={d} checkpoint={s} snapshot={x} context={d} parallel={d} drafts={} depth={d} window={d} confidence={d}/{d} yarn={s} fill={s}/{s} kv={s} kernels={x}", .{
+        o.tp, base, snapshot, o.context, o.parallel, o.drafts, depth, @import("cuda_engine.zig").windowSetting(lane_backend.max_rows), @import("cuda_engine.zig").confidenceSetting(), @import("cuda_engine.zig").productStreams(), yt, fill, fill_layers, @tagName(o.kv_dtype), kernel_set,
     });
 }
 

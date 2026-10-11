@@ -17,9 +17,12 @@ const decode = @import("cuda_decode.zig");
 
 const be = lanes.backend;
 
-/// A verify window's rows at most (the pending token and 15 drafts; cuda_state.max_rows).
-pub const max_rows = 16;
+/// A verify window's rows at most (the pending token and 63 drafts; cuda_state.max_rows): the MTP chain takes up to
+/// `depth` of them (15 by default), a lone stream's copied continuation up to `window` - 1.
+pub const max_rows = 64;
 pub const max_drafts = max_rows - 1;
+/// Prompts one burst prefills in one pass at most (cuda_state.ends: the prompt buffers' head rows).
+pub const max_burst = 16;
 /// The MTP head's chain stops before a later draft under this temperature-1 probability (Python CONFIDENCE).
 pub const default_confidence = 0.70;
 
@@ -121,8 +124,13 @@ pub fn Lanes(comptime E: type) type {
         e: *E,
         drafting: bool,
         context: usize,
-        /// a window's rows at most: the engine's depth + 1 (its buffers' rows and the kernel set's windows)
+        /// a window's rows at most: the engine's window (its buffers' rows and the kernel set's windows); a copied
+        /// continuation may take all of them, the head's chain `depth`
         window: usize,
+        /// the MTP head's chain at most (the engine's depth; the head's drafts a round)
+        depth: usize,
+        /// a shared forward's rows at most (the engine's decode buffers; streams x window by default)
+        rows: usize = 0,
         /// streams a shared forward holds (--parallel; the engine's Options.streams)
         streams: usize = 1,
         confidence: f64 = default_confidence,
@@ -165,7 +173,8 @@ pub fn Lanes(comptime E: type) type {
 
         pub fn init(gpa: std.mem.Allocator, e: *E, drafting: bool, context: usize, window: usize) Self {
             const late = if (std.c.getenv("TF_FLASHNEXT_KEEP_LATE")) |v| !std.mem.eql(u8, std.mem.span(v), "0") else true;
-            return .{ .gpa = gpa, .e = e, .drafting = drafting, .context = context, .window = @max(1, @min(window, max_rows)), .late_keep = late };
+            const w = @max(1, @min(window, max_rows));
+            return .{ .gpa = gpa, .e = e, .drafting = drafting, .context = context, .window = w, .depth = w - 1, .late_keep = late };
         }
 
         pub fn deinit(self: *Self) void {
@@ -313,23 +322,26 @@ pub fn Lanes(comptime E: type) type {
             l.fill = null;
         }
 
-        /// The facts the round loop reads at setup: windows up to `window` rows (16 at most), up to `streams`
-        /// streams' windows in one forward (each row's bits as alone), this GPU's costs.
+        /// The facts the round loop reads at setup: windows up to `window` rows (64 at most; the head's chain up to
+        /// `depth`, a lone stream's copies from depth + 1 rows up to the window), up to `streams` streams' windows in
+        /// one forward (each row's bits as alone), this GPU's costs.
         pub fn facts(self: *const Self) lanes.Model {
             const many = self.streams > 1;
+            const depth = @min(self.depth, self.window - 1);
             return .{
                 .exact_width = if (self.drafting) @intCast(self.window) else 1,
+                .first_copy_rows = if (self.drafting) @intCast(depth + 1) else 0,
                 .gpu_tokens = false,
                 .mtp = self.drafting,
                 .speculate = self.drafting,
                 .speculate_early = false,
                 .draft_prior = &draft_prior,
-                .drafts = @intCast(self.window - 1),
+                .drafts = @intCast(depth),
                 .window_costs = self.costs[0..self.cost_count],
                 .mtp_step_ms = self.mtp_ms,
                 .streams_exact = true,
                 .hidden_rows = many,
-                .batch_rows = @intCast(self.streams * self.window),
+                .batch_rows = @intCast(if (self.rows != 0) self.rows else self.streams * self.window),
                 .max_streams = @intCast(self.streams),
                 .shared_costs = self.shared[0..self.shared_count],
                 .draft_streams = many,
@@ -435,7 +447,7 @@ pub fn Lanes(comptime E: type) type {
             const self = of(ptr);
             if (comptime !@hasDecl(E, "prefillMany")) return error.BurstRefused;
             const e = self.e;
-            if (ss.len < 2 or ss.len > max_rows) return error.BurstRefused;
+            if (ss.len < 2 or ss.len > max_burst) return error.BurstRefused;
             // an image or video prompt prefills alone (attachMedia, the MODE 2 prompt rows)
             for (ss) |s| if (s.reuse.at > 0 or s.reuse.marks.len > 0 or s.media != null) return error.BurstRefused;
             var ls: [max_rows]*Lane = undefined;
@@ -461,7 +473,7 @@ pub fn Lanes(comptime E: type) type {
             while (i < ss.len) {
                 var j = i;
                 var rows: usize = 0;
-                while (j < ss.len and rows + ss[j].prompt().len <= e.prefill_rows) : (j += 1) rows += ss[j].prompt().len;
+                while (j < ss.len and j - i < max_burst and rows + ss[j].prompt().len <= e.prefill_rows) : (j += 1) rows += ss[j].prompt().len;
                 if (j - i >= 2) {
                     var items: [max_rows]E.ManyPrompt = undefined;
                     for (items[0 .. j - i], ss[i..j], ls[i..j]) |*it, s, l| it.* = .{ .seq = l.seq, .prompt = s.prompt(), .sampling = s.sampling };
@@ -911,7 +923,7 @@ pub fn Lanes(comptime E: type) type {
                     e.commitWindow(l.index, rows.len) catch |err| return self.lost("a window's commit", err);
                 };
                 l.held_n = 0;
-                const depth = @min(r.depth, self.window - 1);
+                const depth = @min(r.depth, @min(self.depth, self.window - 1));
                 if (r.rows == null) firsts[i] = .{self.value(r.first.?)};
                 reqs[i] = .{
                     .seq = l.seq,
@@ -1010,35 +1022,36 @@ pub fn Lanes(comptime E: type) type {
 
         // -- costs ----------------------------------------------------------------------------------------------
 
-        /// What a verify window of 1..`window` rows and one head level cost on this engine, in ms (median of 5
-        /// after a warm one), and with several streams a whole shared round of 2, 4, ... `streams` full windows,
-        /// the batched head's drafts included (the lanes core's shared-costs table, to streams x window rows; C3):
-        /// each timed on sequences of their own over
-        /// `ids` (real text, at least 48 tokens). Every call is the same on both ranks, so a two-rank engine's
-        /// collectives stay in step while each rank times itself.
+        /// What a verify window of 1..depth + 1 rows (the rows the head may draft) and one head level cost on this
+        /// engine, in ms (median of 5 after a warm one), and with several streams a whole shared round of 2, 4, ...
+        /// `streams` full head windows (depth + 1 rows each), the batched head's drafts included (the lanes core's
+        /// shared-costs table, to streams x (depth + 1) rows; C3): each timed on sequences of their own over `ids`
+        /// (real text, at least 19 + depth + 1 tokens). A lone stream's wider copy windows are never priced: the
+        /// planner allocates the head's rows against these tables. Every call is the same on both ranks, so a
+        /// two-rank engine's collectives stay in step while each rank times itself.
         pub fn measure(self: *Self, io: std.Io, ids: []const u32) !void {
             if (!self.drafting) return;
             const reps = 5;
             const e = self.e;
-            if (ids.len < 3 * max_rows) return error.CostTextTooShort;
-            try self.settle();
-            const top = self.window;
+            const head = @min(self.depth, self.window - 1) + 1;
             // 19 prompt rows (the head absorbs 18): a multiple of 16 rows asks the kernel set for a variant
             // (Triton's M % 16 specialization) a capture may not hold
-            const lead = max_rows + 3;
+            const lead = 19;
+            if (ids.len < lead + head) return error.CostTextTooShort;
+            try self.settle();
             const cont = ids[lead..];
             var c = try Costing(E).init(self.gpa, e, @min(self.context, 4096), 1, ids[0..lead]);
             defer c.deinit();
             for (0..32) |_| try c.round(1, cont, null, 0); // the GPU at its working clocks before any window is timed
             var verify_all: [max_rows + 1]f64 = @splat(0);
-            const verify = verify_all[0 .. top + 1];
+            const verify = verify_all[0 .. head + 1];
             var times: [reps + 1]f64 = undefined;
-            for (1..top + 1) |w| {
+            for (1..head + 1) |w| {
                 for (&times) |*x| try c.round(w, cont, .{ .io = io, .out = x }, 0);
                 verify[w] = median(times[1..]);
             }
             var chain: [2]f64 = undefined;
-            const deep = @max(2, @min(8, top - 1));
+            const deep = @max(2, @min(8, head - 1));
             for ([_]usize{ 1, deep }, &chain) |levels, *out| {
                 for (&times) |*x| x.* = try c.chain(io, levels);
                 out.* = median(times[1..]);
@@ -1050,7 +1063,7 @@ pub fn Lanes(comptime E: type) type {
                 self.cost_count += 1;
             }
             self.mtp_ms = k.level;
-            // shared rounds: n streams' full windows in one forward
+            // shared rounds: n streams' full head windows in one forward
             self.shared_count = 0;
             var n: usize = 2;
             while (n <= self.streams and self.shared_count < shared_points) : (n = if (n * 2 > self.streams and n < self.streams) self.streams else n * 2) {
@@ -1059,8 +1072,8 @@ pub fn Lanes(comptime E: type) type {
                 try many.round(1, cont, null, 0);
                 // a whole shared round: the forward, the draws and the batched head drafting every stream's next
                 // window (C3: the allocator weighs rows against what the round costs, the head included)
-                for (&times) |*x| try many.round(top, cont, .{ .io = io, .out = x }, top - 1);
-                self.shared[self.shared_count] = .{ .width = @intCast(n * top), .ms = median(times[1..]) };
+                for (&times) |*x| try many.round(head, cont, .{ .io = io, .out = x }, head - 1);
+                self.shared[self.shared_count] = .{ .width = @intCast(n * head), .ms = median(times[1..]) };
                 self.shared_count += 1;
             }
         }
@@ -1632,6 +1645,35 @@ test "costs are measured by the same calls a decode makes" {
     for (b.costs[0..b.cost_count], 1..) |c, w| try std.testing.expectEqual(@as(u32, @intCast(w)), c.width);
 }
 
+test "a window wider than the head's chain prices the chain's rows only" {
+    const gpa = std.testing.allocator;
+    var threaded: std.Io.Threaded = .init(gpa, .{});
+    defer threaded.deinit();
+    var t: Toy = .{ .gpa = gpa };
+    var b = Lanes(Toy).init(gpa, &t, true, 1 << 16, 16);
+    defer b.deinit();
+    b.depth = 3;
+    b.streams = 2;
+    b.rows = 40;
+    var ids: [64]u32 = undefined;
+    for (&ids, 0..) |*x, i| x.* = @intCast(i % 50);
+    try b.measure(threaded.io(), &ids);
+    try std.testing.expectEqual(@as(usize, 4), b.cost_count); // the planner's table: the head's 1..4 rows
+    try std.testing.expectEqual(@as(usize, 1), b.shared_count);
+    try std.testing.expectEqual(@as(u32, 8), b.shared[0].width); // 2 streams' head windows
+    const m = b.facts();
+    try std.testing.expectEqual(@as(u32, 16), m.exact_width);
+    try std.testing.expectEqual(@as(u32, 3), m.drafts);
+    try std.testing.expectEqual(@as(u32, 4), m.first_copy_rows);
+    try std.testing.expectEqual(@as(u32, 40), m.batch_rows);
+    var cfg = try lanes.Config.init(gpa, m, 16, 15);
+    defer cfg.deinit(gpa);
+    try std.testing.expectEqual(@as(u32, 15), cfg.max_copy); // a lone stream's copies grow to the window
+    try std.testing.expectEqual(@as(u32, 3), cfg.first_copy); // from the head window's rows
+    try std.testing.expectEqual(@as(u32, 3), cfg.most_drafts); // the chain stays at the depth
+    try std.testing.expectEqual(@as(usize, 0), t.seqs);
+}
+
 test "a rank's failed prepare stops both ranks before a collective; an engine error after the agreement is fatal" {
     const gpa = std.testing.allocator;
     const G = struct {
@@ -1682,9 +1724,9 @@ test "a rank's failed prepare stops both ranks before a collective; an engine er
 test "admission reserves each stream's whole window: a prompt that would not fit beside the others waits for room" {
     const gpa = std.testing.allocator;
     var t: Toy = .{ .gpa = gpa };
-    // room for two streams of 3 + 81 + 16 = 100 rows (10,000 bytes each)
+    // room for two streams of 3 + 81 + 16 = 100 rows (10,000 bytes each): a 16-row window
     t.budget.limit = 20_000;
-    var b = Lanes(Toy).init(gpa, &t, true, 4096, max_rows);
+    var b = Lanes(Toy).init(gpa, &t, true, 4096, 16);
     defer b.deinit();
     var ss: [3]lanes.Stream = undefined;
     for (&ss) |*s| s.* = try lanes.Stream.init(gpa, .{ .id = "s", .prompt = &.{ 1, 2, 3 }, .max_new = 81 });

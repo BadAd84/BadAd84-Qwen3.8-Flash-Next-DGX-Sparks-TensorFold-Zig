@@ -1938,7 +1938,7 @@ pub const Forward = struct {
         if (b.prefill) {
             const prow = (g.hidden / 256) * g.streams * 4;
             if (segs.len > 1) {
-                if (segs.len > state.max_rows) return error.TooManyPrompts;
+                if (segs.len > state.ends) return error.TooManyPrompts; // the prompt buffers' logits hold `ends` rows
                 // the last rows gathered into rows 0.. of h (free once the streams hold its rows) and of the sums
                 // (a row's source is never before its slot, so the copies in order do not overwrite one to come)
                 for (segs, 0..) |sg, i| {

@@ -34,6 +34,8 @@ const usage =
     \\           aggregate tok/s; code greedy, prose and chat sampled; TF_FLASHNEXT_PROFILE=1 times rounds by part)
     \\  tensorfold pool MODEL --streams N   (N sequences grown in turn until the memory budget refuses: the tokens
     \\           the rank's caches hold at N streams)
+    \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
+    \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
     \\           prompt N times in one load: prefill seconds and tok/s, the reply's first token and sha)
     \\  tensorfold mm-check MODEL [--rows N,N,...]   (no weights: the prompt matmuls' in-program K
@@ -300,7 +302,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     std.debug.print("loading {s} (kernels {s})\n", .{ o.model, kernels });
     const yarn = try yarnFor(gpa, init.io, o.model, init.environ_map.get(flashnext.rope.env_factor), init.environ_map.get(flashnext.rope.env_ramp));
     if (yarn) |y| std.debug.print("YaRN: factor {d} over {d} positions\n", .{ y.factor, y.original });
-    const e = try Engine.init(gpa, init.io, &ctx, o.model, kernels, .{ .context = o.context, .mtp = mtp, .graphs = o.graphs, .rank = o.rank, .world = o.tp, .comm = if (comm) |*c| c else null, .yarn = yarn, .streams = o.streams, .depth = o.depth, .reserve_gib = o.reserve_gib, .kv = o.kv, .kv_budget = if (o.kv_gib) |g| @as(usize, @intFromFloat(g * (1 << 30))) else null });
+    const e = try Engine.init(gpa, init.io, &ctx, o.model, kernels, .{ .context = o.context, .mtp = mtp, .graphs = o.graphs, .rank = o.rank, .world = o.tp, .comm = if (comm) |*c| c else null, .yarn = yarn, .streams = o.streams, .depth = o.depth, .window = flashnext.engine.windowSetting(0), .reserve_gib = o.reserve_gib, .kv = o.kv, .kv_budget = if (o.kv_gib) |g| @as(usize, @intFromFloat(g * (1 << 30))) else null });
     if (o.graphs and (std.mem.eql(u8, cmd, "gate") or std.mem.eql(u8, cmd, "run"))) {
         const t0 = now(init.io);
         const n = try e.warmGraphs();
@@ -322,6 +324,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "bench-many")) return benchMany(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "reuse") and rest.len == 1) return reuse(gpa, init.io, e, rest[0], o);
     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
+    if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
     std.debug.print("{s}", .{usage});
     return 2;
@@ -1173,6 +1176,54 @@ fn reuse(gpa: Allocator, io: std.Io, e: *Engine, capture: []const u8, o: Options
         }
     }
     std.debug.print("{s} reuse: {d} of {d} resumed runs equal their fresh prefills\n", .{ if (bad == 0) "PASS" else "FAIL", total - bad, total });
+    return if (bad == 0) 0 else 1;
+}
+
+/// `window-check`: a verify window's rows are row-invariant at every width up to the engine's window (e.window: run
+/// with TF_FLASHNEXT_WINDOW=64, the served default, so 17 to 64 rows past the 16 the MTP chain fills). The prompt is
+/// prefilled without the MTP head and its greedy continuation decoded a row at a time (decode.serial's calls), each
+/// row's main-head logits hashed; then for every width W from 1 the prompt is prefilled again and the continuation's
+/// first W tokens run as one window (Engine.forward, the verify window's call, graphs included): each of its W rows
+/// must be byte-equal to its one-row step. Exit 0: every row of every width equal.
+fn windowCheck(gpa: Allocator, e: *Engine, o: Options) !u8 {
+    if (o.tokens.len == 0) {
+        std.debug.print("window-check: --tokens or --tokens-file\n", .{});
+        return 2;
+    }
+    const W = e.window;
+    const row_bytes = e.g.head_n * 2;
+    e.absorbing = false;
+    const want = try gpa.alloc([64]u8, W);
+    defer gpa.free(want);
+    const cont = try gpa.alloc(u32, W);
+    defer gpa.free(cont);
+    cont[0] = try e.prefill(o.tokens, null);
+    var one: [1]u32 = undefined;
+    for (0..W) |r| {
+        try e.forward(cont[r .. r + 1]);
+        want[r] = try deviceSha(gpa, e, e.buf.b.logits, row_bytes);
+        try e.sample(1, e.pos() + 1, &one);
+        if (r + 1 < W) cont[r + 1] = one[0];
+        try e.commit(1, 1);
+    }
+    var bad: usize = 0;
+    var rows: usize = 0;
+    for (1..W + 1) |w| {
+        if (try e.prefill(o.tokens, null) != cont[0]) {
+            std.debug.print("window-check: the prompt's first draw changed between prefills\n", .{});
+            return 1;
+        }
+        try e.forward(cont[0..w]);
+        var differ: usize = 0;
+        for (0..w) |r| {
+            const got = try deviceSha(gpa, e, e.buf.b.logits + r * row_bytes, row_bytes);
+            if (!std.mem.eql(u8, &got, &want[r])) differ += 1;
+        }
+        rows += w;
+        bad += differ;
+        if (differ > 0 or w == W or w == 16 or w == 17) std.debug.print("{s} window {d} rows at position {d}: {d} rows differ from their one-row steps\n", .{ if (differ == 0) "EQUAL" else "DIFFER", w, o.tokens.len, differ });
+    }
+    std.debug.print("{s} window-check: windows of 1-{d} rows, {d} rows, {d} differ from the one-row steps\n", .{ if (bad == 0) "PASS" else "FAIL", W, rows, bad });
     return if (bad == 0) 0 else 1;
 }
 

@@ -6,7 +6,9 @@
 const std = @import("std");
 const cuda = @import("cuda");
 
-pub const max_rows = 16; // a verify window's rows (MAX_DEPTH 15 drafts + the pending token)
+/// A verify window's rows at most: the pending token and up to 63 drafts (copied continuations take windows past
+/// the MTP chain's 15; every row kernel is row-invariant, so a wide window's rows keep one-token steps' bits).
+pub const max_rows = 64;
 pub const prefill_rows = 2048; // rows of a prompt chunk (Python PREFILL_ROWS)
 pub const att_rows = 256; // prompt attention runs in blocks of this many rows (ATT_ROWS)
 pub const ends = 16; // prompts one prompt pass can end (ENDS): rows that get the head

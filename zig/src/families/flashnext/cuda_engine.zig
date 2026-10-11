@@ -63,6 +63,14 @@ pub fn confidenceSetting() f64 {
     const x = std.fmt.parseFloat(f64, std.mem.span(v)) catch return served_confidence;
     return if (x >= -1 and x <= 1) x else served_confidence;
 }
+
+/// TF_FLASHNEXT_WINDOW, a lone stream's verify window in rows (copied continuations grow to it; the head's
+/// chain stays at the depth): `fallback` unset or malformed, clamped to state.max_rows.
+pub fn windowSetting(fallback: usize) usize {
+    const v = std.c.getenv("TF_FLASHNEXT_WINDOW") orelse return fallback;
+    const x = std.fmt.parseInt(usize, std.mem.span(v), 10) catch return fallback;
+    return @min(x, state.max_rows);
+}
 /// The most candidates a main-head draw reads back (top_k + MARGIN); larger top_k values are refused.
 pub const max_k = 256;
 
@@ -78,6 +86,10 @@ pub const Options = struct {
     yarn: ?rope.Yarn = null,
     /// MTP drafts a round at most: the decode buffers hold depth + 1 rows (at least 8, Python max(8, depth + 1))
     depth: usize = default_depth,
+    /// a lone stream's verify window at most: its rows past depth + 1 take copied continuations, so the decode
+    /// buffers hold at least this many rows and every sequence keeps this many speculative rows past the context
+    /// (0: depth + 1; at most state.max_rows)
+    window: usize = 0,
     /// streams a shared round may hold (verifyMany): the decode buffers hold streams x (depth + 1) rows
     streams: usize = 1,
     /// bytes the sequences' caches may take on this rank; null: what is free once loaded, less `reserve_gib`
@@ -321,6 +333,9 @@ pub const Engine = struct {
     /// the rows the context caches hold (Python max_len: the window plus depth + 1 speculative rows)
     max_len: usize,
     depth: usize,
+    /// a lone stream's verify window at most (Options.window, at least depth + 1): the speculative rows past the
+    /// context and the least rows the decode buffers hold
+    window: usize = 0,
     rank: u32,
     world: u32,
     prefill_rows: usize,
@@ -383,6 +398,7 @@ pub const Engine = struct {
         if (o.world < 1 or o.world > 2 or o.rank >= o.world) return error.BadRank;
         if (o.world > 1 and o.comm == null) return error.TwoRanksNeedComm;
         if (o.depth > state.max_rows - 1) return error.DepthPastWindow;
+        if (o.window > state.max_rows) return error.WindowPastRows;
         const e = try gpa.create(Engine);
         errdefer gpa.destroy(e);
         e.* = .{ .gpa = gpa, .io = io, .ctx = ctx, .stream = undefined, .k = undefined, .torch = undefined, .set = undefined, .c = undefined, .w = undefined, .g = undefined, .dims = undefined, .buf = undefined, .pbuf = undefined, .f = undefined, .extra = undefined, .main_sample = undefined, .last_logits = 0, .last_cand = 0, .max_len = 0, .depth = if (o.mtp) o.depth else 0, .rank = o.rank, .world = o.world, .prefill_rows = try promptRows(if (o.world == 2 and o.prefill_rows == state.prefill_rows) tp2_prefill_rows else o.prefill_rows), .graphs_on = o.graphs };
@@ -410,9 +426,12 @@ pub const Engine = struct {
         e.g = try geometry(&e.c, o.world, e.w.mtp != null);
         e.g.kv = o.kv;
         e.dims = dims(&e.c, e.g);
-        // Python: cache_slots = the window + depth + 1 (capacity.admit), every buffer's attention geometry at it
-        e.max_len = o.context + e.depth + 1;
-        const rows = @max(8, @max(1, o.streams) * (e.depth + 1));
+        // Python: cache_slots = the window + depth + 1 (capacity.admit), every buffer's attention geometry at it; a lone
+        // stream's window (copied continuations past the chain) widens the speculative rows and the buffers
+        const window = @max(e.depth + 1, if (o.mtp) o.window else 0);
+        e.window = window;
+        e.max_len = o.context + window;
+        const rows = @max(8, @max(@max(1, o.streams) * (e.depth + 1), window));
         e.round_segs = try gpa.alloc(fwd.Seg, @max(1, o.streams));
         errdefer gpa.free(e.round_segs);
         const ag = tri.AttnGeometry.init(e.max_len, e.g.index_budget, e.g.index_ratio);
@@ -1040,10 +1059,10 @@ pub const Engine = struct {
     /// One prompt of a burst (prefillMany).
     pub const ManyPrompt = struct { seq: *Seq, prompt: []const u32, sampling: ?lanes.Sampling };
 
-    /// Whether `prefillMany` can take these prompts as one pass: two to `state.max_rows` prompts whose rows fit the
-    /// prompt buffers together (each a whole prompt, from reset).
+    /// Whether `prefillMany` can take these prompts as one pass: two to `state.ends` prompts (the prompt buffers'
+    /// head rows) whose rows fit the prompt buffers together (each a whole prompt, from reset).
     pub fn manyFit(e: *const Engine, prompts: []const ManyPrompt) bool {
-        if (prompts.len < 2 or prompts.len > state.max_rows or e.pfill != null) return false;
+        if (prompts.len < 2 or prompts.len > state.ends or e.pfill != null) return false;
         var rows: usize = 0;
         for (prompts) |p| {
             if (p.prompt.len == 0 or p.prompt.len + e.depth + 1 > p.seq.st.limit) return false;
@@ -1641,7 +1660,7 @@ pub const Engine = struct {
                 var m: usize = 0;
                 var rows: usize = 0;
                 var j = i;
-                while (j < n and m < state.max_rows and reqs[j].media == null and (reqs[j].arrive == 0 or mo.fill_layers == 0) and (reqs[j].drafts and e.depth > 0) == absorbing and rows + reqs[j].prompt.len <= e.prefill_rows) : (j += 1) {
+                while (j < n and m < state.ends and reqs[j].media == null and (reqs[j].arrive == 0 or mo.fill_layers == 0) and (reqs[j].drafts and e.depth > 0) == absorbing and rows + reqs[j].prompt.len <= e.prefill_rows) : (j += 1) {
                     seqs[j] = try e.newSeq(e.max_len);
                     items[m] = .{ .seq = seqs[j].?, .prompt = reqs[j].prompt, .sampling = reqs[j].sampling };
                     at[m] = j;
