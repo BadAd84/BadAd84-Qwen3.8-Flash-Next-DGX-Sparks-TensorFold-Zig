@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Qwen3.8 Flash Next stock vs ours</title>
+<title>Qwen3.8 Flash Next before vs after</title>
 <style>
   :root {
     --bg: #0b1017;
@@ -86,9 +86,9 @@
   td.chg { color: var(--accent); font-weight: 700; }
 
   /* TTFT bars */
-  .bars { margin-top: 14px; display: flex; flex-direction: column; gap: 14px; flex: 1; justify-content: space-between; min-height: 0; }
-  .pgroup .plabel { font-size: 25px; font-weight: 650; margin-bottom: 6px; }
-  .row { display: flex; align-items: center; gap: 14px; margin-top: 5px; }
+  .bars { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: space-between; min-height: 0; }
+  .pgroup .plabel { font-size: 25px; font-weight: 650; margin-bottom: 4px; }
+  .row { display: flex; align-items: center; gap: 14px; margin-top: 4px; }
   .row .track { flex: 1; height: 22px; position: relative; }
   .row .bar { height: 100%; border-radius: 6px; }
   .bar.py-bar { background: var(--py); opacity: 0.85; }
@@ -100,9 +100,8 @@
   .val.ours { color: var(--ink); font-weight: 650; }
   .val .pct { color: var(--accent); font-weight: 700; margin-left: 10px; }
 
-  .phead { display: flex; align-items: baseline; justify-content: space-between; }
   .phead h2 { white-space: nowrap; }
-  .legend { display: flex; gap: 22px; font-size: 21px; color: var(--muted); flex: none; }
+  .legend { display: flex; gap: 22px; font-size: 21px; color: var(--muted); justify-content: flex-end; margin-top: 6px; }
   .legend .sw { display: inline-block; width: 24px; height: 15px; border-radius: 4px; margin-right: 7px; vertical-align: -1px; }
   .sw.p { background: var(--py); opacity: 0.85; }
   .sw.z { background: var(--zig); }
@@ -115,12 +114,12 @@
 
 <header>
   <div>
-    <h1>Qwen3.8 Flash Next on one DGX Spark <span class="dim">· stock vs ours</span></h1>
-    <div class="sub">125B-A5B INT4 · TensorFold · 1x GB10 · Python 0.6.1 vs Zig 1.0.0 vs Zig + our patches</div>
+    <h1>Qwen3.8 Flash Next on one DGX Spark <span class="dim">· before vs after</span></h1>
+    <div class="sub">125B-A5B INT4 · TensorFold · 1x GB10 · Python 0.6.1 and Zig 1.0.0 as released, then Zig 1.0.0 with the patches</div>
   </div>
   <div class="badge">
     <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="11" stroke="#34d399" stroke-width="2"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#34d399" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    identical outputs to stock Zig, every reply checked
+    identical outputs to Zig 1.0.0, every reply checked
   </div>
 </header>
 
@@ -128,17 +127,17 @@
   <div class="hero">
     <div class="k">Decode speed · code, 1 client</div>
     <div class="v"><span class="base">104.6</span> <span class="accent">→ 129.7 tok/s</span></div>
-    <div class="d"><b>+24% over stock Zig,</b> +61% over stock Python (80.7)</div>
+    <div class="d"><b>+24% over Zig 1.0.0,</b> +61% over Python 0.6.1 (80.7)</div>
   </div>
   <div class="hero key">
     <div class="k">Time to first token · 120k-token prompt</div>
     <div class="v"><span class="accent">42.9 s</span> <span class="base">vs 57.2 s</span></div>
-    <div class="d"><b>25% faster</b> than stock Python,<br><b>14% faster</b> than stock Zig (49.6 s)</div>
+    <div class="d"><b>25% faster</b> than Python 0.6.1,<br><b>14% faster</b> than Zig 1.0.0 (49.6 s)</div>
   </div>
   <div class="hero">
     <div class="k">4 agents at once · RigMark C4</div>
     <div class="v"><span class="accent">up to +33%</span></div>
-    <div class="d"><b>172 tok/s aggregate</b> vs 150 stock Zig, 129 stock Python</div>
+    <div class="d"><b>172 tok/s aggregate</b> vs 150 on Zig 1.0.0,<br>129 on Python 0.6.1</div>
   </div>
 </div>
 
@@ -147,7 +146,7 @@
     <h2>Decode, tokens/s <span>· higher is better</span></h2>
     <table>
       <tr>
-        <th>Test</th><th>Python</th><th>Zig</th><th>Ours</th><th>vs Zig</th>
+        <th>Test</th><th>Python 0.6.1</th><th>Zig 1.0.0</th><th>After</th><th>Δ</th>
       </tr>
       <tr><td class="test">prose, 1 client</td><td class="py">68.8</td><td class="zig">62.3</td><td class="ours">74.6</td><td class="chg">+20%</td></tr>
       <tr><td class="test">prose, 4 clients</td><td class="py">28.9</td><td class="zig">37.3</td><td class="ours">39.8</td><td class="chg">+7%</td></tr>
@@ -163,9 +162,9 @@
     <div class="phead">
       <h2>Time to first token, seconds <span>· lower is better</span></h2>
       <div class="legend">
-        <span><span class="sw p"></span>python</span>
-        <span><span class="sw z"></span>zig</span>
-        <span><span class="sw o"></span>ours</span>
+        <span><span class="sw p"></span>python 0.6.1</span>
+        <span><span class="sw z"></span>zig 1.0.0</span>
+        <span><span class="sw o"></span>after</span>
       </div>
     </div>
     <div class="bars">
@@ -199,7 +198,7 @@
 </div>
 
 <footer>
-  <div>Measured 2026-10-10/11 on one DGX Spark through each recipe's own server · RigMark (alexellis/rigmark) + client-measured TTFT</div>
+  <div>Measured 2026-10-10/11 on one DGX Spark, each recipe's own server, before and after the patches · RigMark (alexellis/rigmark) + client-measured TTFT</div>
   <div>Qwen3.8 Flash Next 125B-A5B · INT4 · NVIDIA DGX Spark (ASUS GX10, GB10)</div>
 </footer>
 
