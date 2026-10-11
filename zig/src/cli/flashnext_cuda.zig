@@ -38,6 +38,9 @@ const usage =
     \\           given back after a drafted request comes back as a fresh one: fields, bytes and the next reply)
     \\  tensorfold window-check MODEL --tokens-file PATH   (with TF_FLASHNEXT_WINDOW=64, the served window: every row
     \\           of a verify window of 1 to 64 rows byte-equal to its one-row step's logits)
+    \\  tensorfold fill-check MODEL --tokens-file PATH [--max-tokens N]   (sliced fills on the real engine: a second
+    \\           fill waits while one holds the prompt buffers, a cancel releases them, a resumed fill's deferred MTP
+    \\           absorb; each reply equal to a fresh prefill's)
     \\  tensorfold bench MODEL --tokens-file PATH[,PATH...] [--reps N] [--max-tokens N] [--no-drafts]   (each
     \\           prompt N times in one load: prefill seconds and tok/s, the reply's first token and sha)
     \\  tensorfold mm-check MODEL [--rows N,N,...]   (no weights: the prompt matmuls' in-program K
@@ -351,6 +354,7 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "pool")) return pool(gpa, e, o);
     if (std.mem.eql(u8, cmd, "pool-check")) return poolCheck(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "window-check")) return windowCheck(gpa, e, o);
+    if (std.mem.eql(u8, cmd, "fill-check")) return fillCheck(gpa, init.io, e, o);
     if (std.mem.eql(u8, cmd, "agree") and rest.len == 1) return agree(gpa, init.io, e, rest[0], o);
     std.debug.print("{s}", .{usage});
     return 2;
@@ -1294,6 +1298,83 @@ fn pool(gpa: Allocator, e: *Engine, o: Options) !u8 {
     for (seqs) |q| rows += q.st.capacity;
     std.debug.print("RESULT pool x{d}: {d} cache rows ({d} a stream), {d:.2} GiB of {d:.2} GiB charged, {d:.0} bytes a row overall\n", .{ N, rows, rows / N, @as(f64, @floatFromInt(e.budget.used)) / (1 << 30), @as(f64, @floatFromInt(e.budget.limit)) / (1 << 30), @as(f64, @floatFromInt(e.budget.used)) / @as(f64, @floatFromInt(@max(rows, 1))) });
     return 0;
+}
+
+/// `fill-check` (one GPU): Engine's sliced fills (fillBegin / fillStep / fillFree, the calls cuda_lanes makes with
+/// TF_FLASHNEXT_FILL=1) on the real engine. Prompt P's drafted reply on a fresh sequence is the reference, and a state
+/// is kept at half of P. Fill A (P from the start) opens its chunk and holds the prompt buffers (Engine.pfill); fill B
+/// (P resumed from the kept state on another sequence, the kept prefix copied in: its MTP tail absorb deferred to its
+/// first chunk, the tail row parked in its last_streams) must be refused meanwhile (PromptBuffersBusy); A is cancelled
+/// mid-chunk (fillFree), which must release the buffers; B then fills to the end, and A is filled again from the
+/// start. Both replies must equal the reference.
+fn fillCheck(gpa: Allocator, io: std.Io, e: *Engine, o: Options) !u8 {
+    const p = o.tokens;
+    if (p.len < 4) {
+        std.debug.print("fill-check: --tokens or --tokens-file (4 tokens or more)\n", .{});
+        return 2;
+    }
+    const own = e.bound;
+    defer e.bind(own);
+    e.absorbing = true;
+    var bad: usize = 0;
+    const ref_seq = try e.newSeq(e.max_len);
+    defer e.freeSeq(ref_seq);
+    e.bind(ref_seq);
+    const ref = try generate(gpa, io, e, p, o.max_tokens, null, true, false);
+    defer gpa.free(ref.tokens);
+    const kept = try e.prefillWith(p, null, .{ .keep_at = p.len / 2 });
+    const snap = kept.kept.?;
+    defer e.freeSnapshot(snap);
+    const sa = try e.newSeq(e.max_len);
+    defer e.freeSeq(sa);
+    const sb = try e.newSeq(e.max_len);
+    defer e.freeSeq(sb);
+    try e.copyPrefix(sb, ref_seq, snap.pos, snap.mtp_len);
+    const fa = try e.fillBegin(sa, p, null, .{});
+    var fa_live = true;
+    defer if (fa_live) e.fillFree(fa);
+    _ = try e.fillStep(fa, 1);
+    if (e.pfill == null or e.pfill.? != fa) {
+        bad += 1;
+        std.debug.print("  fill A's open chunk does not hold the prompt buffers\n", .{});
+    }
+    const fb = try e.fillBegin(sb, p, null, .{ .resume_from = snap });
+    defer e.fillFree(fb);
+    if (e.w.mtp != null and !fb.absorb) {
+        bad += 1;
+        std.debug.print("  the resumed fill did not defer its MTP tail absorb\n", .{});
+    }
+    if (e.fillStep(fb, 1)) |_| {
+        bad += 1;
+        std.debug.print("  fill B stepped while fill A held the prompt buffers\n", .{});
+    } else |err| if (err != error.PromptBuffersBusy) return err;
+    e.fillFree(fa); // cancelled mid-chunk
+    fa_live = false;
+    if (e.pfill != null) {
+        bad += 1;
+        std.debug.print("  the cancelled fill still holds the prompt buffers\n", .{});
+    }
+    while (!try e.fillStep(fb, 1)) {}
+    const opts: decode.Options = .{ .count = ref.tokens.len, .depth = e.depth, .confidence = flashnext.engine.confidenceSetting(), .stop_eos = false };
+    e.bind(sb);
+    var rb = try decode.drafted(Engine, e, gpa, fb.first, opts);
+    defer rb.deinit(gpa);
+    if (!std.mem.eql(u32, rb.tokens.items, ref.tokens)) {
+        bad += 1;
+        std.debug.print("  the resumed fill's reply differs from the fresh prefill's\n", .{});
+    }
+    const fa2 = try e.fillBegin(sa, p, null, .{});
+    defer e.fillFree(fa2);
+    while (!try e.fillStep(fa2, 1)) {}
+    e.bind(sa);
+    var ra = try decode.drafted(Engine, e, gpa, fa2.first, opts);
+    defer ra.deinit(gpa);
+    if (!std.mem.eql(u32, ra.tokens.items, ref.tokens)) {
+        bad += 1;
+        std.debug.print("  the refilled prompt's reply differs from the fresh prefill's\n", .{});
+    }
+    std.debug.print("{s} fill-check: {d}-token prompt resumed at {d}, {d}-token replies (sha {s}); {d} failed\n", .{ if (bad == 0) "PASS" else "FAIL", p.len, snap.pos, ref.tokens.len, &(try sha12(gpa, ref.tokens)), bad });
+    return if (bad == 0) 0 else 1;
 }
 
 fn deviceZero(gpa: Allocator, e: *Engine, ptr: u64, len: usize) !bool {

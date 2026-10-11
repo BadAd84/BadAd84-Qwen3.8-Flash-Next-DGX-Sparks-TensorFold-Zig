@@ -1338,9 +1338,15 @@ pub const Engine = struct {
         first: u32 = 0,
         /// prompt tokens before this were queued for the n-gram prefetch (cuda_ngram_host.zig)
         queued: usize = 0,
+        /// a resume's MTP tail absorb not run yet. It runs in the prompt buffers, which another prompt's
+        /// open chunk may hold when this fill begins, so fillBegin parks the snapshot's tail row in the sequence's
+        /// last_streams and fillStep absorbs it when this fill opens its first chunk (prefillWith's order on this
+        /// sequence: restore, absorb, chunks).
+        absorb: bool = false,
     };
 
-    /// prefillWith's start (reset, or restore and the MTP tail absorbed) for a prompt that then fills in slices.
+    /// prefillWith's start (reset, or restore with the MTP tail absorb deferred to the first chunk) for a prompt
+    /// that then fills in slices. Touches no prompt buffer: another prompt's chunk may be open.
     pub fn fillBegin(e: *Engine, seq: *Seq, prompt: []const u32, sampling: ?lanes.Sampling, o: PrefillOptions) !*Fill {
         if (prompt.len == 0) return error.EmptyPrompt;
         if (prompt.len + e.depth + 1 > seq.st.limit) return error.ContextPastWindow;
@@ -1355,8 +1361,8 @@ pub const Engine = struct {
             if (!std.mem.eql(u32, snap.tokens, prompt[0..snap.pos])) return error.ResumeOtherPrompt;
             try e.restore(seq, snap);
             if (fl.use_mtp) {
-                _ = try mtp.forward(&e.f, seq, &e.pbuf, prompt[snap.pos .. snap.pos + 1], snap.tail);
-                try e.f.setMtpLen(&seq.st, seq.st.mtp_len + 1);
+                try e.f.th.copy(seq.last_streams.?.ptr, snap.tail, e.g.wide() * 2);
+                fl.absorb = true;
             }
             fl.start = snap.pos;
         } else try e.f.reset(seq);
@@ -1386,6 +1392,11 @@ pub const Engine = struct {
             if (!fl.open) {
                 if (e.pfill != null and e.pfill.? != fl) return error.PromptBuffersBusy;
                 e.pfill = fl;
+                if (fl.absorb) {
+                    _ = try mtp.forward(&e.f, seq, pb, fl.prompt[fl.start .. fl.start + 1], seq.last_streams.?.ptr);
+                    try e.f.setMtpLen(&seq.st, seq.st.mtp_len + 1);
+                    fl.absorb = false;
+                }
                 var end = e.chunkEnd(fl.start, fl.prompt.len);
                 if (e.f.ngh) |h| if (h.o.prefetch) {
                     // as prefillWith: the next `ahead` chunks' rows touched while this one computes

@@ -292,6 +292,11 @@ pub fn Lanes(comptime E: type) type {
             for (streams, states) |s, *st| {
                 const l = self.lanes.get(s) orelse return error.UnknownStream;
                 const f = &(l.fill orelse return error.NotFilling);
+                // the engine has one set of prompt buffers and a chunk spans several slices, so while one
+                // prompt's chunk is open (Engine.pfill) the other prompts wait: prompts that arrive together fill
+                // one after another, in arrival order (a second fillStep would fail with PromptBuffersBusy and
+                // the core would fail every filling stream)
+                if (comptime @hasField(E, "pfill")) if (self.e.pfill) |held| if (@intFromPtr(held) != @intFromPtr(f.fl)) continue;
                 const done = self.e.fillStep(f.fl, self.fill_layers) catch |err| return self.lost("a prompt's fill", err);
                 if (!done) continue;
                 if (!f.final) {
@@ -1248,6 +1253,9 @@ pub const Toy = struct {
     passes: usize = 0,
     resumed: usize = 0,
     fills: usize = 0,
+    /// cuda_engine's Engine.pfill: the fill whose chunk holds the one set of prompt buffers (a Fill opens its single
+    /// chunk at its first step and closes it when done)
+    pfill: ?*const Fill = null,
     bound: ?*Seq = null,
     window: [max_rows]u32 = undefined,
     rows: usize = 0,
@@ -1351,6 +1359,7 @@ pub const Toy = struct {
         kept: ?*Snapshot = null,
         first: u32 = 0,
         done: bool = false,
+        open: bool = false,
     };
 
     pub fn fillBegin(t: *Toy, q: *Seq, prompt: []const u32, sampling: ?lanes.Sampling, o: PrefillOptions) !*Fill {
@@ -1363,8 +1372,14 @@ pub const Toy = struct {
 
     pub fn fillStep(t: *Toy, fl: *Fill, layers: usize) !bool {
         if (fl.done) return true;
+        if (!fl.open) {
+            if (t.pfill) |p| if (p != fl) return error.PromptBuffersBusy;
+            t.pfill = fl;
+            fl.open = true;
+        }
         fl.left -|= layers;
         if (fl.left > 0) return false;
+        t.pfill = null;
         // the slices' effect: the same pass prefillWith makes, on this fill's sequence
         const keep = t.bound;
         t.bound = fl.seq;
@@ -1377,6 +1392,9 @@ pub const Toy = struct {
     }
 
     pub fn fillFree(t: *Toy, fl: *Fill) void {
+        if (t.pfill) |p| if (p == fl) {
+            t.pfill = null;
+        };
         if (fl.kept) |k| t.freeSnapshot(k);
         t.gpa.free(fl.prompt);
         t.gpa.destroy(fl);
@@ -1935,4 +1953,50 @@ test "prompts filling in slices between rounds equal serial decoding, the prompt
     try std.testing.expectEqual(@as(usize, 2), store.saved.items.len); // both marks kept
     try std.testing.expectEqual(@as(usize, 0), t.fills);
     try std.testing.expectEqual(@as(usize, 0), t.seqs - 2); // the two keepers stay with their states
+}
+
+test "prompts that arrive together fill one after another on the one set of prompt buffers, each equal to serial decoding" {
+    // every stream begins before the first step (the HTTP host admits a burst so) and the first prompt's
+    // chunk holds the prompt buffers for several slices
+    const gpa = std.testing.allocator;
+    var t: Toy = .{ .gpa = gpa };
+    var b = Lanes(Toy).init(gpa, &t, true, 1 << 20, max_rows);
+    defer b.deinit();
+    b.streams = 4;
+    b.sliced = true;
+    b.fill_layers = 2;
+    var costs: [max_rows]lanes.config.Cost = undefined;
+    for (&costs, 1..) |*c, w| c.* = .{ .width = @intCast(w), .ms = 8.0 + 0.3 * @as(f64, @floatFromInt(w)) };
+    b.costs = costs;
+    b.cost_count = max_rows;
+    b.mtp_ms = 0.4;
+    for (b.shared[0..2], [_]usize{ 2, 4 }) |*c, n| c.* = .{ .width = @intCast(n * max_rows), .ms = 9.0 + 0.2 * @as(f64, @floatFromInt(n * max_rows)) };
+    b.shared_count = 2;
+    var cfg = try lanes.Config.init(gpa, b.facts(), max_rows, max_drafts);
+    defer cfg.deinit(gpa);
+    var clock: lanes.fake.FixedClock = .{};
+    var engine = lanes.Engine.init(gpa, &cfg, b.backend(), clock.clock());
+    defer engine.deinit();
+    var long: [300]u32 = undefined;
+    for (&long, 0..) |*x, i| x.* = @intCast((i * 7 + 5) % 41);
+    const cases = [_]Case{
+        .{ .prompt = &long, .max_new = 40 },
+        .{ .prompt = &.{ 3, 1, 4, 1, 5, 9, 2, 6 }, .max_new = 30 },
+        .{ .prompt = &.{ 2, 7, 1, 8, 2, 8 }, .max_new = 30, .sampling = .{ .seed = 9, .temperature = 0.7 } },
+        .{ .prompt = &.{ 6, 6, 1 }, .max_new = 25, .drafts = false },
+    };
+    var streams: [cases.len]lanes.Stream = undefined;
+    for (cases, &streams) |c, *s| s.* = try lanes.Stream.init(gpa, .{ .id = "s", .prompt = c.prompt, .max_new = c.max_new, .sampling = c.sampling, .drafts = c.drafts });
+    defer for (&streams) |*s| s.deinit(gpa);
+    for (&streams) |*s| try std.testing.expect(try engine.beginStream(s));
+    try std.testing.expectEqual(@as(usize, cases.len), engine.fillingCount());
+    while (engine.activeCount() > 0 or engine.fillingCount() > 0) try engine.step();
+    for (cases, &streams) |c, *s| {
+        try std.testing.expect(s.reason != .@"error");
+        const want = try serialTokens(gpa, c);
+        defer gpa.free(want);
+        try std.testing.expectEqualSlices(u32, want, s.emitted());
+    }
+    try std.testing.expectEqual(@as(usize, 0), t.fills);
+    try std.testing.expect(t.pfill == null);
 }
