@@ -67,6 +67,9 @@ pub const Request = struct {
     /// Prompt prefix lengths worth keeping for a later turn: the rendered history, then shared system blocks.
     history_len: u32 = 0,
     shared_prefixes: []const u32 = &.{},
+    /// The request's ``cache_salt`` keyed (prompt_cache.saltKey; 0: none): it resumes only prompt states kept under the
+    /// same salt, as vLLM's cache salt.
+    cache_salt: u64 = 0,
     /// Where the prompt's prefill chunks start after 0 (Python's PrefillPlan at ``Info.prefill_step``); empty: the engine's own.
     chunks: []const u32 = &.{},
     /// Most reply tokens inside a think block before the engine writes ``think_close`` (0: no limit).

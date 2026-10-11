@@ -65,7 +65,7 @@ pub const LaneHost = struct {
         fn kept(ptr: *anyopaque, s: *lanes.Stream, at: u32) void {
             const job: *Job = @ptrCast(@alignCast(ptr));
             job.reported(); // before a keep can evict the entry the pass restored
-            if (job.host.cache) |store| _ = store.keep(job.request.prompt, at, s);
+            if (job.host.cache) |store| _ = store.keep(job.request.prompt, at, s, job.request.cache_salt);
         }
 
         /// The pass started from its kept state, or its copy failed (the entry goes); a pass that never got there: neither.
@@ -303,7 +303,7 @@ pub const LaneHost = struct {
         var reuse: lanes.stream.Reuse = .{};
         // the entry stays alive until the backend restores it: nothing keeps between here and this stream's own pass
         // a prompt with images or video is neither resumed nor kept (Python keeps token-only states)
-        if (r.media == null) if (h.cache) |store| if (store.lookup(h.gpa, r.prompt, r.history_len, r.shared_prefixes, r.chunks)) |l| {
+        if (r.media == null) if (h.cache) |store| if (store.lookup(h.gpa, r.prompt, r.history_len, r.shared_prefixes, r.chunks, r.cache_salt)) |l| {
             job.entry = l.entry;
             job.kept0 = store.counts.kept;
             job.marks = l.marks;
@@ -354,7 +354,8 @@ pub const LaneHost = struct {
     }
 
     /// Every request waiting for a lane, admitted now: prompts that arrive together (a burst, with no resume or kept
-    /// state to take) prefill in one backend call, where the backend can (one pass over their rows).
+    /// state to take but their whole-prompt state, which a burst of two or more does not keep) prefill in one backend
+    /// call, where the backend can (one pass over their rows).
     fn admitAll(h: *LaneHost) void {
         var burst: [16]*Job = undefined;
         var n: usize = 0;
@@ -364,7 +365,7 @@ pub const LaneHost = struct {
             .job => |job| {
                 if (h.loneFits(job)) {
                     _ = h.runLone(job, job.began);
-                } else if (n < burst.len and h.core.batches() and job.stream.media == null and job.stream.reuse.at == 0 and job.stream.reuse.marks.len == 0) {
+                } else if (n < burst.len and h.core.batches() and job.stream.media == null and job.stream.reuse.at == 0 and onlyWhole(job)) {
                     burst[n] = job;
                     n += 1;
                 } else _ = h.startOne(job);
@@ -373,14 +374,22 @@ pub const LaneHost = struct {
         h.startBurst(burst[0..n]);
     }
 
+    /// The stream keeps no state inside its prompt: no marks, or only its end (prompt_cache's whole-prompt state).
+    fn onlyWhole(job: *const Job) bool {
+        const m = job.stream.reuse.marks;
+        return m.len == 0 or (m.len == 1 and m[0] == job.request.prompt.len);
+    }
+
     /// The jobs' prompts in one backend call, then each joined and delivered in admission order; a refused burst
-    /// prefills one at a time.
+    /// prefills one at a time. A burst keeps no state: its streams' whole-prompt marks go for it (a prompt prefilled
+    /// alone keeps its).
     fn startBurst(h: *LaneHost, jobs: []*Job) void {
         if (jobs.len == 0) return;
         if (jobs.len == 1) {
             _ = h.startOne(jobs[0]);
             return;
         }
+        for (jobs) |job| job.stream.reuse.marks = &.{};
         var ss: [16]*lanes.Stream = undefined;
         const began = std.Io.Clock.awake.now(h.io).toNanoseconds();
         for (jobs, ss[0..jobs.len]) |job, *s| {
@@ -389,6 +398,7 @@ pub const LaneHost = struct {
         }
         h.core.prefillBurst(ss[0..jobs.len]) catch |e| {
             for (jobs) |job| {
+                job.stream.reuse.marks = job.marks;
                 if (e == error.BurstRefused) _ = h.startOne(job) else if (e == error.Cancelled) _ = h.cancel(job) else _ = h.drop(job, @errorName(e));
             }
             return;
@@ -418,7 +428,8 @@ pub const LaneHost = struct {
     fn prefilled(h: *LaneHost, job: *Job, began: i96) void {
         const done = std.Io.Clock.awake.now(h.io).toNanoseconds();
         h.lock();
-        if (done > began) h.prefill_rate = @as(f64, @floatFromInt(job.request.prompt.len - job.stream.cached)) / (@as(f64, @floatFromInt(done - began)) / 1e9);
+        const rows = job.request.prompt.len - job.stream.cached; // a replay of a whole-prompt state prefills none
+        if (done > began and rows > 0) h.prefill_rate = @as(f64, @floatFromInt(rows)) / (@as(f64, @floatFromInt(done - began)) / 1e9);
         h.prefill_at = done;
         job.prefilled = done;
         h.unlock();

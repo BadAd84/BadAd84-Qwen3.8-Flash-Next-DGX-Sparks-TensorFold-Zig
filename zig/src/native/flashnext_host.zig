@@ -245,7 +245,7 @@ pub const Host = struct {
         fn marked(ctx: *anyopaque, at: usize) void {
             const c: *Ctx = @ptrCast(@alignCast(ctx));
             const t0 = c.h.now();
-            if (c.h.cache) |*store| if (store.keep(c.job.request.prompt, @intCast(at), null)) c.h.saved.append(c.h.gpa, @intCast(at)) catch {}; // held here: rank 1 keeps its copy
+            if (c.h.cache) |*store| if (store.keep(c.job.request.prompt, @intCast(at), null, c.job.request.cache_salt)) c.h.saved.append(c.h.gpa, @intCast(at)) catch {}; // held here: rank 1 keeps its copy
             c.job.keep_ns += c.h.now() - t0;
         }
 
@@ -307,7 +307,7 @@ pub const Host = struct {
         const kept0 = if (h.cache) |*store| store.counts.kept else 0;
         const t_begin = h.now();
         if (h.cache) |*store| if (r.prompt.len + r.max_tokens + fx.MARGIN <= tf.flashnext_replay.CAP) {
-            plan = store.begin(arena.allocator(), r.prompt, r.history_len, r.shared_prefixes, &.{}, null) catch .{};
+            plan = store.begin(arena.allocator(), r.prompt, r.history_len, r.shared_prefixes, &.{}, null, r.cache_salt) catch .{};
         };
         job.restore_ns = h.now() - t_begin;
         job.cached = plan.from;
@@ -321,7 +321,7 @@ pub const Host = struct {
         const res = h.eng.generateFrom(r.prompt, plan.from, plan.marks, r.max_tokens, r.eos, depth, out) catch |e| retry: {
             if (e == error.PeerNotResumed) { // rank 1 lacks this state: both Macs read the prompt from the start
                 std.log.warn("speed-up mode: rank 1 could not resume at {d}; reading the prompt from the start", .{plan.from});
-                if (h.cache) |*store| store.forget(r.prompt, plan.from); // so later prompts do not ask rank 1 for it again
+                if (h.cache) |*store| store.forget(r.prompt, plan.from, r.cache_salt); // so later prompts do not ask rank 1 for it again
                 job.cached = 0;
                 break :retry h.eng.generateFrom(r.prompt, 0, plan.marks, r.max_tokens, r.eos, depth, out) catch |e2| {
                     if (!job.prefill_sent) emit(job, .{ .prefilled = 0 });

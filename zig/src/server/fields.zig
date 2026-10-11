@@ -5,6 +5,7 @@ const errors = @import("errors.zig");
 const Value = json.Value;
 const Cx = errors.Cx;
 const Allocator = std.mem.Allocator;
+const prompt_cache = @import("engine_api").prompt_cache;
 
 pub const efforts = [_][]const u8{ "none", "minimal", "low", "medium", "high", "xhigh", "max" };
 const effort_order = [_][]const u8{ "max", "xhigh", "high", "medium", "low", "minimal" }; // highest first
@@ -312,4 +313,33 @@ test "efforts and numbers" {
     defer arena.deinit();
     try std.testing.expectEqualStrings("-12", (try pyIntText(arena.allocator(), " -0_12 ")).?);
     try std.testing.expect(try pyIntText(arena.allocator(), "8.0") == null);
+}
+
+/// vLLM's ``cache_salt``, keyed for the prompt cache (prompt_cache.saltKey): absent or null for none, else a non-empty
+/// string (anything else is refused before a stream opens, as vLLM refuses it).
+pub fn cacheSalt(cx: *Cx, f: Value) errors.Refused!u64 {
+    const v = f.get("cache_salt") orelse return 0;
+    if (v == .null) return 0;
+    if (v != .string or v.string.len == 0) return cx.refuse("cache_salt must be a non-empty string");
+    return prompt_cache.saltKey(v.string);
+}
+
+test "cache_salt: absent or null is none, a non-empty string its key, any other value refused" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    var cx: Cx = .{ .a = arena.allocator() };
+    const o = try json.newObject(cx.a);
+    const f: Value = .{ .object = o };
+    try std.testing.expectEqual(@as(u64, 0), try cacheSalt(&cx, f));
+    try o.put(cx.a, "cache_salt", .null);
+    try std.testing.expectEqual(@as(u64, 0), try cacheSalt(&cx, f));
+    try o.put(cx.a, "cache_salt", .{ .string = "tenant-a" });
+    const ka = try cacheSalt(&cx, f);
+    try std.testing.expectEqual(prompt_cache.saltKey("tenant-a"), ka);
+    try std.testing.expect(ka != 0 and ka != prompt_cache.saltKey("tenant-b"));
+    for ([_]Value{ .{ .string = "" }, .{ .int = "123" }, .{ .bool = true }, .{ .float = 1.5 } }) |bad| {
+        try o.put(cx.a, "cache_salt", bad);
+        try std.testing.expectError(error.Refused, cacheSalt(&cx, f));
+        try std.testing.expectEqual(@as(u16, 400), cx.status());
+    }
 }

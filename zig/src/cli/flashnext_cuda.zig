@@ -1168,10 +1168,24 @@ fn decodeBound(gpa: Allocator, e: *Engine, first: u32, count: usize) ![]u32 {
     return r.tokens.toOwnedSlice(gpa);
 }
 
+/// decodeBound with its rounds, drafts and accepted drafts.
+fn decodeRun(gpa: Allocator, e: *Engine, first: u32, count: usize) !decode.Result {
+    return decode.drafted(Engine, e, gpa, first, .{ .count = count, .depth = e.depth, .confidence = flashnext.engine.confidenceSetting(), .stop_eos = false });
+}
+
+/// The same tokens in the same rounds, with the same drafts proposed and accepted.
+fn sameRun(a: *const decode.Result, b: *const decode.Result) bool {
+    return std.mem.eql(u32, a.tokens.items, b.tokens.items) and a.rounds == b.rounds and a.drafted == b.drafted and a.accepted == b.accepted;
+}
+
 /// Prompt reuse against fresh prefills: P2 = P ++ (16 reply tokens). Fresh: P2 prefilled from empty. Resumed: P
 /// prefilled keeping its state at len - 1, a 32-token reply (rows past the point overwritten), then P2 resumed from
-/// the kept state. Forked: a second sequence takes the kept prefix (copyPrefix) and resumes P2. 48 drafted tokens
-/// each, greedy and sampled; all three must agree.
+/// the kept state. Forked: a second sequence takes the kept prefix (copyPrefix) and resumes P2. Whole: P prefilled
+/// keeping its state at its very end (with its last logits row), P2 resumed from it, then P replayed from it (no
+/// forward) on the sequence and forked into another, each after a prompt that left another prompt's last row in the
+/// sequence's last_streams (the replay must restore it: the first draft reads it). 48 drafted tokens each, greedy and
+/// sampled; every run must equal its fresh prefill's, and a whole state's runs also in rounds, drafts and accepted
+/// drafts.
 fn reuse(gpa: Allocator, io: std.Io, e: *Engine, capture: []const u8, o: Options) !u8 {
     var pb: [512]u8 = undefined;
     const prompts = try readJson(gpa, io, try std.fmt.bufPrint(&pb, "{s}/prompts.json", .{capture}));
@@ -1219,6 +1233,29 @@ fn reuse(gpa: Allocator, io: std.Io, e: *Engine, capture: []const u8, o: Options
             total += 2;
             bad += @as(usize, @intFromBool(!ok_r)) + @intFromBool(!ok_f);
             std.debug.print("{s} reuse {s} {s}: {d}-token next turn resumed at {d}: resumed {s}, forked {s} (fresh sha {s})\n", .{ if (ok_r and ok_f) "EQUAL" else "DIFFER", kv.key_ptr.*, if (smp == null) "greedy" else "sampled", p2.len, snap.pos, if (ok_r) "equal" else "DIFFERS", if (ok_f) "equal" else "DIFFERS", try sha12(gpa, fresh) });
+            // whole: P kept at its end (the cold reply with the keep must be fresh P's), P2 resumed from that state,
+            // then P replayed from it on this sequence and forked into the other (both last ran P2)
+            var fresh_p = try decodeRun(gpa, e, try e.prefill(p, smp), 48);
+            defer fresh_p.deinit(gpa);
+            const wk = try e.prefillWith(p, smp, .{ .keep_at = p.len });
+            const ws = wk.kept.?;
+            defer e.freeSnapshot(ws);
+            var cold_w = try decodeRun(gpa, e, wk.first, 48);
+            defer cold_w.deinit(gpa);
+            const extended = try decodeBound(gpa, e, (try e.prefillWith(p2, smp, .{ .resume_from = ws })).first, 48);
+            defer gpa.free(extended);
+            var replayed = try decodeRun(gpa, e, (try e.prefillWith(p, smp, .{ .resume_from = ws })).first, 48);
+            defer replayed.deinit(gpa);
+            try e.copyPrefix(b, own, ws.pos, ws.mtp_len);
+            e.bind(b);
+            var replay_f = try decodeRun(gpa, e, (try e.prefillWith(p, smp, .{ .resume_from = ws })).first, 48);
+            defer replay_f.deinit(gpa);
+            e.bind(own);
+            const w_ok = [4]bool{ sameRun(&fresh_p, &cold_w), sameRun(&fresh_p, &replayed), sameRun(&fresh_p, &replay_f), std.mem.eql(u32, fresh, extended) };
+            for (w_ok) |ok| bad += @intFromBool(!ok);
+            total += w_ok.len;
+            const all = w_ok[0] and w_ok[1] and w_ok[2] and w_ok[3];
+            std.debug.print("{s} reuse-whole {s} {s}: {d}-token prompt kept at its end: cold {s}, replayed {s}, forked replay {s} (tokens, rounds, drafts: {d} / {d} / {d}), {d}-token extension {s} (fresh sha {s})\n", .{ if (all) "EQUAL" else "DIFFER", kv.key_ptr.*, if (smp == null) "greedy" else "sampled", p.len, if (w_ok[0]) "equal" else "DIFFERS", if (w_ok[1]) "equal" else "DIFFERS", if (w_ok[2]) "equal" else "DIFFERS", fresh_p.rounds, fresh_p.drafted, fresh_p.accepted, p2.len, if (w_ok[3]) "equal" else "DIFFERS", try sha12(gpa, fresh_p.tokens.items) });
         }
     }
     std.debug.print("{s} reuse: {d} of {d} resumed runs equal their fresh prefills\n", .{ if (bad == 0) "PASS" else "FAIL", total - bad, total });
@@ -1413,7 +1450,7 @@ fn firstTokenCheck(gpa: Allocator, e: *Engine, o: Options) !u8 {
     const Run = struct {
         r: decode.Result,
         fn same(a: *const @This(), b: *const @This()) bool {
-            return std.mem.eql(u32, a.r.tokens.items, b.r.tokens.items) and a.r.rounds == b.r.rounds and a.r.drafted == b.r.drafted and a.r.accepted == b.r.accepted;
+            return sameRun(&a.r, &b.r);
         }
     };
     const sampled: lanes.Sampling = .{ .seed = 1234, .temperature = 1.0, .top_k = 20, .top_p = 0.95, .min_p = 0.0 };

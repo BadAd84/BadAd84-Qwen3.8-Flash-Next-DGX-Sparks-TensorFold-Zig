@@ -301,7 +301,13 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
     if (@hasField(@TypeOf(loaded), "cache")) if (loaded.cache) |c| if (c.budget > 0) {
         // the family keeps and restores the states; the store picks them (exact reuse, core/prompt_cache.zig)
         h.store_vt = .{ .bytes = c.bytes, .save = c.save, .restore = c.restore, .drop = c.drop };
-        h.store = api.prompt_cache.Store.init(gpa, .{ .ptr = c.ptr, .vtable = &h.store_vt }, if (@hasDecl(F, "cache_rules")) .{ .lookahead = F.cache_rules.lookahead, .planned = F.cache_rules.planned } else .{}, c.budget);
+        var rules: api.prompt_cache.Rules = if (@hasDecl(F, "cache_rules")) .{ .lookahead = F.cache_rules.lookahead, .planned = F.cache_rules.planned } else .{};
+        // whole-prompt states (prompt_cache Rules.whole), for families whose engine resumes a prompt's very end:
+        // TENSORFOLD_PROMPT_CACHE_WHOLE=1, from TENSORFOLD_PROMPT_CACHE_WHOLE_MIN tokens (strict: wholeRules)
+        const can = @hasDecl(F, "cache_rules") and @hasField(@TypeOf(F.cache_rules), "whole") and F.cache_rules.whole;
+        rules = try api.prompt_cache.wholeRules(rules, can, envStr("TENSORFOLD_PROMPT_CACHE_WHOLE"), envStr("TENSORFOLD_PROMPT_CACHE_WHOLE_MIN"));
+        if (rules.whole) std.log.info("prompt cache: whole-prompt states from {d} tokens (that very prompt again resumes with no prompt pass)", .{rules.whole_min});
+        h.store = api.prompt_cache.Store.init(gpa, .{ .ptr = c.ptr, .vtable = &h.store_vt }, rules, c.budget);
         h.host.cache = &h.store.?;
     };
     try h.host.start();
@@ -311,6 +317,11 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
 fn envInt(name: [*:0]const u8) ?i64 {
     const v = std.c.getenv(name) orelse return null;
     return std.fmt.parseInt(i64, std.mem.span(v), 10) catch null;
+}
+
+fn envStr(name: [*:0]const u8) ?[]const u8 {
+    const v = std.c.getenv(name) orelse return null;
+    return std.mem.span(v);
 }
 
 test "chip classes name the compute capability" {

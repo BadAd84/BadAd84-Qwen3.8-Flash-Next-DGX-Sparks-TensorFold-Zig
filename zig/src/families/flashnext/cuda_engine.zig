@@ -1098,12 +1098,20 @@ pub const Engine = struct {
         tail: u64,
         /// each cache layer's indexer keys of its incomplete block (a ring may overwrite them before a resume)
         ikc: u64,
+        /// a state kept at its prompt's very end (pos == the prompt's length) also holds that prompt's last
+        /// logits row (and at two ranks every rank's candidates), so the same prompt resumes with no forward: the
+        /// first token is drawn from the kept row, as the fresh pass drew it (0: a state inside a prompt).
+        logits: u64 = 0,
+        cand: u64 = 0,
     };
 
     pub const PrefillOptions = struct {
-        /// keep the state at this many tokens (0 < keep_at <= prompt.len; Python entry_end is len - 1)
+        /// keep the state at this many tokens (0 < keep_at <= prompt.len; Python entry_end is len - 1); at
+        /// prompt.len the state is taken after the first draw (no time to first token) with the prompt's last
+        /// logits row (Snapshot.logits)
         keep_at: ?usize = null,
-        /// resume from a kept state of this sequence (the prompt extends its tokens)
+        /// resume from a kept state of this sequence (the prompt extends its tokens, or is its very prompt when it
+        /// holds the last logits row: no forward at all)
         resume_from: ?*const Snapshot = null,
         /// the prompt's images and video frames (Python prefill(..., vision=)): fresh prompts only, nothing kept
         media: ?*const lanes.Media = null,
@@ -1123,18 +1131,33 @@ pub const Engine = struct {
         return .{ end / e.g.index_ratio * e.g.index_ratio, end };
     }
 
-    /// The bound sequence's committed state as a Snapshot (State.snapshot); `mtp_len` and the tail row given.
-    fn snapshot(e: *Engine, seq: *Seq, mtp_len: usize, tail: u64) !*Snapshot {
+    /// The bytes a whole-prompt state adds (Snapshot.logits, Snapshot.cand).
+    fn headBytes(e: *const Engine) [2]usize {
+        return .{ e.g.head_n * 2, if (e.world > 1) e.world * (2 * state.cand + 1) * 4 else 0 };
+    }
+
+    /// The bound sequence's committed state as a Snapshot (State.snapshot); `mtp_len` and the tail row given;
+    /// `whole`: at the prompt's end, after its draw, with the last logits row (e.last_logits, e.last_cand).
+    fn snapshot(e: *Engine, seq: *Seq, mtp_len: usize, tail: u64, whole: bool) !*Snapshot {
         const st = &seq.st;
         try e.f.flush(seq); // the kept rows folded in: the state is the committed one
         const sz = e.snapshotBytes();
-        const total = aligned(&sz);
+        const head = e.headBytes();
+        const total = aligned(&sz) + if (whole) aligned(&head) else 0;
         if (e.budget.used + total > e.budget.limit) return error.NoRoom;
         const snap = try e.gpa.create(Snapshot);
         errdefer e.gpa.destroy(snap);
         var a: state.Arena = .{ .buf = try cuda.DeviceBuffer.alloc(e.ctx.d, total) };
         errdefer a.buf.free();
         snap.* = .{ .pos = st.pos, .mtp_len = mtp_len, .history = st.history, .tokens = &.{}, .mem = a.buf, .rec = a.take(sz[0]), .conv = a.take(sz[1]), .ple_tail = a.take(sz[2]), .tail = a.take(sz[3]), .ikc = a.take(sz[4]) };
+        if (whole) {
+            snap.logits = a.take(head[0]);
+            try e.f.th.copy(snap.logits, e.last_logits, head[0]);
+            if (head[1] > 0) {
+                snap.cand = a.take(head[1]);
+                try e.f.th.copy(snap.cand, e.last_cand, head[1]);
+            }
+        }
         const row = e.g.index_dim * 2;
         for (0..e.g.attention_layers + @intFromBool(e.g.mtp)) |i| {
             const t = e.ikcTail(i, st.pos, mtp_len);
@@ -1201,7 +1224,8 @@ pub const Engine = struct {
 
     /// decode.prefill with kept states: the prompt's chunks (one ends at `keep_at`, whose state is kept; prompt
     /// chunks are chunk-invariant, so a chunk ending there leaves the bits of a cut inside one), or a resume from a
-    /// kept state of this sequence (its MTP tail absorbed with the prompt's next token first). The first draw.
+    /// kept state of this sequence (its MTP tail absorbed with the prompt's next token first), or of this very prompt
+    /// with its last logits row (no forward: the first token drawn from the kept row). The first draw.
     pub fn prefillWith(e: *Engine, prompt: []const u32, sampling: ?lanes.Sampling, o: PrefillOptions) !Prefilled {
         if (prompt.len == 0) return error.EmptyPrompt;
         if (e.pfill != null) return error.PromptBuffersBusy; // a sliced fill holds the prompt buffers mid-chunk
@@ -1223,9 +1247,12 @@ pub const Engine = struct {
             t_pw = std.Io.Clock.awake.now(e.io);
         }
         if (o.resume_from) |snap| {
-            if (!(snap.pos > 0 and snap.pos < prompt.len)) return error.ResumeMustExtend;
+            const replay = snap.pos == prompt.len and snap.logits != 0;
+            if (!(snap.pos > 0 and (snap.pos < prompt.len or replay))) return error.ResumeMustExtend;
             if (!std.mem.eql(u32, snap.tokens, prompt[0..snap.pos])) return error.ResumeOtherPrompt;
+            if (replay and o.keep_at != null) return error.BadKeepPoint; // nothing is left to keep
             try e.restore(seq, snap);
+            if (replay) return .{ .first = try e.replayFirst(seq, snap, prompt.len, e.sampling) };
             if (use_mtp) {
                 _ = try mtp.forward(&e.f, seq, pb, prompt[snap.pos .. snap.pos + 1], snap.tail);
                 try e.f.setMtpLen(&seq.st, seq.st.mtp_len + 1);
@@ -1299,9 +1326,9 @@ pub const Engine = struct {
                 }
             }
             try e.f.commit(seq, pb, R, R);
-            if (o.keep_at) |k| if (end == k and kept == null) {
+            if (o.keep_at) |k| if (end == k and k < prompt.len and kept == null) {
                 // the MTP head's length one short: a resume absorbs the next prompt's own token at row k - 1
-                const snap = try e.snapshot(seq, if (use_mtp and !final) seq.st.mtp_len - 1 else seq.st.mtp_len, seq.last_streams.?.ptr);
+                const snap = try e.snapshot(seq, if (use_mtp) seq.st.mtp_len - 1 else seq.st.mtp_len, seq.last_streams.?.ptr, false);
                 kept = snap;
                 snap.tokens = try e.gpa.dupe(u32, prompt[0..k]);
             };
@@ -1320,10 +1347,26 @@ pub const Engine = struct {
             try e.draw(e.last_logits, e.last_cand, 1, prompt.len, &first);
             if (e.pass_times) pw[3] = try e.passLap(&t_pw);
         }
+        // a whole-prompt state after the draw (its copies run behind the first token), with the prompt's last logits row
+        if (o.keep_at) |k| if (k == prompt.len) {
+            const snap = try e.snapshot(seq, seq.st.mtp_len, seq.last_streams.?.ptr, true);
+            kept = snap;
+            snap.tokens = try e.gpa.dupe(u32, prompt);
+        };
         if (e.pass_times) {
             if (e.rank == 0) std.log.info("prefillWith {d} tokens{s}{s}: restore {d:.1} ms, {d} forwards {d:.1} ms, absorbs + commits {d:.1} ms, draw {d:.1} ms", .{ prompt.len, if (o.resume_from != null) " (resumed)" else "", if (o.keep_at != null) " (kept)" else "", pw[0], pw_chunks, pw[1], pw[2], pw[3] });
         }
         return .{ .first = first[0], .kept = kept };
+    }
+
+    /// A whole-prompt state's very prompt, the state restored: its last row's streams back in the sequence (the
+    /// MTP head's first absorb reads them, as after the fresh pass's last chunk), and the first token drawn from the
+    /// kept logits row with `sampling` at the prompt's length, as the fresh pass drew it.
+    fn replayFirst(e: *Engine, seq: *Seq, snap: *const Snapshot, len: usize, sampling: ?lanes.Sampling) !u32 {
+        try e.f.th.copy(seq.last_streams.?.ptr, snap.tail, e.g.wide() * 2);
+        var first: [1]u32 = undefined;
+        try e.drawRows(snap.logits, snap.cand, 1, 0, 1, len, sampling, &first);
+        return first[0];
     }
 
     /// Where a prompt chunk from `start` ends: prefill_rows on, or the prompt's end when that is at most
@@ -1442,7 +1485,8 @@ pub const Engine = struct {
     };
 
     /// prefillWith's start (reset, or restore with the MTP tail absorb deferred to the first chunk) for a prompt
-    /// that then fills in slices. Touches no prompt buffer: another prompt's chunk may be open.
+    /// that then fills in slices. Touches no prompt buffer: another prompt's chunk may be open. A whole-prompt
+    /// state's very prompt is drawn here and done: the kept state may go before the next step.
     pub fn fillBegin(e: *Engine, seq: *Seq, prompt: []const u32, sampling: ?lanes.Sampling, o: PrefillOptions) !*Fill {
         if (prompt.len == 0) return error.EmptyPrompt;
         if (prompt.len + e.depth + 1 > seq.st.limit) return error.ContextPastWindow;
@@ -1453,9 +1497,17 @@ pub const Engine = struct {
         fl.* = .{ .seq = seq, .prompt = try e.gpa.dupe(u32, prompt), .sampling = if (sampling) |x| (if (x.temperature > 0) x else null) else null, .keep_at = o.keep_at, .use_mtp = e.absorbing and e.w.mtp != null, .start = 0 };
         errdefer e.gpa.free(fl.prompt);
         if (o.resume_from) |snap| {
-            if (!(snap.pos > 0 and snap.pos < prompt.len)) return error.ResumeMustExtend;
+            const replay = snap.pos == prompt.len and snap.logits != 0;
+            if (!(snap.pos > 0 and (snap.pos < prompt.len or replay))) return error.ResumeMustExtend;
             if (!std.mem.eql(u32, snap.tokens, prompt[0..snap.pos])) return error.ResumeOtherPrompt;
+            if (replay and o.keep_at != null) return error.BadKeepPoint; // nothing is left to keep
             try e.restore(seq, snap);
+            if (replay) {
+                fl.first = try e.replayFirst(seq, snap, prompt.len, fl.sampling);
+                fl.start = prompt.len;
+                fl.done = true;
+                return fl;
+            }
             if (fl.use_mtp) {
                 try e.f.th.copy(seq.last_streams.?.ptr, snap.tail, e.g.wide() * 2);
                 fl.absorb = true;
@@ -1534,8 +1586,8 @@ pub const Engine = struct {
                 try e.f.setMtpLen(&seq.st, seq.st.mtp_len + nxt.len);
             }
             try e.f.commit(seq, pb, R, R);
-            if (fl.keep_at) |k| if (fl.end == k and fl.kept == null) {
-                const snap = try e.snapshot(seq, if (fl.use_mtp and !final) seq.st.mtp_len - 1 else seq.st.mtp_len, seq.last_streams.?.ptr);
+            if (fl.keep_at) |k| if (fl.end == k and k < fl.prompt.len and fl.kept == null) {
+                const snap = try e.snapshot(seq, if (fl.use_mtp) seq.st.mtp_len - 1 else seq.st.mtp_len, seq.last_streams.?.ptr, false);
                 fl.kept = snap;
                 snap.tokens = try e.gpa.dupe(u32, fl.prompt[0..k]);
             };
@@ -1548,6 +1600,12 @@ pub const Engine = struct {
                 var first: [1]u32 = undefined;
                 try e.drawRows(e.last_logits, e.last_cand, 1, 0, 1, fl.prompt.len, fl.sampling, &first);
                 fl.first = first[0];
+                // a whole-prompt state after the draw, with the logits row (prefillWith's order)
+                if (fl.keep_at) |k| if (k == fl.prompt.len) {
+                    const snap = try e.snapshot(seq, seq.st.mtp_len, seq.last_streams.?.ptr, true);
+                    fl.kept = snap;
+                    snap.tokens = try e.gpa.dupe(u32, fl.prompt);
+                };
                 fl.done = true;
                 return true;
             }

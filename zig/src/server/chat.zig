@@ -140,6 +140,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
     const received = nowNs(io);
     const f = input.fields;
     const stops_opt = try fields_mod.stopOptions(cx, f);
+    const cache_salt = try fields_mod.cacheSalt(cx, f);
     var limit: i64 = @max(1, if (input.max_tokens) |m| (if (m != 0) m else srv.config.default_max_tokens) else srv.config.default_max_tokens);
     const priority = f.get("priority");
     const background = prompt_mod.isTitle(input.messages, input.tools.len > 0) or
@@ -179,6 +180,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
         .background = background,
         .history_len = @intCast(rendered.history_len),
         .shared_prefixes = shared.items,
+        .cache_salt = cache_salt,
         .chunks = try srv.chunks.starts(a, rendered.ids),
         .tools_json = if (input.tools.len > 0) try json.stringify(a, .{ .array = @constCast(input.tools) }, .{ .ascii = false }) else "",
         .media = rendered.media,

@@ -48,8 +48,10 @@ pub fn visionReserve(o: Options) usize {
 }
 
 /// The prompt cache's rules for this engine (core/prompt_cache.zig Rules): a kept state depends on its tokens
-/// alone (a resume absorbs the next prompt's own token into the MTP head), prompt chunks are chunk-invariant.
-pub const cache_rules = .{ .lookahead = 0, .planned = false };
+/// alone (a resume absorbs the next prompt's own token into the MTP head), prompt chunks are chunk-invariant, and a
+/// state kept at a prompt's end carries its last logits row, so that very prompt can resume with no forward (`whole`:
+/// the engine can; TENSORFOLD_PROMPT_CACHE_WHOLE=1 turns it on, native/cuda.zig).
+pub const cache_rules = .{ .lookahead = 0, .planned = false, .whole = true };
 
 /// What the native server drives: the lane backend, the facts its round loop reads, and how to free it.
 pub const Loaded = struct {
