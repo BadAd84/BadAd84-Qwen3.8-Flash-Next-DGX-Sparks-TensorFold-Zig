@@ -385,6 +385,34 @@ test "on/off settings (TF_FLASHNEXT_EARLY_DRAW, ...) take 0 or 1 only, never rea
     _ = c.unsetenv(name);
 }
 
+/// TF_FLASHNEXT_SHARED_EARLY_ROWS (`v`, envCount's value): unset 0 (never), else the largest decode window that forks
+/// its shared expert before the router, at most state.max_rows. The fork needs the shared expert's side stream:
+/// a value above 0 with TF_FLASHNEXT_SHARED_SIDE=0 (`side` false) is refused, as is one past max_rows (both logged
+/// with the setting's name), never read as 0 or clamped.
+pub fn sharedEarlyRows(v: ?usize, side: bool) !usize {
+    const n = v orelse 0;
+    if (n > state.max_rows) {
+        std.log.warn("TF_FLASHNEXT_SHARED_EARLY_ROWS={d} refused: decode window rows 0..{d} (0: never)", .{ n, state.max_rows });
+        return error.BadSetting;
+    }
+    if (n > 0 and !side) {
+        std.log.warn("TF_FLASHNEXT_SHARED_EARLY_ROWS={d} refused: the early fork runs on the shared expert's side stream, which TF_FLASHNEXT_SHARED_SIDE=0 turns off", .{n});
+        return error.BadSetting;
+    }
+    return n;
+}
+
+test "TF_FLASHNEXT_SHARED_EARLY_ROWS is 0..64 rows and needs the side stream; anything else refused" {
+    try std.testing.expectEqual(@as(usize, 0), try sharedEarlyRows(null, true));
+    try std.testing.expectEqual(@as(usize, 0), try sharedEarlyRows(null, false));
+    try std.testing.expectEqual(@as(usize, 0), try sharedEarlyRows(0, false));
+    try std.testing.expectEqual(@as(usize, 6), try sharedEarlyRows(6, true));
+    try std.testing.expectEqual(@as(usize, state.max_rows), try sharedEarlyRows(state.max_rows, true));
+    try std.testing.expectError(error.BadSetting, sharedEarlyRows(state.max_rows + 1, true));
+    try std.testing.expectError(error.BadSetting, sharedEarlyRows(6, false));
+    try std.testing.expectError(error.BadSetting, sharedEarlyRows(1, false));
+}
+
 /// TF_FLASHNEXT_PREFILL_ROWS: the prompt chunk's rows (both ranks the same; any chunking gives the same bits), else
 /// the caller's.
 /// Two ranks' prompt chunk rows: with the in-program K slices and the prompt expert kernel 4096 rows a call are
@@ -631,6 +659,11 @@ pub const Engine = struct {
         }
         // the shared expert beside the routed experts on a second stream (TF_FLASHNEXT_SHARED_SIDE=0: in line)
         if (!envOff("TF_FLASHNEXT_SHARED_SIDE")) try e.f.initSide();
+        // the shared expert forked before the router in decode windows of at most N rows (TF_FLASHNEXT_SHARED_EARLY_ROWS,
+        // unset or 0: never), and its down stored straight into its slot of moe_y (TF_FLASHNEXT_SHARED_SLOT_LD=1)
+        e.f.shared_early_rows = try sharedEarlyRows(try envCount("TF_FLASHNEXT_SHARED_EARLY_ROWS"), e.f.side != null);
+        e.f.slot_ld = try envSwitch("TF_FLASHNEXT_SHARED_SLOT_LD", false);
+        if (e.f.shared_early_rows > 0 or e.f.slot_ld) std.log.info("shared expert: forked before the router in decode windows of at most {d} rows (0: never); down stored straight into its moe_y slot: {}", .{ e.f.shared_early_rows, e.f.slot_ld });
         // INT4-AutoRound's projections: block-FP8 columns stored in place (TF_FLASHNEXT_FP8_LD=0: scratch + copy)
         e.f.fp8_ld = !envOff("TF_FLASHNEXT_FP8_LD");
         // the shared expert's single-slice gate/up on fn_ops' K-serial kernel where it is faster (the same bits,

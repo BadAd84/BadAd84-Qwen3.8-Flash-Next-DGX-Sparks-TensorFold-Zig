@@ -807,6 +807,121 @@ pub fn fusedCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
     return ok;
 }
 
+// ---- `slot-ld-check`: the shared expert's down stored straight into its moe_y slot (TF_FLASHNEXT_SHARED_SLOT_LD) ----
+
+/// Random block-FP8 weights at the shared expert's down shape (n = hidden 2560, K = its width 1280; K 2560 too), as
+/// fusedCheck: in each tile mode (the engine's from the environment first) the old path's bytes (`matmul` into a
+/// contiguous buffer, its rows then moved into slot 5 of 6-slot rows on the host, which is what the strided copy does)
+/// against `matmulLd` storing slot 5 of a poisoned moe_y directly (rows slots * 2560 apart), at decode and prompt row
+/// counts (1 to 4608): every byte of the slot's rows and of the other slots must agree. A mutant (`matmulLd` into
+/// slot 4) must differ at every row count.
+pub fn slotCheck(gpa: std.mem.Allocator, ctx: *const cuda.Context) !bool {
+    const d = ctx.d;
+    var k = try Kernels.load(ctx);
+    defer k.deinit();
+    var stream = try cuda.Stream.init(d, true);
+    defer stream.deinit();
+    var prng = std.Random.DefaultPrng.init(3030);
+    const r = prng.random();
+    var ok = true;
+    const modes = [_]struct { name: []const u8, m: Mode }{
+        .{ .name = "env", .m = k.mode },
+        .{ .name = "stock", .m = .{} },
+        .{ .name = "fuse4+tiles", .m = .{ .fuse = 4, .wide = true, .pfuse = true } },
+        .{ .name = "fuse8", .m = .{ .fuse = 8 } },
+    };
+    const n: usize = 2560;
+    const slots: usize = 6;
+    const top: usize = 5;
+    const ldo = slots * n;
+    const rows_list = [_]usize{ 1, 2, 3, 4, 5, 7, 8, 13, 16, 17, 20, 31, 32, 33, 48, 63, 64, 65, 100, 255, 256, 257, 300, 1000, 2048, 4096, 4608 };
+    const max_m: usize = 4608;
+    for ([_]usize{ 1280, 2560 }) |kk| {
+        const npad = npadOf(n);
+        const sk = splitK(n, kk);
+        const codes = try gpa.alloc(u8, n * kk);
+        defer gpa.free(codes);
+        r.bytes(codes);
+        for (codes) |*c| if ((c.* & 0x7F) == 0x7F) {
+            c.* ^= 0x01;
+        };
+        const inv = try gpa.alloc(f32, ((n + 127) / 128) * (kk / 128));
+        defer gpa.free(inv);
+        for (inv) |*v| v.* = std.math.ldexp(1.0 + r.float(f32), -9 + @as(i32, r.intRangeLessThan(i32, 0, 5)));
+        const cols = try gpa.alloc(f32, n * (kk / 64));
+        defer gpa.free(cols);
+        try columnScales(inv, n, kk, cols);
+        const bs = try gpa.alloc(f32, npad * (kk / 64));
+        defer gpa.free(bs);
+        try tileScales(cols, n, kk, npad, bs);
+        const w8 = try gpa.alloc(u8, npad * kk);
+        defer gpa.free(w8);
+        try fragmentOrder(codes, n, kk, npad, w8);
+        var dw = try cuda.DeviceBuffer.fromHost(d, w8);
+        defer dw.free();
+        var dbs = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(bs));
+        defer dbs.free();
+        const xh = try gpa.alloc(u16, max_m * kk);
+        defer gpa.free(xh);
+        for (xh) |*v| {
+            const f: f32 = r.floatNorm(f32);
+            v.* = @intCast(@as(u32, @bitCast(f)) >> 16);
+        }
+        var dx = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(xh));
+        defer dx.free();
+        var dy = try cuda.DeviceBuffer.alloc(d, max_m * n * 2);
+        defer dy.free();
+        var ds = try cuda.DeviceBuffer.alloc(d, max_m * ldo * 2);
+        defer ds.free();
+        const ref = try gpa.alloc(u8, max_m * n * 2);
+        defer gpa.free(ref);
+        const img = try gpa.alloc(u8, max_m * ldo * 2);
+        defer gpa.free(img);
+        const got = try gpa.alloc(u8, max_m * ldo * 2);
+        defer gpa.free(got);
+        const lin: Linear = .{ .w8 = dw.ptr, .bs = dbs.ptr, .n = @intCast(n), .k = @intCast(kk), .npad = @intCast(npad) };
+        var calls: usize = 0;
+        var differ: usize = 0;
+        var mutant_calls: usize = 0;
+        var mutant_differ: usize = 0;
+        for (modes, 0..) |md, mi| for (rows_list) |m| {
+            // the old path: contiguous rows, moved into slot `top` of a poisoned moe_y image on the host
+            k.mode = md.m;
+            try dy.fill8(0x5A, stream.handle);
+            try matmul(&k, stream, dx.ptr, kk, lin, dy.ptr, false, m);
+            try stream.synchronize();
+            try dy.download(0, ref[0 .. m * n * 2]);
+            @memset(img[0 .. m * ldo * 2], 0xA5);
+            for (0..m) |row| @memcpy(img[row * ldo * 2 + top * n * 2 ..][0 .. n * 2], ref[row * n * 2 ..][0 .. n * 2]);
+            // the new path: matmulLd straight into slot `top` of the poisoned device moe_y
+            try ds.fill8(0xA5, stream.handle);
+            try matmulLd(&k, stream, dx.ptr, kk, lin, ds.ptr + top * n * 2, ldo, m);
+            try stream.synchronize();
+            try ds.download(0, got[0 .. m * ldo * 2]);
+            calls += 1;
+            if (!std.mem.eql(u8, img[0 .. m * ldo * 2], got[0 .. m * ldo * 2])) {
+                differ += 1;
+                ok = false;
+                std.debug.print("  k {d} m {d} mode {s}: matmulLd's slot DIFFERS from matmul + copy\n", .{ kk, m, md.name });
+            }
+            // the mutant, once a row count: the env mode's matmulLd into slot top - 1
+            if (mi == 0) {
+                try ds.fill8(0xA5, stream.handle);
+                try matmulLd(&k, stream, dx.ptr, kk, lin, ds.ptr + (top - 1) * n * 2, ldo, m);
+                try stream.synchronize();
+                try ds.download(0, got[0 .. m * ldo * 2]);
+                mutant_calls += 1;
+                if (!std.mem.eql(u8, img[0 .. m * ldo * 2], got[0 .. m * ldo * 2])) mutant_differ += 1;
+            }
+        };
+        const mutant_ok = mutant_differ == mutant_calls;
+        if (!mutant_ok) ok = false;
+        std.debug.print("{s} slot-ld n {d} k {d} split_k {d}: {d} calls ({d} modes x {d} row counts, 1-{d}), {d} differ; mutant (slot top - 1) differs on {d}/{d}: {s}\n", .{ if (differ == 0 and mutant_ok) "PASS" else "FAIL", n, kk, sk, calls, modes.len, rows_list.len, max_m, differ, mutant_differ, mutant_calls, if (mutant_ok) "KILLED" else "SURVIVED" });
+    }
+    k.mode = .{};
+    return ok;
+}
+
 // ---- `fp8-tiles-check`: the prompt tiles (Mode.wide, Mode.pfuse) against the stock kernels ---------------------------
 
 const tile_modes = [_]struct { name: []const u8, m: Mode }{

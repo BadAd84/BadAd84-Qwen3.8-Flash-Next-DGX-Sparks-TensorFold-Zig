@@ -63,6 +63,8 @@ const usage =
     \\           against 16-row items and 1-row calls, bytes compared, then both timed)
     \\  tensorfold fp8-tiles-check MODEL   (no weights: the block-FP8 prompt tiles (TF_FLASHNEXT_FP8_PROMPT_TILES)
     \\           against the stock kernel at prompt row counts, bytes compared, mutants, then their speed)
+    \\  tensorfold slot-ld-check MODEL   (no weights: the shared expert's down stored straight into its moe_y slot
+    \\           (TF_FLASHNEXT_SHARED_SLOT_LD) against matmul + the strided copy, bytes compared, a mutant)
     \\  tensorfold draft-check MODEL [--rows N,N,...]   (no weights: the batched greedy draft draw (one block a row)
     \\           against the per-row draw it replaces, bytes compared on adversarial rows, then both timed)
     \\  tensorfold hc-check MODEL   (no weights: the read-outs' 12-bit-weight down/up kernels (cuda_hc_q12.zig)
@@ -297,6 +299,12 @@ pub fn main(init: std.process.Init, args: []const []const u8) !u8 {
     if (std.mem.eql(u8, cmd, "fp8-fused-check")) {
         const ok = try flashnext.fp8.fusedCheck(gpa, &ctx);
         std.debug.print("{s} fp8-fused-check: every fused split-K tile byte-equal to the cluster kernel\n", .{if (ok) "PASS" else "FAIL"});
+        return if (ok) 0 else 1;
+    }
+    // the shared expert's down stored straight into its moe_y slot against matmul + the strided copy (bytes, mutant)
+    if (std.mem.eql(u8, cmd, "slot-ld-check")) {
+        const ok = try flashnext.fp8.slotCheck(gpa, &ctx);
+        std.debug.print("{s} slot-ld-check: the shared down's slot store byte-equal to matmul + copy in every mode, mutant killed\n", .{if (ok) "PASS" else "FAIL"});
         return if (ok) 0 else 1;
     }
     // the block-FP8 prompt tiles against the stock kernels at prompt row counts (bytes, mutants, then speed without

@@ -519,6 +519,15 @@ pub const Forward = struct {
     count_experts: bool = false,
     /// the shared expert's stream (initSide): it runs beside the routed experts, joined before their sum
     side: ?Side = null,
+    /// TF_FLASHNEXT_SHARED_EARLY_ROWS (0: never): one GPU, a decode window of at most this many rows forks its
+    /// block-FP8 shared expert onto `side` before the router instead of after the plan (moeBlock; earlyFork), so the
+    /// shared gate|up overlaps the router, top-k and plan; `shared_forked`: this MoE block's already is (moeRowsInt4)
+    shared_early_rows: usize = 0,
+    shared_forked: bool = false,
+    /// TF_FLASHNEXT_SHARED_SLOT_LD=1: the shared expert's down stores its rows straight into its slot of a bf16
+    /// moe_y (fp8.matmulLd, rows slots * D apart: the same kernel family and values, only the store address) instead
+    /// of into `shared_y` and a strided copy; an fp32 moe_y (the MTP head's) keeps the copy (slotLd)
+    slot_ld: bool = false,
     /// `_fp4mm` SK 1 launches of 9 to fp4SerialRows(n) rows on fn_ops' K-serial kernel (fp4Serial)
     fp4_serial: bool = false,
     /// a shared round of at least this many streams runs its attention in one launch a kernel (attn_multi; 0 off,
@@ -1914,6 +1923,13 @@ pub const Forward = struct {
         const top = g.topKFor(mtp);
         const slots = top + 1;
         const es: usize = if (x.y_f32) 4 else 2;
+        // TF_FLASHNEXT_SHARED_EARLY_ROWS: one GPU, a small decode window's block-FP8 shared expert forked onto the side
+        // stream before the router (moeRowsInt4's kernels on the same inputs into the same slot; only the order moves)
+        f.shared_forked = false;
+        if (earlyFork(f.shared_early_rows, b.prefill, R) and f.comm == null and f.splitOf(x, R) == null and m.int4 != null) if (f.side) |sd| if (m.shared8) |sh| {
+            try f.sharedSide(sd, sh, b.mixed, b.moe_y, x.y_f32, R, slots, top);
+            f.shared_forked = true;
+        };
         try f.t.router(b.mixed, D, m.router, b.moe_logits, R, D, E + 1);
         try f.mark(.router);
         try f.t.topkRows(b.moe_logits, b.moe_pick, b.moe_wts, R, E, top);
@@ -2064,16 +2080,9 @@ pub const Forward = struct {
         const sh = m.shared8 orelse return error.NoSharedExpert;
         if (f.side) |sd| {
             // the block-FP8 shared expert on the side stream (its own scratch and its slot of moe_y, which the routed
-            // kernels skip): the same kernels on the same inputs, so the same bits, beside the routed experts
-            try sd.fork.record(f.s);
-            try sd.s.wait(sd.fork);
-            var th2 = f.th;
-            th2.s = sd.s;
-            try fp8.matmul(k8, sd.s, xin, D, sh.gu, f.sc.sh_g, false, R);
-            try th2.sharedSwiglu(f.sc.sh_g, f.sc.sh_a, R, sh.width, sh.width);
-            try fp8.matmul(k8, sd.s, f.sc.sh_a, sh.width, sh.down, f.sc.shared_y, x.y_f32, R);
-            try th2.slotCopy(f.sc.shared_y, D * es, y + top * D * es, slots * D * es, D * es, R);
-            try sd.join.record(sd.s);
+            // kernels skip): the same kernels on the same inputs, so the same bits, beside the routed experts; already
+            // forked before the router when `shared_forked` (moeBlock, TF_FLASHNEXT_SHARED_EARLY_ROWS)
+            if (!f.shared_forked) try f.sharedSide(sd, sh, xin, y, x.y_f32, R, slots, top);
             if (pgu) try int4.gateUpPrompt(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip) else try int4.gateUp(k4, f.s, xin, D, ex4, plan, slots, E + 1, act, R, skip, tile);
             try f.mark(.experts_gate_up);
             try f.int4Down(k4, pick, act, ex4, plan, slots, E, y, x.y_f32, R, skip, tile);
@@ -2089,10 +2098,50 @@ pub const Forward = struct {
         try f.mark(.shared_swiglu);
         try f.int4Down(k4, pick, act, ex4, plan, slots, E, y, x.y_f32, R, skip, tile);
         try f.mark(.experts_down);
+        if (f.slotLd(x.y_f32)) {
+            try f.sharedDownLd(f.s, sh, y, R, slots, top);
+            try f.mark(.shared_down);
+            return;
+        }
         try fp8.matmul(k8, f.s, f.sc.sh_a, sh.width, sh.down, f.sc.shared_y, x.y_f32, R);
         try f.mark(.shared_down);
         try f.th.slotCopy(f.sc.shared_y, D * es, y + top * D * es, slots * D * es, D * es, R);
         try f.mark(.slot_copy);
+    }
+
+    /// The block-FP8 shared expert of R rows on the side stream `sd`, forked from the main stream here: gate|up,
+    /// SwiGLU, down, its slot `top` of `y` (rows slots * D apart); `sd.join` recorded after it.
+    fn sharedSide(f: *Forward, sd: Side, sh: W.Shared8, xin: u64, y: u64, y_f32: bool, R: usize, slots: usize, top: usize) !void {
+        const k8 = f.k8 orelse return error.NoFp8Kernels;
+        const D = f.g.hidden;
+        const es: usize = if (y_f32) 4 else 2;
+        try sd.fork.record(f.s);
+        try sd.s.wait(sd.fork);
+        var th2 = f.th;
+        th2.s = sd.s;
+        try fp8.matmul(k8, sd.s, xin, D, sh.gu, f.sc.sh_g, false, R);
+        try th2.sharedSwiglu(f.sc.sh_g, f.sc.sh_a, R, sh.width, sh.width);
+        if (f.slotLd(y_f32)) {
+            try f.sharedDownLd(sd.s, sh, y, R, slots, top);
+        } else {
+            try fp8.matmul(k8, sd.s, f.sc.sh_a, sh.width, sh.down, f.sc.shared_y, y_f32, R);
+            try th2.slotCopy(f.sc.shared_y, D * es, y + top * D * es, slots * D * es, D * es, R);
+        }
+        try sd.join.record(sd.s);
+    }
+
+    /// TF_FLASHNEXT_SHARED_SLOT_LD on a bf16 moe_y (an fp32 one, the MTP head's, keeps matmul + the strided copy).
+    fn slotLd(f: *const Forward, y_f32: bool) bool {
+        return f.slot_ld and !y_f32;
+    }
+
+    /// The shared expert's down of R rows on stream `s` stored straight into slot `top` of a bf16 `y` (rows slots * D
+    /// apart): matmul's kernels with a row stride (fp8.matmulLd), so the slot holds the bytes matmul + slotCopy write
+    /// (slot-ld-check).
+    fn sharedDownLd(f: *Forward, s: cuda.Stream, sh: W.Shared8, y: u64, R: usize, slots: usize, top: usize) !void {
+        const k8 = f.k8 orelse return error.NoFp8Kernels;
+        const D = f.g.hidden;
+        try fp8.matmulLd(k8, s, f.sc.sh_a, sh.width, sh.down, y + top * D * 2, slots * D, R);
     }
 
     /// The routed int4 down of rows' pairs: prompt calls on int4_prompt_kernel from a plan of 64-pair items (made
@@ -2257,6 +2306,24 @@ test "QSA_SELECT=0: the decode indexer's launches are the calls from before the 
             try std.testing.expectEqualDeep(a.consts[0..a.nconsts], b.consts[0..b.nconsts]);
         }
     };
+}
+
+/// TF_FLASHNEXT_SHARED_EARLY_ROWS: whether an R-row forward forks its shared expert before the router (moeBlock adds
+/// the one-GPU, int4 and side-stream conditions): decode only, and only windows of at most `cap` rows (0: never). The
+/// early fork saves 5-17 us a MoE block at 2-6 rows and costs up to 11 us at 8-10 (the router, on the routed experts'
+/// critical path, slows beside the shared gate|up).
+pub fn earlyFork(cap: usize, prefill: bool, R: usize) bool {
+    return cap != 0 and !prefill and R <= cap;
+}
+
+test "TF_FLASHNEXT_SHARED_EARLY_ROWS forks decode windows of at most that many rows, never a prompt pass, never at 0" {
+    for ([_]usize{ 0, 1, 2, 6, 7, 64 }) |R| try std.testing.expect(!earlyFork(0, false, R)); // 0 is never, at any R
+    for ([_]usize{ 1, 2, 5, 6 }) |R| try std.testing.expect(earlyFork(6, false, R));
+    for ([_]usize{ 7, 8, 32, 64 }) |R| try std.testing.expect(!earlyFork(6, false, R));
+    for ([_]usize{ 1, 6, 4096 }) |R| try std.testing.expect(!earlyFork(6, true, R));
+    try std.testing.expect(earlyFork(64, false, 64));
+    try std.testing.expect(earlyFork(1, false, 1));
+    try std.testing.expect(!earlyFork(1, false, 2));
 }
 
 test {
