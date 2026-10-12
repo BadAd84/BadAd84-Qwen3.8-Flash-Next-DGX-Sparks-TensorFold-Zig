@@ -49,7 +49,9 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   image qualification and patch A/B measures decode (aggregate and per stream, all slots busy), TTFT and the pool size
   at boot at 1, 2, 4, 6 and 8 concurrent slots, one fresh boot per setting, same interleaving rules; tables carry a
   concurrency column. Adding high-concurrency rows never drops the low ones: a 4/6/8-only run (2026-10-12, zmerge8)
-  had to be extended.
+  had to be extended. A change faster at some levels and slower at others is a trade, not a keep: confirm the losing
+  cell (ABBA), try gating it on the live stream count, and otherwise take it to the owner (fleet rule in
+  `~/.omp/agent/AGENTS.md`, "Local serve speed work").
 - **No outside traffic during a benchmark (owner 2026-10-11).** sparkDash (CT111, `sparkdash.ots-int.net`,
   192.168.99.111) polls every Spark's `:8888`, and the LiteLLM router (CT105, .105) and agents send requests too:
   on 2026-10-10 both hit the GLM serve mid-A/B and spoiled a TTFT arm. So every benchmark, qualification or A/B on a
