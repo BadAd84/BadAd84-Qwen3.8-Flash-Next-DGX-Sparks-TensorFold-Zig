@@ -1,0 +1,7 @@
+no-mark	zig/src/core/prompt_cache.zig	a history every turn resumes stays kept	        e.branched = e.branched or s.extended(e);	        e.branched = e.branched;
+no-skip	zig/src/core/prompt_cache.zig	a history every turn resumes stays kept	if (e.shared or e.branched or e == skip or	if (e.shared or e == skip or
+mark-always	zig/src/core/prompt_cache.zig	a state resumed once and then extended is still superseded	        e.branched = e.branched or s.extended(e);	        e.branched = true;
+extended-no-born	zig/src/core/prompt_cache.zig	a turn's rewind state is not superseded	o != e and o.born > e.born and o.tokens.len > e.tokens.len	o != e and o.tokens.len > e.tokens.len
+radix-no-mark	zig/src/core/prompt_radix.zig	a history every turn resumes again after one kept a longer state	        e.branched = e.branched or superseded(n, e.born);	        e.branched = e.branched;
+radix-no-skip	zig/src/core/prompt_radix.zig	a history every turn resumes again after one kept a longer state	const gone = !e.shared and !e.branched and	const gone = !e.shared and
+radix-mark-always	zig/src/core/prompt_radix.zig	a state its conversation moved past goes first	        e.branched = e.branched or superseded(n, e.born);	        e.branched = true;

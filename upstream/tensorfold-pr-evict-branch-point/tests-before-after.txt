@@ -1,0 +1,34 @@
+== main 0efbd447 plus only the new tests (w-rbt, rb-testonly): zig build test
+error: 'core.prompt_cache_branch_test.test.a history every turn resumes stays kept when a 6k prompt needs room: its turns branch from it, not past it' failed:
+       expected 100117, found 0
+error: 'prompt_radix_test.test.a history every turn resumes again after one kept a longer state is a branch point: its turns never supersede it' failed:
+       expected 20, found 0
+Build Summary: 41/44 steps succeeded (2 failed); 620/628 tests passed (5 skipped, 3 failed)
+== same tree: zig/tests/server/zig_test.sh (server, then engine seam)
+All 155 tests passed.
+98 passed; 0 skipped; 2 failed.
+40/100 prompt_radix_test.test.a history every turn resumes again after one kept a longer state is a branch point: its turns never supersede it...expected 20, found 0
+72/100 prompt_cache_branch_test.test.a history every turn resumes stays kept when a 6k prompt needs room: its turns branch from it, not past it...expected 100117, found 0
+(the 3rd zig build test failure is the same flat-store test failing in a second test binary)
+
+== main 0efbd447 (base)
+Build Summary: 44/44 steps succeeded; 616/621 tests passed (5 skipped)
+All 155 tests passed.
+All 96 tests passed.
+== this change (w-rb, rb-fix)
+Build Summary: 44/44 steps succeeded; 623/628 tests passed (5 skipped)
+All 155 tests passed.
+All 100 tests passed.
+
+== mutants (mut.sh w-rb rb-mutants.tsv = mutants.tsv)
+MUTANT no-mark KILLED (exit 1) by: e/mut-no-mark.log:error: 'core.prompt_cache_branch_test.test.a history every turn resumes stays kept when a 6k prompt needs room: its turns branch from it, not 
+MUTANT no-skip KILLED (exit 1) by: e/mut-no-skip.log:error: 'core.prompt_cache_branch_test.test.a history every turn resumes stays kept when a 6k prompt needs room: its turns branch from it, not 
+MUTANT mark-always KILLED (exit 1) by: e/mut-mark-always.log:error: 'core.prompt_cache_branch_test.test.a state resumed once and then extended is still superseded: a conversation that moved on frees 
+MUTANT extended-no-born KILLED (exit 1) by: e/mut-extended-no-born.log:error: 'core.prompt_cache_branch_test.test.a turn's rewind state is not superseded by the history state its own prompt kept: an edit 
+MUTANT radix-no-mark KILLED (exit 1) by: e/mut-radix-no-mark.log:error: 'prompt_radix_test.test.a history every turn resumes again after one kept a longer state is a branch point: its turns never super
+MUTANT radix-no-skip KILLED (exit 1) by: e/mut-radix-no-skip.log:error: 'prompt_radix_test.test.a history every turn resumes again after one kept a longer state is a branch point: its turns never super
+MUTANT radix-mark-always KILLED (exit 1) by: e/mut-radix-mark-always.log:error: 'prompt_radix_test.test.a shared cut outlives the conversation that made it, and a state its conversation moved past goes fir
+mut.sh exit 0
+== gates (gates.sh w-rb, lean baseline = tf at 0efbd447)
+lean exit 0 | zig fmt --check exit 0 over: zig/src/core/prompt_cache.zig zig/src/core/prompt_cache_branch_test.zig zig/src/core/prompt_radix.zig zig/src/core/prompt_radix_test.zig zig/src/core/prompt_radix_tree.zig
+gates exit 0

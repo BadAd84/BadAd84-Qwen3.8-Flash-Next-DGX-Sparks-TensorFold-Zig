@@ -1,0 +1,49 @@
+MUTANT s-find KILLED-OTHER (exit 1), not by a salted prompt resumes only states its own salt kept: 
+MUTANT s-keptnear KILLED-OTHER (exit 1), not by a lookup's rewind is its own salt's: 
+MUTANT s-sharedkey KILLED-OTHER (exit 1), not by a shared system cut is shared within its salt only: 
+MUTANT s-recall KILLED (exit 1) by: e/mut-s-recall.log:error: 'core.prompt_cache_salt_test.test.a salted request learns no state to disk and reads none back: learned states are the unsalted ones' 
+MUTANT s-rewind-active KILLED (exit 1) by: e/mut-s-rewind-active.log:error: 'core.prompt_cache_salt_test.test.a lookup's rewind is its own salt's: another salt's state near it is no rewind and goes as th
+MUTANT h-lane-lookup KILLED (exit 1) by: a lane host keeps and resumes under the request's cache salt
+MUTANT h-lane-reuse-init KILLED (exit 1) by: a lane host keeps and resumes under the request's cache salt
+MUTANT h-serial-mark KILLED (exit 1) by: a serial host keeps and resumes under the request's cache salt
+MUTANT v-chat KILLED (exit 1) by: e/mut-v-chat.log:error: 'cache_salt_test.test.cache_salt reaches the engine keyed from completions, chat completions and responses, and the chat's warm pass' fa
+MUTANT v-warm KILLED (exit 1) by: e/mut-v-warm.log:error: 'cache_salt_test.test.cache_salt reaches the engine keyed from completions, chat completions and responses, and the chat's warm pass' fa
+mut.sh exit 1
+MUTANT s-keep-same KILLED (exit 1) by: e/mut-s-keep-same.log:error: 'core.prompt_cache_salt_test.test.a salted prompt resumes only states its own salt kept; unsalted prompts share theirs as before' f
+MUTANT s-reserve KILLED (exit 1) by: e/mut-s-reserve.log:error: 'core.prompt_cache_salt_test.test.a pass makes room before it starts for a state another salt already holds at the same tokens' faile
+MUTANT s-learn-same KILLED (exit 1) by: e/mut-s-learn-same.log:error: 'core.prompt_cache_salt_test.test.a salted request learns no state to disk and reads none back: learned states are the unsalted on
+MUTANT s-now KILLED-OTHER (exit 1), not by another salt's longer state never supersedes: 
+MUTANT s-rewind-set KILLED (exit 1) by: e/mut-s-rewind-set.log:error: 'core.prompt_cache_salt_test.test.a lookup's rewind is its own salt's: another salt's state near it is no rewind and goes as the o
+MUTANT h-lane-keep KILLED (exit 1) by: a lane host keeps and resumes under the request's cache salt
+MUTANT h-lane-reuse-keep KILLED (exit 1) by: a lane host keeps and resumes under the request's cache salt
+MUTANT h-serial-warm KILLED (exit 1) by: a serial host keeps and resumes under the request's cache salt
+MUTANT v-openai KILLED (exit 1) by: e/mut-v-openai.log:error: 'cache_salt_test.test.cache_salt reaches the engine keyed from completions, chat completions and responses, and the chat's warm pass' 
+MUTANT v-null KILLED (exit 1) by: e/mut-v-null.log:error: 'cache_salt_test.test.absent or null cache_salt is none; a non-string or empty one is a 400 that submits nothing' failed:
+mut.sh exit 1
+MUTANT s-keep-store KILLED (exit 1) by: e/mut-s-keep-store.log:error: 'core.prompt_cache_salt_test.test.a salted prompt resumes only states its own salt kept; unsalted prompts share theirs as before' 
+MUTANT s-forget KILLED-OTHER (exit 1), not by a salted prompt resumes only states its own salt kept: 
+MUTANT s-learn-new KILLED (exit 1) by: e/mut-s-learn-new.log:error: 'core.prompt_cache_salt_test.test.a salted request learns no state to disk and reads none back: learned states are the unsalted one
+MUTANT s-moved KILLED (exit 1) by: e/mut-s-moved.log:error: 'core.prompt_cache_salt_test.test.another salt's longer state never supersedes a state: eviction takes the oldest instead' failed:
+MUTANT s-deinit KILLED (exit 1) by: e/mut-s-deinit.log:error: 'core.prompt_cache_salt_test.test.a store frees its states out of its list: a family's drop never sees the state it drops' failed:
+MUTANT h-lane-warm KILLED (exit 1) by: a lane host keeps and resumes under the request's cache salt
+MUTANT h-serial-begin KILLED (exit 1) by: a serial host keeps and resumes under the request's cache salt
+MUTANT h-serial-reply KILLED (exit 1) by: a serial host keeps and resumes under the request's cache salt
+MUTANT v-responses KILLED (exit 1) by: e/mut-v-responses.log:error: 'cache_salt_test.test.cache_salt reaches the engine keyed from completions, chat completions and responses, and the chat's warm pas
+MUTANT v-empty KILLED (exit 1) by: e/mut-v-empty.log:error: 'cache_salt_test.test.absent or null cache_salt is none; a non-string or empty one is a 400 that submits nothing' failed:
+mut.sh exit 1
+MUTANT s-find2 KILLED (exit 1) by: e/mut-s-find2.log:error: 'core.prompt_cache_salt_test.test.a salted prompt resumes only states its own salt kept; unsalted prompts share theirs as before' faile
+MUTANT s-keptnear2 KILLED (exit 1) by: e/mut-s-keptnear2.log:error: 'core.prompt_cache_salt_test.test.a lookup's rewind is its own salt's: another salt's state near it is no rewind and goes as the ol
+MUTANT s-sharedkey2 KILLED (exit 1) by: e/mut-s-sharedkey2.log:error: 'core.prompt_cache_salt_test.test.a shared system cut is shared within its salt only' failed:
+mut.sh exit 0
+MUTANT s-now2 KILLED (exit 1) by: e/mut-s-now2.log:error: 'core.prompt_cache_salt_test.test.another salt's longer state never supersedes a state: eviction takes the oldest instead' failed:
+mut.sh exit 0
+MUTANT s-forget2 KILLED (exit 1) by: e/mut-s-forget2.log:error: 'core.prompt_cache_salt_test.test.a salted prompt resumes only states its own salt kept; unsalted prompts share theirs as before' fai
+mut.sh exit 0
+
+Build Summary: 39/39 steps succeeded; 461/461 tests passed
+All 130 tests passed.
+All 113 tests passed.
+salt3 exit 0 Build Summary: 39/39 steps succeeded; 461/461 tests passed | seam exit 0 ERROR: The NVIDIA Driver is present, but CUDA failed to initialize.  GPU functionality will not be available. All 130 tests passed. 25/113 prompt_imprint.test.a failed tail truncation keeps the bytes and refuses repair...OK 27/113 keepalive.test.ticks stop once the keep-warm window has passed and resume when a request ends...OK 32/113 prompt_imprint_fault_test.test.Imprint failed open releases each allocation once after another identity scan...OK 34/113 prompt_imprint_fault_test.test.failed atomic stamp replacement preserves the previous complete used word...OK 41/113 prompt_radix_test.test.a state past the limits is refused, and a failed copy keeps no state...OK 48/113 prompt_cache_test.test.a failed copy keeps nothing and a failed restore prefills from the start...OK 92/113 learned_fault_test.test.failed rollback deletion survives restart and recovers before cap admission...OK All 113 tests passed. 
+lean exit 0 | zig fmt --check exit 0 over: zig/src/core/cache_mode_host_test.zig zig/src/core/engine_api.zig zig/src/core/lane_host.zig zig/src/core/lane_host_reuse_test.zig zig/src/core/lanes/stream.zig zig/src/core/learned_fault_test.zig zig/src/core/learned_index_orphan_test.zig zig/src/core/prompt_cache.zig zig/src/core/prompt_cache_fake.zig zig/src/core/prompt_cache_rewind_test.zig zig/src/core/prompt_cache_salt_test.zig zig/src/core/prompt_cache_test.zig zig/src/core/serial_host.zig zig/src/learned_warning_test.zig zig/src/native/flashnext_host.zig zig/src/native/qwen27_served.zig zig/src/server/cache_salt_test.zig zig/src/server/chat.zig zig/src/server/fields.zig zig/src/server/openai.zig zig/src/server/responses_translate.zig zig/src/server/root.zig zig/src/server/warm.zig zig/tests/flashnext_reuse.zig 
+gates exit 0
+msalt3 mac exit 1

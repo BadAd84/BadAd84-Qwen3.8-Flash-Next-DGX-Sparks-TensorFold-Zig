@@ -1,0 +1,35 @@
+s-find	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	if (e.salt != salt or e.tokens.len > prompt.len or e.at >= prompt.len	if (e.tokens.len > prompt.len or e.at >= prompt.len
+s-keep-same	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	for (s.entries.items) |e| if (e.salt == salt and e.at == at and std.mem.eql	for (s.entries.items) |e| if (e.at == at and std.mem.eql
+s-keep-store	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	.last = last, .shared = shared, .salt = salt };	.last = last, .shared = shared };
+s-keptnear	zig/src/core/prompt_cache.zig	a lookup's rewind is its own salt's	if (e.salt != salt or e.at > at or at - e.at	if (e.at > at or at - e.at
+s-reserve	zig/src/core/prompt_cache.zig	a pass makes room before it starts	if (e.salt == salt and e.at == at and e.tokens.len == n	if (e.at == at and e.tokens.len == n
+s-forget	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	if (e.salt == salt and e.at == at and e.tokens.len <= prompt.len	if (e.at == at and e.tokens.len <= prompt.len
+s-sharedkey	zig/src/core/prompt_cache.zig	a shared system cut is shared within its salt only	return std.hash.Wyhash.hash(salt, std.mem.sliceAsBytes(tokens));	return std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(tokens));
+s-learn-same	zig/src/core/prompt_cache.zig	a salted request learns no state to disk	if (shared and salt == 0) learned.learn(s, e, starts); // learned	if (shared) learned.learn(s, e, starts); // learned
+s-learn-new	zig/src/core/prompt_cache.zig	a salted request learns no state to disk	        s.counts.kept += 1;\n        if (shared and salt == 0) learned.learn	        s.counts.kept += 1;\n        if (shared) learned.learn
+s-recall	zig/src/core/prompt_cache.zig	a salted request learns no state to disk	const e = if (salt == 0) s.recall(prompt, starts, spans, found) else found;	const e = s.recall(prompt, starts, spans, found);
+s-now	zig/src/core/prompt_cache.zig	another salt's longer state never supersedes	const now = e.salt == salt and prompt.len > e.born	const now = prompt.len > e.born
+s-moved	zig/src/core/prompt_cache.zig	another salt's longer state never supersedes	if (o != e and o.salt == e.salt and o.born > e.born	if (o != e and o.born > e.born
+s-rewind-active	zig/src/core/prompt_cache.zig	a lookup's rewind is its own salt's	e.at == s.active_rewind_at and e.salt == s.active_rewind_salt and	e.at == s.active_rewind_at and
+s-rewind-set	zig/src/core/prompt_cache.zig	a lookup's rewind is its own salt's	        s.active_rewind_salt = salt;\n	
+s-deinit	zig/src/core/prompt_cache.zig	a store frees its states out of its list	while (s.entries.pop()) |e| s.free(e);	for (s.entries.items) |e| s.free(e);
+h-lane-lookup	zig/src/core/lane_host.zig	a lane host keeps and resumes under the request's cache salt	h.spans(r), r.cache_salt)) |l| {	h.spans(r), 0)) |l| {
+h-lane-keep	zig/src/core/lane_host.zig	a lane host keeps and resumes under the request's cache salt	job.host.spans(job.request), job.request.cache_salt);	job.host.spans(job.request), 0);
+h-lane-warm	zig/src/core/lane_host.zig	a lane host keeps and resumes under the request's cache salt	&job.stream, job.request.chunks, h.spans(job.request), job.request.cache_salt);	&job.stream, job.request.chunks, h.spans(job.request), 0);
+h-lane-reuse-init	zig/src/core/lane_host.zig	a lane host keeps and resumes under the request's cache salt	var reuse: lanes.stream.Reuse = .{ .salt = r.cache_salt };	var reuse: lanes.stream.Reuse = .{};
+h-lane-reuse-keep	zig/src/core/lane_host.zig	a lane host keeps and resumes under the request's cache salt	.at = Job.kept }, .salt = reuse.salt };	.at = Job.kept } };
+h-serial-begin	zig/src/core/serial_host.zig	a serial host keeps and resumes under the request's cache salt	null, decode_spans, request.cache_salt) catch .{};	null, decode_spans, 0) catch .{};
+h-serial-mark	zig/src/core/serial_host.zig	a serial host keeps and resumes under the request's cache salt	decode_spans, request.cache_salt)) kept += 1;	decode_spans, 0)) kept += 1;
+h-serial-warm	zig/src/core/serial_host.zig	a serial host keeps and resumes under the request's cache salt	decode_spans, request.cache_salt)) {	decode_spans, 0)) {
+h-serial-reply	zig/src/core/serial_host.zig	a serial host keeps and resumes under the request's cache salt	null, request.chunks, spans, request.cache_salt);	null, request.chunks, spans, 0);
+v-chat	zig/src/server/chat.zig	cache_salt reaches the engine keyed	        .cache_salt = try fields_mod.cacheSalt(cx, f),\n	
+v-openai	zig/src/server/openai.zig	cache_salt reaches the engine keyed	"ignore_eos", "stop", "cache_salt" } ++ grammar.fields	"ignore_eos", "stop" } ++ grammar.fields
+v-responses	zig/src/server/responses_translate.zig	cache_salt reaches the engine keyed	"priority", "cache_salt", "return_token_ids"	"priority", "return_token_ids"
+v-warm	zig/src/server/warm.zig	cache_salt reaches the engine keyed	.cache_salt = try fields.cacheSalt(&cx, input.fields), 	
+v-null	zig/src/server/fields.zig	absent or null cache_salt is none	    if (v == .null) return 0;\n	
+v-empty	zig/src/server/fields.zig	absent or null cache_salt is none	v != .string or v.string.len == 0	v != .string or v.string.len == 99
+s-find2	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	if (e.salt != salt or e.tokens.len > prompt.len or e.at >= prompt.len	if (false and e.salt != salt or e.tokens.len > prompt.len or e.at >= prompt.len
+s-keptnear2	zig/src/core/prompt_cache.zig	a lookup's rewind is its own salt's	if (e.salt != salt or e.at > at or at - e.at	if (false and e.salt != salt or e.at > at or at - e.at
+s-sharedkey2	zig/src/core/prompt_cache.zig	a shared system cut is shared within its salt only	return std.hash.Wyhash.hash(salt, std.mem.sliceAsBytes(tokens));	return std.hash.Wyhash.hash(salt & 0, std.mem.sliceAsBytes(tokens));
+s-now2	zig/src/core/prompt_cache.zig	another salt's longer state never supersedes	const now = e.salt == salt and prompt.len > e.born	const now = (true or e.salt == salt) and prompt.len > e.born
+s-forget2	zig/src/core/prompt_cache.zig	a salted prompt resumes only states its own salt kept	if (e.salt == salt and e.at == at and e.tokens.len <= prompt.len	if ((true or e.salt == salt) and e.at == at and e.tokens.len <= prompt.len

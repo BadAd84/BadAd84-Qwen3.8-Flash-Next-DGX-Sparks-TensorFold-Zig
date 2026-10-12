@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# xcrun stub (cross semantic checks only): writes an empty file at the `-o` argument so zig's Metal steps finish.
+while [ $# -gt 0 ]; do
+  if [ "$1" = "-o" ]; then : > "$2"; exit 0; fi
+  shift
+done
+exit 0

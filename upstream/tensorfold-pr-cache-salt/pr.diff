@@ -1,0 +1,1582 @@
+diff --git a/docs/api.md b/docs/api.md
+index dc5ff8bb..95a63e92 100644
+--- a/docs/api.md
++++ b/docs/api.md
+@@ -106,6 +106,7 @@ For decisions, `chat_template_kwargs` may be omitted, null, or an object contain
+ | `reasoning_effort` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max` | Both |
+ | `thinking_budget` | Token-count limit inside reasoning | Both |
+ | `priority` | `background` yields to foreground requests | Both |
++| `cache_salt` | vLLM's prompt cache salt: a request resumes only prompt states kept under the same salt; unsalted requests share theirs | Both |
+ 
+ `n` must be 1; multiple choices receive HTTP 400.
+ 
+@@ -120,6 +121,7 @@ may include leading spaces; `bytes` preserves partial UTF-8 sequences. Other eng
+ completions routes, and the request modes above return HTTP 400 when probabilities are requested.
+ `ignore_eos: true` keeps user-supplied `stop` strings active, including when a stop string spans streamed chunks.
+ Both backends reject a non-boolean `ignore_eos` or a malformed `stop` with HTTP 400 before a stream opens.
++A `cache_salt` that is not a non-empty string (or null) is HTTP 400 before anything reaches the engine.
+ Both backends reject malformed `temperature`, `top_p`, `top_k` and `seed` values with HTTP 400, whether or not
+ the request samples: booleans, non-finite numbers, non-numeric strings, and non-integral `top_k` or `seed`.
+ MLX also rejects its other malformed numeric controls and out-of-vocabulary raw prompt IDs.
+@@ -399,7 +401,7 @@ same handler and engine path. A response has that chat completion's prompt and t
+   `reasoning.summary` is accepted, but no summary is written.
+ - `text.format` takes `json_schema` or `json_object` through the structured-output path, with drafts.
+ - `stream`, `store` (default true) and `metadata` (up to 16 string pairs). The chat extensions `draft`,
+-  `thinking_budget`, `stop`, `ignore_eos`, `chat_template_kwargs` and `priority` pass through.
++  `thinking_budget`, `stop`, `ignore_eos`, `chat_template_kwargs`, `priority` and `cache_salt` pass through.
+ 
+ `output` holds a `reasoning` item (its text as `reasoning_text` content, with an empty `summary`), a `message` with
+ `output_text`, and `function_call` items (`call_id`, `name` and JSON `arguments`). A reply cut by the token limit has
+diff --git a/zig/src/core/cache_mode_host_test.zig b/zig/src/core/cache_mode_host_test.zig
+index 8cce5815..53c776a0 100644
+--- a/zig/src/core/cache_mode_host_test.zig
++++ b/zig/src/core/cache_mode_host_test.zig
+@@ -361,3 +361,31 @@ test "reply modes coalesce a decoded prompt suffix after clipping future rows" {
+         try std.testing.expectEqualDeep(try fresh(tokens[0 .. 22 + count], &next_spans, true), f.state);
+     }
+ }
++
++/// A request under `salt` (0 reply tokens: a background prompt-only pass); returns where its prompt pass started.
++fn salted(host: *serial.Host, ids: []const u32, history: u32, count: u32, salt: u64) !u32 {
++    var box: Box = .{};
++    const r = api.Request{ .prompt = ids, .max_tokens = count, .history_len = history, .cache_salt = salt, .background = count == 0 };
++    try host.engine().submit(1, &r, .{ .ctx = &box, .event = Box.event });
++    try box.wait();
++    return box.from;
++}
++
++test "a serial host keeps and resumes under the request's cache salt: its marks, its replies and its warm passes" {
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    const tokens = seedTokens();
++    var f: Fixture = .{};
++    var store = pc.Store.init(a, f.snapshots(), .{ .min_prompt = 0, .min_gap = 1 }, 1 << 20);
++    defer store.deinit();
++    const host = try serial.Host.init(a, io, f.driver(&store, true));
++    defer host.deinit();
++    for ([_]u64{ ka, kb, 0 }) |salt| { // each keeps its history at 18 and its reply's end at 20, then resumes its own
++        try std.testing.expectEqual(@as(u32, 0), try salted(host, tokens[0..20], 18, 1, salt));
++        try std.testing.expectEqual(@as(u32, 18), try salted(host, tokens[0..20], 18, 1, salt));
++    }
++    try std.testing.expectEqual(@as(u32, 20), try salted(host, tokens[0..24], 22, 1, ka)); // A's next turn: past its reply
++    try std.testing.expectEqual(@as(u32, 24), try salted(host, tokens[0..26], 26, 0, ka)); // A's warm pass, kept at 26
++    try std.testing.expectEqual(@as(u32, 26), try salted(host, tokens[0..28], 27, 1, ka));
++    try std.testing.expectEqual(@as(u32, 20), try salted(host, tokens[0..28], 27, 1, 0)); // the unsalted: their reply's end
++}
+diff --git a/zig/src/core/engine_api.zig b/zig/src/core/engine_api.zig
+index f72c13b2..723e8a28 100644
+--- a/zig/src/core/engine_api.zig
++++ b/zig/src/core/engine_api.zig
+@@ -63,6 +63,8 @@ pub const Request = struct {
+     shared_prefixes: []const u32 = &.{},
+     /// Where the latest user message's text starts: a state kept before it lets an edit of that turn resume (0: none).
+     rewind_len: u32 = 0,
++    /// The request's ``cache_salt`` keyed (prompt_cache.saltKey; 0: none): it resumes only states kept under it.
++    cache_salt: u64 = 0,
+     /// Where the prompt's prefill chunks start after 0 (Python's PrefillPlan at ``Info.prefill_step``); empty: the engine's own.
+     chunks: []const u32 = &.{},
+     /// Decoded intervals [start,end), sorted, nonempty and strictly separated; an empty list uses prompt arithmetic.
+diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
+index 09ff0fa2..e7b77cdd 100644
+--- a/zig/src/core/lane_host.zig
++++ b/zig/src/core/lane_host.zig
+@@ -71,7 +71,7 @@ pub const LaneHost = struct {
+         fn kept(ptr: *anyopaque, s: *lanes.Stream, at: u32) void {
+             const job: *Job = @ptrCast(@alignCast(ptr));
+             job.reported(); // before a keep can evict the entry the pass restored
+-            if (job.host.cache) |store| _ = store.keep(job.request.prompt, at, s, job.request.chunks, job.host.spans(job.request));
++            if (job.host.cache) |store| _ = store.keep(job.request.prompt, at, s, job.request.chunks, job.host.spans(job.request), job.request.cache_salt);
+         }
+ 
+         /// Report a restored prefix or its failed copy; an untouched prefix remains kept.
+@@ -289,13 +289,13 @@ pub const LaneHost = struct {
+         };
+         h.unlock();
+         const r = job.request;
+-        var reuse: lanes.stream.Reuse = .{};
++        var reuse: lanes.stream.Reuse = .{ .salt = r.cache_salt };
+         // the entry stays alive until the backend restores it: nothing keeps between here and this stream's own pass
+-        if (h.cache) |store| if (store.lookupRewind(h.gpa, r.prompt, r.history_len, r.rewind_len, r.shared_prefixes, r.chunks, h.spans(r))) |l| {
++        if (h.cache) |store| if (store.lookupRewind(h.gpa, r.prompt, r.history_len, r.rewind_len, r.shared_prefixes, r.chunks, h.spans(r), r.cache_salt)) |l| {
+             job.entry = l.entry;
+             job.kept0 = store.counts.kept;
+             job.marks = l.marks;
+-            reuse = .{ .saved = if (l.entry) |e| e.saved else null, .at = if (l.entry) |e| e.at else 0, .marks = l.marks, .hook = .{ .ptr = job, .at = Job.kept } };
++            reuse = .{ .saved = if (l.entry) |e| e.saved else null, .at = if (l.entry) |e| e.at else 0, .marks = l.marks, .hook = .{ .ptr = job, .at = Job.kept }, .salt = reuse.salt };
+         } else |_| {};
+         job.proposer = lanes.SuffixLookup.init(h.gpa, .{ .min_match = h.min_match }) catch return h.drop(job, "the drafter could not start");
+         job.stream = lanes.Stream.init(h.gpa, .{
+@@ -409,7 +409,7 @@ pub const LaneHost = struct {
+             return h.cancel(job);
+         };
+         h.prefilled(job, began);
+-        if (h.cache) |store| _ = store.keep(job.request.prompt, @intCast(job.request.prompt.len), &job.stream, job.request.chunks, h.spans(job.request));
++        if (h.cache) |store| _ = store.keep(job.request.prompt, @intCast(job.request.prompt.len), &job.stream, job.request.chunks, h.spans(job.request), job.request.cache_salt);
+         be.release(&job.stream);
+         h.remove(job);
+         h.finish(job, .length, "");
+diff --git a/zig/src/core/lane_host_reuse_test.zig b/zig/src/core/lane_host_reuse_test.zig
+index 549121dd..b379f808 100644
+--- a/zig/src/core/lane_host_reuse_test.zig
++++ b/zig/src/core/lane_host_reuse_test.zig
+@@ -314,3 +314,86 @@ test "a learn step that moves the weights drops every kept state: the next turn
+     try std.testing.expectEqual(@as(?u32, 0), b2.cached);
+     try std.testing.expectEqual(@as(u64, 0), store.counts.hits);
+ }
++
++test "a lane host keeps and resumes under the request's cache salt, its warm passes too, and gives the stream the salt" {
++    const gpa = std.testing.allocator;
++    var cfg = try lanes.Config.init(gpa, .{ .exact_width = 8, .gpu_tokens = true, .hidden_rows = true }, 8, 7);
++    defer cfg.deinit(gpa);
++    var target: lanes.fake.Fake = .{ .gpa = gpa };
++    defer target.deinit();
++    var clock: lanes.fake.FixedClock = .{};
++    var core = lanes.Engine.init(gpa, &cfg, target.backend(), clock.clock());
++    defer core.deinit();
++    const Snaps = struct {
++        var salt: u64 = 0; // the salt on the stream of the last save
++        fn bytes(_: *anyopaque, at: u32) u64 {
++            return 64 + 4 * @as(u64, at);
++        }
++        fn save(ptr: *anyopaque, owner: ?*anyopaque, at: u32) anyerror!pc.Saved {
++            const f: *lanes.fake.Fake = @ptrCast(@alignCast(ptr));
++            const s: *lanes.Stream = @ptrCast(@alignCast(owner.?));
++            salt = s.reuse.salt;
++            return f.save(s, at);
++        }
++        fn restore(_: *anyopaque, _: ?*anyopaque, _: pc.Saved) anyerror!void {
++            return error.BackendRestores;
++        }
++        fn drop(ptr: *anyopaque, saved: pc.Saved) void {
++            const f: *lanes.fake.Fake = @ptrCast(@alignCast(ptr));
++            f.drop(saved);
++        }
++    };
++    var store = pc.Store.init(gpa, .{ .ptr = &target, .vtable = &.{ .bytes = Snaps.bytes, .save = Snaps.save, .restore = Snaps.restore, .drop = Snaps.drop } }, .{ .min_gap = 4, .min_prompt = 0 }, 1 << 20);
++    defer store.deinit();
++    var host = LaneHost.init(gpa, std.testing.io, &core, .{ .lanes = 2, .warm_turns = true });
++    host.cache = &store;
++    try host.start();
++    defer host.stop();
++    const Box = struct {
++        mutex: std.Io.Mutex = .init,
++        cached: ?u32 = null,
++        done: ?Reason = null,
++        fn event(ctx: *anyopaque, _: Id, e: *const Event) void {
++            const b: *@This() = @ptrCast(@alignCast(ctx));
++            b.mutex.lockUncancelable(std.testing.io);
++            defer b.mutex.unlock(std.testing.io);
++            switch (e.*) {
++                .prefilled => |c| b.cached = c,
++                .finished => |f| b.done = f.reason,
++                else => {},
++            }
++        }
++        fn run(e: api.Engine, id: Id, r: *const Request) !?u32 {
++            var b: @This() = .{};
++            try e.submit(id, r, .{ .ctx = &b, .event = event });
++            while (true) {
++                b.mutex.lockUncancelable(std.testing.io);
++                const d = b.done;
++                b.mutex.unlock(std.testing.io);
++                if (d != null) return b.cached;
++                std.Io.sleep(std.testing.io, .fromMilliseconds(1), .awake) catch {};
++            }
++        }
++    };
++    const e = host.engine();
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    const t1 = [_]u32{ 3, 1, 4, 1, 5, 9, 2, 6, 5, 3 };
++    // (salt, cached tokens): cold under A, A again, B cold, unsalted cold, unsalted again
++    const runs = [_]struct { salt: u64, cached: u32 }{ .{ .salt = ka, .cached = 0 }, .{ .salt = ka, .cached = 8 }, .{ .salt = kb, .cached = 0 }, .{ .salt = 0, .cached = 0 }, .{ .salt = 0, .cached = 8 } };
++    for (runs, 1..) |run, id| {
++        const r: Request = .{ .prompt = &t1, .max_tokens = 4, .history_len = 8, .cache_salt = run.salt };
++        try std.testing.expectEqual(@as(?u32, run.cached), try Box.run(e, @intCast(id), &r));
++    }
++    try std.testing.expectEqual(@as(usize, 3), store.entries.items.len);
++    const t2 = t1 ++ [_]u32{ 7, 7 };
++    const warm: Request = .{ .prompt = &t2, .max_tokens = 0, .background = true, .history_len = t2.len, .cache_salt = ka };
++    _ = try Box.run(e, 6, &warm); // A's next turn prefilled in the background, kept at its end under A
++    try std.testing.expectEqual(ka, Snaps.salt);
++    const t3 = t2 ++ [_]u32{ 5, 3 };
++    for ([_]u64{ ka, 0, kb }, [_]u32{ 12, 8, 8 }, 7..) |salt, cached, id| { // only A resumes past the warm pass
++        const r: Request = .{ .prompt = &t3, .max_tokens = 4, .history_len = 12, .cache_salt = salt };
++        try std.testing.expectEqual(@as(?u32, cached), try Box.run(e, @intCast(id), &r));
++    }
++    try std.testing.expectEqual(@as(u64, 6), store.counts.hits);
++}
+diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
+index d43d01b1..f4696277 100644
+--- a/zig/src/core/lanes/stream.zig
++++ b/zig/src/core/lanes/stream.zig
+@@ -82,6 +82,7 @@ pub const Reuse = struct {
+     at: u32 = 0,
+     marks: []const u32 = &.{}, // ascending: the pass cuts a chunk at each and calls `hook` there
+     hook: ?MarkHook = null,
++    salt: u64 = 0, // the request's cache salt (prompt_cache.saltKey): the stream's states are kept under it
+ };
+ 
+ /// Called between prompt chunks, the pass standing at `at` (the GPU done with the chunk that ends there).
+diff --git a/zig/src/core/learned_fault_test.zig b/zig/src/core/learned_fault_test.zig
+index fefd560d..9940fdda 100644
+--- a/zig/src/core/learned_fault_test.zig
++++ b/zig/src/core/learned_fault_test.zig
+@@ -34,7 +34,7 @@ pub fn learnOne(im: *Imprint, prompt: []const u32) !void {
+     var arena = std.heap.ArenaAllocator.init(a);
+     defer arena.deinit();
+     _ = try s.lookup(arena.allocator(), prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expect(im.has(Imprint.keyOf(prompt[0..6])));
+     try std.testing.expectEqual(@as(usize, 1), f.writes);
+ }
+@@ -255,7 +255,7 @@ test "a null clock cannot authorize eviction or either half of a write" {
+     defer arena.deinit();
+     const prompt = [_]u32{ 7, 7, 7, 7, 7, 7, 9, 10 };
+     _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expect(im.has(Imprint.keyOf(&.{ 1, 2 })));
+     try std.testing.expectEqual(@as(usize, 0), f.disk_forgets);
+     try std.testing.expectEqual(@as(usize, 0), f.writes);
+@@ -305,7 +305,7 @@ test "other-identity cap pressure is planned before a current-identity write" {
+     defer arena.deinit();
+     const prompt = [_]u32{ 7, 7, 7, 7, 7, 7, 9, 10 };
+     _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(u64, 0), try dirs.otherBytes(r, im.dir, 1));
+     try std.testing.expectEqual(@as(usize, 1), f.writes);
+     try std.testing.expect(im.has(Imprint.keyOf(prompt[0..6])));
+@@ -362,7 +362,7 @@ test "a missing indexed half cannot promise physical reclaim or destroy a valid
+     defer arena.deinit();
+     const prompt = [_]u32{ 7, 7, 7, 7, 7, 7, 9, 10 };
+     _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expect(im.has(Imprint.keyOf(&.{ 1, 2 })) and im.has(Imprint.keyOf(&.{ 3, 4 })));
+     try std.testing.expectEqual(@as(usize, 0), f.disk_forgets);
+     try std.testing.expectEqual(@as(usize, 0), f.writes);
+@@ -384,7 +384,7 @@ test "uncertain reserve ACK reaches Store rollback before any intent or half wri
+     defer arena.deinit();
+     const prompt = [_]u32{ 7, 7, 7, 7, 7, 7, 9, 10 };
+     _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expect(!f.disk_reserved);
+     try std.testing.expectEqual(@as(usize, 1), f.disk_finishes);
+     try std.testing.expectEqual(@as(usize, 0), f.writes);
+@@ -407,7 +407,7 @@ test "failed rollback deletion survives restart and recovers before cap admissio
+         var arena = std.heap.ArenaAllocator.init(a);
+         defer arena.deinit();
+         _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-        try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++        try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+         const key = Imprint.keyOf(prompt[0..6]);
+         try std.testing.expectEqual(@as(usize, 1), f.writes);
+         if (round == 0) {
+@@ -446,7 +446,7 @@ test "Store learns after old zero-byte and torn used stamps under cap pressure"
+         defer arena.deinit();
+         const prompt = [_]u32{ 7, 7, 7, 7, 7, 7, 9, 10 };
+         _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-        try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}));
++        try std.testing.expect(s.keep(&prompt, 5, null, &.{}, &.{}, 0));
+         try std.testing.expectEqual(@as(usize, 1), f.writes);
+         try std.testing.expect(im.has(Imprint.keyOf(prompt[0..6])));
+         try std.testing.expectEqual(@as(u64, 0), try dirs.otherBytes(r, im.dir, 1));
+diff --git a/zig/src/core/learned_index_orphan_test.zig b/zig/src/core/learned_index_orphan_test.zig
+index 7b361f09..921f0fb5 100644
+--- a/zig/src/core/learned_index_orphan_test.zig
++++ b/zig/src/core/learned_index_orphan_test.zig
+@@ -22,7 +22,7 @@ fn learn(im: *Imprint, prompt: []const u32) !void {
+     var arena = std.heap.ArenaAllocator.init(a);
+     defer arena.deinit();
+     _ = try s.lookup(arena.allocator(), prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(s.keep(prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expect(im.has(Imprint.keyOf(prompt[0..6])));
+ }
+ fn exists(file: [:0]const u8) bool {
+diff --git a/zig/src/core/prompt_cache.zig b/zig/src/core/prompt_cache.zig
+index d9bae7d2..d12771ce 100644
+--- a/zig/src/core/prompt_cache.zig
++++ b/zig/src/core/prompt_cache.zig
+@@ -1,4 +1,4 @@
+-//! Exact prompt reuse: states are keyed by tokens and canonical decoded intervals through their position.
++//! Exact prompt reuse: states are keyed by tokens, canonical decoded intervals through their position, and cache salt.
+ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+ const imprint = @import("prompt_imprint.zig");
+@@ -94,6 +94,12 @@ pub const Rules = struct {
+     tail: bool = false,
+ };
+ 
++/// A request's `cache_salt` (vLLM's field) as the store keys it, 0 for none: only its own salt resumes its states.
++pub fn saltKey(salt: ?[]const u8) u64 {
++    const k = std.hash.Wyhash.hash(0x5a17, salt orelse return 0);
++    return if (k == 0) 1 else k;
++}
++
+ pub const Entry = struct {
+     tokens: []u32, // the state's tokens and `lookahead` more
+     decode_spans: []modes.Span = &.{}, // canonical row arithmetic through at, excluding lookahead
+@@ -104,6 +110,7 @@ pub const Entry = struct {
+     used: u64, // the store's clock at its last keep or resume
+     last: []u32, // the last prompt that kept or resumed it
+     shared: bool = false, // kept at a shared system block's cut: other conversations resume it, so its own never supersedes it
++    salt: u64 = 0, // the cache salt of the request that kept it (saltKey): only the same salt resumes it
+ };
+ 
+ pub const Counts = struct { hits: u64 = 0, misses: u64 = 0, kept: u64 = 0, evicted: u64 = 0, refused: u64 = 0, failed: u64 = 0 };
+@@ -129,6 +136,7 @@ pub const Store = struct {
+     shared_keys: std.ArrayList(u64) = .empty, // the tokens of recently planned shared cuts, hashed (at most SHARED_KEYS)
+     imprint: ?*imprint.Imprint = null, // --learn: shared cuts' states on disk, read back by later sessions and servers
+     active_rewind_at: u32 = 0, // the last lookup's rewind state (0: none); hosts keep a pass's states before the next lookup
++    active_rewind_salt: u64 = 0, // that lookup's cache salt
+ 
+     const SHARED_KEYS = 64;
+ 
+@@ -137,7 +145,7 @@ pub const Store = struct {
+     }
+ 
+     pub fn deinit(s: *Store) void {
+-        for (s.entries.items) |e| s.free(e);
++        while (s.entries.pop()) |e| s.free(e); // out of the list first: a family's drop may read the states still kept
+         s.entries.deinit(s.gpa);
+         s.shared_keys.deinit(s.gpa);
+         s.held = 0;
+@@ -179,21 +187,21 @@ pub const Store = struct {
+     }
+ 
+     /// The latest kept state this prompt can resume at `at` or under min_gap before it (null: none).
+-    fn keptNear(s: *const Store, prompt: []const u32, starts: []const u32, spans: []const modes.Span, at: u32) ?u32 {
++    fn keptNear(s: *const Store, prompt: []const u32, starts: []const u32, spans: []const modes.Span, at: u32, salt: u64) ?u32 {
+         var best: ?u32 = null;
+         for (s.entries.items) |e| {
+-            if (e.at > at or at - e.at >= s.rules.min_gap or e.tokens.len > prompt.len or !s.usable(e.at, starts)) continue;
++            if (e.salt != salt or e.at > at or at - e.at >= s.rules.min_gap or e.tokens.len > prompt.len or !s.usable(e.at, starts)) continue;
+             if (!std.mem.eql(u32, prompt[0..e.tokens.len], e.tokens) or !modes.equal(e.decode_spans, spans, e.at)) continue;
+             if (best == null or e.at > best.?) best = e.at;
+         }
+         return best;
+     }
+ 
+-    /// Find a kept token prefix with matching canonical spans through its position, leaving at least one row.
+-    pub fn find(s: *Store, prompt: []const u32, starts: []const u32, spans: []const modes.Span) ?*Entry {
++    /// Find a kept prefix of `salt` with matching canonical spans through its position, leaving at least one row.
++    pub fn find(s: *Store, prompt: []const u32, starts: []const u32, spans: []const modes.Span, salt: u64) ?*Entry {
+         var best: ?*Entry = null;
+         for (s.entries.items) |e| {
+-            if (e.tokens.len > prompt.len or e.at >= prompt.len or !s.usable(e.at, starts)) continue;
++            if (e.salt != salt or e.tokens.len > prompt.len or e.at >= prompt.len or !s.usable(e.at, starts)) continue;
+             if (best != null and e.at <= best.?.at) continue;
+             const n = e.tokens.len;
+             if (prompt[n - 1] != e.tokens[n - 1] or !std.mem.eql(u32, prompt[0..n], e.tokens)) continue;
+@@ -205,12 +213,12 @@ pub const Store = struct {
+ 
+     /// Restore the longest prefix matching tokens and canonical spans, then plan prompt-cache marks.
+     pub fn begin(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, shared: []const u32, starts: []const u32, owner: ?*anyopaque, spans: []const modes.Span) !Plan {
+-        return s.beginRewind(a, prompt, history_len, 0, shared, starts, owner, spans);
++        return s.beginRewind(a, prompt, history_len, 0, shared, starts, owner, spans, 0);
+     }
+ 
+-    /// `begin`, also keeping a state before the latest user message (`rewind_len`, 0: none) that its edits resume.
+-    pub fn beginRewind(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, rewind_len: u32, shared: []const u32, starts: []const u32, owner: ?*anyopaque, spans: []const modes.Span) !Plan {
+-        const l = try s.lookupRewind(a, prompt, history_len, rewind_len, shared, starts, spans);
++    /// `begin` under `salt` (saltKey), also keeping a state before the latest user message (`rewind_len`, 0: none).
++    pub fn beginRewind(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, rewind_len: u32, shared: []const u32, starts: []const u32, owner: ?*anyopaque, spans: []const modes.Span, salt: u64) !Plan {
++        const l = try s.lookupRewind(a, prompt, history_len, rewind_len, shared, starts, spans, salt);
+         const e = l.entry orelse return .{ .marks = l.marks };
+         const ok = if (s.family.vtable.restore(s.family.ptr, owner, e.saved)) |_| true else |err| blk: {
+             note("restoring {d} tokens failed ({s}); prefilling from the start", .{ e.at, @errorName(err) });
+@@ -218,27 +226,29 @@ pub const Store = struct {
+         };
+         const from = if (ok) e.at else 0;
+         s.resumed(e, prompt, ok);
+-        s.reserve(prompt, null, l.marks, spans); // restored: the state it resumed may go too (a peer restores before it drops)
++        s.reserve(prompt, null, l.marks, spans, salt); // restored: the state it resumed may go too (a peer restores before it drops)
+         return .{ .from = from, .marks = l.marks };
+     }
+ 
+     /// Look up canonical-span state and marks without restoring; the caller later reports resumed.
+     pub fn lookup(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, shared: []const u32, starts: []const u32, spans: []const modes.Span) !Lookup {
+-        return s.lookupRewind(a, prompt, history_len, 0, shared, starts, spans);
++        return s.lookupRewind(a, prompt, history_len, 0, shared, starts, spans, 0);
+     }
+ 
+-    /// `lookup` plus a rewind state on the starts or grid; a state kept under min_gap before it serves instead.
+-    pub fn lookupRewind(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, rewind_len: u32, shared: []const u32, starts: []const u32, spans: []const modes.Span) !Lookup {
++    /// `lookup` under `salt`, plus a rewind state on the starts or grid; one kept under min_gap before it serves.
++    pub fn lookupRewind(s: *Store, a: Allocator, prompt: []const u32, history_len: u32, rewind_len: u32, shared: []const u32, starts: []const u32, spans: []const modes.Span, salt: u64) !Lookup {
+         const endpoint = if (s.rules.planned) s.startAt(starts, history_len) else history_len;
+         const rewind = if (s.rules.planned) s.startAt(starts, rewind_len -| s.rules.lookahead) else rewind_len -| s.rules.lookahead;
+         const endpoint_bytes = if (endpoint > 0 and (endpoint < prompt.len or (s.rules.warm and endpoint == prompt.len)) and endpoint + s.rules.lookahead <= prompt.len) s.family.vtable.bytes(s.family.ptr, endpoint) else 0;
+         const rewind_bytes = if (rewind > 0 and rewind < prompt.len and rewind + s.rules.lookahead <= prompt.len and s.usable(rewind, starts)) s.family.vtable.bytes(s.family.ptr, rewind) else 0;
+         const priority_bytes = if (endpoint_bytes <= s.budget) endpoint_bytes else 0;
+         s.active_rewind_at = if (prompt.len >= s.rules.min_prompt and rewind_bytes > 0 and rewind != endpoint and rewind_bytes <= s.budget - priority_bytes) rewind else 0;
+-        if (s.active_rewind_at > 0) if (s.keptNear(prompt, starts, spans, s.active_rewind_at)) |at| {
++        s.active_rewind_salt = salt;
++        if (s.active_rewind_at > 0) if (s.keptNear(prompt, starts, spans, s.active_rewind_at, salt)) |at| {
+             s.active_rewind_at = at; // a state kept under min_gap before it is the rewind state: no new copy
+         };
+-        const e = s.recall(prompt, starts, spans, s.find(prompt, starts, spans));
++        const found = s.find(prompt, starts, spans, salt);
++        const e = if (salt == 0) s.recall(prompt, starts, spans, found) else found; // learned states on disk are unsalted
+         if (e == null) s.counts.misses += 1;
+         const from = if (e) |x| x.at else 0;
+         const marks_ = if (s.active_rewind_at == 0)
+@@ -247,24 +257,24 @@ pub const Store = struct {
+             try s.fittingRewind(a, try s.fitting(a, try s.marksRewind(a, prompt, from, history_len, s.active_rewind_at, shared, starts, if (e) |x| x.last else &.{})), endpoint, s.active_rewind_at, endpoint_bytes);
+         for (shared) |w| { // the shared cuts this pass keeps: their states serve other conversations too
+             const at = if (s.rules.planned) s.startAt(starts, w) else w;
+-            if (std.mem.indexOfScalar(u32, marks_, at) != null) s.noteShared(prompt[0 .. at + s.rules.lookahead]);
++            if (std.mem.indexOfScalar(u32, marks_, at) != null) s.noteShared(prompt[0 .. at + s.rules.lookahead], salt);
+         }
+-        s.reserve(prompt, e, marks_, spans);
++        s.reserve(prompt, e, marks_, spans, salt);
+         return .{ .entry = e, .marks = marks_ };
+     }
+ 
+     /// Room for every state the pass keeps, made before it: a peer that mirrors the keeps hears of these evictions with the request.
+-    fn reserve(s: *Store, prompt: []const u32, from: ?*Entry, marks_: []const u32, spans: []const modes.Span) void {
++    fn reserve(s: *Store, prompt: []const u32, from: ?*Entry, marks_: []const u32, spans: []const modes.Span, salt: u64) void {
+         var need: u64 = 0;
+         for (marks_) |at| {
+             const n = @as(usize, at) + s.rules.lookahead;
+             const exists = for (s.entries.items) |e| {
+-                if (e.at == at and e.tokens.len == n and n <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..n]) and modes.equal(e.decode_spans, spans, at)) break true;
++                if (e.salt == salt and e.at == at and e.tokens.len == n and n <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..n]) and modes.equal(e.decode_spans, spans, at)) break true;
+             } else false;
+             if (!exists) need += s.family.vtable.bytes(s.family.ptr, at);
+         }
+         while (s.held + need > s.budget) {
+-            const i = s.victimBut(from, prompt) orelse return;
++            const i = s.victimBut(from, prompt, salt) orelse return;
+             s.remove(i);
+             s.counts.evicted += 1;
+         }
+@@ -276,22 +286,23 @@ pub const Store = struct {
+         s.shared_keys.clearRetainingCapacity();
+         s.imprint = null;
+         s.active_rewind_at = 0;
++        s.active_rewind_salt = 0;
+     }
+ 
+-    /// Forget a failed peer state matching the token prefix and canonical spans through at.
+-    pub fn forget(s: *Store, prompt: []const u32, at: u32, spans: []const modes.Span) void {
+-        for (s.entries.items, 0..) |e, i| if (e.at == at and e.tokens.len <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..e.tokens.len]) and modes.equal(e.decode_spans, spans, at)) {
++    /// Forget a failed peer state matching the token prefix, canonical spans through at, and salt.
++    pub fn forget(s: *Store, prompt: []const u32, at: u32, spans: []const modes.Span, salt: u64) void {
++        for (s.entries.items, 0..) |e, i| if (e.salt == salt and e.at == at and e.tokens.len <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..e.tokens.len]) and modes.equal(e.decode_spans, spans, at)) {
+             s.counts.failed += 1;
+             return s.remove(i);
+         };
+     }
+ 
+-    fn sharedKey(tokens: []const u32) u64 {
+-        return std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(tokens));
++    fn sharedKey(tokens: []const u32, salt: u64) u64 {
++        return std.hash.Wyhash.hash(salt, std.mem.sliceAsBytes(tokens));
+     }
+ 
+-    fn noteShared(s: *Store, tokens: []const u32) void {
+-        const k = sharedKey(tokens);
++    fn noteShared(s: *Store, tokens: []const u32, salt: u64) void {
++        const k = sharedKey(tokens, salt);
+         if (std.mem.indexOfScalar(u64, s.shared_keys.items, k) != null) return;
+         if (s.shared_keys.items.len == SHARED_KEYS) _ = s.shared_keys.orderedRemove(0);
+         s.shared_keys.append(s.gpa, k) catch {};
+@@ -384,16 +395,16 @@ pub const Store = struct {
+         return out.toOwnedSlice(a);
+     }
+ 
+-    /// Keep the state at `at` with its span prefix, evicting within the budget; `starts` are a learned cut's chunks.
+-    pub fn keep(s: *Store, prompt: []const u32, at: u32, owner: ?*anyopaque, starts: []const u32, spans: []const modes.Span) bool {
++    /// Keep `at`'s state and span prefix under `salt`, evicting within budget; `starts` are a learned cut's chunks.
++    pub fn keep(s: *Store, prompt: []const u32, at: u32, owner: ?*anyopaque, starts: []const u32, spans: []const modes.Span, salt: u64) bool {
+         const n = @as(usize, at) + s.rules.lookahead;
+         if (at == 0 or n > prompt.len) return false;
+         s.clock += 1;
+-        const shared = std.mem.indexOfScalar(u64, s.shared_keys.items, sharedKey(prompt[0..n])) != null;
+-        for (s.entries.items) |e| if (e.at == at and std.mem.eql(u32, e.tokens, prompt[0..n]) and modes.equal(e.decode_spans, spans, at)) {
++        const shared = std.mem.indexOfScalar(u64, s.shared_keys.items, sharedKey(prompt[0..n], salt)) != null;
++        for (s.entries.items) |e| if (e.salt == salt and e.at == at and std.mem.eql(u32, e.tokens, prompt[0..n]) and modes.equal(e.decode_spans, spans, at)) {
+             e.used = s.clock; // the same state again: no copy
+             e.shared = e.shared or shared;
+-            if (shared) learned.learn(s, e, starts);
++            if (shared and salt == 0) learned.learn(s, e, starts); // learned states on disk are unsalted
+             return true;
+         };
+         const decoded = modes.prefix(s.gpa, spans, at) catch |err| return s.fail(at, err);
+@@ -413,7 +424,7 @@ pub const Store = struct {
+                 if (s.family.vtable.trim) |f| f(s.family.ptr, s.budget -| s.held -| bytes); // spare that cannot take this state goes before any state
+                 if (s.spare() < free_) continue;
+             }
+-            s.remove(s.victimBut(null, prompt).?); // its storage may come back spare and take this state
++            s.remove(s.victimBut(null, prompt, salt).?); // its storage may come back spare and take this state
+             s.counts.evicted += 1;
+         }
+         if (s.entries.items.len == 0) if (s.family.vtable.trim) |f| f(s.family.ptr, s.budget -| bytes);
+@@ -434,7 +445,7 @@ pub const Store = struct {
+             return s.fail(at, err);
+         };
+         const charged = if (s.family.vtable.charged) |f| f(s.family.ptr, saved) else bytes;
+-        e.* = .{ .tokens = tokens, .decode_spans = decoded, .at = at, .saved = saved, .bytes = charged, .born = @intCast(prompt.len), .used = s.clock, .last = last, .shared = shared };
++        e.* = .{ .tokens = tokens, .decode_spans = decoded, .at = at, .saved = saved, .bytes = charged, .born = @intCast(prompt.len), .used = s.clock, .last = last, .shared = shared, .salt = salt };
+         owns_decoded = false;
+         s.entries.append(s.gpa, e) catch {
+             s.free(e);
+@@ -442,7 +453,7 @@ pub const Store = struct {
+         };
+         s.held += charged;
+         s.counts.kept += 1;
+-        if (shared) learned.learn(s, e, starts);
++        if (shared and salt == 0) learned.learn(s, e, starts);
+         if (s.family.vtable.trim) |f| f(s.family.ptr, s.budget -| s.held); // spare storage only inside what the budget leaves
+         return true;
+     }
+@@ -455,7 +466,7 @@ pub const Store = struct {
+         if (!modes.equal(&.{}, spans, m.at)) return have; // the request decodes rows the learned prompt pass prefilled
+         const bytes = s.family.vtable.bytes(s.family.ptr, m.at);
+         while (bytes <= s.budget and s.held + s.spare() + bytes > s.budget) {
+-            s.remove(s.victimBut(have, prompt) orelse return have);
++            s.remove(s.victimBut(have, prompt, 0) orelse return have);
+             s.counts.evicted += 1;
+         }
+         if (bytes > s.budget) return have;
+@@ -498,13 +509,13 @@ pub const Store = struct {
+     }
+ 
+     /// The entry to free first, never `skip`: a superseded one, oldest first; else the oldest, the turn's rewind last.
+-    fn victimBut(s: *const Store, skip: ?*Entry, prompt: []const u32) ?usize {
++    fn victimBut(s: *const Store, skip: ?*Entry, prompt: []const u32, salt: u64) ?usize {
+         var best: ?usize = null;
+         for (s.entries.items, 0..) |e, i| {
+             if (e.shared or e == skip or s.isActiveRewind(e, prompt)) continue; // a shared cut is evicted only as the least recently used
+-            const now = prompt.len > e.born and prompt.len > e.tokens.len and std.mem.eql(u32, prompt[0..e.tokens.len], e.tokens); // this prompt extends it
++            const now = e.salt == salt and prompt.len > e.born and prompt.len > e.tokens.len and std.mem.eql(u32, prompt[0..e.tokens.len], e.tokens); // this prompt extends it
+             const moved_on = now or for (s.entries.items) |o| {
+-                if (o != e and o.born > e.born and o.tokens.len > e.tokens.len and std.mem.eql(u32, o.tokens[0..e.tokens.len], e.tokens)) break true;
++                if (o != e and o.salt == e.salt and o.born > e.born and o.tokens.len > e.tokens.len and std.mem.eql(u32, o.tokens[0..e.tokens.len], e.tokens)) break true;
+             } else false;
+             if (moved_on and (best == null or e.used < s.entries.items[best.?].used)) best = i;
+         }
+@@ -525,7 +536,7 @@ pub const Store = struct {
+ 
+     /// The last lookup's rewind state, while the prompt still extends it.
+     fn isActiveRewind(s: *const Store, e: *const Entry, prompt: []const u32) bool {
+-        return e.at == s.active_rewind_at and e.tokens.len <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..e.tokens.len]);
++        return e.at == s.active_rewind_at and e.salt == s.active_rewind_salt and e.tokens.len <= prompt.len and std.mem.eql(u32, e.tokens, prompt[0..e.tokens.len]);
+     }
+ };
+ 
+@@ -547,6 +558,7 @@ fn floorStart(starts: []const u32, at: u32) u32 {
+ test {
+     _ = @import("prompt_cache_test.zig");
+     _ = @import("prompt_cache_rewind_test.zig");
++    _ = @import("prompt_cache_salt_test.zig");
+     _ = @import("learned_fault_test.zig");
+     _ = modes;
+ }
+diff --git a/zig/src/core/prompt_cache_fake.zig b/zig/src/core/prompt_cache_fake.zig
+index 6f6754d0..74481b66 100644
+--- a/zig/src/core/prompt_cache_fake.zig
++++ b/zig/src/core/prompt_cache_fake.zig
+@@ -42,6 +42,7 @@ pub const Fake = struct {
+     live: usize = 0,
+     spare_bytes: u64 = 0,
+     peer: ?*Peer = null, // speed-up mode's rank 1: it keeps the same states and drops them only when a request names them
++    salt: u64 = 0, // the cache salt its passes keep under
+ 
+     pub const State = struct { at: u32, sum: u64 };
+ 
+@@ -189,7 +190,7 @@ pub const Fake = struct {
+ 
+     /// A prompt pass from `plan.from`, keeping at each mark; returns the sum a fresh pass would give.
+     pub fn pass(f: *Fake, s: *Store, prompt: []const u32, plan: Plan) u64 {
+-        if (plan.from == 0) f.* = .{ .gpa = f.gpa, .fail_save = f.fail_save, .fail_restore = f.fail_restore, .fail_write = f.fail_write, .writes = f.writes, .live = f.live, .spare_bytes = f.spare_bytes, .peer = f.peer };
++        if (plan.from == 0) f.* = .{ .gpa = f.gpa, .fail_save = f.fail_save, .fail_restore = f.fail_restore, .fail_write = f.fail_write, .writes = f.writes, .live = f.live, .spare_bytes = f.spare_bytes, .peer = f.peer, .salt = f.salt };
+         if (f.peer) |p| p.in_pass = true;
+         defer if (f.peer) |p| {
+             p.in_pass = false;
+@@ -199,7 +200,7 @@ pub const Fake = struct {
+             f.sum = f.sum *% 31 +% t;
+             f.at += 1;
+             if (mi < plan.marks.len and plan.marks[mi] == f.at) {
+-                _ = s.keep(prompt, f.at, null, &.{}, &.{});
++                _ = s.keep(prompt, f.at, null, &.{}, &.{}, f.salt);
+                 mi += 1;
+             }
+         }
+diff --git a/zig/src/core/prompt_cache_rewind_test.zig b/zig/src/core/prompt_cache_rewind_test.zig
+index 5ea9f324..794ab792 100644
+--- a/zig/src/core/prompt_cache_rewind_test.zig
++++ b/zig/src/core/prompt_cache_rewind_test.zig
+@@ -14,7 +14,7 @@ test "editing the latest user resumes the private rewind and gives the fresh res
+     var s = Store.init(gpa, f.snapshots(), .{ .lookahead = 1, .min_prompt = 0 }, 211);
+     defer s.deinit();
+     const first = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+-    var p = try s.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{});
++    var p = try s.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{ 3, 8 }, p.marks);
+     try std.testing.expectEqual(fresh(&first), f.pass(&s, &first, p));
+     try std.testing.expectEqual(@as(usize, 2), s.entries.items.len);
+@@ -22,12 +22,12 @@ test "editing the latest user resumes the private rewind and gives the fresh res
+     try std.testing.expectEqual(@as(usize, 0), s.shared_keys.items.len);
+ 
+     const edited = [_]u32{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10 };
+-    p = try s.beginRewind(a, &edited, 8, 4, &.{}, &.{}, null, &.{});
++    p = try s.beginRewind(a, &edited, 8, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 3), p.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, p));
+     try std.testing.expectEqual(@as(usize, 2), s.entries.items.len);
+-    try std.testing.expect(s.find(&edited, &.{}, &.{}).?.at == 8);
+-    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 51, 6, 7, 8, 9, 10 }, &.{}, &.{}).?.at == 3);
++    try std.testing.expect(s.find(&edited, &.{}, &.{}, 0).?.at == 8);
++    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 51, 6, 7, 8, 9, 10 }, &.{}, &.{}, 0).?.at == 3);
+ }
+ 
+ test "one state budget keeps the endpoint before the rewind" {
+@@ -38,7 +38,7 @@ test "one state budget keeps the endpoint before the rewind" {
+     var s = Store.init(gpa, f.snapshots(), .{ .lookahead = 1, .min_prompt = 0 }, 110);
+     defer s.deinit();
+     const first = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+-    const p = try s.beginRewind(arena.allocator(), &first, 8, 4, &.{}, &.{}, null, &.{});
++    const p = try s.beginRewind(arena.allocator(), &first, 8, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{8}, p.marks);
+     _ = f.pass(&s, &first, p);
+     try std.testing.expectEqual(@as(u32, 8), s.entries.items[0].at);
+@@ -53,10 +53,10 @@ test "planned rewind floors after lookahead and short user turns bypass min_gap"
+     defer s.deinit();
+     const first = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+     const starts = [_]u32{ 3, 6, 8 };
+-    const p = try s.beginRewind(arena.allocator(), &first, 9, 5, &.{}, &starts, null, &.{});
++    const p = try s.beginRewind(arena.allocator(), &first, 9, 5, &.{}, &starts, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{ 3, 8 }, p.marks);
+     try std.testing.expectEqual(fresh(&first), f.pass(&s, &first, p));
+-    try std.testing.expectEqual(@as(u32, 3), s.find(&.{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10, 11, 12 }, &starts, &.{}).?.at);
++    try std.testing.expectEqual(@as(u32, 3), s.find(&.{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10, 11, 12 }, &starts, &.{}, 0).?.at);
+ }
+ 
+ test "warm endpoint retains the rewind when two states fit" {
+@@ -68,13 +68,13 @@ test "warm endpoint retains the rewind when two states fit" {
+     var s = Store.init(gpa, f.snapshots(), .{ .warm = true, .min_prompt = 0 }, 214);
+     defer s.deinit();
+     const warm = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+-    const p = try s.beginRewind(a, &warm, warm.len, 4, &.{}, &.{}, null, &.{});
++    const p = try s.beginRewind(a, &warm, warm.len, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{4}, p.marks);
+     _ = f.pass(&s, &warm, p);
+-    try std.testing.expect(s.keep(&warm, warm.len, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&warm, warm.len, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(usize, 2), s.entries.items.len);
+     const edited = [_]u32{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10, 11 };
+-    const resumed = try s.beginRewind(a, &edited, 10, 4, &.{}, &.{}, null, &.{});
++    const resumed = try s.beginRewind(a, &edited, 10, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 4), resumed.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, resumed));
+ }
+@@ -88,11 +88,11 @@ test "a grid family keeps its rewind on the grid, and an edit resumes there equa
+     var s = Store.init(gpa, f.snapshots(), .{ .lookahead = 1, .planned = true, .grid = 4, .min_prompt = 0 }, 1 << 20);
+     defer s.deinit();
+     const first = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 };
+-    const p = try s.beginRewind(a, &first, 10, 7, &.{}, &.{}, null, &.{}); // no request starts: the grid's
++    const p = try s.beginRewind(a, &first, 10, 7, &.{}, &.{}, null, &.{}, 0); // no request starts: the grid's
+     try std.testing.expectEqualSlices(u32, &.{ 4, 8 }, p.marks);
+     try std.testing.expectEqual(fresh(&first), f.pass(&s, &first, p));
+     const edited = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 50, 9, 10, 11, 12 };
+-    const q = try s.beginRewind(a, &edited, 10, 7, &.{}, &.{}, null, &.{});
++    const q = try s.beginRewind(a, &edited, 10, 7, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 4), q.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, q));
+     for (s.entries.items) |e| try std.testing.expectEqual(@as(u32, 0), e.at % 4);
+@@ -106,12 +106,12 @@ test "a state kept past the pass's marks evicts the rewind last instead of faili
+     var s = Store.init(gpa, f.snapshots(), .{ .lookahead = 1, .min_prompt = 0 }, 215); // bytes 100 + at
+     defer s.deinit();
+     const turn = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+-    const p = try s.beginRewind(arena.allocator(), &turn, 8, 4, &.{}, &.{}, null, &.{});
++    const p = try s.beginRewind(arena.allocator(), &turn, 8, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{ 3, 8 }, p.marks);
+     _ = f.pass(&s, &turn, p);
+     const replied = turn ++ [_]u32{ 11, 12, 13, 14 }; // a reply's state, as the serial host keeps it after decode
+     f.at = 13;
+-    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{}, 0));
+     try std.testing.expect(s.held <= s.budget);
+     try std.testing.expectEqual(@as(usize, 1), s.entries.items.len);
+     try std.testing.expectEqual(@as(u32, 13), s.entries.items[0].at);
+@@ -126,7 +126,7 @@ test "a first turn's rewind on the system cut stays a shared cut" {
+     defer s.deinit();
+     const turn = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9 }; // a system block, the user's text from 4, the generation prompt at 7
+     const starts = [_]u32{ 3, 7 }; // the server's cut before the conversation's own text, and the generation prompt
+-    const p = try s.beginRewind(arena.allocator(), &turn, 7, 4, &.{4}, &starts, null, &.{});
++    const p = try s.beginRewind(arena.allocator(), &turn, 7, 4, &.{4}, &starts, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{ 3, 7 }, p.marks);
+     _ = f.pass(&s, &turn, p);
+     var cut: ?*pc.Entry = null;
+@@ -144,7 +144,7 @@ test "a history state past the budget is still counted refused when the rewind i
+     var s = Store.init(gpa, f.snapshots(), .{ .lookahead = 1, .min_prompt = 0 }, 105); // the history at 8 needs 108
+     defer s.deinit();
+     const turn = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+-    const p = try s.beginRewind(arena.allocator(), &turn, 8, 4, &.{}, &.{}, null, &.{});
++    const p = try s.beginRewind(arena.allocator(), &turn, 8, 4, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqualSlices(u32, &.{3}, p.marks);
+     try std.testing.expectEqual(@as(u64, 1), s.counts.refused);
+     try std.testing.expectEqual(fresh(&turn), f.pass(&s, &turn, p));
+@@ -161,16 +161,16 @@ test "a rewind under min_gap past the resume point keeps no copy: the resumed st
+     const before = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
+     _ = f.pass(&s, &before, try s.begin(a, &before, 6, &.{}, &.{}, null, &.{})); // the state a turn resumes, as a reply's
+     const turn = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }; // the user's text from 8, two tokens past it
+-    const p = try s.beginRewind(a, &turn, 11, 8, &.{}, &.{}, null, &.{});
++    const p = try s.beginRewind(a, &turn, 11, 8, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 6), p.from);
+     try std.testing.expectEqualSlices(u32, &.{11}, p.marks);
+     try std.testing.expectEqual(fresh(&turn), f.pass(&s, &turn, p));
+     const replied = turn ++ [_]u32{ 13, 14 }; // a reply's state: the history's goes, the resumed state stays
+     f.at = 13;
+-    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{}, 0));
+     try std.testing.expect(s.held <= s.budget);
+     const edited = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 50, 10, 11, 12 };
+-    const q = try s.beginRewind(a, &edited, 11, 8, &.{}, &.{}, null, &.{});
++    const q = try s.beginRewind(a, &edited, 11, 8, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 6), q.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, q));
+ }
+@@ -186,18 +186,18 @@ test "the warm pass after a turn keeps that turn's rewind state, though it resum
+     const before = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
+     _ = f.pass(&s, &before, try s.begin(a, &before, 6, &.{}, &.{}, null, &.{}));
+     const turn = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12 }; // resumes at 6, the user's text from 8
+-    _ = f.pass(&s, &turn, try s.beginRewind(a, &turn, 11, 8, &.{}, &.{}, null, &.{}));
++    _ = f.pass(&s, &turn, try s.beginRewind(a, &turn, 11, 8, &.{}, &.{}, null, &.{}, 0));
+     const replied = turn ++ [_]u32{ 13, 14 };
+     f.at = 13;
+-    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{})); // the reply's state
++    try std.testing.expect(s.keep(&replied, 13, null, &.{}, &.{}, 0)); // the reply's state
+     const warm = replied ++ [_]u32{15}; // the next turn's opening, prefilled in the background from the reply's state
+-    const w = try s.beginRewind(a, &warm, warm.len, 8, &.{}, &.{}, null, &.{});
++    const w = try s.beginRewind(a, &warm, warm.len, 8, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 13), w.from);
+     f.at = 15;
+-    try std.testing.expect(s.keep(&warm, 15, null, &.{}, &.{}));
++    try std.testing.expect(s.keep(&warm, 15, null, &.{}, &.{}, 0));
+     try std.testing.expect(s.held <= s.budget);
+     const edited = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 50, 10, 11, 12 };
+-    const q = try s.beginRewind(a, &edited, 11, 8, &.{}, &.{}, null, &.{});
++    const q = try s.beginRewind(a, &edited, 11, 8, &.{}, &.{}, null, &.{}, 0);
+     try std.testing.expectEqual(@as(u32, 6), q.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, q));
+ }
+diff --git a/zig/src/core/prompt_cache_salt_test.zig b/zig/src/core/prompt_cache_salt_test.zig
+new file mode 100644
+index 00000000..ca497a6a
+--- /dev/null
++++ b/zig/src/core/prompt_cache_salt_test.zig
+@@ -0,0 +1,232 @@
++//! Cache salts: a salted request resumes, shares, evicts and learns only within its own salt; the unsalted as before.
++const std = @import("std");
++const pc = @import("prompt_cache.zig");
++const imprint = @import("prompt_imprint.zig");
++const rmTree = @import("prompt_imprint_test.zig").rmTree;
++const Fake = @import("prompt_cache_test.zig").Fake;
++const fresh = @import("prompt_cache_test.zig").fresh;
++const Store = pc.Store;
++
++/// `n` tokens counting up from `from`.
++fn seq(comptime n: usize, from: u32) [n]u32 {
++    var out: [n]u32 = undefined;
++    for (&out, 0..) |*t, i| t.* = from + @as(u32, @intCast(i));
++    return out;
++}
++
++/// One request under `salt`: begin, then a pass keeping at every mark; returns where it resumed.
++fn request(f: *Fake, s: *Store, a: std.mem.Allocator, prompt: []const u32, history: u32, shared: []const u32, salt: u64) !u32 {
++    f.salt = salt;
++    const p = try s.beginRewind(a, prompt, history, 0, shared, &.{}, null, &.{}, salt);
++    try std.testing.expectEqual(fresh(prompt), f.pass(s, prompt, p));
++    return p.from;
++}
++
++test "a salted prompt resumes only states its own salt kept; unsalted prompts share theirs as before" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 1 }, 1 << 20);
++    defer s.deinit();
++    try std.testing.expectEqual(@as(u64, 0), pc.saltKey(null));
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    try std.testing.expect(ka != 0 and kb != 0 and ka != kb);
++    const t1 = seq(10, 1); // history 8
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &t1, 8, &.{}, ka)); // cold under A
++    try std.testing.expect(s.find(&t1, &.{}, &.{}, 0) == null); // unsalted: cold
++    try std.testing.expect(s.find(&t1, &.{}, &.{}, kb) == null); // another salt: cold
++    try std.testing.expectEqual(@as(u32, 8), try request(&f, &s, a, &t1, 8, &.{}, ka)); // A resumes its own
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &t1, 8, &.{}, kb)); // B keeps its own beside it
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &t1, 8, &.{}, 0)); // and so do the unsalted
++    try std.testing.expectEqual(@as(u32, 8), try request(&f, &s, a, &t1, 8, &.{}, 0));
++    try std.testing.expectEqual(@as(usize, 3), s.entries.items.len);
++    for ([_]u64{ ka, kb, 0 }) |k| try std.testing.expectEqual(k, s.find(&t1, &.{}, &.{}, k).?.salt);
++    s.forget(&t1, 8, &.{}, kb); // a forget under B leaves A's and the unsalted state
++    try std.testing.expect(s.find(&t1, &.{}, &.{}, kb) == null);
++    try std.testing.expect(s.find(&t1, &.{}, &.{}, ka) != null and s.find(&t1, &.{}, &.{}, 0) != null);
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "a shared system cut is shared within its salt only" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 1 }, 1 << 20);
++    defer s.deinit();
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    var c1 = seq(30, 1); // a 20-token system block, then a conversation
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &c1, 28, &.{20}, ka));
++    try std.testing.expect(s.find(c1[0..21], &.{}, &.{}, ka).?.shared);
++    @memcpy(c1[20..], &seq(10, 500)); // another conversation on the same block
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &c1, 20, &.{}, kb)); // B's history ends at the cut
++    try std.testing.expect(!s.find(c1[0..21], &.{}, &.{}, kb).?.shared); // not A's planned cut
++    try std.testing.expectEqual(@as(u32, 20), try request(&f, &s, a, &c1, 28, &.{20}, ka)); // A's next conversation
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "a salted request learns no state to disk and reads none back: learned states are the unsalted ones" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var root_buf: [128]u8 = undefined;
++    const root = try std.fmt.bufPrint(&root_buf, "/tmp/tf-learn-salt-{d}", .{std.c.getpid()});
++    defer rmTree(root);
++    const rules: pc.Rules = .{ .lookahead = 1, .min_prompt = 0, .min_gap = 1 };
++    const harness = [_]u32{ 7, 7, 7, 7, 7, 7 }; // a state at 5 reads it all (lookahead 1)
++    var im = try imprint.Imprint.open(gpa, root, 3, 1 << 30);
++    defer im.deinit();
++    const ka = pc.saltKey("tenant-a");
++    {
++        var f: Fake = .{ .gpa = gpa };
++        var s = Store.init(gpa, f.learned(), rules, 1 << 20);
++        defer s.deinit();
++        s.imprint = &im;
++        const first = harness ++ [_]u32{ 1, 2, 9 };
++        try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &first, 8, &.{5}, ka));
++        try std.testing.expect(s.keep(&first, 5, null, &.{}, &.{}, ka)); // the same state kept again: still not learned
++        try std.testing.expectEqual(@as(usize, 0), f.writes); // A's cut stays in memory
++        try std.testing.expect(!im.has(imprint.Imprint.keyOf(&harness)));
++        try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &first, 8, &.{5}, 0)); // the unsalted learn it
++        try std.testing.expect(im.has(imprint.Imprint.keyOf(&harness)));
++    }
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.learned(), rules, 1 << 20);
++    defer s.deinit();
++    s.imprint = &im;
++    const second = harness ++ [_]u32{ 3, 4, 9 };
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &second, 8, &.{5}, ka)); // A reads nothing back
++    try std.testing.expectEqual(@as(u32, 5), try request(&f, &s, a, &second, 8, &.{5}, 0)); // the unsalted do
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "another salt's longer state never supersedes a state: eviction takes the oldest instead" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    const other = seq(20, 50); // history 13: 113 bytes (100 + at), the least recently used
++    const p = seq(20, 1); // 113 under A
++    var q: [26]u32 = undefined; // p's first 13 tokens and 13 more under B: its state at 19 extends A's
++    @memcpy(q[0..13], p[0..13]);
++    @memcpy(q[13..], &seq(13, 300));
++    for ([_]u64{ 340, 400 }) |budget| { // B's own room (B's prompt extends A's state); a later prompt's room
++        var f: Fake = .{ .gpa = gpa };
++        var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 3 }, budget);
++        defer s.deinit();
++        _ = try request(&f, &s, a, &other, 13, &.{}, 0);
++        _ = try request(&f, &s, a, &p, 13, &.{}, ka);
++        try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &q, 19, &.{}, kb));
++        if (budget == 400) _ = try request(&f, &s, a, &seq(20, 70), 13, &.{}, 0);
++        try std.testing.expectEqual(@as(u64, 1), s.counts.evicted);
++        try std.testing.expect(s.find(&other, &.{}, &.{}, 0) == null);
++        try std.testing.expectEqual(@as(u32, 13), s.find(&p, &.{}, &.{}, ka).?.at);
++        try std.testing.expectEqual(s.entries.items.len, f.live);
++    }
++}
++
++test "a lookup's rewind is its own salt's: another salt's state near it is no rewind and goes as the oldest" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    const first = seq(10, 1); // history 8, its latest user message at 4
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0 }, 1 << 20); // min_gap 256: a state near the rewind serves
++    defer s.deinit();
++    _ = try request(&f, &s, a, first[0..5], 2, &.{}, ka); // A keeps a state at 2
++    f.salt = kb;
++    var plan = try s.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{}, kb);
++    try std.testing.expectEqualSlices(u32, &.{ 4, 8 }, plan.marks); // B's own rewind: A's state at 2 does not serve it
++    try std.testing.expectEqual(fresh(&first), f.pass(&s, &first, plan));
++    var g: Fake = .{ .gpa = gpa, .salt = ka };
++    var t = Store.init(gpa, g.snapshots(), .{ .min_prompt = 0 }, 330); // fake bytes 100 + at
++    defer t.deinit();
++    plan = try t.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{}, ka); // A's rewind at 4 (104) and history (108)
++    try std.testing.expectEqual(fresh(&first), g.pass(&t, &first, plan));
++    g.salt = kb;
++    plan = try t.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{}, kb); // B needs 212 more: one of A's goes first
++    try std.testing.expectEqual(@as(u64, 1), t.counts.evicted);
++    try std.testing.expectEqual(fresh(&first), g.pass(&t, &first, plan));
++    const edited = [_]u32{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10 };
++    try std.testing.expect(t.find(&edited, &.{}, &.{}, ka) == null); // A's rewind was the oldest, not B's rewind
++    try std.testing.expectEqual(@as(u32, 8), t.find(&first, &.{}, &.{}, ka).?.at);
++    try std.testing.expectEqual(t.entries.items.len, g.live);
++    var h: Fake = .{ .gpa = gpa, .salt = kb };
++    var u = Store.init(gpa, h.snapshots(), .{ .min_prompt = 0 }, 300);
++    defer u.deinit();
++    plan = try u.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{}, kb); // B's own rewind (104) and history (108)
++    try std.testing.expectEqual(fresh(&first), h.pass(&u, &first, plan));
++    const more = first[0..4].* ++ seq(16, 200); // past B's rewind: its keep at 13 needs 113 more, and B's history goes
++    try std.testing.expectEqual(fresh(&more), h.pass(&u, &more, .{ .marks = &.{13} }));
++    try std.testing.expectEqual(@as(u32, 4), u.find(&edited, &.{}, &.{}, kb).?.at); // B's rewind went last, as unsalted
++    try std.testing.expect(u.find(&first, &.{}, &.{}, kb).?.at != 8);
++    try std.testing.expectEqual(u.entries.items.len, h.live);
++}
++
++test "a pass makes room before it starts for a state another salt already holds at the same tokens" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 1 }, 300); // fake bytes 100 + at
++    defer s.deinit();
++    const ka = pc.saltKey("tenant-a");
++    const kb = pc.saltKey("tenant-b");
++    _ = try request(&f, &s, a, &seq(20, 50), 13, &.{}, 0); // 113, the oldest
++    const t1 = seq(10, 1);
++    _ = try request(&f, &s, a, &t1, 8, &.{}, ka); // 108: 221 held
++    f.salt = kb;
++    const plan = try s.beginRewind(a, &t1, 8, 0, &.{}, &.{}, null, &.{}, kb); // B's own 108 at the same tokens
++    try std.testing.expectEqual(@as(u64, 1), s.counts.evicted); // before the pass, so a peer hears of it with the request
++    try std.testing.expectEqual(fresh(&t1), f.pass(&s, &t1, plan));
++    try std.testing.expectEqual(@as(u64, 1), s.counts.evicted);
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "a store frees its states out of its list: a family's drop never sees the state it drops" {
++    const Family = struct {
++        store: ?*const Store = null,
++        live: usize = 0,
++        seen: bool = false, // a drop found its own state still in the store's list
++        fn snapshots(f: *@This()) pc.Snapshots {
++            return .{ .ptr = f, .vtable = &.{ .bytes = bytes, .save = save, .restore = restore, .drop = drop } };
++        }
++        fn bytes(_: *anyopaque, at: u32) u64 {
++            return 100 + at;
++        }
++        fn save(ptr: *anyopaque, _: ?*anyopaque, at: u32) anyerror!pc.Saved {
++            const f: *@This() = @ptrCast(@alignCast(ptr));
++            f.live += 1;
++            const st = try std.testing.allocator.create(u32);
++            st.* = at;
++            return st;
++        }
++        fn restore(_: *anyopaque, _: ?*anyopaque, _: pc.Saved) anyerror!void {}
++        fn drop(ptr: *anyopaque, saved: pc.Saved) void {
++            const f: *@This() = @ptrCast(@alignCast(ptr));
++            for (f.store.?.entries.items) |e| f.seen = f.seen or e.saved == saved; // the list holds the states still kept
++            std.testing.allocator.destroy(@as(*u32, @ptrCast(@alignCast(saved))));
++            f.live -= 1;
++        }
++    };
++    var f: Family = .{};
++    var s = Store.init(std.testing.allocator, f.snapshots(), .{ .min_prompt = 0 }, 1 << 20);
++    f.store = &s;
++    for ([_]u64{ pc.saltKey("tenant-a"), 0 }) |salt| try std.testing.expect(s.keep(&seq(10, 1), 8, null, &.{}, &.{}, salt));
++    try std.testing.expectEqual(@as(usize, 2), f.live);
++    s.deinit();
++    try std.testing.expectEqual(@as(usize, 0), f.live);
++    try std.testing.expect(!f.seen);
++}
+diff --git a/zig/src/core/prompt_cache_test.zig b/zig/src/core/prompt_cache_test.zig
+index 94c4bf7f..459d8936 100644
+--- a/zig/src/core/prompt_cache_test.zig
++++ b/zig/src/core/prompt_cache_test.zig
+@@ -54,9 +54,9 @@ test "an entry keys its lookahead tokens: a prompt that differs right after the
+     defer s.deinit();
+     const t1 = [_]u32{ 1, 2, 3, 4, 5, 9 };
+     _ = f.pass(&s, &t1, try s.begin(a, &t1, 4, &.{}, &.{}, null, &.{})); // keeps [1 2 3 4] + 5
+-    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 6, 9 }, &.{}, &.{}) == null);
+-    try std.testing.expectEqual(@as(u32, 4), s.find(&.{ 1, 2, 3, 4, 5, 6 }, &.{}, &.{}).?.at);
+-    try std.testing.expect(s.find(&.{ 1, 2, 3, 4 }, &.{}, &.{}) == null); // the lookahead token must be in the prompt
++    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 6, 9 }, &.{}, &.{}, 0) == null);
++    try std.testing.expectEqual(@as(u32, 4), s.find(&.{ 1, 2, 3, 4, 5, 6 }, &.{}, &.{}, 0).?.at);
++    try std.testing.expect(s.find(&.{ 1, 2, 3, 4 }, &.{}, &.{}, 0) == null); // the lookahead token must be in the prompt
+ }
+ 
+ test "planned families resume and keep only at the request's chunk starts" {
+@@ -71,8 +71,8 @@ test "planned families resume and keep only at the request's chunk starts" {
+     const p = try s.begin(a, &t1, 7, &.{}, &.{ 4, 6 }, null, &.{});
+     try std.testing.expectEqualSlices(u32, &.{6}, p.marks); // history 7 floored to the start at 6
+     _ = f.pass(&s, &t1, p);
+-    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 5, 6, 7, 9 }, &.{4}, &.{}) == null); // 6 is not one of this prompt's starts
+-    try std.testing.expectEqual(@as(u32, 6), s.find(&.{ 1, 2, 3, 4, 5, 6, 7, 9 }, &.{ 4, 6 }, &.{}).?.at);
++    try std.testing.expect(s.find(&.{ 1, 2, 3, 4, 5, 6, 7, 9 }, &.{4}, &.{}, 0) == null); // 6 is not one of this prompt's starts
++    try std.testing.expectEqual(@as(u32, 6), s.find(&.{ 1, 2, 3, 4, 5, 6, 7, 9 }, &.{ 4, 6 }, &.{}, 0).?.at);
+ }
+ 
+ test "a planned family's own grid gives the starts when a request names none, and a resumed pass equals a fresh one" {
+@@ -88,7 +88,7 @@ test "a planned family's own grid gives the starts when a request names none, an
+     try std.testing.expectEqualSlices(u32, &.{4}, p1.marks); // history 7 floored to the grid's 4
+     _ = f.pass(&s, &t1, p1);
+     const t2 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 14 };
+-    try std.testing.expect(s.find(&t2, &.{6}, &.{}) == null); // a request's own starts win over the grid
++    try std.testing.expect(s.find(&t2, &.{6}, &.{}, 0) == null); // a request's own starts win over the grid
+     const p2 = try s.begin(a, &t2, 9, &.{}, &.{}, null, &.{});
+     try std.testing.expectEqual(@as(u32, 4), p2.from);
+     try std.testing.expectEqualSlices(u32, &.{8}, p2.marks);
+@@ -113,8 +113,8 @@ test "eviction frees a conversation's superseded state first, then the oldest; a
+     const t3 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+     _ = f.pass(&s, &t3, try s.begin(a, &t3, 8, &.{}, &.{}, null, &.{})); // 108: t1's state (extended by later turns) goes first
+     try std.testing.expectEqual(@as(usize, 3), s.entries.items.len);
+-    try std.testing.expect(s.find(&.{ 5, 5, 5, 5 }, &.{}, &.{}) != null);
+-    try std.testing.expectEqual(@as(u32, 8), s.find(&t3, &.{}, &.{}).?.at);
++    try std.testing.expect(s.find(&.{ 5, 5, 5, 5 }, &.{}, &.{}, 0) != null);
++    try std.testing.expectEqual(@as(u32, 8), s.find(&t3, &.{}, &.{}, 0).?.at);
+     const big: [300]u32 = @splat(7);
+     _ = f.pass(&s, &big, try s.begin(a, &big, 299, &.{}, &.{}, null, &.{})); // 399 > 330: refused, nothing evicted
+     try std.testing.expectEqual(@as(u64, 1), s.counts.refused);
+@@ -184,7 +184,7 @@ test "prompts under min_prompt keep nothing (their extra prompt call would cost
+     try std.testing.expectEqual(@as(u32, 0), q.from);
+     try std.testing.expectEqualSlices(u32, &.{8}, q.marks);
+     try std.testing.expectEqual(fresh(&long), f.pass(&s, &long, q));
+-    try std.testing.expectEqual(@as(u32, 8), s.find(&.{ 1, 2, 3, 4, 5, 9, 7, 7, 9, 9, 4 }, &.{}, &.{}).?.at);
++    try std.testing.expectEqual(@as(u32, 8), s.find(&.{ 1, 2, 3, 4, 5, 9, 7, 7, 9, 9, 4 }, &.{}, &.{}, 0).?.at);
+ }
+ 
+ test "kept states charge their real storage, a save takes spare storage first, and spare stays inside the budget" {
+@@ -281,9 +281,9 @@ test "a state a peer cannot resume is forgotten: the next prompt misses instead
+     const t2 = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
+     const plan = try s.begin(a, &t2, 6, &.{}, &.{}, null, &.{});
+     try std.testing.expectEqual(@as(u32, 4), plan.from);
+-    s.forget(&t2, plan.from, &.{}); // the peer's answer: it lacks that state
++    s.forget(&t2, plan.from, &.{}, 0); // the peer's answer: it lacks that state
+     try std.testing.expectEqual(@as(u64, 1), s.counts.failed);
+-    try std.testing.expectEqual(@as(?*pc.Entry, null), s.find(&t2, &.{}, &.{}));
++    try std.testing.expectEqual(@as(?*pc.Entry, null), s.find(&t2, &.{}, &.{}, 0));
+     try std.testing.expectEqual(s.entries.items.len, f.live);
+ }
+ 
+@@ -398,7 +398,7 @@ test "learned states are prompt arithmetic: a request that decodes rows below on
+     const p = try s.begin(a, &other, 7, &.{5}, &.{}, null, &.{.{ 1, 3 }});
+     try std.testing.expectEqual(@as(u32, 0), p.from);
+     f.at = 5;
+-    try std.testing.expect(s.keep(&other, 5, null, &.{}, &.{.{ 1, 3 }}));
++    try std.testing.expect(s.keep(&other, 5, null, &.{}, &.{.{ 1, 3 }}, 0));
+     try std.testing.expect(!im.has(imprint.Imprint.keyOf(other[0..6])));
+ }
+ 
+@@ -475,7 +475,7 @@ test "learning reserves the existing index rewrite above the disk floor and resu
+     try std.testing.expectEqual(@as(usize, 0), fake.writes);
+     Disk.space += try im.indexScratchBytes();
+     fake.at = 5;
+-    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(usize, 1), fake.writes);
+     try std.testing.expectEqual(@as(u64, 0), im.admission.reserved);
+ }
+@@ -505,14 +505,14 @@ test "actual Store learn writes neither half on peer refusal, backs off, and rem
+     defer arena.deinit();
+     const prompt = [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 };
+     _ = try store.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    for (0..32) |_| try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}));
++    for (0..32) |_| try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(usize, 0), fake.writes);
+     try std.testing.expectEqual(@as(usize, 0), fake.disk_peer_writes);
+     try std.testing.expectEqual(@as(usize, 1), fake.disk_queries);
+     Disk.tick += 100;
+     fake.disk_need_bytes = 0;
+     fake.disk_fail_peer = true;
+-    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(usize, 1), fake.writes);
+     try std.testing.expectEqual(@as(usize, 1), fake.disk_peer_writes);
+     try std.testing.expect(!fake.disk_reserved);
+@@ -562,7 +562,7 @@ test "under-cap disk pressure selects the same LRU victim before either half is
+     var arena = std.heap.ArenaAllocator.init(a);
+     defer arena.deinit();
+     _ = try store.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}));
++    try std.testing.expect(store.keep(&prompt, 5, null, &.{}, &.{}, 0));
+     try std.testing.expectEqual(@as(usize, 1), fake.disk_forgets);
+     try std.testing.expect(!im.has(imprint.Imprint.keyOf(&.{ 1, 2 })));
+     try std.testing.expectEqual(@as(usize, 1), fake.writes);
+diff --git a/zig/src/core/serial_host.zig b/zig/src/core/serial_host.zig
+index 7127ffc6..7c7bfdf6 100644
+--- a/zig/src/core/serial_host.zig
++++ b/zig/src/core/serial_host.zig
+@@ -187,7 +187,7 @@ pub const Host = struct {
+         defer arena.deinit();
+         const decode_spans: []const [2]u32 = if (h.driver.decode_chunk != null) request.decode_spans else &.{};
+         var plan: pc.Plan = .{};
+-        if (h.driver.cache) |store| plan = store.beginRewind(arena.allocator(), request.prompt, request.history_len, request.rewind_len, request.shared_prefixes, request.chunks, null, decode_spans) catch .{};
++        if (h.driver.cache) |store| plan = store.beginRewind(arena.allocator(), request.prompt, request.history_len, request.rewind_len, request.shared_prefixes, request.chunks, null, decode_spans, request.cache_salt) catch .{};
+         if (plan.from == 0) try h.driver.reset(h.driver.ctx);
+         const start = std.Io.Clock.awake.now(h.io);
+         var first: usize = plan.from;
+@@ -217,7 +217,7 @@ pub const Host = struct {
+             try chunk(h.driver.ctx, request.prompt[first..end], end == request.prompt.len);
+             first = end;
+             if (h.driver.cache) |store| if (std.mem.indexOfScalar(u32, plan.marks, @intCast(first)) != null) {
+-                if (store.keep(request.prompt, @intCast(first), null, request.chunks, decode_spans)) kept += 1;
++                if (store.keep(request.prompt, @intCast(first), null, request.chunks, decode_spans, request.cache_salt)) kept += 1;
+             };
+             h.lock();
+             h.prompt_count = @intCast(first);
+@@ -231,7 +231,7 @@ pub const Host = struct {
+         h.lock();
+         h.prefill_rate = @as(f64, @floatFromInt(first - plan.from)) * 1e9 / @as(f64, @floatFromInt(@max(prefill_ns, 1)));
+         h.unlock();
+-        if (warm) if (h.driver.cache) |store| if (first > plan.from and store.keep(request.prompt, @intCast(first), null, request.chunks, decode_spans)) {
++        if (warm) if (h.driver.cache) |store| if (first > plan.from and store.keep(request.prompt, @intCast(first), null, request.chunks, decode_spans, request.cache_salt)) {
+             kept += 1;
+         };
+         if (h.driver.cache) |store| store.report(first, plan.from, kept);
+@@ -278,7 +278,7 @@ pub const Host = struct {
+         defer h.gpa.free(tokens);
+         const spans = modes.reply(h.gpa, request.decode_spans, @intCast(prompt.len), @intCast(stands)) catch return;
+         defer h.gpa.free(spans);
+-        _ = store.keep(tokens, @intCast(stands), null, request.chunks, spans);
++        _ = store.keep(tokens, @intCast(stands), null, request.chunks, spans, request.cache_salt);
+     }
+     fn serveDrafted(h: *Host, job: *Job, prefill_ns: i96) !void {
+         const request = job.request;
+diff --git a/zig/src/learned_warning_test.zig b/zig/src/learned_warning_test.zig
+index cb9a9346..072c619e 100644
+--- a/zig/src/learned_warning_test.zig
++++ b/zig/src/learned_warning_test.zig
+@@ -41,7 +41,7 @@ fn attempt(s: *pc.Store, f: *Fake, first: u32) !void {
+     var arena = std.heap.ArenaAllocator.init(s.gpa);
+     defer arena.deinit();
+     _ = try s.lookup(arena.allocator(), &prompt, 7, &.{5}, &.{}, &.{});
+-    if (!s.keep(&prompt, 5, null, &.{}, &.{})) return error.KeepFailed;
++    if (!s.keep(&prompt, 5, null, &.{}, &.{}, 0)) return error.KeepFailed;
+ }
+ 
+ fn expectedWarnings(n: usize) !void {
+diff --git a/zig/src/native/flashnext_host.zig b/zig/src/native/flashnext_host.zig
+index e81619a8..46bbfc49 100644
+--- a/zig/src/native/flashnext_host.zig
++++ b/zig/src/native/flashnext_host.zig
+@@ -254,7 +254,7 @@ pub const Host = struct {
+         fn marked(ctx: *anyopaque, at: usize) void {
+             const c: *Ctx = @ptrCast(@alignCast(ctx));
+             const t0 = c.h.now();
+-            if (c.h.cache) |*store| if (store.keep(c.job.request.prompt, @intCast(at), null, c.job.request.chunks, &.{})) c.h.saved.append(c.h.gpa, @intCast(at)) catch {}; // held here: rank 1 keeps its copy
++            if (c.h.cache) |*store| if (store.keep(c.job.request.prompt, @intCast(at), null, c.job.request.chunks, &.{}, c.job.request.cache_salt)) c.h.saved.append(c.h.gpa, @intCast(at)) catch {}; // held here: rank 1 keeps its copy
+             c.job.keep_ns += c.h.now() - t0;
+         }
+ 
+@@ -317,7 +317,7 @@ pub const Host = struct {
+         const t_begin = h.now();
+         h.prompt = r.prompt; // a learned state read back in `begin` is named by these tokens
+         if (h.cache) |*store| if (r.prompt.len + r.max_tokens + fx.MARGIN <= tf.flashnext_replay.CAP) {
+-            plan = store.beginRewind(arena.allocator(), r.prompt, r.history_len, r.rewind_len, r.shared_prefixes, &.{}, null, &.{}) catch .{};
++            plan = store.beginRewind(arena.allocator(), r.prompt, r.history_len, r.rewind_len, r.shared_prefixes, &.{}, null, &.{}, r.cache_salt) catch .{};
+         };
+         job.restore_ns = h.now() - t_begin;
+         job.cached = plan.from;
+@@ -330,7 +330,7 @@ pub const Host = struct {
+         const res = h.eng.generateFrom(r.prompt, plan.from, plan.marks, r.max_tokens, r.eos, depth, out) catch |e| retry: {
+             if (e == error.PeerNotResumed) { // rank 1 lacks this state: both Macs read the prompt from the start
+                 std.log.warn("speed-up mode: rank 1 could not resume at {d}; reading the prompt from the start", .{plan.from});
+-                if (h.cache) |*store| store.forget(r.prompt, plan.from, &.{}); // so later prompts do not ask rank 1 for it again
++                if (h.cache) |*store| store.forget(r.prompt, plan.from, &.{}, r.cache_salt); // so later prompts do not ask rank 1 for it again
+                 job.cached = 0;
+                 break :retry h.eng.generateFrom(r.prompt, 0, plan.marks, r.max_tokens, r.eos, depth, out) catch |e2| {
+                     if (!job.prefill_sent) emit(job, .{ .prefilled = 0 });
+@@ -378,6 +378,12 @@ const Snaps = struct {
+         const h: *Host = @ptrCast(@alignCast(ptr));
+         return h.eng.snap_pool.fits(snap.bytes(at));
+     }
++    /// Whether another kept state has `k`'s name (its tokens under another cache salt): rank 1's copy then stays.
++    fn named(h: *const Host, k: *const Kept) bool {
++        const store = if (h.cache) |*c| c else return false;
++        for (store.entries.items) |e| if (e.saved != @as(pc.Saved, @constCast(k)) and @as(*const Kept, @ptrCast(@alignCast(e.saved))).key == k.key) return true;
++        return false;
++    }
+     /// A kept state and its name on both Macs (speed-up mode's rank 1 keeps its own under the same name).
+     const Kept = struct { st: *snap.State, key: u64 };
+     fn save(ptr: *anyopaque, _: ?*anyopaque, at: u32) anyerror!pc.Saved {
+@@ -396,7 +402,7 @@ const Snaps = struct {
+     fn drop(ptr: *anyopaque, saved: pc.Saved) void {
+         const h: *Host = @ptrCast(@alignCast(ptr));
+         const k: *Kept = @ptrCast(@alignCast(saved));
+-        if (h.eng.r.tp != null) h.eng.peer_drops.append(h.gpa, k.key) catch {};
++        if (h.eng.r.tp != null and !named(h, k)) h.eng.peer_drops.append(h.gpa, k.key) catch {}; // rank 1 keeps one copy a name
+         snap.drop(h.gpa, k.st);
+         h.gpa.destroy(k);
+     }
+diff --git a/zig/src/native/qwen27_served.zig b/zig/src/native/qwen27_served.zig
+index 6ca7b9a5..86b3d172 100644
+--- a/zig/src/native/qwen27_served.zig
++++ b/zig/src/native/qwen27_served.zig
+@@ -69,7 +69,7 @@ pub const Host = struct {
+         if (tokens.len == prompt or stands + 1 < tokens.len or stands > tokens.len) return;
+         const spans = api.cache_modes.reply(h.gpa, s.decode_spans, prompt, stands) catch return;
+         defer h.gpa.free(spans);
+-        _ = store.keep(tokens, stands, s, s.chunks, spans);
++        _ = store.keep(tokens, stands, s, s.chunks, spans, s.reuse.salt);
+     }
+ };
+ 
+diff --git a/zig/src/server/cache_salt_test.zig b/zig/src/server/cache_salt_test.zig
+new file mode 100644
+index 00000000..00ee0695
+--- /dev/null
++++ b/zig/src/server/cache_salt_test.zig
+@@ -0,0 +1,192 @@
++//! vLLM's ``cache_salt`` from each OpenAI route to the engine request, keyed (prompt_cache.saltKey), the warm pass too.
++const std = @import("std");
++const api = @import("engine_api");
++const json = @import("json.zig");
++const errors = @import("errors.zig");
++const model_text = @import("model_text.zig");
++const openai = @import("openai.zig");
++const responses_translate = @import("responses_translate.zig");
++const Server = @import("server.zig").Server;
++const Conn = @import("http_conn.zig").Conn;
++const Value = json.Value;
++const Allocator = std.mem.Allocator;
++
++/// Bytes as tokens; a chat renders as `role:content` lines.
++const Text = struct {
++    fn text(t: *@This()) model_text.Text {
++        return .{ .ctx = t, .vtable = &.{ .encode = encode, .decode = decode, .token_id = tokenId, .token_string = tokenString, .vocab_size = vocabSize, .eos_ids = eosIds, .render = render, .template_source = templateSource } };
++    }
++
++    fn encode(_: *anyopaque, a: Allocator, input: []const u8, _: bool) model_text.Error![]u32 {
++        const ids = try a.alloc(u32, input.len);
++        for (input, ids) |byte, *id| id.* = byte;
++        return ids;
++    }
++
++    fn decode(_: *anyopaque, a: Allocator, ids: []const u32) Allocator.Error![]u8 {
++        var out: std.ArrayList(u8) = .empty;
++        for (ids) |id| if (id < 256) try out.append(a, @intCast(id));
++        return out.toOwnedSlice(a);
++    }
++
++    fn tokenId(_: *anyopaque, _: []const u8) ?u32 {
++        return null;
++    }
++
++    fn tokenString(_: *anyopaque, a: Allocator, id: u32) Allocator.Error![]u8 {
++        return std.fmt.allocPrint(a, "{d}", .{id});
++    }
++
++    fn vocabSize(_: *anyopaque) u32 {
++        return 256;
++    }
++
++    fn eosIds(_: *anyopaque) []const u32 {
++        return &.{};
++    }
++
++    fn render(_: *anyopaque, a: Allocator, messages: Value, options: model_text.RenderOptions, _: *[]const u8) model_text.Error![]u8 {
++        var buf: std.ArrayList(u8) = .empty;
++        if (messages == .array) for (messages.array) |m| {
++            const role = m.get("role") orelse Value{ .string = "" };
++            const content = m.get("content") orelse Value{ .string = "" };
++            try buf.appendSlice(a, if (role == .string) role.string else "");
++            try buf.append(a, ':');
++            try buf.appendSlice(a, if (content == .string) content.string else "");
++            try buf.append(a, '\n');
++        };
++        if (options.add_generation_prompt) try buf.append(a, '>');
++        return buf.items;
++    }
++
++    fn templateSource(_: *anyopaque) []const u8 {
++        return "";
++    }
++};
++
++/// Records each submitted request's salt and whether it was a prompt-only background pass, then finishes at once.
++const Capture = struct {
++    warm: bool = false,
++    salts: [4]u64 = @splat(0),
++    warms: [4]bool = @splat(false),
++    count: usize = 0,
++
++    fn engine(e: *@This()) api.Engine {
++        return .{ .ctx = e, .vtable = &.{ .info = info, .submit = submit, .cancel = cancel, .status = status, .memory = memory } };
++    }
++
++    fn info(ctx: *anyopaque) api.Info {
++        const e: *Capture = @ptrCast(@alignCast(ctx));
++        return .{ .warm_turns = e.warm };
++    }
++
++    fn submit(ctx: *anyopaque, id: api.Id, request: *const api.Request, sink: api.Sink) api.SubmitError!void {
++        const e: *Capture = @ptrCast(@alignCast(ctx));
++        if (e.count == e.salts.len) return error.Busy;
++        e.salts[e.count] = request.cache_salt;
++        e.warms[e.count] = request.background and request.max_tokens == 0;
++        e.count += 1;
++        sink.event(sink.ctx, id, &.{ .prefilled = 0 });
++        sink.event(sink.ctx, id, &.{ .tokens = &.{ 'o', 'k' } });
++        sink.event(sink.ctx, id, &.{ .finished = .{ .reason = .stop } });
++    }
++
++    fn cancel(_: *anyopaque, _: api.Id) void {}
++
++    fn status(_: *anyopaque, out: *api.Status, _: []u32) void {
++        out.* = .{};
++    }
++
++    fn memory(_: *anyopaque, _: bool) ?api.Memory {
++        return null;
++    }
++};
++
++/// A whole reply's status.
++const Reply = struct {
++    status: ?u16 = null,
++
++    fn out(r: *Reply) openai.Out {
++        return .{ .ctx = r, .vt = &.{ .open = open, .event = event, .reply = reply } };
++    }
++
++    fn open(_: *anyopaque) error{Closed}!void {}
++
++    fn event(_: *anyopaque, _: ?Value) error{Closed}!void {}
++
++    fn reply(ctx: *anyopaque, status: u16, _: Value) void {
++        const r: *Reply = @ptrCast(@alignCast(ctx));
++        r.status = status;
++    }
++};
++
++const NoHistory = struct {
++    pub fn conversation(_: NoHistory, cx: *errors.Cx, _: Value) errors.Refused![]Value {
++        return cx.refuse("no stored responses in this test");
++    }
++};
++
++const Route = enum { completions, chat, responses };
++
++/// The status of one request on `route` whose body ends with `salt` (raw JSON, or null for no field).
++fn send(backend: *Capture, route: Route, salt: ?[]const u8) !?u16 {
++    var text: Text = .{};
++    const srv = try Server.init(std.testing.allocator, std.testing.io, backend.engine(), text.text(), .{
++        .served_name = "m",
++        .model_ids = &.{"m"},
++        .enable_thinking = false,
++        .use_drafts = false,
++    }, null);
++    defer srv.deinit();
++    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    const head = switch (route) {
++        .completions => "\"prompt\":[104,105]",
++        .chat => "\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]",
++        .responses => "\"input\":\"hi\"",
++    };
++    const field = if (salt) |s| try std.fmt.allocPrint(a, ",\"cache_salt\":{s}", .{s}) else "";
++    var raw = (try json.parse(a, try std.fmt.allocPrint(a, "{{\"model\":\"m\",\"max_tokens\":2,{s}{s}}}", .{ head, field }))).ok;
++    var reply: Reply = .{};
++    if (route == .responses) {
++        var cx: errors.Cx = .{ .a = a };
++        raw = (responses_translate.translate(&cx, raw, NoHistory{}) catch return cx.status()).chat;
++    }
++    var conn: Conn = .{ .fd = -1, .peer = "", .buf = &.{}, .gpa = a };
++    openai.run(srv, a, reply.out(), .{ .conn = &conn }, route != .completions, raw);
++    return reply.status;
++}
++
++test "cache_salt reaches the engine keyed from completions, chat completions and responses, and the chat's warm pass" {
++    const key = api.prompt_cache.saltKey("tenant-a");
++    for ([_]Route{ .completions, .chat, .responses }) |route| {
++        var backend: Capture = .{ .warm = true };
++        try std.testing.expectEqual(@as(?u16, 200), try send(&backend, route, "\"tenant-a\""));
++        try std.testing.expectEqual(key, backend.salts[0]);
++        try std.testing.expect(!backend.warms[0]);
++        if (route == .completions) { // a completion warms no next turn
++            try std.testing.expectEqual(@as(usize, 1), backend.count);
++        } else { // the next turn's background pass keeps its state under the same salt
++            try std.testing.expectEqual(@as(usize, 2), backend.count);
++            try std.testing.expect(backend.warms[1]);
++            try std.testing.expectEqual(key, backend.salts[1]);
++        }
++    }
++}
++
++test "absent or null cache_salt is none; a non-string or empty one is a 400 that submits nothing" {
++    for ([_]Route{ .completions, .chat, .responses }) |route| {
++        for ([_]?[]const u8{ null, "null" }) |salt| {
++            var backend: Capture = .{};
++            try std.testing.expectEqual(@as(?u16, 200), try send(&backend, route, salt));
++            try std.testing.expectEqual(@as(usize, 1), backend.count);
++            try std.testing.expectEqual(@as(u64, 0), backend.salts[0]);
++        }
++        for ([_][]const u8{ "\"\"", "123", "true", "[\"a\"]", "{\"a\":1}" }) |salt| {
++            var backend: Capture = .{};
++            try std.testing.expectEqual(@as(?u16, 400), try send(&backend, route, salt));
++            try std.testing.expectEqual(@as(usize, 0), backend.count);
++        }
++    }
++}
+diff --git a/zig/src/server/chat.zig b/zig/src/server/chat.zig
+index 6315e329..1a6f01af 100644
+--- a/zig/src/server/chat.zig
++++ b/zig/src/server/chat.zig
+@@ -188,6 +188,7 @@ pub fn prepare(srv: *Server, cx: *Cx, input: Input, gone: anytype) Failure!Prepa
+         .background = background,
+         .history_len = @intCast(rendered.history_len),
+         .rewind_len = @intCast(rendered.rewind_len),
++        .cache_salt = try fields_mod.cacheSalt(cx, f),
+         .shared_prefixes = shared.items,
+         .chunks = try chunk_plan.withCut(a, try srv.chunks.starts(a, rendered.ids), if (srv.chunks.step > 0) @intCast(@max(system_len, 1) - 1) else 0, rendered.ids.len, srv.chunks.min_chunk), // a cut before the conversation's own text: fresh sessions resume their whole harness
+         .decode_spans = try prompt_mod.replySpans(srv, cx, rendered.ids), // from the tokens alone, for every request: cached states are keyed by tokens
+diff --git a/zig/src/server/fields.zig b/zig/src/server/fields.zig
+index 0de8c8ab..e2f3caf8 100644
+--- a/zig/src/server/fields.zig
++++ b/zig/src/server/fields.zig
+@@ -5,6 +5,7 @@ const errors = @import("errors.zig");
+ const Value = json.Value;
+ const Cx = errors.Cx;
+ const Allocator = std.mem.Allocator;
++const prompt_cache = @import("engine_api").prompt_cache;
+ 
+ pub const efforts = [_][]const u8{ "none", "minimal", "low", "medium", "high", "xhigh", "max" };
+ const effort_order = [_][]const u8{ "max", "xhigh", "high", "medium", "low", "minimal" }; // highest first
+@@ -300,6 +301,14 @@ pub fn validateModalities(cx: *Cx, body: Value) errors.Refused!void {
+     return cx.refuse("this server accepts and produces text only; image, audio and video are unsupported");
+ }
+ 
++/// vLLM's ``cache_salt`` keyed for the prompt cache (saltKey): absent or null is none, else a non-empty string.
++pub fn cacheSalt(cx: *Cx, fields: Value) errors.Refused!u64 {
++    const v = fields.get("cache_salt") orelse return 0;
++    if (v == .null) return 0;
++    if (v != .string or v.string.len == 0) return cx.refuse("cache_salt must be a non-empty string");
++    return prompt_cache.saltKey(v.string);
++}
++
+ pub fn hasMedia(message: Value) bool {
+     for (media) |k| if (json.truthyField(message, k)) return true;
+     return false;
+@@ -317,3 +326,23 @@ test "efforts and numbers" {
+     try std.testing.expectEqualStrings("-12", (try pyIntText(arena.allocator(), " -0_12 ")).?);
+     try std.testing.expect(try pyIntText(arena.allocator(), "8.0") == null);
+ }
++
++test "cache_salt: absent or null is none, a non-empty string its key, any other value refused" {
++    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
++    defer arena.deinit();
++    var cx: Cx = .{ .a = arena.allocator() };
++    const o = try json.newObject(cx.a);
++    const f: Value = .{ .object = o };
++    try std.testing.expectEqual(@as(u64, 0), try cacheSalt(&cx, f));
++    try o.put(cx.a, "cache_salt", .null);
++    try std.testing.expectEqual(@as(u64, 0), try cacheSalt(&cx, f));
++    try o.put(cx.a, "cache_salt", .{ .string = "tenant-a" });
++    const ka = try cacheSalt(&cx, f);
++    try std.testing.expectEqual(prompt_cache.saltKey("tenant-a"), ka);
++    try std.testing.expect(ka != 0 and ka != prompt_cache.saltKey("tenant-b"));
++    for ([_]Value{ .{ .string = "" }, .{ .int = "123" }, .{ .bool = true }, .{ .float = 1.5 } }) |bad| {
++        try o.put(cx.a, "cache_salt", bad);
++        try std.testing.expectError(error.Refused, cacheSalt(&cx, f));
++        try std.testing.expectEqual(@as(u16, 400), cx.status());
++    }
++}
+diff --git a/zig/src/server/openai.zig b/zig/src/server/openai.zig
+index 91d02cce..376faa5f 100644
+--- a/zig/src/server/openai.zig
++++ b/zig/src/server/openai.zig
+@@ -143,7 +143,7 @@ fn plan(srv: *Server, cx: *Cx, is_chat: bool, raw: Value) errors.Refused!Plan {
+         input.temperature = if (t == .float) t.float else std.fmt.parseFloat(f64, t.int) catch 0;
+     };
+     const sampling = try json.newObject(cx.a);
+-    for ([_][]const u8{ "temperature", "top_p", "top_k", "min_p", "seed", "priority", "draft", "thinking_budget", "ignore_eos", "stop" } ++ grammar.fields) |k| if (body.get(k)) |v| try sampling.put(cx.a, k, v);
++    for ([_][]const u8{ "temperature", "top_p", "top_k", "min_p", "seed", "priority", "draft", "thinking_budget", "ignore_eos", "stop", "cache_salt" } ++ grammar.fields) |k| if (body.get(k)) |v| try sampling.put(cx.a, k, v);
+     try grammar.refusal(cx, body);
+     if (input.tools.len > 0 and try tool_specs.choiceRequiresCall(cx.a, body.get("tool_choice"))) try sampling.put(cx.a, "tool_call_required", .{ .bool = true });
+     if (body.field("parallel_tool_calls")) |p| if (p == .bool and !p.bool) try sampling.put(cx.a, "tool_call_single", .{ .bool = true });
+diff --git a/zig/src/server/responses_translate.zig b/zig/src/server/responses_translate.zig
+index 14b2425f..1e169368 100644
+--- a/zig/src/server/responses_translate.zig
++++ b/zig/src/server/responses_translate.zig
+@@ -10,7 +10,7 @@ const Cx = errors.Cx;
+ const Allocator = std.mem.Allocator;
+ 
+ /// Fields a chat completion reads as they are: OpenAI's and this server's own.
+-const passed = [_][]const u8{ "model", "temperature", "top_p", "top_k", "min_p", "seed", "stream", "parallel_tool_calls", "stop", "draft", "thinking_budget", "ignore_eos", "priority", "return_token_ids", "chat_template_kwargs" };
++const passed = [_][]const u8{ "model", "temperature", "top_p", "top_k", "min_p", "seed", "stream", "parallel_tool_calls", "stop", "draft", "thinking_budget", "ignore_eos", "priority", "cache_salt", "return_token_ids", "chat_template_kwargs" };
+ const refused = [_][2][]const u8{
+     .{ "background", "background responses are not supported: send the request and wait for it" },
+     .{ "conversation", "conversations are not supported: send previous_response_id or the items" },
+diff --git a/zig/src/server/root.zig b/zig/src/server/root.zig
+index ecc81c57..ea45b9b0 100644
+--- a/zig/src/server/root.zig
++++ b/zig/src/server/root.zig
+@@ -43,6 +43,7 @@ test {
+     _ = @import("late_system_test.zig");
+     _ = @import("compact_test.zig");
+     _ = @import("completion_prompt_test.zig");
++    _ = @import("cache_salt_test.zig");
+     _ = @import("decisions.zig");
+     _ = @import("decisions_test.zig");
+     _ = @import("slide.zig");
+diff --git a/zig/src/server/warm.zig b/zig/src/server/warm.zig
+index 89a9e527..7748c234 100644
+--- a/zig/src/server/warm.zig
++++ b/zig/src/server/warm.zig
+@@ -5,6 +5,7 @@ const json = @import("json.zig");
+ const errors = @import("errors.zig");
+ const prompt_mod = @import("prompt.zig");
+ const chat = @import("chat.zig");
++const fields = @import("fields.zig");
+ const log = @import("log.zig");
+ const Server = @import("server.zig").Server;
+ const Value = json.Value;
+@@ -43,7 +44,7 @@ fn start(srv: *Server, input: chat.Input, message: Value, thinking: bool, effort
+     const warm_prompt = try shared(srv, &cx, input, message, thinking, effort);
+     const prompt = warm_prompt.ids;
+     if (prompt.len == 0 or (srv.info.context_window > 0 and prompt.len >= srv.info.context_window)) return;
+-    p.request = .{ .prompt = prompt, .max_tokens = 0, .background = true, .history_len = @intCast(prompt.len), .rewind_len = @intCast(prompt_mod.rewindLen(srv, &cx, .{ .array = warm_prompt.messages }, input.messages.array.len, input.tools, prompt, thinking, effort)), .chunks = try srv.chunks.starts(a, prompt), .decode_spans = try prompt_mod.replySpans(srv, &cx, prompt) };
++    p.request = .{ .prompt = prompt, .max_tokens = 0, .background = true, .cache_salt = try fields.cacheSalt(&cx, input.fields), .history_len = @intCast(prompt.len), .rewind_len = @intCast(prompt_mod.rewindLen(srv, &cx, .{ .array = warm_prompt.messages }, input.messages.array.len, input.tools, prompt, thinking, effort)), .chunks = try srv.chunks.starts(a, prompt), .decode_spans = try prompt_mod.replySpans(srv, &cx, prompt) };
+     const id = srv.next_id.fetchAdd(1, .monotonic);
+     try srv.engine.submit(id, &p.request, .{ .ctx = p, .event = Pass.event });
+     handed = true;
+diff --git a/zig/tests/flashnext_reuse.zig b/zig/tests/flashnext_reuse.zig
+index b853c2ac..0f841306 100644
+--- a/zig/tests/flashnext_reuse.zig
++++ b/zig/tests/flashnext_reuse.zig
+@@ -58,7 +58,7 @@ const Run = struct {
+     }
+     fn marked(ctx: *anyopaque, at: usize) void {
+         const r: *Run = @ptrCast(@alignCast(ctx));
+-        if (r.store) |s| _ = s.keep(r.prompt, @intCast(at), null, &.{}, &.{});
++        if (r.store) |s| _ = s.keep(r.prompt, @intCast(at), null, &.{}, &.{}, 0);
+         if (r.copy_at) |slot| slot.* = snap.save(r.e.?, r.a, at) catch null;
+         if (r.pooled_at) |p| p.* = Pooled.of(r.e.?.m, at);
+     }
+@@ -181,7 +181,7 @@ pub fn main(init: std.process.Init) !void {
+ 
+ /// The state at the turn's history three ways, byte for byte: a fresh pass whose call ends there, a fresh pass whose call runs past it, a resumed one.
+ fn stateCheck(e: *fx.Engine, a: Allocator, store: *pc.Store, turn: Turn, failures: *usize) !void {
+-    const entry = store.find(turn.prompt[0..turn.history], &.{}, &.{}) orelse return; // nothing to resume before the history
++    const entry = store.find(turn.prompt[0..turn.history], &.{}, &.{}, 0) orelse return; // nothing to resume before the history
+     var states: [3]?*snap.State = .{ null, null, null };
+     var pooled: [3]Pooled = .{ .{}, .{}, .{} };
+     defer for (states) |s| if (s) |st| snap.drop(a, st);

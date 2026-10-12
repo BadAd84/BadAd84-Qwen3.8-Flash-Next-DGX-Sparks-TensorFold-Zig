@@ -1,0 +1,248 @@
+diff --git a/zig/src/core/prompt_cache.zig b/zig/src/core/prompt_cache.zig
+index 6c164a74..24a640b5 100644
+--- a/zig/src/core/prompt_cache.zig
++++ b/zig/src/core/prompt_cache.zig
+@@ -104,6 +104,7 @@ pub const Entry = struct {
+     used: u64, // the store's clock at its last keep or resume
+     last: []u32, // the last prompt that kept or resumed it
+     shared: bool = false, // kept at a shared system block's cut: other conversations resume it, so its own never supersedes it
++    branched: bool = false, // resumed again after a later prompt kept a longer state extending it: never superseded
+ };
+ 
+ pub const Counts = struct { hits: u64 = 0, misses: u64 = 0, kept: u64 = 0, evicted: u64 = 0, refused: u64 = 0, failed: u64 = 0 };
+@@ -366,6 +367,7 @@ pub const Store = struct {
+         }
+         s.clock += 1;
+         e.used = s.clock;
++        e.branched = e.branched or s.extended(e); // a turn several continuations share (a re-sent, edited or forked one)
+         s.counts.hits += 1;
+         const last = s.gpa.dupe(u32, prompt) catch return;
+         s.gpa.free(e.last);
+@@ -520,16 +522,13 @@ pub const Store = struct {
+         return false;
+     }
+ 
+-    /// The entry to free first, never `skip`: a superseded one, oldest first; else the oldest, the turn's rewind last.
++    /// The entry to free first, never `skip`: a superseded one, no branch point, oldest; else the oldest, rewind last.
+     fn victimBut(s: *const Store, skip: ?*Entry, prompt: []const u32) ?usize {
+         var best: ?usize = null;
+         for (s.entries.items, 0..) |e, i| {
+-            if (e.shared or e == skip or s.isActiveRewind(e, prompt)) continue; // a shared cut is evicted only as the least recently used
++            if (e.shared or e.branched or e == skip or s.isActiveRewind(e, prompt)) continue; // shared cuts and branch points go only as the least recently used
+             const now = prompt.len > e.born and prompt.len > e.tokens.len and std.mem.eql(u32, prompt[0..e.tokens.len], e.tokens); // this prompt extends it
+-            const moved_on = now or for (s.entries.items) |o| {
+-                if (o != e and o.born > e.born and o.tokens.len > e.tokens.len and std.mem.eql(u32, o.tokens[0..e.tokens.len], e.tokens)) break true;
+-            } else false;
+-            if (moved_on and (best == null or e.used < s.entries.items[best.?].used)) best = i;
++            if ((now or s.extended(e)) and (best == null or e.used < s.entries.items[best.?].used)) best = i;
+         }
+         if (best) |i| return i;
+         var oldest: ?usize = null;
+@@ -539,6 +538,12 @@ pub const Store = struct {
+         return oldest;
+     }
+ 
++    /// Whether a longer prompt than the one that kept `e` kept a state extending it (a later turn of its conversation).
++    fn extended(s: *const Store, e: *const Entry) bool {
++        for (s.entries.items) |o| if (o != e and o.born > e.born and o.tokens.len > e.tokens.len and std.mem.eql(u32, o.tokens[0..e.tokens.len], e.tokens)) return true;
++        return false;
++    }
++
+     /// Eviction order past the superseded states: least recently used first, the turn's rewind state last.
+     fn before(s: *const Store, e: *const Entry, o: *const Entry, prompt: []const u32) bool {
+         const e_rewind = s.isActiveRewind(e, prompt);
+@@ -571,6 +576,7 @@ test {
+     _ = @import("prompt_cache_test.zig");
+     _ = @import("prompt_cache_learn_test.zig");
+     _ = @import("prompt_cache_rewind_test.zig");
++    _ = @import("prompt_cache_branch_test.zig");
+     _ = @import("prompt_cache_give_test.zig");
+     _ = @import("learned_fault_test.zig");
+     _ = modes;
+diff --git a/zig/src/core/prompt_cache_branch_test.zig b/zig/src/core/prompt_cache_branch_test.zig
+new file mode 100644
+index 00000000..911cc727
+--- /dev/null
++++ b/zig/src/core/prompt_cache_branch_test.zig
+@@ -0,0 +1,100 @@
++//! Branch points: a state its conversation resumes again after a later turn extended it is not superseded by that turn.
++const std = @import("std");
++const pc = @import("prompt_cache.zig");
++const Fake = @import("prompt_cache_test.zig").Fake;
++const fresh = @import("prompt_cache_test.zig").fresh;
++const Store = pc.Store;
++
++/// A chat prompt: `base`, `n` new tokens of `seed`, then a 7-token generation prompt (its history is the rest).
++fn chat(a: std.mem.Allocator, base: []const u32, seed: u32, n: usize) ![]u32 {
++    const out = try a.alloc(u32, base.len + n + 7);
++    @memcpy(out[0..base.len], base);
++    for (out[base.len..][0..n], 0..) |*t, i| t.* = seed << 20 | @as(u32, @intCast(i));
++    for (out[base.len + n ..], 0..) |*t, i| t.* = @intCast(1000 + i);
++    return out;
++}
++
++/// `n` tokens counting up from `from`.
++fn seq(comptime n: usize, from: u32) [n]u32 {
++    var out: [n]u32 = undefined;
++    for (&out, 0..) |*t, i| t.* = from + @as(u32, @intCast(i));
++    return out;
++}
++
++/// One request as a host runs it: begin (lookup, restore, room), then the pass keeping at every mark.
++fn request(f: *Fake, s: *Store, a: std.mem.Allocator, prompt: []const u32) !u32 {
++    const p = try s.begin(a, prompt, @intCast(prompt.len - 7), &.{}, &.{}, null, &.{});
++    try std.testing.expectEqual(fresh(prompt), f.pass(s, prompt, p));
++    return p.from;
++}
++
++test "a history every turn resumes stays kept when a 6k prompt needs room: its turns branch from it, not past it" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{}, 310_000); // fake bytes 100 + at: three ~100k states and no 6k one
++    defer s.deinit();
++    const history = try a.alloc(u32, 100_117);
++    for (history, 1..) |*t, i| t.* = @intCast(i);
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, try chat(a, history, 0, 0)));
++    for (1..3) |k| { // two turns on that history: each resumes it and keeps its own longer state
++        try std.testing.expectEqual(@as(u32, 100_117), try request(&f, &s, a, try chat(a, history, @intCast(k), 2000)));
++    }
++    try std.testing.expectEqual(@as(usize, 3), s.entries.items.len);
++    try std.testing.expectEqual(@as(u64, 0), s.counts.evicted);
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, try chat(a, &.{}, 9, 6000))); // another prompt
++    try std.testing.expectEqual(@as(u64, 1), s.counts.evicted); // the first turn's state went
++    try std.testing.expectEqual(@as(u32, 100_117), try request(&f, &s, a, try chat(a, history, 3, 2000)));
++    try std.testing.expect(s.held <= s.budget);
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "a state resumed once and then extended is still superseded: a conversation that moved on frees it first" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 3 }, 400); // fake bytes 100 + at
++    defer s.deinit();
++    const other = seq(20, 50); // history 13: 113
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &other)); // the least recently used state
++    const base = seq(20, 1); // 113 more
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &base));
++    const grown = try chat(a, base[0..13], 2, 6); // resumes 13, keeps 19: 345 held
++    try std.testing.expectEqual(@as(u32, 13), try request(&f, &s, a, grown));
++    const third = seq(20, 70);
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &third)); // 113 more: the superseded 13 goes
++    try std.testing.expectEqual(@as(u64, 1), s.counts.evicted);
++    try std.testing.expect(s.find(&base, &.{}, &.{}) == null);
++    try std.testing.expectEqual(@as(u32, 19), s.find(grown, &.{}, &.{}).?.at);
++    try std.testing.expectEqual(@as(u32, 13), s.find(&other, &.{}, &.{}).?.at);
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
++
++test "a turn's rewind state is not superseded by the history state its own prompt kept: an edit still resumes it" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.snapshots(), .{ .min_prompt = 0, .min_gap = 3 }, 400); // fake bytes 100 + at
++    defer s.deinit();
++    const other = seq(20, 50); // history 13: 113, the least recently used state
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &other));
++    const first = seq(10, 1); // history 8, its latest user message at 4: 104 and 108 more
++    var p = try s.beginRewind(a, &first, 8, 4, &.{}, &.{}, null, &.{});
++    try std.testing.expectEqualSlices(u32, &.{ 4, 8 }, p.marks);
++    try std.testing.expectEqual(fresh(&first), f.pass(&s, &first, p));
++    const third = seq(20, 70); // 113 more: the oldest goes, not the rewind state its own history extends
++    try std.testing.expectEqual(@as(u32, 0), try request(&f, &s, a, &third));
++    try std.testing.expectEqual(@as(u64, 1), s.counts.evicted);
++    try std.testing.expect(s.find(&other, &.{}, &.{}) == null);
++    const edited = [_]u32{ 1, 2, 3, 4, 50, 6, 7, 8, 9, 10 };
++    p = try s.beginRewind(a, &edited, 8, 4, &.{}, &.{}, null, &.{});
++    try std.testing.expectEqual(@as(u32, 4), p.from);
++    try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, p));
++    try std.testing.expectEqual(s.entries.items.len, f.live);
++}
+diff --git a/zig/src/core/prompt_radix.zig b/zig/src/core/prompt_radix.zig
+index 584d544f..ee485e8f 100644
+--- a/zig/src/core/prompt_radix.zig
++++ b/zig/src/core/prompt_radix.zig
+@@ -98,6 +98,7 @@ pub const Store = struct {
+         s.tree.clock += 1;
+         e.used = s.tree.clock;
+         e.hit = true;
++        e.branched = e.branched or superseded(n, e.born); // a turn several continuations share (re-sent, edited, forked)
+         s.tree.counts.hits += 1;
+         const last = s.tree.gpa.dupe(u32, prompt) catch return;
+         s.tree.gpa.free(e.last);
+@@ -246,15 +247,15 @@ pub const Store = struct {
+ 
+     fn pick(n: *Node, prompt: []const u32, skip: ?*Node, moved: *?*Node, oldest: *?*Node) void {
+         if (n.entry) |e| if (n != skip) {
+-            // a state its conversation moved past goes first, a shared cut only as the least recently used
+-            const gone = !e.shared and ((prompt.len > e.born and prompt.len > n.end and extends(n, prompt)) or superseded(n, e.born));
++            // a state its conversation moved past goes first; a shared cut or a branch point only as the least valuable
++            const gone = !e.shared and !e.branched and ((prompt.len > e.born and prompt.len > n.end and extends(n, prompt)) or superseded(n, e.born));
+             if (gone and (moved.* == null or e.used < moved.*.?.entry.?.used)) moved.* = n;
+             if (oldest.* == null or worse(n, oldest.*.?)) oldest.* = n;
+         };
+         for (n.kids.items) |k| pick(k, prompt, skip, moved, oldest);
+     }
+ 
+-    /// The entry to free first, never `skip`: one a later prompt extends, oldest first; else the least valuable.
++    /// The entry to free first, never `skip`: one a later prompt extends (no branch point), oldest first; else worst.
+     fn victim(s: *const Store, prompt: []const u32, skip: ?*Node) ?*Node {
+         var moved: ?*Node = null;
+         var oldest: ?*Node = null;
+diff --git a/zig/src/core/prompt_radix_test.zig b/zig/src/core/prompt_radix_test.zig
+index e4888dd3..89ba29ec 100644
+--- a/zig/src/core/prompt_radix_test.zig
++++ b/zig/src/core/prompt_radix_test.zig
+@@ -279,3 +279,32 @@ test "reclaim frees the pages of the least valuable leaf nobody holds, and spare
+     try std.testing.expectEqual(@as(usize, 0), s.tree.held_pages);
+     try std.testing.expectEqual(@as(usize, 0), f.live);
+ }
++
++test "a history every turn resumes again after one kept a longer state is a branch point: its turns never supersede it" {
++    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var f: Fake = .{ .gpa = std.testing.allocator };
++    var s = try newStore(&f, rules);
++    defer s.deinit();
++    s.limit(.{ .pages = 40, .snaps = 3 });
++    var mine: std.ArrayList(u32) = .empty;
++    const history = seq(24, 0); // history 20
++    _ = try pass(&f, &s, a, &history, 20, &.{}, &mine);
++    f.leave(mine.items);
++    var turn = seq(32, 0);
++    for (1..3) |k| { // two turns on that history, each keeping its own state at 28
++        for (turn[20..], 0..) |*t, i| t.* = @intCast(100 * k + i);
++        try std.testing.expectEqual(@as(u32, 20), (try pass(&f, &s, a, &turn, 28, &.{}, &mine)).from);
++        f.leave(mine.items);
++    }
++    try std.testing.expectEqual(@as(usize, 3), s.tree.snaps);
++    const other = seq(24, 500); // another prompt: three states hold no fourth, and the first turn's goes
++    _ = try pass(&f, &s, a, &other, 20, &.{}, &mine);
++    f.leave(mine.items);
++    try std.testing.expectEqual(@as(u64, 1), s.tree.counts.evicted);
++    for (turn[20..], 0..) |*t, i| t.* = @intCast(300 + i); // the next turn still resumes the history
++    try std.testing.expectEqual(@as(u32, 20), (try pass(&f, &s, a, &turn, 28, &.{}, &mine)).from);
++    f.leave(mine.items);
++    try std.testing.expectEqual(s.tree.snaps, f.live);
++}
+diff --git a/zig/src/core/prompt_radix_tree.zig b/zig/src/core/prompt_radix_tree.zig
+index 8c6ff2a1..7ff2ff34 100644
+--- a/zig/src/core/prompt_radix_tree.zig
++++ b/zig/src/core/prompt_radix_tree.zig
+@@ -24,6 +24,8 @@ pub const Entry = struct {
+     shared: bool,
+     /// A later prompt resumed from it: it outlives the entries nobody has asked for.
+     hit: bool = false,
++    /// Resumed again after a later prompt kept a state below it: a turn several continuations share, never superseded.
++    branched: bool = false,
+ };
+ 
+ pub const Node = struct {
