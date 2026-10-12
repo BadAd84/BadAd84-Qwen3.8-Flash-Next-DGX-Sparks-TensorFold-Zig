@@ -309,6 +309,17 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
         if (rules.whole) std.log.info("prompt cache: whole-prompt states from {d} tokens (that very prompt again resumes with no prompt pass)", .{rules.whole_min});
         h.store = api.prompt_cache.Store.init(gpa, .{ .ptr = c.ptr, .vtable = &h.store_vt }, rules, c.budget);
         h.host.cache = &h.store.?;
+        // TENSORFOLD_WARM_TURNS=1: after a chat reply the server prefills the next turn's shared prompt while the
+        // engine idles (server/warm.zig, LaneHost.warmPass); its whole-prompt state is where that turn resumes, so
+        // whole-prompt states must be on. TENSORFOLD_WARM_DELAY_MS (200) and TENSORFOLD_WARM_ROWS (4096) bound it.
+        if (envInt("TENSORFOLD_WARM_TURNS")) |v| if (v != 0) {
+            if (rules.whole) {
+                h.host.info_.warm_turns = true;
+                if (envInt("TENSORFOLD_WARM_DELAY_MS")) |ms| h.host.warm_delay_ns = @as(i96, @max(0, ms)) * std.time.ns_per_ms;
+                if (envInt("TENSORFOLD_WARM_ROWS")) |n| h.host.warm_rows = @intCast(@max(0, n));
+                std.log.info("warm turns: the next turn's prompt prefilled after a reply, on an idle engine {d} ms after it, up to {d} rows", .{ @divTrunc(h.host.warm_delay_ns, std.time.ns_per_ms), h.host.warm_rows });
+            } else std.log.warn("TENSORFOLD_WARM_TURNS ignored: it needs whole-prompt states (TENSORFOLD_PROMPT_CACHE_WHOLE=1)", .{});
+        };
     };
     try h.host.start();
     return .{ .engine = h.host.engine(), .close = Host.close, .ctx = h, .follow = if (h.follow_fn != null) Host.follow else null };

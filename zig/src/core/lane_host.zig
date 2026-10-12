@@ -41,6 +41,11 @@ pub const LaneHost = struct {
     lone: ?api.Lone = null, // the backend's driver for a lone greedy stream; null: every stream in the lane core
     lone_job: ?*Job = null, // the job that driver holds now
     cache: ?*pc.Store = null, // kept prompt states (engine thread only); the backend restores and saves them
+    /// warm passes (Info.warm_turns): a prompt-only background request runs only on an idle engine, at least
+    /// `warm_delay_ns` after it was queued (a client that sends its next request at once never waits behind one),
+    /// and only when its pass prefills at most `warm_rows` rows past the state it resumes; else it ends unrun
+    warm_delay_ns: i96 = 200 * std.time.ns_per_ms,
+    warm_rows: usize = 4096,
 
     const Mark = struct { at: i96, tokens: u64 };
     const window_ns: i96 = 2 * std.time.ns_per_s;
@@ -60,6 +65,7 @@ pub const LaneHost = struct {
         entry: ?*pc.Entry = null, // the kept state the backend restores, until its prompt pass reports
         marks: []const u32 = &.{}, // where the pass keeps states (gpa-owned)
         kept0: u64 = 0, // the store's kept count when the job looked it up
+        queued_at: i96 = 0, // when submit queued it (a warm pass waits warm_delay_ns from here)
 
         /// The backend's prompt pass stands at a mark: the cache keeps the stream's state there.
         fn kept(ptr: *anyopaque, s: *lanes.Stream, at: u32) void {
@@ -130,7 +136,7 @@ pub const LaneHost = struct {
     fn submitFn(ctx: *anyopaque, id: Id, request: *const Request, sink: Sink) SubmitError!void {
         const h = self(ctx);
         const job = h.gpa.create(Job) catch return error.Busy;
-        job.* = .{ .host = h, .id = id, .request = request, .sink = sink };
+        job.* = .{ .host = h, .id = id, .request = request, .sink = sink, .queued_at = std.Io.Clock.awake.now(h.io).toNanoseconds() };
         h.mutex.lockUncancelable(h.io);
         defer h.mutex.unlock(h.io);
         if (h.closing) {
@@ -193,6 +199,22 @@ pub const LaneHost = struct {
         job.host.lock();
         defer job.host.unlock();
         return job.host.closing or std.mem.indexOfScalar(Id, job.host.cancels.items, job.id) != null;
+    }
+
+    /// A warm pass's cancel hook: also true once a foreground request waits (they queue ahead of background ones),
+    /// so the backend's prompt pass steps aside at its next check.
+    fn warmYield(ctx: *anyopaque) bool {
+        const job: *Job = @ptrCast(@alignCast(ctx));
+        job.host.lock();
+        defer job.host.unlock();
+        const h = job.host;
+        return h.closing or std.mem.indexOfScalar(Id, h.cancels.items, job.id) != null or
+            (h.queued.items.len > 0 and !h.queued.items[0].request.background);
+    }
+
+    /// A prompt-only background request on a warm_turns engine (server/warm.zig's next-turn prefill).
+    fn isWarm(h: *const LaneHost, job: *const Job) bool {
+        return h.info_.warm_turns and job.request.background and job.request.max_tokens == 0;
     }
 
     /// Hands a stream the tokens its rounds committed since the last delivery.
@@ -292,6 +314,21 @@ pub const LaneHost = struct {
             h.unlock();
             return .none;
         }
+        const head = h.queued.items[0];
+        if (h.isWarm(head)) {
+            // a warm pass steps aside for real work: a busy engine ends it unrun, an idle one runs it once it is due
+            // ... and one the cache would not keep at its end, or that would run long, ends before any lookup reserves
+            if (h.admitted.items.len > 0 or h.core.activeCount() > 0 or h.core.fillingCount() > 0 or !h.warmWorth(head)) {
+                _ = h.queued.orderedRemove(0);
+                h.unlock();
+                h.finish(head, .cancelled, "");
+                return .dropped;
+            }
+            if (std.Io.Clock.awake.now(h.io).toNanoseconds() - head.queued_at < h.warm_delay_ns) {
+                h.unlock();
+                return .none;
+            }
+        }
         const job = h.queued.orderedRemove(0);
         h.admitted.append(h.gpa, job) catch {
             h.unlock();
@@ -322,7 +359,7 @@ pub const LaneHost = struct {
             .drafts = r.drafts,
             .proposer = job.proposer.proposer(),
             .stop_check = if (r.stop) |s| .{ .ptr = s.ctx, .check = s.check } else null,
-            .cancel_check = .{ .ptr = job, .check = cancelled },
+            .cancel_check = .{ .ptr = job, .check = if (h.isWarm(job)) &warmYield else &cancelled },
             .think_budget = r.think_budget,
             .think_close = r.think_close,
             .think_end = if (r.think_end) |t| t else -1,
@@ -363,7 +400,9 @@ pub const LaneHost = struct {
             .none => break,
             .dropped => {},
             .job => |job| {
-                if (h.loneFits(job)) {
+                if (h.isWarm(job)) {
+                    _ = h.warmPass(job);
+                } else if (h.loneFits(job)) {
                     _ = h.runLone(job, job.began);
                 } else if (n < burst.len and h.core.batches() and job.stream.media == null and job.stream.reuse.at == 0 and onlyWhole(job)) {
                     burst[n] = job;
@@ -372,6 +411,45 @@ pub const LaneHost = struct {
             },
         };
         h.startBurst(burst[0..n]);
+    }
+
+    /// Whether a warm job's pass would end in a whole-prompt state and prefill at most `warm_rows` rows past the
+    /// longest state it resumes (the store's own find and wholeAt, as the lookup decides them).
+    fn warmWorth(h: *const LaneHost, job: *const Job) bool {
+        const store = h.cache orelse return false;
+        const r = job.request;
+        if (store.wholeAt(r.prompt) == null) return false;
+        const at: usize = if (store.find(r.prompt, r.chunks, r.cache_salt)) |e| e.at else 0;
+        return at < r.prompt.len and r.prompt.len - at <= h.warm_rows;
+    }
+
+    /// A warm pass (server/warm.zig): the backend prefills the prompt from the state the cache resumes, the cache
+    /// keeps its whole-prompt state through the pass's marks, the lane is released and no token is drawn. A
+    /// foreground request arriving steps it aside (warmYield).
+    fn warmPass(h: *LaneHost, job: *Job) bool {
+        const began = job.began;
+        // the store refused the whole-prompt mark (its budget): a pass would keep nothing
+        if (std.mem.indexOfScalar(u32, job.stream.reuse.marks, @intCast(job.request.prompt.len)) == null) {
+            h.remove(job);
+            h.finish(job, .cancelled, "");
+            return true;
+        }
+        const be = h.core.backend;
+        be.prefill(&job.stream) catch |e| {
+            if (e == error.Cancelled) {
+                be.release(&job.stream); // as the core's addStream: the host finishes a cancelled stream itself
+                return h.cancel(job);
+            }
+            h.remove(job); // the backend dropped the lane with its error
+            h.finish(job, .failed, @errorName(e));
+            return true;
+        };
+        h.prefilled(job, began);
+        be.release(&job.stream); // a late whole-prompt state takes the lane's sequence as its keeper
+        job.stream.finished = true;
+        h.remove(job);
+        h.finish(job, .length, "");
+        return true;
     }
 
     /// The stream keeps no state inside its prompt: no marks, or only its end (prompt_cache's whole-prompt state).
@@ -537,8 +615,9 @@ pub const LaneHost = struct {
                 continue;
             }
             if (h.core.activeCount() == 0 and h.core.fillingCount() == 0) {
-                if (h.cancels.items.len == 0 and (h.queued.items.len == 0 or h.admitted.items.len >= h.info_.lanes))
-                    h.wake.waitTimeout(h.io, &h.mutex, .{ .duration = .{ .raw = .fromMilliseconds(100), .clock = .awake } }) catch {};
+                const warm_wait = h.queued.items.len > 0 and h.isWarm(h.queued.items[0]);
+                if (h.cancels.items.len == 0 and (h.queued.items.len == 0 or h.admitted.items.len >= h.info_.lanes or warm_wait))
+                    h.wake.waitTimeout(h.io, &h.mutex, .{ .duration = .{ .raw = .fromMilliseconds(if (warm_wait) 10 else 100), .clock = .awake } }) catch {};
                 h.unlock();
                 continue;
             }

@@ -137,6 +137,9 @@ pub const Info = struct {
     prefill_step: u32 = 0,
     /// The engine takes ``Request.media`` (image and video rows with their rotary positions).
     media: bool = false,
+    /// After a chat reply the server prefills the next turn's shared prompt in the background (a prompt-only request:
+    /// max_tokens 0, background), so that turn resumes past the reply (server/warm.zig, LaneHost.warmPass).
+    warm_turns: bool = false,
 };
 
 /// A checkpoint family an engine reads: its config ``model_type`` and weight formats, as gate entries name them.
@@ -222,5 +225,6 @@ pub const prompt_cache = @import("prompt_cache.zig");
 test {
     _ = @import("lane_host.zig");
     _ = @import("lane_host_reuse_test.zig");
+    _ = @import("lane_host_warm_test.zig");
     _ = prompt_cache;
 }

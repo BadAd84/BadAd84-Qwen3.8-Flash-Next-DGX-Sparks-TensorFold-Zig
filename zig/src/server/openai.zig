@@ -11,6 +11,7 @@ const tool_parse = @import("tool_parse.zig");
 const tool_stream = @import("tool_stream.zig");
 const ids = @import("ids.zig");
 const log = @import("log.zig");
+const warm = @import("warm.zig");
 const request_log = @import("request_log.zig");
 const sse = @import("sse.zig");
 const http_body = @import("http_body.zig");
@@ -354,6 +355,17 @@ const Run = struct {
         const o = json.newObject(a) catch return;
         r.wholeBody(o, &reply, calls) catch return;
         r.out.vt.reply(r.out.ctx, 200, .{ .object = o });
+        r.warmNext(&reply, calls);
+    }
+
+    /// The next turn's prompt prefilled in the background, from the reply as its client got it (warm.zig).
+    fn warmNext(r: *Run, reply: *const chat.Reply, calls: ?[]Value) void {
+        if (!r.is_chat or !r.srv.info.warm_turns) return;
+        const message = json.newObject(r.a) catch return;
+        message.put(r.a, "role", .{ .string = "assistant" }) catch return;
+        message.put(r.a, "content", if (calls != null) .null else .{ .string = reply.content }) catch return;
+        if (calls) |c| message.put(r.a, "tool_calls", .{ .array = c }) catch return;
+        warm.reply(r.srv, r.plan.input, .{ .object = message }, reply.thinking, reply.effort);
     }
 
     fn wholeBody(r: *Run, o: *json.Object, reply: *const chat.Reply, calls: ?[]Value) Allocator.Error!void {
@@ -471,8 +483,9 @@ const Run = struct {
             r.out.vt.event(r.out.ctx, null) catch {};
             return;
         };
+        var calls: ?[]Value = null;
         if (tools) {
-            const calls = r.attachCalls(&reply) catch return;
+            calls = r.attachCalls(&reply) catch return;
             const tail = r.plan.policy.flush();
             if (tail.len > 0) {
                 r.prose() catch return;
@@ -501,6 +514,7 @@ const Run = struct {
             r.emit(u) catch return;
         }
         r.out.vt.event(r.out.ctx, null) catch {};
+        r.warmNext(&reply, calls);
     }
 };
 

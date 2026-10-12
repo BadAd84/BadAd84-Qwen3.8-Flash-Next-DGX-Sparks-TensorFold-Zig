@@ -244,7 +244,7 @@ pub const Store = struct {
     }
 
     /// Where a whole-prompt state of `prompt` is kept (its end), or null: the family keeps none, or it is too short.
-    fn wholeAt(s: *const Store, prompt: []const u32) ?u32 {
+    pub fn wholeAt(s: *const Store, prompt: []const u32) ?u32 {
         if (!s.rules.whole or s.rules.lookahead != 0 or s.rules.planned) return null;
         if (prompt.len < s.rules.whole_min or prompt.len > std.math.maxInt(u32)) return null;
         return @intCast(prompt.len);
