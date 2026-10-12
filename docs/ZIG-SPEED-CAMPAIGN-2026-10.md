@@ -304,3 +304,42 @@ and `-t cuda-sw` (hardware tracing drops every kernel timestamp on this box: "in
   (`zdiverge.py`). DROP.
 - Code at 4 clients swung 49-60 tok/s between boots of one arm in the first sweeps; with `ots0104`'s logs the
   measured cost tables proved stable, and the last 6 boots stayed within 57-60.
+
+## 4. Status 2026-10-12: campaign stopped, follow-up work
+
+Stopped by the owner on 2026-10-12 ~22:45: GLM, DeepSeek V4.1 and Qwen are moving to our new engine, and every result
+here is to be re-tested there. Nothing below is in flight; the recipe PRs (#34-#63) and TensorFold #735 stay open
+upstream.
+
+### Measured state (spark6, 2026-10-12, golden 6/6 on every boot, decode replies equal to stock at every concurrency)
+
+Decode aggregate tok/s, stock Zig 1.0.0 / ours (0001-0028) / `zmerge8` (ours + the overnight keeps below):
+
+| streams | prose | code |
+|---|---|---|
+| 1 | 58.4 / 76.6 / 75.9 | 97.9 / 119.4 / 118.5 |
+| 2 | 89.3 / 108.1 / 108.2 | 147.1 / 177.8 / 177.3 |
+| 4 | 142.1 / 157.4 / 169.5 | 211.8 / 244.8 / 257.9 |
+| 6 | 154.8 / 194.5 / 206.6 | 253.1 / 301.4 / 319.1 |
+| 8 | 199.5 / 229.6 / 244.9 | 306.2 / 360.4 / 377.8 |
+
+Next-turn TTFT (warm turns): 8k 0.52 -> 0.31 s, 100k 0.66 -> 0.50 s at every concurrency. Raw data: spark6
+`~/work/lanes/merge8/` (`m8_sum.py`), handover `_ompscratch/overnight/merge8/HANDOVER.md`.
+
+### `zmerge8` keep set (exact, mutants killed)
+`TF_FLASHNEXT_PRODUCT_STREAMS=8`; `c68-shared-cost-levels.patch` + `TF_FLASHNEXT_SHARED_COST_LEVELS=0`;
+`SEQ_POOL=8` + `WARM_POOL=8`; TensorFold main's warm turns (`tfm-warm-t.patch`, `TENSORFOLD_WARM_TURNS=1`); 11
+upstream correctness fixes (`tfm-fixes.patch`). Patches in spark6 `~/work/lanes/{conc68,tfmain}/pt/`.
+
+### Follow-up work (carry to the new engine)
+1. **Warm turns must yield to a waiting request.** At 1 stream, `zmerge8`'s first cold sample matches ours but samples
+   2-3 (sent back to back after a reply) are +0.08-0.10 s at 1k and +0.15-0.25 s at 8k, on 3 boots a side: a new
+   prompt arriving just after a reply waits for the background next-turn prefill. Not confirmed by a warm-off arm
+   (stopped first). Fix: a real request pre-empts or cancels the warm pass; then re-measure 1/2/4/6/8.
+2. **0029 (prefill down-ring kernel):** exact, 1.7-4.0% faster on its kernel, but -1.9% code decode and -0.7% cold
+   prefill at 64K at 6 streams; lead: ~1 GiB smaller sequence pool at boot. 0030 (narrow gate/up) dropped.
+3. **Rewind checkpoints** (TensorFold main): edited turn 0.93 -> 0.54 s but every normal next turn +40-230 ms (an
+   extra ~100k state copy). Only worth it if the checkpoint is kept without the copy.
+4. Untested leads: prefill attention-scores kernel; the 12-bit read-out layout (R2bFable); tree drafting (~+3%).
+5. Rule for the re-test (fleet `AGENTS.md`, "Local serve speed work"): 1/2/4/6/8 streams, and any loss at one level
+   is a trade for the owner.
