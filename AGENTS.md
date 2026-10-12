@@ -43,11 +43,13 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   image, its OTS patch set and the drafter settings. Its JSON receipts and cards are kept in spark6
   `~/work/bench/rigmark/runs/`; published numbers use its cards. Our own probes (golden, `qf_run.py` decode, copy /
   prefill probes, TTFT) stay alongside it.
-- **Every speed result is reported at 4, 6 and 8 parallel streams (owner 2026-10-11).** The serve's concurrency is
-  a production choice, not a property of the code: a change can win at 4 and lose at 8 (pool size, batch
-  composition). So every stock-vs-ours comparison, image qualification and patch A/B measures decode (aggregate and
-  per stream, all slots busy), TTFT and the pool size at boot at 4, 6 and 8 concurrent slots, one fresh boot per
-  setting, same interleaving rules; tables carry a concurrency column.
+- **Every speed result is reported at 1, 2, 4, 6 and 8 parallel streams (owner 2026-10-11; 1 and 2 restated
+  2026-10-12).** The serve's concurrency is a production choice, not a property of the code: a change can win at 4 and
+  lose at 8 (pool size, batch composition), and 1-2 streams is the everyday load. So every stock-vs-ours comparison,
+  image qualification and patch A/B measures decode (aggregate and per stream, all slots busy), TTFT and the pool size
+  at boot at 1, 2, 4, 6 and 8 concurrent slots, one fresh boot per setting, same interleaving rules; tables carry a
+  concurrency column. Adding high-concurrency rows never drops the low ones: a 4/6/8-only run (2026-10-12, zmerge8)
+  had to be extended.
 - **No outside traffic during a benchmark (owner 2026-10-11).** sparkDash (CT111, `sparkdash.ots-int.net`,
   192.168.99.111) polls every Spark's `:8888`, and the LiteLLM router (CT105, .105) and agents send requests too:
   on 2026-10-10 both hit the GLM serve mid-A/B and spoiled a TTFT arm. So every benchmark, qualification or A/B on a
