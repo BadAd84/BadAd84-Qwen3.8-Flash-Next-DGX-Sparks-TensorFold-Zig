@@ -171,14 +171,17 @@ fn legacyPrompt(srv: *Server, cx: *Cx, prompt: ?Value) errors.Refused!chat.Promp
     if (p == .array and p.array.len > 0 and allInts(p.array)) {
         const vocab = srv.text.vocabSize();
         const out = try cx.a.alloc(u32, p.array.len);
-        for (p.array, out) |t, *slot| {
-            const n = if (t == .int) t.int64() else null;
-            if (n == null or n.? < 0 or n.? >= vocab) return cx.fail(.request, "prompt token ids must be integers in the valid range 0 to {d}", .{@as(i64, vocab) - 1});
-            slot.* = @intCast(n.?);
-        }
+        for (p.array, out) |t, *slot| slot.* = try promptId(cx, vocab, t);
         return .{ .ids = out };
     }
     return .{ .text = try promptText(srv, cx, p) };
+}
+
+/// A prompt token id, refused unless it is an integer inside the vocabulary.
+fn promptId(cx: *Cx, vocab: u32, t: Value) errors.Refused!u32 {
+    const n = if (t == .int) t.int64() else null;
+    if (n == null or n.? < 0 or n.? >= vocab) return cx.fail(.request, "prompt token ids must be integers in the valid range 0 to {d}", .{@as(i64, vocab) - 1});
+    return @intCast(n.?);
 }
 
 fn allInts(items: []const Value) bool {
@@ -192,8 +195,9 @@ fn promptText(srv: *Server, cx: *Cx, p: Value) errors.Refused![]const u8 {
         .null => return "",
         .array => |items| {
             if (allInts(items)) {
+                const vocab = srv.text.vocabSize();
                 const toks = try cx.a.alloc(u32, items.len);
-                for (items, toks) |t, *slot| slot.* = if (t == .bool) @intFromBool(t.bool) else @intCast(@max(0, t.int64() orelse 0));
+                for (items, toks) |t, *slot| slot.* = try promptId(cx, vocab, t);
                 return srv.text.decode(cx.a, toks) catch return error.OutOfMemory;
             }
             var parts: std.ArrayList([]const u8) = .empty;
@@ -331,6 +335,17 @@ const Run = struct {
         }
     }
 
+    /// A context-window refusal on a stream: the role chunk when there are no tools, then the error event and [DONE].
+    fn streamedContext(r: *Run, cx: *const Cx, tools: bool, field: []const u8) void {
+        const a = r.a;
+        r.out.vt.open(r.out.ctx) catch return;
+        if (!tools and r.is_chat) r.emit(r.chunk(roleDelta(a) catch return, null) catch return) catch return;
+        logRefused(r.id, cx.message);
+        const body = errorBody(a, cx, field) catch return;
+        r.emit(wrapError(a, body) catch return) catch return;
+        r.out.vt.event(r.out.ctx, null) catch {};
+    }
+
     fn whole(r: *Run, gone: Gone, field: []const u8) void {
         const a = r.a;
         var cx: Cx = .{ .a = a };
@@ -424,8 +439,11 @@ const Run = struct {
         const a = r.a;
         const tools = r.plan.input.tools.len > 0;
         var cx: Cx = .{ .a = a };
-        // every refusal comes before the stream opens, so it gets the same 400 as a whole reply
-        const prepared = chat.prepare(r.srv, &cx, r.plan.input, gone) catch |e| return r.unsent(&cx, e, field);
+        // a context-window refusal is reported inside the stream; every other refusal is still a 400 before it opens
+        const prepared = chat.prepare(r.srv, &cx, r.plan.input, gone) catch |e| {
+            if (e == error.Refused and cx.kind == .context_length) return r.streamedContext(&cx, tools, field);
+            return r.unsent(&cx, e, field);
+        };
         var handed = false; // generate gives the preparing count back from here on
         defer if (!handed) chat.release(r.srv, prepared.preparing);
         r.out.vt.open(r.out.ctx) catch return;
