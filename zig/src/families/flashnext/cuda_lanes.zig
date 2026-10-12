@@ -183,6 +183,10 @@ pub fn Lanes(comptime E: type) type {
         depth_shared: usize = 0,
         /// passes at most that time the cost points again after the first (measure; TF_FLASHNEXT_COST_RETIME, 0: none)
         retime: usize = 0,
+        /// head levels a timed shared round drafts (TF_FLASHNEXT_SHARED_COST_LEVELS; null: the head's whole chain,
+        /// depth): the shared points price rows, and the head's levels cost a step each whatever the rows, so a
+        /// point that includes them steps the table up between the lone-stream windows and the first shared point
+        shared_levels: ?usize = null,
 
         pub fn init(gpa: std.mem.Allocator, e: *E, drafting: bool, context: usize, window: usize) Self {
             const late = if (std.c.getenv("TF_FLASHNEXT_KEEP_LATE")) |v| !std.mem.eql(u8, std.mem.span(v), "0") else true;
@@ -1184,7 +1188,8 @@ pub fn Lanes(comptime E: type) type {
             defer many.deinit();
             try many.round(1, cont, null, 0);
             var times: [6]f64 = undefined;
-            for (&times) |*x| try many.round(head, cont, .{ .io = io, .out = x }, head - 1);
+            const levels = if (self.shared_levels) |l| @min(l, head - 1) else head - 1;
+            for (&times) |*x| try many.round(head, cont, .{ .io = io, .out = x }, levels);
             return median(times[1..]);
         }
     };
@@ -1210,6 +1215,18 @@ pub fn retimeSetting(v: ?[]const u8) !usize {
     const n = std.fmt.parseInt(usize, s, 10) catch max_retime + 1;
     if (n > max_retime) {
         std.log.warn("TF_FLASHNEXT_COST_RETIME={s} refused: passes 0..{d} (0: the costs timed once)", .{ s, max_retime });
+        return error.BadSetting;
+    }
+    return n;
+}
+
+/// TF_FLASHNEXT_SHARED_COST_LEVELS (`v`, the environment's value): unset null (the head's whole chain), else a count
+/// 0..max_drafts; anything else is refused (error.BadSetting, logged with the setting's name), never read as unset.
+pub fn sharedLevelsSetting(v: ?[]const u8) !?usize {
+    const s = v orelse return null;
+    const n = std.fmt.parseInt(usize, s, 10) catch max_drafts + 1;
+    if (n > max_drafts) {
+        std.log.warn("TF_FLASHNEXT_SHARED_COST_LEVELS={s} refused: head levels 0..{d}", .{ s, max_drafts });
         return error.BadSetting;
     }
     return n;
@@ -1946,6 +1963,12 @@ test "TF_FLASHNEXT_COST_RETIME is a pass count 0..8, anything else refused" {
     try std.testing.expectEqual(@as(usize, 0), try retimeSetting(null));
     for ([_][]const u8{ "0", "4", "8" }, [_]usize{ 0, 4, 8 }) |v, n| try std.testing.expectEqual(n, try retimeSetting(v));
     for ([_][]const u8{ "", "9", "-1", "x", "4 ", "1e1", "99999999999999999999999" }) |v| try std.testing.expectError(error.BadSetting, retimeSetting(v));
+}
+
+test "TF_FLASHNEXT_SHARED_COST_LEVELS is a level count 0..max_drafts or unset, anything else refused" {
+    try std.testing.expectEqual(@as(?usize, null), try sharedLevelsSetting(null));
+    for ([_][]const u8{ "0", "7", "63" }, [_]usize{ 0, 7, 63 }) |v, n| try std.testing.expectEqual(@as(?usize, n), try sharedLevelsSetting(v));
+    for ([_][]const u8{ "", "64", "-1", "x", "7 " }) |v| try std.testing.expectError(error.BadSetting, sharedLevelsSetting(v));
 }
 
 test "a window wider than the head's chain prices the chain's rows only" {

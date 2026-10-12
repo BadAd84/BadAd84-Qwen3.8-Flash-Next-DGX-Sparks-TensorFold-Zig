@@ -96,6 +96,9 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     if (o.drafts) std.log.info("copy windows: a lone stream verifies up to {d} rows (TF_FLASHNEXT_WINDOW; the MTP chain {d})", .{ window, depth + 1 });
     // the cost points timed again after the first pass, at most this many passes (0: once; checked before the load)
     const retime = try lane_backend.retimeSetting(getenv("TF_FLASHNEXT_COST_RETIME"));
+    // head levels a timed shared round drafts (unset: the whole chain; checked before the load)
+    const shared_levels = try lane_backend.sharedLevelsSetting(getenv("TF_FLASHNEXT_SHARED_COST_LEVELS"));
+    if (o.drafts) if (shared_levels) |l| std.log.info("cost timing: shared rounds timed with {d} head levels (TF_FLASHNEXT_SHARED_COST_LEVELS)", .{l});
     if (o.tp == 2) {
         // a rank stops on SIGTERM / SIGINT while it loads and, rank 1, while it follows (in a container it is PID 1,
         // where a signal's default action is ignored); rank 0's server takes them over once it serves
@@ -142,6 +145,7 @@ pub fn openOn(comptime M: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const 
     own.lanes = lane_backend.Lanes(M.Engine).init(gpa, own.e, o.drafts, o.context, window);
     own.lanes.depth = depth;
     own.lanes.retime = retime;
+    own.lanes.shared_levels = shared_levels;
     // a shared forward's rows at most: the engine's decode buffers (streams x (depth + 1), or the window)
     own.lanes.rows = if (@hasField(M.Engine, "buf")) own.e.buf.b.rows else streams * window;
     own.lanes.streams = streams;
