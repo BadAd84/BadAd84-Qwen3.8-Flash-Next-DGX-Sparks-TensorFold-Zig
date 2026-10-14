@@ -45,8 +45,21 @@ pub const DeviceBuffer = struct {
     pub fn upload(self: DeviceBuffer, offset: usize, bytes: []const u8) Error!void {
         const dst = try self.span(offset, bytes.len);
         if (bytes.len == 0) return;
-        try self.d.check(self.d.api.cuMemcpyHtoD_v2(dst, bytes.ptr, bytes.len), "cuMemcpyHtoD");
-        try self.d.check(self.d.api.cuStreamSynchronize(null), "cuStreamSynchronize");
+        // 64 KiB-page kernels (kindling spark-os): a pageable H2D copy whose source is a file-backed
+        // mmap (the safetensors weights are mapped, see core/safetensors.zig) hangs in the driver for
+        // >200 s once the process already holds GPU memory. Copying the source out of the mmap into an
+        // ordinary anonymous stack buffer first (as miaai's GLM-5.3 recipe does with .clone() in Python)
+        // makes the same copy return in milliseconds. The staging is one fixed stack block reused per
+        // chunk, so no allocation and the same bytes land on the device.
+        var staging: [1 << 20]u8 = undefined;
+        var pos: usize = 0;
+        while (pos < bytes.len) {
+            const n = @min(staging.len, bytes.len - pos);
+            @memcpy(staging[0..n], bytes[pos .. pos + n]);
+            try self.d.check(self.d.api.cuMemcpyHtoD_v2(dst + pos, &staging, n), "cuMemcpyHtoD");
+            try self.d.check(self.d.api.cuStreamSynchronize(null), "cuStreamSynchronize");
+            pos += n;
+        }
     }
 
     pub fn download(self: DeviceBuffer, offset: usize, out: []u8) Error!void {
