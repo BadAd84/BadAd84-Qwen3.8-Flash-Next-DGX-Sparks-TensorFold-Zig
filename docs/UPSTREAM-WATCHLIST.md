@@ -1,6 +1,21 @@
 # Qwen3.8 Flash Next on one DGX Spark - upstream watchlist
 
 Current state of the upstream recipe and engine against what spark4 runs. Live config: `scripts/qwen38/README.md`.
+## 2026-10-25
+
+- Upstream re-tested #34 (`TF_FLASHNEXT_CONFIDENCE=-0.15`) on current main `656879f` / the NVFP4 checkpoint: no
+  gain at 1 client, 1-3% slower at 2/4 (plotarmordev, PR comment). Our re-run of their exact protocol (spark6,
+  stock main, the DGX OS 4K fallback, ABBA, both checkpoints): on NVFP4 we agree (prose 1c -2%, code 2c -16%);
+  on INT4 the setting is a code win, +8% at 1/2/4 clients with every -0.15 boot above every default boot, prose
+  +1.5%. The original +10% prose figure (measured on the INT4-era config: PRODUCT_STREAMS 2, no DEPTH cap, our
+  patch stack) does not survive main's config either. Replied with the 2x2 and proposed closing #34 or scoping
+  the export to `CHECKPOINT=int4` (comment 6396852666). Lesson: CONFIDENCE's optimum is jointly checkpoint- and
+  config-dependent.
+- Side findings from the re-run: upstream stock main does NOT boot on kindling (64K pages: the engine stalls at
+  ~2.8 GiB load; our OTS 64K loader fix is what our images carry) - upstream-artifact testing must use the DGX OS
+  4K GRUB fallback; and on a cold kernel cache the vision helper's first-boot work outlasts the engine's
+  VisionTimeout, looping failed boots (VISION=0 avoids it).
+  Full data, the FP4 risk table and the continuation plan: docs/FP4-PORT-AND-RETEST.md.
 
 ## 2026-10-08
 

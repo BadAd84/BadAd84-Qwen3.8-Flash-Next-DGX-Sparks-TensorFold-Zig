@@ -26,6 +26,10 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`docs
   (measured 2026-10-24): clocks sag ~4% in 50 s and settle ~2170-2200 MHz at 80-83 C with no throttle
   bits, so benchmarks interleave arms, record start temps and never compare differently-hot boxes;
   also why `nvidia-smi -lgc` is not a speed lever.
+- **`FP4-PORT-AND-RETEST.md`** - the 2026-10-25 PR 34 re-test (our 2x2: CONFIDENCE flips to a loss
+  on the now-default NVFP4, holds +8% on code with INT4), the risk table for our whole patch batch on
+  FP4, the port-first blocker, the working spark6 measurement procedure (DGX OS 4K fallback,
+  VISION=0), and the continuation plan.
 
 ## scripts/qwen38/
 The serve: `qwen-start.sh`, `build_qwen_ots.sh`, the seven layers (`pr319/`, `ple-cache/`, `ple-native/`,
