@@ -60,6 +60,13 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   leave it off; (2) firewalls `:8888` on the API box to localhost, the fabric and docker (copy spark1's
   `~/fw8888.sh on|off`; sudo needs `ssh -A`), lifted at the same point; (3) records `/health` request counts before
   and after each probe, and an arm with requests it did not send is rerun.
+- **Thermal soak is a benchmark confound on GB10 (measured 2026-10-24).** Sustained load sags clocks
+  ~4% in 50 s (2330-2370 -> ~2250 MHz) and settles ~2170-2200 MHz at 80-83 C with no throttle bits
+  set: the same code on a hot box reads up to ~4-6% low. Interleave arms (already the rule), keep
+  warm-ups short and identical, record the GPU temp at the start of every timed window, and never
+  compare runs from differently-hot boxes. `nvidia-smi -lgc` above the natural curve is a no-op
+  (never exceeded ~2275 MHz) - not a speed lever. Full envelope + rules:
+  docs/GB10-THERMAL-BENCHMARK-METHODOLOGY.md.
 
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names

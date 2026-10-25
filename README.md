@@ -22,6 +22,10 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`docs
   checkpoint formats each engine reads.
 - **`ZIG-SPEED-CAMPAIGN-2026-10.md`** - the Zig release profiled on spark6 and sped up (+8 to +13% decode at 1-2
   clients, replies byte-identical): its patches, overlay and A/B tools are in `scripts/qwen38/zig/`.
+- **`GB10-THERMAL-BENCHMARK-METHODOLOGY.md`** - the GB10 sustained clock/power/thermal envelope
+  (measured 2026-10-24): clocks sag ~4% in 50 s and settle ~2170-2200 MHz at 80-83 C with no throttle
+  bits, so benchmarks interleave arms, record start temps and never compare differently-hot boxes;
+  also why `nvidia-smi -lgc` is not a speed lever.
 
 ## scripts/qwen38/
 The serve: `qwen-start.sh`, `build_qwen_ots.sh`, the seven layers (`pr319/`, `ple-cache/`, `ple-native/`,
