@@ -13,8 +13,7 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
 ## Conventions
 - **GPG-signed commits. Never `--no-gpg-sign`** (pinentry = YubiKey touch; if it fails, retry).
 - **Current-state docs**; retired things marked RETIRED in one line; "current" claims carry a date.
-- **No em-dashes** - plain hyphen. Never `git add -A`; stage explicit paths. New `.sh` files need
-  `git update-index --chmod=+x`.
+- New `.sh` files need `git update-index --chmod=+x`.
 - Secrets never enter this repo (or a prompt). Fleet auth is YubiKey/agent-based.
 - **A change ships only with replies byte-identical to the image it replaces** (golden 6/6:
   `~/work/qf_harness.py golden`, then `diff`), and its speed from an interleaved HTTP A/B on fixed prompts (3 passes
