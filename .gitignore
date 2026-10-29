@@ -10,3 +10,4 @@ __pycache__/
 # model tensors and traces - keep out of git
 *.pt
 *.safetensors
+work/

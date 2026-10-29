@@ -324,7 +324,7 @@ Decode aggregate tok/s, stock Zig 1.0.0 / ours (0001-0028) / `zmerge8` (ours + t
 | 8 | 199.5 / 229.6 / 244.9 | 306.2 / 360.4 / 377.8 |
 
 Next-turn TTFT (warm turns): 8k 0.52 -> 0.31 s, 100k 0.66 -> 0.50 s at every concurrency. Raw data: spark6
-`~/work/lanes/merge8/` (`m8_sum.py`), handover `_ompscratch/overnight/merge8/HANDOVER.md`.
+`~/work/lanes/merge8/` (`m8_sum.py`), handover `work/overnight/merge8/HANDOVER.md`.
 
 ### `zmerge8` keep set (exact, mutants killed)
 `TF_FLASHNEXT_PRODUCT_STREAMS=8`; `c68-shared-cost-levels.patch` + `TF_FLASHNEXT_SHARED_COST_LEVELS=0`;

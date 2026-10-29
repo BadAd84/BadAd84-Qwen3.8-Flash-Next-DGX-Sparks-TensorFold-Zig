@@ -2,7 +2,7 @@
 
 Target: MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold, base `fea45ba` (main, 2026-10-11); open from me: #34-#36, #42-#50, #53-#57.
 Evidence: lane r3-sharedjoin (`~/work/lanes/r3-sharedjoin/`: the nsys node traces and `tl2.py` / `tl3.py`, holds 2, 4 and 5, `h6`, `zabrm-r3sj`; image `r3sj-sj3`), the settle run (`~/work/lanes/b4settle/` `hA.log`, `hB.log`, `sjsum.py`), merged image `zmerge7`, `docs/ZIG-SPEED-CAMPAIGN-2026-10.md` (zmerge7). Clean stack: spark6 `~/work/lanes/b4-pack/` (tf branch `b4` = r1e stack 0001-0024 + 0025-0028, patches `pt/`, image `tensorfold-qwen38:zpr-b4c-stack`, host tests `t.log`, `hostmut4c.out`, GPU `b4q1c.log` / `runs/mut-b4c*.log`, evidence `~/work/gpuev/runs/b4c-*`).
-Restyled: C:/Users/Adam/_ompscratch/restyle-b4/shared-expert.final.md (adam-style, reviewed; approved 2026-10-12)
+Restyled: work/restyle-b4/shared-expert.final.md (adam-style, reviewed; approved 2026-10-12)
 
 ---
 
