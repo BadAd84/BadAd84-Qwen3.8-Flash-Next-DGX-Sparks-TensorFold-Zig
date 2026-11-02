@@ -1,6 +1,8 @@
-# scripts/qwen38 - the Qwen3.8 Flash Next serve on spark4
+# scripts/qwen38 - the Qwen3.8 Flash Next serve (retired)
 
-spark4 serves Qwen3.8 Flash Next (`Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP`) on `:8888` with the MiaAI-Lab recipe
+No Qwen serve is live: spark4 joined the GLM TP=2 test pair on 2026-10-09 and the spark4-6 dev triangle on
+2026-10-12 (ots-infra `docs/INFRA-LAYOUT.md`). The serve ran 2026-10-08..09 with
+(`Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP`) on `:8888` via the MiaAI-Lab recipe
 `Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold` (@ 4c0dea8, clone `~/qwen38-flashnext` on the box) and seven OTS
 changes: TensorFold PR #319 ported to the recipe's TensorFold v0.6.1, `ple-cache`, `ple-native`, `chain-stop`,
 `mtp-graph`, `ple-defer` and `tokenize-nogil` (below). Measurements and verdicts:
