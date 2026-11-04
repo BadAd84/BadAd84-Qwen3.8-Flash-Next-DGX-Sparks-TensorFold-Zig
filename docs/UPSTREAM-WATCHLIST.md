@@ -1,15 +1,6 @@
 # Qwen3.8 Flash Next on one DGX Spark - upstream watchlist
 
 Current state of the upstream recipe and engine against what spark4 runs. Live config: `scripts/qwen38/README.md`.
-## 2026-11-04
-
-- **FlashMap drafter weights for Qwen3.8-27B exist and are Apache-2.0** (`j-shen/FlashMap-Qwen3.8-27B-FP8`;
-  paper arXiv 2610.24365, code `al-jshen/flashmap`). A flow-map drafter conditions on the target's hidden states and
-  keeps inter-token dependencies inside its one-pass block, which is the limitation of block-diffusion drafters that
-  predict each token independently. On Qwen3-8B the paper measures +7% average speedup over a matched DFlash baseline
-  and up to 6.1x lossless. Not yet tested here: it belongs on spark4's harness against whatever drafter the serve runs
-  today, with acceptance and reply digests beside the speed, before any swap.
-
 ## 2026-10-25
 
 - Upstream re-tested #34 (`TF_FLASHNEXT_CONFIDENCE=-0.15`) on current main `656879f` / the NVFP4 checkpoint: no
