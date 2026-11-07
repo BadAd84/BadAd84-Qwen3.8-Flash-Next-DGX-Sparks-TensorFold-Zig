@@ -194,3 +194,11 @@ about +-2% (two boots, opposite signs, means within 1%): not shown to regress, a
 8 streams is not measurable on either arm here: stock 1.2.4 refuses 8 at bf16 KV (needs 32.86 GiB, the budget leaves
 31.41 at 131,072 tokens), so the levels are 1/2/4/6. Peak GPU 77 C (copy probe), boots 34-36 s. sparkDash was
 restarted mid-pass by a safety timer; every cell's SOURCES line shows 127.0.0.1 only, request counts equal between arms.
+
+The same lever against the other families: GLM 5.3 PRODUCTION is the Python engine (tf-v110 on spark1-3, not the Zig
+build), which has its own copy-proposal machinery and already widens its windows through the recipe's `COPY_MAX` (up
+to 63, `recipe-copy-windows.patch`, the F72 file-copy-and-rename decode in glm5.3-flash-dev's production doc); the
+resync, ramp and shared-round rules are NOT in it (no such knobs in the production doc), so they are candidate work
+measured on the production serve. The Zig `glm` family is a separate artifact (32-row windows, no resync knobs
+either). DeepSeek V4.1 keeps its own suffix-lookup drafting (families/deepseek_v41/draft/lookup.zig) and the lane
+core is shared; the wiring is per family and unmeasured.
