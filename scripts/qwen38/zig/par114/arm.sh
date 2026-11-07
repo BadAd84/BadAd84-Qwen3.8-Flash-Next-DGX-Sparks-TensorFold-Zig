@@ -24,9 +24,9 @@ case "$ARM" in
            | grep -a "answered\|LIVE\|refus\|rror\|ERROR\|needs" | head -20 ;;
   # Stock upstream TensorFold v1.2.4 (267c5af6) built by build-br.sh without any recipe patch, booted through the
   # v1.1.4 recipe's start.sh on NVIDIA FP4 with vision off (the FP4 vision tower is the recipe's 0001/0002) and
-  # 131,072-token windows from 4 streams (fp8 KV is the recipe's 0003; stock fits 3 bf16 windows at 262k).
-  up124) [ "$C" -ge 4 ] && CTX=131072
-         ( cd ~/work/lanes/rpr/recipe && env PREPARE=0 IMAGE=tensorfold-qwen38:up124 CHECKPOINT=nvfp4 VISION=0 PARALLEL="$C" CONTEXT="$CTX" HOST=127.0.0.1 ./start.sh restart </dev/null ) 2>&1 \
+  # bf16 KV (its Flash Next family refuses --kv-cache fp8, which is the recipe's 0003) in 131,072-token windows.
+  up124) CTX=131072
+         ( cd ~/work/lanes/rpr/recipe && env PREPARE=0 IMAGE=tensorfold-qwen38:up124 CHECKPOINT=nvfp4 VISION=0 KV_DTYPE=bf16 PARALLEL="$C" CONTEXT="$CTX" HOST=127.0.0.1 ./start.sh restart </dev/null ) 2>&1 \
            | grep -a "answered\|LIVE\|refus\|rror\|ERROR\|needs" | head -20 ;;
   *) echo "ARM is stock, ours or up124"; exit 1 ;;
 esac

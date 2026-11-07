@@ -150,4 +150,11 @@ Boot: ours 86-93 s, stock 131-142 s. Raw cells: spark6 `~/work/lanes/par114/runs
 Ours is ahead at every level on every metric (no regression anywhere, so serving it is not a trade); the gap is the
 levers of section 6's table plus whatever the INT4 versus NVFP4 kernel paths contribute (the maintainer's own ledger
 puts his INT4-era build 7% above his v1.1.4 build on code at 5 streams). Stock's TTFT grows with load (1k 0.60 idle
-to 0.77 at 8 streams); ours stays flat (0.45 to 0.49). The stock upstream 1.2.4 arm's cells are appended when run.
+to 0.77 at 8 streams); ours stays flat (0.45 to 0.49).
+
+**Stock upstream TensorFold v1.2.4** (`tensorfold-qwen38:up124`: `267c5af6` built without any recipe patch, NVFP4,
+vision off, bf16 KV because its Flash Next family refuses `--kv-cache fp8`, 131,072-token windows; 8 streams do not
+fit: 32.9 GiB of bf16 cache against 31.4 free) is the slowest of the three on decode and TTFT and the fastest to boot
+(35 s): prose / code aggregate 50.0 / 70.5 (1 stream), 68.7 / 103.9 (2), 94.7 / 129.2 (4), 115.5 / 166.3 (6); cold
+TTFT 8k / 120k with 3 other streams 4.69 / 75.5 s. Bringing 1.2.4 into the recipe as it is would lose the recipe's
+own 10-15% as well as our ~50%: the engine does not already have what we want.

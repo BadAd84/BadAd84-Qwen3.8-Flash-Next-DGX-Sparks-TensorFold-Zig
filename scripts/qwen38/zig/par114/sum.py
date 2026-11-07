@@ -92,11 +92,19 @@ for c in levels:
         b = o["dec"].get(kind, (None, None, 0, 0))[i] if o else None
         gain = f" ({(b / a - 1) * 100:+.1f}%)" if a and b else ""
         return f"{f(a)} / {f(b)}{gain}"
-
     def reqs(x):
         return "-" if not x else "/".join(str(x["dec"].get(k, (0, 0, 0, 0))[3]) for k in ("prose", "code"))
 
     print(f"| {c} | {pair('prose', 0)} | {pair('prose', 1)} | {pair('code', 0)} | {pair('code', 1)} | {reqs(s)} / {reqs(o)} |")
+print()
+print("| streams | arm | prose agg | prose per-stream | code agg | code per-stream | requests a pass |")
+print("|---|---|---:|---:|---:|---:|---|")
+for c in levels:
+    for a in arms:
+        if (a, c) in cells and cells[(a, c)]["dec"]:
+            x = cells[(a, c)]["dec"]
+            pr, co = x.get("prose", (None, None, 0, 0)), x.get("code", (None, None, 0, 0))
+            print(f"| {c} | {a} | {f(pr[0])} | {f(pr[1])} | {f(co[0])} | {f(co[1])} | {pr[3]}/{co[3]} |")
 print()
 sizes = ["cold1k-off", "cold8k-off", "cold32k-off", "cold120k-off"]
 print("| streams | arm | load | " + " | ".join(f"TTFT {s} s" for s in sizes) + " |")
