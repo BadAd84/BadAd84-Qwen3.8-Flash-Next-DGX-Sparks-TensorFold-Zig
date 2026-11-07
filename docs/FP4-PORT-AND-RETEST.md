@@ -189,7 +189,8 @@ Measured (NVFP4, bf16 KV, 131k windows, fresh boot per cell, ABBA, medians of 3;
 
 Plain decode and TTFT: two boots a cell at 2 and 6 streams gave opposite signs (pass 1 cw124 -4.3% prose at 2 and
 -4.0% at 6; pass 2 +3.9% and +3.7%), means within 1%; 1 stream +4.4% prose / +0.8% code, 4 streams +0.1% / 0.0%. TTFT
-equal within 1-2%, cw124 marginally higher in 7 of 8 loaded cells inside that spread. So the plain-decode difference
-is unresolved at a couple of percent either way, not a measured regression; the fleet rule's ABBA confirmation is the
-two boots already run. Peak GPU 77 C (copy probe), boots 34-36 s. sparkDash came back by itself mid-pass; every cell's
-SOURCES line shows 127.0.0.1 only, request counts equal between arms.
+equal within 1-2%, cw124 marginally higher in 7 of 8 loaded cells inside that spread. So plain decode is bounded at
+about +-2% (two boots, opposite signs, means within 1%): not shown to regress, and not claimed as no-regression either.
+8 streams is not measurable on either arm here: stock 1.2.4 refuses 8 at bf16 KV (needs 32.86 GiB, the budget leaves
+31.41 at 131,072 tokens), so the levels are 1/2/4/6. Peak GPU 77 C (copy probe), boots 34-36 s. sparkDash was
+restarted mid-pass by a safety timer; every cell's SOURCES line shows 127.0.0.1 only, request counts equal between arms.
