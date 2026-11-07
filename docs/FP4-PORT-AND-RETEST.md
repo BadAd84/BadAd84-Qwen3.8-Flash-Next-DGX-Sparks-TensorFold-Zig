@@ -69,9 +69,9 @@ Our series was written against a tree with no FP4 load path and main renumbered 
 
 ## 4. Measurement environment that works (spark6 procedure)
 
-- **Stock main does NOT boot on kindling (64K pages)**: the engine stalls at ~2.8 GiB during load
-  (single core spinning; our OTS 64K loader fix is what our own images carry). Test upstream
-  artifacts on the DGX OS 4K GRUB fallback:
+- SUPERSEDED by section 6: the stall was the pre-custody upload path (file-backed mmap sources), fixed upstream on
+  2026-10-18 and by 0050 on our tree; stock v1.1.4 and v1.2.4 boot kindling (131 s and 35 s). The DGX OS fallback
+  below is no longer needed for upstream artifacts:
   - to DGX OS: `ssh -A adam@192.168.99.16 'sudo sparkos-rollback'`
   - back to kindling: `ssh -A adam@192.168.99.16 'sudo sparkos-rollback 0.9.5-1019-64k'` (promoted,
     TRIAL=0, becomes the default again). ~90-150 s per reboot; /home and /var/lib/docker persist.
@@ -121,10 +121,11 @@ Current state. Section 4's "stock main does not boot on kindling" and section 5'
 - **v1.1.4 facts measured on spark6**: the published image (`tensorfold-qwen38:v1.1.4-eab8582`, digest in the recipe's
   `config.sh`) boots kindling in 131 s with no hang. `CHECKPOINT=int4` is refused by its engine (`UnsupportedCheckpoint`:
   the AutoRound layout); it serves NVIDIA FP4 only, and 6 or 8 streams do not fit at 262,144 tokens (the recipe's own
-  note). Golden against the 1.0.0 INT4 reference: 4/6, the two differences being wording changes from the quant.
+  note). Golden against the 1.0.0 INT4 reference: 4/6; the two differences are wording changes from the quant
+  ("Return" vs "Returns the n-th Fibonacci number", "examine the integers" vs "examine each integer"), not truncation.
 - **Upstream TensorFold is v1.2.4** (`267c5af6`, 2026-11-07): 2,610 commits past the pin, 332 files in the Flash Next
-  family / lanes core / CUDA runtime. It carries three of the recipe's 17 (lane-batched DeltaNet, `KEEP_LATE`, the
-  running-product stop rule), paged KV (`TF_FLASHNEXT_KV_PAGES`) and a 19%-sooner first token for short prompts; it
+  family / lanes core / CUDA runtime. It carries equivalents of three of the recipe's 17 (lane-batched DeltaNet, `KEEP_LATE`,
+  the running-product stop rule), paged KV (`TF_FLASHNEXT_KV_PAGES`) and a 19%-sooner first token for short prompts; it
   still lacks our 12-bit hc read-out, copy re-sync / shared ramp, warm turns for Flash Next and the sequence pool of
   kept graphs. 15 of the recipe's 17 patches fail `git apply --check` on 1.2.4: a recipe bump is a rebase of the
   maintainer's own series. Our levers therefore target TensorFold main, not the recipe.
@@ -138,6 +139,8 @@ Decode = aggregate tok/s, median of 3 passes of 512-token greedy replies with ev
 TTFT = client-measured cold prompts, thinking off, with C-1 other streams decoding (`ttft.py`). Both arms golden-clean
 on their own terms (ours 6/6 identical to the 1.0.0 INT4 reference; stock 4/6, the two being quant wording changes).
 Boot: ours 86-93 s, stock 131-142 s. Raw cells: spark6 `~/work/lanes/par114/runs/`, summariser `par114/sum.py`.
+TTFT columns are the C-1 load level (C-1 other streams decoding). Ours ran 8-13 C hotter at decode (the ABBA order
+put it second in three of five pairs), which understates ours by about 1-2% on the thermal doc's envelope.
 
 | streams | prose stock / ours | code stock / ours | TTFT 1k stock / ours | TTFT 8k | TTFT 32k | TTFT 120k |
 |---|---|---|---|---|---|---|
@@ -156,5 +159,5 @@ to 0.77 at 8 streams); ours stays flat (0.45 to 0.49).
 vision off, bf16 KV because its Flash Next family refuses `--kv-cache fp8`, 131,072-token windows; 8 streams do not
 fit: 32.9 GiB of bf16 cache against 31.4 free) is the slowest of the three on decode and TTFT and the fastest to boot
 (35 s): prose / code aggregate 50.0 / 70.5 (1 stream), 68.7 / 103.9 (2), 94.7 / 129.2 (4), 115.5 / 166.3 (6); cold
-TTFT 8k / 120k with 3 other streams 4.69 / 75.5 s. Bringing 1.2.4 into the recipe as it is would lose the recipe's
-own 10-15% as well as our ~50%: the engine does not already have what we want.
+TTFT 8k / 120k with 3 other streams 4.69 / 75.5 s. Against it the recipe's own patches measure 0 to +14% on decode
+(largest at 1 stream, nil at 6) and ours a further ~50%: bringing 1.2.4 into the recipe as it is would give both up.
