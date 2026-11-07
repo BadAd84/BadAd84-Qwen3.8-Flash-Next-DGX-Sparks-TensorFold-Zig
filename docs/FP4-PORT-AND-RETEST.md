@@ -202,3 +202,21 @@ resync, ramp and shared-round rules are NOT in it (no such knobs in the producti
 measured on the production serve. The Zig `glm` family is a separate artifact (32-row windows, no resync knobs
 either). DeepSeek V4.1 keeps its own suffix-lookup drafting (families/deepseek_v41/draft/lookup.zig) and the lane
 core is shared; the wiring is per family and unmeasured.
+
+### 6.3 Lever 2 on TensorFold 1.2.4: the 12-bit hc read-out - measured negative (2026-11-07)
+
+Branch `port-hc-q12` (`24f70f52b` on `267c5af6a`, 10 files +559/-8, the read-outs as a sixth qmmf mode, exact by
+construction; image `tensorfold-qwen38:hq124`; backup Gitea `ots/tensorfold-levers124` branch `port-hc-q12`).
+Gates: `zig fmt` clean; lean_check 116 / 116 problems, 0 new; host suite 7701/7768 vs 7697/7764 with the identical
+3 pre-existing environment failures.
+
+Measured (both arms on `267c5af6`, NVFP4, bf16 KV, 131,072-token windows, two boots at 1 and 2 streams, one at 4 and
+6, fresh boot per cell, ABBA, spark6 `~/work/lanes/par114/runsHQ/`): **no measurable change at any level.** Per-stream
+medians (stock / port, tok/s): 1 stream prose 52.3 / 52.7, code 73.6 / 73.6; 2 streams prose 39.1 / 39.2, code 53.4 /
+53.5; 4 streams prose 26.6 / 26.5, code 39.4 / 39.3; 6 streams prose 22.6 / 22.2, code 33.2 / 32.7. The copy, rewrite
+and edit probes are equally flat (rewrite 226-230 on both arms at every level; edits 136-140 vs 139-140 at 6 streams).
+Every cell byte-identical: golden 6/6 against stock's own replies at all four levels, all SOURCES 127.0.0.1.
+
+Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not reproduce on 1.2.4 - that engine's
+hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
+not retried; the branch and image stay for reference.
