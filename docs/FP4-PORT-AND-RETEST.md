@@ -96,3 +96,58 @@ Our series was written against a tree with no FP4 load path and main renumbered 
   `pr34_dbgboot.log`; arm driver script `~/work/pr34_arms.sh`.
 - Our open PRs upstream: #34-#36, #42-#50, #53-#63 (all open, none merged; maintainer triage
   2026-10-11 deferred GPU exactness). Watch for more plotarmordev re-tests.
+
+## 6. 2026-11-07: the hang solved, the series retired upstream, the parity measurement
+
+Current state. Section 4's "stock main does not boot on kindling" and section 5's open-PR list are superseded here.
+
+- **The 64 KiB-page boot hang: cause and fix.** A pageable host-to-device copy whose source is the file-backed safetensors
+  mmap hangs in the driver on kindling once the process holds device memory (the class of GLM's `ots0073` and the
+  ai-engine kindling patch `0002-native-upload-mmap-stage`). The CUDA 13.3 compat lib is NOT the cause: `zmerge8-kfix`,
+  `zig-db28187` and `fp4port` all carry the same `libcuda.so.610.43.02`, and `zmerge8-kfix` boots kindling in forward-compat
+  mode with it. Fix 0050 (`7163805` on `fp4port`): `zig/src/cuda/memory.zig DeviceBuffer.upload`, the single chokepoint of
+  all 69 `.upload(` callers, stages every blocking upload through a 1 MiB anonymous stack block; 0049 (weights path only)
+  reverted. With it the main-based image loads in 48.4 s on kindling, golden 6/6 identical to stock, `exact.py` PASS.
+- **Three port defects the host suite could not see**, all in files it never compiles: 0043 had dropped all 28 `TF_QMMF(`
+  and 14 `TF_QMMF_LD(` instantiations (restored `9c13e75`); 0048 left two orphaned macro continuations in the `.cu`
+  (`5aef693`) and built the fused LD kernel name with the fn_qmmf tail and looked it up in the fn_qmmf module
+  (`2662507`, `cf5807d`, now pinned by a test). The lane's `test.sh` gained a `.cu` gate (no instantiation line vanishes
+  since the recipe tip; every changed `.cu` compiles under the base image's nvcc) and an `ld_` module-handle grep.
+- **Upstream had already fixed the hang**: TensorFold copy custody (`096200f02`, 2026-10-18; `copy_source.zig`
+  `syncChunk` stages every synchronous upload through an anonymous 64 MiB chunk) is in v1.1.4 and later. The recipe's
+  2026-10-30 rewrite re-pinned to **v1.1.4** (`eab8582`) with 17 new patches and retired the whole `db281878` series our
+  port targets; our PRs #34-#63 are closed (only #53's fill fix survives, as his 0021). 0050 is therefore
+  `db281878`-only; no upstream submission. The `fp4port` branch is backed up at `ots/tensorfold-fp4port` on Gitea.
+- **v1.1.4 facts measured on spark6**: the published image (`tensorfold-qwen38:v1.1.4-eab8582`, digest in the recipe's
+  `config.sh`) boots kindling in 131 s with no hang. `CHECKPOINT=int4` is refused by its engine (`UnsupportedCheckpoint`:
+  the AutoRound layout); it serves NVIDIA FP4 only, and 6 or 8 streams do not fit at 262,144 tokens (the recipe's own
+  note). Golden against the 1.0.0 INT4 reference: 4/6, the two differences being wording changes from the quant.
+- **Upstream TensorFold is v1.2.4** (`267c5af6`, 2026-11-07): 2,610 commits past the pin, 332 files in the Flash Next
+  family / lanes core / CUDA runtime. It carries three of the recipe's 17 (lane-batched DeltaNet, `KEEP_LATE`, the
+  running-product stop rule), paged KV (`TF_FLASHNEXT_KV_PAGES`) and a 19%-sooner first token for short prompts; it
+  still lacks our 12-bit hc read-out, copy re-sync / shared ramp, warm turns for Flash Next and the sequence pool of
+  kept graphs. 15 of the recipe's 17 patches fail `git apply --check` on 1.2.4: a recipe bump is a rebase of the
+  maintainer's own series. Our levers therefore target TensorFold main, not the recipe.
+- **The serve**: `scripts/qwen38/zig/qwen6-start.sh` (zmerge8-kfix, INT4, 8 streams, warm turns off); the parity
+  drivers are `scripts/qwen38/zig/par114/` (stock v1.1.4 on NVFP4 vs ours on INT4, cross-quant by necessity, plus a
+  stock upstream 1.2.4 arm).
+
+### 6.1 Parity matrix, 2026-11-07 (spark6, kindling, fresh boot per cell, ABBA order, sparkDash stopped)
+
+Decode = aggregate tok/s, median of 3 passes of 512-token greedy replies with every slot busy (`tfm_decode.py`);
+TTFT = client-measured cold prompts, thinking off, with C-1 other streams decoding (`ttft.py`). Both arms golden-clean
+on their own terms (ours 6/6 identical to the 1.0.0 INT4 reference; stock 4/6, the two being quant wording changes).
+Boot: ours 86-93 s, stock 131-142 s. Raw cells: spark6 `~/work/lanes/par114/runs/`, summariser `par114/sum.py`.
+
+| streams | prose stock / ours | code stock / ours | TTFT 1k stock / ours | TTFT 8k | TTFT 32k | TTFT 120k |
+|---|---|---|---|---|---|---|
+| 1 | 57.2 / 69.4 (+21%) | 77.5 / 112.3 (+45%) | 0.57 / 0.41 | 3.26 / 2.62 | 12.9 / 10.6 | 52.0 / 42.4 |
+| 2 | 67.0 / 101.1 (+51%) | 112.9 / 173.4 (+54%) | 0.65 / 0.45 | 3.51 / 2.66 | 13.7 / 10.7 | 54.9 / 42.6 |
+| 4 | 97.9 / 152.1 (+55%) | 145.5 / 226.5 (+56%) | 0.71 / 0.50 | 3.68 / 2.70 | 14.3 / 10.7 | 56.6 / 43.5 |
+| 6 | 118.6 / 187.3 (+58%) | 166.5 / 281.8 (+69%) | 0.77 / 0.48 | 3.73 / 2.70 | 14.5 / 10.8 | 57.4 / 43.1 |
+| 8 | 133.5 / 210.9 (+58%) | 196.4 / 328.6 (+67%) | 0.77 / 0.49 | 3.77 / 2.72 | 15.0 / 10.7 | 58.5 / 43.0 |
+
+Ours is ahead at every level on every metric (no regression anywhere, so serving it is not a trade); the gap is the
+levers of section 6's table plus whatever the INT4 versus NVFP4 kernel paths contribute (the maintainer's own ledger
+puts his INT4-era build 7% above his v1.1.4 build on code at 5 streams). Stock's TTFT grows with load (1k 0.60 idle
+to 0.77 at 8 streams); ours stays flat (0.45 to 0.49). The stock upstream 1.2.4 arm's cells are appended when run.
