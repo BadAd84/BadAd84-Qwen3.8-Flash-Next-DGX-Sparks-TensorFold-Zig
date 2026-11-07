@@ -161,3 +161,35 @@ fit: 32.9 GiB of bf16 cache against 31.4 free) is the slowest of the three on de
 (35 s): prose / code aggregate 50.0 / 70.5 (1 stream), 68.7 / 103.9 (2), 94.7 / 129.2 (4), 115.5 / 166.3 (6); cold
 TTFT 8k / 120k with 3 other streams 4.69 / 75.5 s. Against it the recipe's own patches measure 0 to +14% on decode
 (largest at 1 stream, nil at 6) and ours a further ~50%: bringing 1.2.4 into the recipe as it is would give both up.
+
+### 6.2 Lever 1 on TensorFold 1.2.4: copy re-sync and the shared-round copy ramp (2026-11-07)
+
+Branch `port-copy-windows` (`f738706e0` on `267c5af6a`, 8 files +308/-20; backup Gitea `ots/tensorfold-levers124`),
+lane report `agent://CopyWindows124` of this session, driver `scripts/qwen38/zig/par114/abq.sh`, cells spark6
+`~/work/lanes/par114/runs2/`. Our 0104's window step is already upstream (`5bb64597d`: copy windows to 32 rows, a lone
+stream ramps 15 to 31); the port adds what upstream lacks: a copy that misses mid-edit keeps its source and resumes
+(`TENSORFOLD_COPY_RESYNC`, `_PROMPT_ONLY`), the ramp policy (`TENSORFOLD_COPY_MISS` first|keep, `TENSORFOLD_COPY_RAMP`
+double|jump) and shared rounds taking the lone ramp when the last copy came from the prompt (`TENSORFOLD_COPY_SHARED`).
+All off by default, strict values. The 64-row window is NOT ported: upstream's `exact_width` is 32 and raising it is a
+kernel row-invariance claim with its own receipt.
+
+Gates: `zig fmt` clean; lean_check 116 / 116 problems (0 new, each tree its own copy); host suite 7701/7768 vs
+7697/7764 (+4 tests added, the same 3 pre-existing environment failures); 2 mutants killed (the prompt-only gate, the
+miss arming). Exactness: golden 6/6 identical to stock up124's own replies on every cell, `exact.py` PASS on both arms
+with the same six shas and 555 accepted drafts, every copy/rewrite/edit reply sha equal between arms.
+
+Measured (NVFP4, bf16 KV, 131k windows, fresh boot per cell, ABBA, medians of 3; stock up124 / cw124 tok/s):
+
+| streams | one-word rewrite | two concurrent edits (1st / 2nd) | edit beside prose (edit / prose) | verbatim copy |
+|---|---|---|---|---|
+| 1 | 231.0 / 300.9 (+30%) | | | 375.8 / 375.8 |
+| 2 | 228-231 / 298-300 (+30%) | 140 / 199-201 (+42-45%), 140 / 210-213 (+49-52%) | 147-150 / 233-234 (+57%), 47-48 / 50 (+4-6%) | 374-377 / 374-376 |
+| 4 | 227.9 / 295.8 (+30%) | 137 / 198 (+44%), 138 / 210 (+52%) | 147 / 232 (+58%), 47 / 50 (+5%) | 372 / 371 |
+| 6 | 230 / 296-300 (+29%) | 138-143 / 199-203 (+42-44%), 139-143 / 210-213 (+49-51%) | 148-149 / 231-233 (+56%), 48 / 49-50 (+4-5%) | 376 / 372-376 |
+
+Plain decode and TTFT: two boots a cell at 2 and 6 streams gave opposite signs (pass 1 cw124 -4.3% prose at 2 and
+-4.0% at 6; pass 2 +3.9% and +3.7%), means within 1%; 1 stream +4.4% prose / +0.8% code, 4 streams +0.1% / 0.0%. TTFT
+equal within 1-2%, cw124 marginally higher in 7 of 8 loaded cells inside that spread. So the plain-decode difference
+is unresolved at a couple of percent either way, not a measured regression; the fleet rule's ABBA confirmation is the
+two boots already run. Peak GPU 77 C (copy probe), boots 34-36 s. sparkDash came back by itself mid-pass; every cell's
+SOURCES line shows 127.0.0.1 only, request counts equal between arms.
