@@ -27,8 +27,9 @@ docker image inspect "$IMAGE" >/dev/null || { echo "image $IMAGE is not on this 
 [ -d "$HOME/.cache/huggingface/tensorfold-mtp-fp8" ] || { echo "the MTP FP8 overlay dir is missing (mtp_fp8.py)"; exit 1; }
 
 # The GPU lock holder: takes the lock, then waits while the serve container runs. Started before the boot so no
-# other job slips in between; it exits (releasing the lock) once the container is gone or stopped.
-if ! pgrep -f "[q]wen6-gpu-lock-holder" >/dev/null; then
+# other job slips in between; it exits (releasing the lock) once the container is gone or stopped. LOCK_HOLDER=0
+# skips it (a benchmark driver that already holds the lock boots the serve as one of its arms).
+if [ "${LOCK_HOLDER:-1}" = 1 ] && ! pgrep -f "[q]wen6-gpu-lock-holder" >/dev/null; then
   setsid nohup bash -c 'exec -a qwen6-gpu-lock-holder flock -o "$HOME/work/gpu.lock" bash -c "
     sleep 600
     while [ \"\$(docker inspect -f {{.State.Running}} qwen38-flash-next-tf 2>/dev/null)\" = true ]; do sleep 30; done"' \
