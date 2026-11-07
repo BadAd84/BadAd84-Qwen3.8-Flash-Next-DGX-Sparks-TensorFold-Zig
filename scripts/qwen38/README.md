@@ -1,6 +1,13 @@
-# scripts/qwen38 - the Qwen3.8 Flash Next serve (retired)
+# scripts/qwen38 - the Qwen3.8 Flash Next serve
 
-No Qwen serve is live: spark4 joined the GLM TP=2 test pair on 2026-10-09 and the spark4-6 dev triangle on
+**Live since 2026-11-07: the Zig serve on spark6 `:8888`**, started by `zig/qwen6-start.sh` (box copy `~/qwen6-start.sh`):
+image `tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7` (the recipe's Zig 1.0.0 + our 0001-0028 + the zmerge8 keep set
++ the two byte-neutral 64K-page boot fixes; the only build of that stack that boots kindling), INT4-AutoRound,
+8 streams, the measured zmerge8 env with warm turns OFF (their 1-stream TTFT trade is the owner's call; `WARM_TURNS=1`
+enables them). Boot 89 s, golden 6/6 identical to stock on the first boot. Thinking is on by default
+(`chat_template_kwargs.enable_thinking=false` turns it off). It holds the box's GPU lock while it runs.
+
+The Python serve below is RETIRED: spark4 joined the GLM TP=2 test pair on 2026-10-09 and the spark4-6 dev triangle on
 2026-10-12 (ots-infra `docs/INFRA-LAYOUT.md`). The serve ran 2026-10-08..09 with
 (`Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP`) on `:8888` via the MiaAI-Lab recipe
 `Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold` (@ 4c0dea8, clone `~/qwen38-flashnext` on the box) and seven OTS
