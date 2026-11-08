@@ -21,20 +21,18 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
   logic in `proposer.zig` and `windows.zig` is clear of live overlap; `proposer.zig` is hit by #2373 only, whose
   merge base is 6,960 commits behind main and predates the lanes split, so that one hit is a stale whole-file
   artifact. One same-function overlap to sequence: #1394 (Llama2), a decode-time copy proposer, runs on CUDA/GB10.
-- Not run: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
 ## Checks on this head
 
 - Head commit: `190be7e35` (the receipt commit; the code beneath it is `7bf66d350`, and the measured image
   `tensorfold-qwen38:w64` was built from `8a83b6352`, which differs from the head only by two comment
   fixes). The receipt adds `docs/receipts/flashnext-window-rows/`.
-- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.
+- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.w (the three extra files are the port's); the two comment fixes on the head change no findings.
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
   build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
   test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied` as root) - and
   equal per-test pass counts (7695/7764 on both).
 - CI: not run here; the gates above are the local equivalents.
-- Not run, and why: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
 ## Receipt
 
@@ -44,7 +42,6 @@ A full receipt is in `docs/receipts/flashnext-window-rows/` (README, the two ben
 - This change adds no settings. The boot self-check is on by default and makes the fallback automatic;
   `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe (not recommended outside bring-up). The copy resync, ramp
   and shared-round rules are a separate change and do not ride here.
-
 - Environment: both arms built from the same tip, upstream `267c5af6a`. `up124` is `267c5af6a` stock; `w64` is this change, built `--no-cache` from the branch at `8a83b6352` (the head minus two comment fixes). Zig 0.17.0, nvcc for sm_121, NVIDIA GB10, driver 580.178.04, vision off, bf16 KV (Flash Next refuses `--kv-cache fp8`), 131,072-token windows, `--parallel 6`. Checkpoint `nvidia/Qwen3.8-Flash-Next-FP4-Local` at its pinned revision (`b9ce18a6`).
 - Levels are 1, 2, 4 and 6. Device scratch grows 0.05 GiB per live drafting stream (4.11 -> 4.16 GiB at 2-6 streams, observed on the boot lines); no level refused at 131,072 tokens. 8 streams is not run: the stock arm cannot serve it at bf16 KV (32.86 GiB of cache against 31.41 free).
 - Paths the change reaches: the decode-time copy proposer in `core/lanes`. Ran on CUDA/GB10; did not run Metal, HIP or XPU.
