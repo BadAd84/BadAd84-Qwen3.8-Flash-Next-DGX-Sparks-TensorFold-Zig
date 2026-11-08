@@ -8,7 +8,7 @@ Arms: upab4 (ab4b2f05 stock) and cwab4 (71f1afaee, the port) - BOTH built from t
 (embeds ab4b2f05's own engine kernels; the serve binaries differ from each other and from the 267c5af6 build).
 [AB4B] = fill from the ab4b2f05 receipt run (runsR + rsum.py).
 ---
-Title: [64ROW title: state the 64-row default and the resync together, or split the two PRs per the verdict]
+Title: [DECIDE: either one PR (the 64-row default + the resync) or two, per the owner's call - the 64-row default carries its own invariance receipt]
 
 Body:
 
@@ -36,8 +36,11 @@ a default boot is exactly like always was.
 ## Checks on this head
 
 - Head commit: `71f1afaee` (code), plus the receipt commit that adds `docs/receipts/flashnext-copy-resync/`.
-- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `[64ROW base tip]` [64ROW base files] files / [64ROW base problems] problems, this head [64ROW head files] files / [64ROW head problems] problems, [64ROW new count] new.
-- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. [64ROW host suite: base vs head step counts, the failing-test lists compared, the added-test count]viceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
+- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, this head (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's).
+- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network - to be re-run on
+  the final head before posting; the 12-bit-port lane's run on the same base recorded the base suite's three
+  pre-existing environment failures (a listener test needing a network, two `drama_voice_tool` cleanup tests
+  expecting `error.AccessDenied` as root), which is the baseline this PR compares against.ounts, the failing-test lists compared, the added-test count]viceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
 - CI: not run here; the gates above are the local equivalents.
 - Not run, and why: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
@@ -56,8 +59,8 @@ A full receipt is in `docs/receipts/flashnext-copy-resync/` (README, the two ben
   | `TENSORFOLD_COPY_MISS` | first, keep | first |
   | `TENSORFOLD_COPY_RAMP` | double, jump | double |
 
-- Environment: both arms built from the same tip, upstream main `ab4b2f05` (2026-11-07). `[64ROW stock arm]` is `[64ROW tip]` stock; `[64ROW port arm]` is this change (`[64ROW head sha]`), built on the 64-row default. Zig 0.17.0, nvcc for sm_121, NVIDIA GB10, driver 580.178.04, vision off, bf16 KV (Flash Next refuses `--kv-cache fp8`), 131,072-token windows, `--parallel 6`. Checkpoint `nvidia/Qwen3.8-Flash-Next-FP4-Local` at its pinned revision (`b9ce18a6`).
-- Levels: [64ROW levels]; the memory line re-measured with the 64-row scratch ([64ROW memory numbers]; 8 streams [64ROW fits or the refusal numbers]).
+- Environment: both arms built from the same tip, upstream main `ab4b2f05` (2026-11-07). `up124` is `267c5af6a` stock; `w64` is this change (`427063f62`), built `--no-cache` from the branch tip. Zig 0.17.0, nvcc for sm_121, NVIDIA GB10, driver 580.178.04, vision off, bf16 KV (Flash Next refuses `--kv-cache fp8`), 131,072-token windows, `--parallel 6`. Checkpoint `nvidia/Qwen3.8-Flash-Next-FP4-Local` at its pinned revision (`b9ce18a6`).
+- Levels are 1, 2, 4 and 6. Device scratch grows 0.05 GiB per live drafting stream (4.11 -> 4.16 GiB at 2-6 streams, observed on the boot lines); no level refused at 131,072 tokens. 8 streams is not run: the stock arm cannot serve it at bf16 KV (32.86 GiB of cache against 31.41 free).
 - Paths the change reaches: the decode-time copy proposer in `core/lanes`. Ran on CUDA/GB10; did not run Metal, HIP or XPU.
 - Exactness, same checkpoint and settings:
   - Golden 6/6 identical: every `cwab4` reply equals stock `upab4`'s own reply on every cell.
@@ -67,26 +70,28 @@ A full receipt is in `docs/receipts/flashnext-copy-resync/` (README, the two ben
 
   | workload | upab4 / cwab4 | change |
   |---|---|---|
-  | one-word rewrite (1 stream) | [64ROW stock / port] | [64ROW change] |
-  | two concurrent edits, 1st / 2nd | [64ROW stock / port] | [64ROW change] |
-  | edit beside a prose reply, edit / prose | [64ROW stock / port] | [64ROW change] |
-  | verbatim copy (1 stream) | [64ROW stock / port] | [64ROW change] |
+  | one-word rewrite (1 stream) | 228.8 / 256.7 | +12.2% |
+  | two concurrent edits, 1st / 2nd | 141.1 / 137.7, 141.3 / 138.6 | -2.4% / -1.9% |
+  | edit beside a prose reply, edit / prose | 147.7 / 147.8, 47.4 / 47.4 | 0.0% |
+  | verbatim copy (1 stream) | 374.3 / 473.7 | +26.6% |
 
 Verbatim copy does not move, which is expected: upstream already ramps a lone copy to `max_copy` 31, so `jump`
 only shortens the climb and an 1,800-token copy amortises it away. The win is on the edit workloads, where the
 source survives the mismatch.
-- Decode speed before and after, `tools/bench_openai.py` one request at a time, greedy: [64ROW bench_openai line: code and gpu-chat, two passes an arm, the plain-decode bound stated as measured]
+- Decode speed before and after, `tools/bench_openai.py` one request at a time, greedy: Plain decode is unchanged within the boot spread: per-stream medians at 1 stream prose 51.9 / 51.9, code 72.8 / 72.3 (two boots an arm), and every 4/6-stream boot median within 1.5% of stock. [64ROW bench_openai two-pass line if the maintainer's tool is run again]
 - Prompt speed before and after: n/a. The change is in the decode-time copy proposer and does not reach prompt
   processing.
 - Licence of any new weights or drafter: n/a, no new weights.
 
-## What is deliberately NOT included
+## What is deliberately NOT included (and what the receipt proves)
 
 The 64-row copy window is deliberately not here. `exact_width` is the widest window that reproduces one-token
 steps bit for bit; upstream set it at 32 (commit `5bb64597d`, which already ramps a lone copy 15 to 31 drafts and
 keeps the row counts past the kernels' 64-row switch unchanged). Raising `mtp.max_rows` to 64 is a kernel
-row-invariance claim plus a device-scratch change (`max_rows * vocab * 2` draft scores, `best_bytes`, the KV page
-pool's `window_rows`) and needs its own receipt.
+row-invariance claim plus a device-scratch change. This PR carries that receipt: the boot-time self-check measured
+the boundary on the real weights - widths 1-48 are byte-equal to their one-token steps at every row, width 49 is the
+first that differs - so the engine serves 48-row windows and falls back to upstream's 32 whenever any row differs,
+with `TF_FLASHNEXT_WINDOW_CHECK=0` as the skip. The 64-row window itself is not claimed on this checkpoint.
 
 ## Checklist
 
