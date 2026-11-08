@@ -2,18 +2,18 @@ Title: flashnext: serve the largest row-exact copy-window width, measured with a
 
 ## What this changes
 
-Flash Next's copy windows are hard-capped at `exact_width` (32 rows), the widest width upstream proved
-reproduces one-token steps bit for bit. Rows past that width are not claimed: a window wider than the proven
-prefix cannot serve without a row-invariance receipt.
+Flash Next's copy windows are hard capped at `exact_width` (32 rows), the widest width upstream proven to
+reproduce one-token steps bit for bit. Rows past that are not claimed - there is no point serving a window
+wider than the proven prefix.
 
-This change raises the served copy-window width to 64 and adds a boot-time self-check that measures the row
-invariance boundary on the real weights: it sweeps every width to `max_rows` over a synthetic prompt, and serves
-the largest prefix whose every row is byte-equal to its one-token step. On the NVFP4 checkpoint that boundary is
-48 rows (width 49 is the first that differs, the pending-row log's `batch.late_rows`), so the engine serves
-48-row copy windows and logs the fallback line; if any shape ever fails, it serves upstream's 32-row windows -
-the worst case is exactly today's behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
+This change lifts the served window max and adds a boot-time self-check that measures the row-invariance
+boundary on the real weights: it sweeps every width to `max_rows` over a synthetic prompt and serves the
+largest prefix whose every row is byte-equal to its one-token step. On the NVFP4 checkpoint that boundary is
+48 rows (width 49 differs, `batch.late_rows`), so the engine serves 48-row copy windows and logs the fallback
+line - if any shape ever fails, it falls back to upstream's 32-row windows. Worst case is exactly today's
+behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
-- Issue: n/a. This changes the served copy-window width and adds the probe that proves it; it changes only
+ This changes the served copy-window width and adds the probe that proves it; it changes only
   which tokens get proposed as drafts, never the math. A draft is still accepted only when it equals the plain
   token.
 - Stacked on: main.
