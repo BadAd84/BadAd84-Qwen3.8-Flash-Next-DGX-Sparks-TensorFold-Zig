@@ -221,6 +221,13 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+**Gates re-run on the final head `7bf66d350` (2026-11-08 08:2x GMT, `~/work/lanes/port124c/results-gates124.log`):**
+lean 130 / 130 problems, 0 new (the port's two multi-line comments fixed in `7bf66d350`); `zig fmt --check` clean;
+the host suite builds 581/585 steps on base and head with the identical failing-test lists - the three pre-existing
+environment tests (one listener test needing a network, two `drama_voice_tool` cleanup tests expecting
+`error.AccessDenied` as root) plus two steps that fail in both trees; per-test pass counts equal (7695/7764 both).
+The PR's tests line is now filled and no re-run is owed.
+
 **Rows64on124's final report (2026-11-08) sharpens 6.5 in three ways, all verified on the box:**
 - The 49-row boundary has a NAMED mechanism: the pending-row log capacity (`batch.late_rows = 48`) - the fused GDN
   kernel writes no log, so a verify window past 48 rows takes the row-by-row GDN path and errors `UnexpectedTensor`

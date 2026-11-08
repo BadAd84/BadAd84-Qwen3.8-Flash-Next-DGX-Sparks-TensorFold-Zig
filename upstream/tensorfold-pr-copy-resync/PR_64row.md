@@ -37,10 +37,10 @@ a default boot is exactly like always was.
 
 - Head commit: `71f1afaee` (code), plus the receipt commit that adds `docs/receipts/flashnext-copy-resync/`.
 - Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, this head (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's).
-- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network - to be re-run on
-  the final head before posting; the 12-bit-port lane's run on the same base recorded the base suite's three
-  pre-existing environment failures (a listener test needing a network, two `drama_voice_tool` cleanup tests
-  expecting `error.AccessDenied` as root), which is the baseline this PR compares against.ounts, the failing-test lists compared, the added-test count]viceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
+- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
+  build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
+  test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied` as root) - and
+  equal per-test pass counts (7695/7764 on both).ounts, the failing-test lists compared, the added-test count]viceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
 - CI: not run here; the gates above are the local equivalents.
 - Not run, and why: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
