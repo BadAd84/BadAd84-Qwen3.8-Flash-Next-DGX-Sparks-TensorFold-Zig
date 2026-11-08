@@ -27,7 +27,7 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 - Head commit: `190be7e35` (the receipt commit; the code beneath it is `7bf66d350`, and the measured image
   `tensorfold-qwen38:w64` was built from `8a83b6352`, which differs from the head only by two comment
   fixes). The receipt adds `docs/receipts/flashnext-window-rows/`.
-- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.w (the three extra files are the port's); the two comment fixes on the head change no findings.
+- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
   build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
   test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied` as root) - and
