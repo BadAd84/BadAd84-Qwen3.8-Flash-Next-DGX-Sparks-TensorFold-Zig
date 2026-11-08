@@ -221,6 +221,18 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+### 6.7 The sequence pool on 1.2.4: `TF_FLASHNEXT_DECODE_GRAPH=1` is flat - measured negative (2026-11-09)
+
+Stage 1 of the sequence-pool lever (`bench_graph.sh`, both arms stock `up124` on `267c5af6a`, one boot per
+arm, ABBA, the 12-short-replies probe plus decode at 1/2/4/6): **the single bounded decode graph delivers
+nothing on 1.2.4.** SHORT12 wall 2.63 s (off) vs 2.61 s (on); per-stream decode medians at every level
+within 1% (1 stream prose 53.9 / 54.5, code 74.6 / 74.1; all 4/6-stream boot medians within the spread).
+The boot log confirms the graph was captured ("1 captured, 1 held") but it delivered no measurable gain.
+
+Verdict: the pool's old-engine gain (12 short replies 17.8 -> 16.2 s, code +3.6 at 1 client) does not
+reproduce on 1.2.4 - the single recaptured graph is not the same mechanism as keeping one graph per pooled
+sequence warm. No port, no PR. The stage-2 lane was stood down before duplicating the measurement.
+
 **Campaign summary (2026-11-08 12:0x GMT, all lanes complete, box restored - serve /health ok on the
 zmerge8-kfix INT4 build with its holder, sparkDash active, every branch on Gitea
 `ots/tensorfold-levers124`):** on stock TensorFold 1.2.4 (NVFP4, bf16 KV, 131k windows, byte-identity required on
