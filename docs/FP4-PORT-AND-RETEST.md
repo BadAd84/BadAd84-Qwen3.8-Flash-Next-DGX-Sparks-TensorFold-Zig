@@ -231,8 +231,15 @@ retunes and the 64-row claim itself are measured negatives or narrowed. What rem
 and posting (both texts staged), and the sequence-pool port, whose window is unbooked. A combined-PR test
 also passed: cherry-picking lever 1's receipt commit and the warm-turns commit onto one `267c5af6a` scratch
 applied cleanly (18 files; the only shared file is `cuda_startup_phase.zig`, whose hunks sit in different
-functions - the copy block and the one-line `warm_quiet` line), so the default-on stack is mechanically one
-branch if that shape is picked.
+functions - the copy block and the one-line `warm_quiet` line), so its window is unbooked, and the maintainer's bench tools have now run on the final head too
+(2026-11-08 18:4x GMT window, `~/work/lanes/par114/bench64/`, both arms from `267c5af6a`): `bench_openai.py`
+256 tokens two passes an arm - code 73.8 / 73.4 stock against 72.9 / 72.9 port, gpu-chat 47.2 / 47.2 vs
+46.8 / 46.8 - and `bench_concurrent.py --alone --serial` code aggregate s1 73.4 / 72.8, s2 72.8 / 72.1,
+s4 72.2 / 71.8, s6 72.1 / 71.7 (every cell within 0.9%); the receipt carries the four JSONs
+(`5483705f5`, branch `port-64rows-v3`). A combined-PR test also passed: cherry-picking lever 1's receipt
+commit and the warm-turns commit onto one `267c5af6a` scratch applied cleanly (18 files; the only shared
+file is `cuda_startup_phase.zig`, whose hunks sit in different functions - the copy block and the one-line
+`warm_quiet` line), so the default-on stack is mechanically one branch if that shape is picked.
 
 ### 6.6 Warm turns on 1.2.4: the family never declared them - ported, measured, keep (2026-11-08)
 
