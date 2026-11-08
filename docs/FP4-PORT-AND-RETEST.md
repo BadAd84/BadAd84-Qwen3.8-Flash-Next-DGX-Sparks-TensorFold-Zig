@@ -221,6 +221,17 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+**Rows64on124's final report (2026-11-08) sharpens 6.5 in three ways, all verified on the box:**
+- The 49-row boundary has a NAMED mechanism: the pending-row log capacity (`batch.late_rows = 48`) - the fused GDN
+  kernel writes no log, so a verify window past 48 rows takes the row-by-row GDN path and errors `UnexpectedTensor`
+  (its own commit `6cc40677d` proves the failure mode). Reaching a true 64 rows needs the late-log path row-exact
+  past 48, which is upstream work.
+- The PR head is `7bf66d350` on Gitea branch `port-64rows-v2` (the two comment-checker fixes; `port-64rows` keeps
+  the pre-fix line). The receipt's boot lines are from `8a83b6352`; `7bf66d350` is comment-only on top.
+- One measurement negative, stated: at 6 streams (single boots) w64 read -2.3% code / -4.5% prose aggregate. The
+  decode path is identical between arms (shared rounds never use copy windows), so it is recorded as unexplained
+  single-boot variance, not a mechanism - a re-run belongs in the next window that touches this engine.
+
 **Box state after the 64-row window (2026-11-08 08:1x GMT):** the production serve back up through
 `~/qwen6-start.sh` (zmerge8-kfix, /health ok, its lock holder re-armed) and sparkDash active - restored by hand
 after the window's trap left the serve down (its restore guard saw the lock free but skipped the start; the guard
