@@ -220,3 +220,18 @@ Every cell byte-identical: golden 6/6 against stock's own replies at all four le
 Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not reproduce on 1.2.4 - that engine's
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
+
+### 6.4 Settings retune on 1.2.4: keep both defaults (2026-11-08)
+
+Sweep (`~/work/lanes/par114/runsTUNE/`, per-boot dirs with `SUMMARY.md`, 20 valid boots, ABBA, two boots a cell at
+1 and 2 streams; driver `tune_sweep.sh`, summariser `tsum.py`, the `tune*` case in `arm.sh`): **keep
+`TF_FLASHNEXT_CONFIDENCE=-0.4` and `TF_FLASHNEXT_PRODUCT_STREAMS=5`.** `CONFIDENCE=-0.15` costs 9.0% prose and 4.3%
+code at 1 stream (its one positive, +3.6% prose at 2, is paired with editprose -3.2% and appears nowhere else);
+-0.3 is the same shape smaller; `PRODUCT_STREAMS=6` loses 4.3% prose / 2.2% code at 6 streams where the cap binds
+(byte-identical in construction at 4 and below, +0.4/+0.3% measured, noise). TTFT flat everywhere; 66-76 C; 20/20
+boots golden 6/6 vs `zgold-up124.json`. The old stack's -0.15/-0.3 preference does not transfer to 1.2.4 on FP4.
+
+Negatives stated: base C=2 has one boot (its twin died to a sibling's mid-window `arm.sh` write; the top-up
+deadlocked against the restored serve's holder and the lock passed to the 64-row lane), and the corrupted
+`tune-base-c1-b6` boot is excluded with its clean `b21-r1` re-run standing. C=4/6 are single-boot cells, bounded by
+the ~+-1% C=1/2 spread. No PR, no commits on spark6; the box restored (serve /health ok, sparkDash active).
