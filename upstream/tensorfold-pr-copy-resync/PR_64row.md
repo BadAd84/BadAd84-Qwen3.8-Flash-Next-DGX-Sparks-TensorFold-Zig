@@ -1,7 +1,8 @@
 Lever 1 upstream PR package - DRAFT body (pre-restyle). Internal notes, not part of the PR.
-TEMPLATE for the 64-row-default variant: fill every [64ROW] from the re-measured receipt (both arms on the
-64-row default, same tip), then re-present. Do not post until the 64-row verdict (Rows64on124) is in and the owner
-approves the default-on framing.
+TEMPLATE for the 64-row-default variant. The receipt is measured and filled; two items remain OPEN before posting:
+(1) the shape decision - one combined PR vs the 48-row receipt first - is the owner's;
+(2) the `tools/bench_openai.py` line needs the maintainer's tool re-run on the final head `7bf66d350`
+(one boot of upab4 + one of the 64-row arm, ~10 min in a window); marked [64ROW] in the body.
 Branch: port-copy-windows, code commit 71f1afaee on ab4b2f05 (upstream main tip 2026-11-07, git ls-remote).
 Receipt commit sha + final head filled after the receipt lands.
 Arms: upab4 (ab4b2f05 stock) and cwab4 (71f1afaee, the port) - BOTH built from the same tip ab4b2f05 with `fatbins native`
@@ -78,7 +79,7 @@ A full receipt is in `docs/receipts/flashnext-copy-resync/` (README, the two ben
 Verbatim copy does not move, which is expected: upstream already ramps a lone copy to `max_copy` 31, so `jump`
 only shortens the climb and an 1,800-token copy amortises it away. The win is on the edit workloads, where the
 source survives the mismatch.
-- Decode speed before and after, `tools/bench_openai.py` one request at a time, greedy: Plain decode is unchanged within the boot spread: per-stream medians at 1 stream prose 51.9 / 51.9, code 72.8 / 72.3 (two boots an arm), and every 4/6-stream boot median within 1.5% of stock. [64ROW bench_openai two-pass line if the maintainer's tool is run again]
+- Decode speed before and after, `tools/bench_openai.py` one request at a time, greedy: [64ROW: the maintainer's tool re-run on the final head fills this line; the boot-split cell medians are the receipt's plain-decode evidence] Plain decode is unchanged within the boot spread: per-stream medians at 1 stream prose 51.9 / 51.9, code 72.8 / 72.3 (two boots an arm), and every 4/6-stream boot median within 1.5% of stock. [64ROW bench_openai two-pass line if the maintainer's tool is run again]
 - Prompt speed before and after: n/a. The change is in the decode-time copy proposer and does not reach prompt
   processing.
 - Licence of any new weights or drafter: n/a, no new weights.
