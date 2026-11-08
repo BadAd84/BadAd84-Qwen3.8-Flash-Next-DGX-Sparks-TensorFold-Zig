@@ -231,7 +231,18 @@ The boot log confirms the graph was captured ("1 captured, 1 held") but it deliv
 
 Verdict: the pool's old-engine gain (12 short replies 17.8 -> 16.2 s, code +3.6 at 1 client) does not
 reproduce on 1.2.4 - the single recaptured graph is not the same mechanism as keeping one graph per pooled
-sequence warm. No port, no PR. The stage-2 lane was stood down before duplicating the measurement.
+sequence warm. No port, no PR. The stage-2 lane was stood down before duplicating the measurement; its independent
+partial boot corroborates the graph-on absolutes (code 73.8-73.8-71.9 tok/s across its three passes).
+
+Two corrections to the bench, from the lane's report: (1) the boot-log line
+`cuda_window_graph.HeadKey graphs: 1 captured ...` is the always-on window graph, not the decode-round
+graph - it appears identically in the graph-OFF boot and must not be cited as evidence the round graph was
+captured (the engagement rests on the source gate: `collective` set at load, tp 1 has no dense split);
+(2) the bench ran arm-major order (no ABBA per level), `PARALLEL=1` for all levels, and a 32-token
+short12 probe rather than the campaign's `short.py` - so the level-level deltas carry no boot-to-boot
+error bar and the short12 shape differs from the campaign's. The verdict rests on the flatness being
+consistent across every cell, not on any single number. The lane's full ABBA matrix is ready in
+`~/work/lanes/seqpool/run_stage1.sh` if stronger cells are ever wanted.
 
 **Campaign summary (2026-11-08 12:0x GMT, all lanes complete, box restored - serve /health ok on the
 zmerge8-kfix INT4 build with its holder, sparkDash active, every branch on Gitea
