@@ -36,7 +36,8 @@ a default boot is exactly like always was.
 
 ## Checks on this head
 
-- Head commit: `71f1afaee` (code), plus the receipt commit that adds `docs/receipts/flashnext-copy-resync/`.
+- Head commit: `ee8ceaf0` (the receipt commit on the `ab4b2f05` base; the code beneath it is `71f1afaee`).
+  The receipt adds `docs/receipts/flashnext-copy-resync/`.
 - Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `ab4b2f05` 5864 files / 116 problems, this head 5864 files / 116 problems, 0 new.
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base `ab4b2f05` and this head both build 589/592 steps with the same single failing step, and both fail exactly the same three environment tests: one listener test that needs a network, two `drama_voice_tool` cleanup tests that expect `error.AccessDenied` while the container runs as root. The four added tests pass. The absolute pass counts carry run-to-run variance because several CUDA test binaries abort with `DeviceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
 - CI: not run here; the gates above are the local equivalents.

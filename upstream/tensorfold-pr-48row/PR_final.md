@@ -25,7 +25,9 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
 ## Checks on this head
 
-- Head commit: `71f1afaee` (code), plus the receipt commit that adds `docs/receipts/flashnext-window-rows/`.
+- Head commit: `190be7e35` (the receipt commit; the code beneath it is `7bf66d350`, and the measured image
+  `tensorfold-qwen38:w64` was built from `8a83b6352`, which differs from the head only by two comment
+  fixes). The receipt adds `docs/receipts/flashnext-window-rows/`.
 - Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, this head (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's).
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
   build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
@@ -43,7 +45,7 @@ A full receipt is in `docs/receipts/flashnext-window-rows/` (README, the two ben
   `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe (not recommended outside bring-up). The copy resync, ramp
   and shared-round rules are a separate change and do not ride here.
 
-- Environment: both arms built from the same tip, upstream `267c5af6a`. `up124` is `267c5af6a` stock; `w64` is this change (`7bf66d350`), built `--no-cache` from the branch tip. Zig 0.17.0, nvcc for sm_121, NVIDIA GB10, driver 580.178.04, vision off, bf16 KV (Flash Next refuses `--kv-cache fp8`), 131,072-token windows, `--parallel 6`. Checkpoint `nvidia/Qwen3.8-Flash-Next-FP4-Local` at its pinned revision (`b9ce18a6`).
+- Environment: both arms built from the same tip, upstream `267c5af6a`. `up124` is `267c5af6a` stock; `w64` is this change, built `--no-cache` from the branch at `8a83b6352` (the head minus two comment fixes). Zig 0.17.0, nvcc for sm_121, NVIDIA GB10, driver 580.178.04, vision off, bf16 KV (Flash Next refuses `--kv-cache fp8`), 131,072-token windows, `--parallel 6`. Checkpoint `nvidia/Qwen3.8-Flash-Next-FP4-Local` at its pinned revision (`b9ce18a6`).
 - Levels are 1, 2, 4 and 6. Device scratch grows 0.05 GiB per live drafting stream (4.11 -> 4.16 GiB at 2-6 streams, observed on the boot lines); no level refused at 131,072 tokens. 8 streams is not run: the stock arm cannot serve it at bf16 KV (32.86 GiB of cache against 31.41 free).
 - Paths the change reaches: the decode-time copy proposer in `core/lanes`. Ran on CUDA/GB10; did not run Metal, HIP or XPU.
 - Exactness, same checkpoint and settings:
