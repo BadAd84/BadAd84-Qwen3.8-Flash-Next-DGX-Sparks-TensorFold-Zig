@@ -221,6 +221,15 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+**Campaign summary (2026-11-08 12:0x GMT, all lanes complete, box restored - serve /health ok on the
+zmerge8-kfix INT4 build with its holder, sparkDash active, every branch on Gitea
+`ots/tensorfold-levers124`):** on stock TensorFold 1.2.4 (NVFP4, bf16 KV, 131k windows, byte-identity required on
+every cell), the levers that survived are the copy re-sync + shared ramp (+30% rewrite, +42-58% edits), the 48-row
+copy-window default (+26.6% copy, +12.2% rewrite, the 49-row boundary receipt) and warm turns (-38 to -45%
+next-turn TTFT, off by default, the sub-second-after-reply trade measured); the 12-bit read-out, the settings
+retunes and the 64-row claim itself are measured negatives or narrowed. What remains is the owner's: the PR shape
+and posting (both texts staged), and the sequence-pool port, whose window is unbooked.
+
 ### 6.6 Warm turns on 1.2.4: the family never declared them - ported, measured, keep (2026-11-08)
 
 Branch `port-warm-turns` (`ed50016cdf` on `267c5af6a`, image `tensorfold-qwen38:wt124`; backup Gitea
