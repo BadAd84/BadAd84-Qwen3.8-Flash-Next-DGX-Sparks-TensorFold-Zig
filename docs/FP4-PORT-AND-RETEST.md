@@ -221,6 +221,31 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+### 6.5 The 64-row copy window on 1.2.4: the invariance boundary is 48 rows (2026-11-08)
+
+Branch `port-64rows` (`427063f62` on `267c5af6a`, 5 files +113/-9: `max_rows` 32 -> 64, the boot-time self-check
+(`probeServed`) with automatic 32-row fallback per load, `TF_FLASHNEXT_WINDOW_CHECK=0` as the skip; image
+`tensorfold-qwen38:w64` = `ee54ffa645f3` no-cache from the branch; backup Gitea `ots/tensorfold-levers124` branch
+`port-64rows`). The self-check on the real weights measured the row-invariance boundary directly: **widths 1-48 are
+byte-equal to their one-token steps at every row; width 49 is the first that differs** (1,176 of 2,080 rows equal
+across widths 1-64). The engine served 48-row windows and logged the fallback - the designed worst case is exactly
+stock behaviour. First smoke run aborted correctly on the missing `tf.kernels=embedded` label (the boot never
+happened; label added, re-run).
+
+Measured (both arms on `267c5af6`, NVFP4, bf16 KV, 131,072-token windows, boot-split medians, ABBA; spark6
+`~/work/lanes/par114/runs64/`): **the 48-row windows are worth it, and the boundary is the receipt.** Verbatim copy
+**374.3 -> 473.7 tok/s (+26.6%)**, one-word rewrite **228.8 -> 256.7 (+12.2%)**; two concurrent edits and
+edit-beside-prose flat within the boot spread (edits 141.1/141.3 vs 137.7/138.6, editprose 147.7/47.4 vs
+147.8/47.4). Plain decode flat at every level (prose 51.9 vs 51.9, code 72.8 vs 72.3 at 1 stream; all six-boot
+medians within 1.5%). Memory: +0.05 GiB a stream (4.11 -> 4.16 GiB at 2-6 streams), zero pool-reservation delta,
+no level refused. Golden 6/6 vs `zgold-up124.json` on all 24 boots; sparkDash incidents: one mid-pass restart by a
+safety timer, every SOURCES 127.0.0.1.
+
+**Default-on: yes at 48 rows, on this checkpoint.** The self-check makes it safe by construction (any failing shape
+serves upstream's 32-row windows, worst case = stock), the memory cost is ~50 MiB a drafting stream, and the win is
++26.6% on the workload that dominates agent file edits. The 49+ row regime needs its own invariance work and is not
+claimed. PR text: fill `upstream/tensorfold-pr-copy-resync/PR_64row.md` from this section.
+
 ### 6.4 Settings retune on 1.2.4: keep both defaults (2026-11-08)
 
 Sweep (`~/work/lanes/par114/runsTUNE/`, per-boot dirs with `SUMMARY.md`, 20 valid boots, ABBA, two boots a cell at
