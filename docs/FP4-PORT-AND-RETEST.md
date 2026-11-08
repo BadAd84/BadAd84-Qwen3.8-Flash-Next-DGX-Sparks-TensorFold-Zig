@@ -228,7 +228,11 @@ every cell), the levers that survived are the copy re-sync + shared ramp (+30% r
 copy-window default (+26.6% copy, +12.2% rewrite, the 49-row boundary receipt) and warm turns (-38 to -45%
 next-turn TTFT, off by default, the sub-second-after-reply trade measured); the 12-bit read-out, the settings
 retunes and the 64-row claim itself are measured negatives or narrowed. What remains is the owner's: the PR shape
-and posting (both texts staged), and the sequence-pool port, whose window is unbooked.
+and posting (both texts staged), and the sequence-pool port, whose window is unbooked. A combined-PR test
+also passed: cherry-picking lever 1's receipt commit and the warm-turns commit onto one `267c5af6a` scratch
+applied cleanly (18 files; the only shared file is `cuda_startup_phase.zig`, whose hunks sit in different
+functions - the copy block and the one-line `warm_quiet` line), so the default-on stack is mechanically one
+branch if that shape is picked.
 
 ### 6.6 Warm turns on 1.2.4: the family never declared them - ported, measured, keep (2026-11-08)
 
