@@ -221,6 +221,29 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+### 6.6 Warm turns on 1.2.4: the family never declared them - ported, measured, keep (2026-11-08)
+
+Branch `port-warm-turns` (`ed50016cdf` on `267c5af6a`, image `tensorfold-qwen38:wt124`; backup Gitea
+`ots/tensorfold-levers124` branch `port-warm-turns`). The v1.2.4 lane core runs warm turns end to end
+(`lane_host_warm.zig`, pre-emption at any chunk, the `quiet()` window, `server/warm.zig` prefilling the next turn)
+for any family declaring `warm_quiet`; only `nemotron` did, and the core hard-coded Nemotron's quiet constant. The
+port adds the two Flash Next declarations (`warm_quiet = 150 ms`, `warm_opt_in = true`), moves the quiet through
+`api.Info.warm_quiet_ns`, and reads `TENSORFOLD_WARM_TURNS` strictly (exactly "1"/"0"/unset/empty; anything else
+refuses the start). Gates: fmt clean; lean 116 / 116, 0 new; host suite 582/585 with the failing-test list
+identical to pristine base (the 3 pre-existing environment tests).
+
+Measured (6 cells, one fresh boot per cell, `~/work/lanes/par114/runsWT/` via `arm_wt.sh`, `wtsum.py`; 24/24 boots
+golden 6/6, workload shas one distinct per (streams, kind)): **next-turn warm TTFT -38 to -45%** (up124 / wtoff /
+wton, median of 2: 8k 0.694 / 0.690 / 0.405, 32k 0.787 / 0.834 / 0.482, 100k 1.225 / 1.136 / 0.671 at 1 stream;
+the same shape at 2 streams), with the second turn's prompt fully cached (100,782 / 100,802 rows). **The trade is
+real but only in the sub-second-after-reply window**: a fresh 8k prompt sent 0.2 s after a reply costs +8.6% (c1)
+/ +6.3% (c2); at 1.0 s and 3.0 s pauses it is within noise (+0.3 to -0.6%). Decode, TTFT idle/loaded and the
+copy/rewrite/edit workloads are equal on all arms. Boot +0-4 s; the `nvidia-smi` memory query is N/A on GB10, so
+the memory delta is the boot log's sequence-memory line (unchanged).
+
+Verdict: **keep, behind `TENSORFOLD_WARM_TURNS`** - off by default (the trade is the owner's to accept per the
+fleet rule), and worth it for any agent workload whose turns are >1 s apart, which is all of ours in practice.
+
 **Gates re-run on the final head `7bf66d350` (2026-11-08 08:2x GMT, `~/work/lanes/port124c/results-gates124.log`):**
 lean 130 / 130 problems, 0 new (the port's two multi-line comments fixed in `7bf66d350`); `zig fmt --check` clean;
 the host suite builds 581/585 steps on base and head with the identical failing-test lists - the three pre-existing
