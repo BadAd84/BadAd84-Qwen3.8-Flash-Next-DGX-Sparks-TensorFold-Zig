@@ -221,6 +221,12 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+**Box state after the 64-row window (2026-11-08 08:1x GMT):** the production serve back up through
+`~/qwen6-start.sh` (zmerge8-kfix, /health ok, its lock holder re-armed) and sparkDash active - restored by hand
+after the window's trap left the serve down (its restore guard saw the lock free but skipped the start; the guard
+script's log has no entry, so the box sat dark ~35 min until the manual restore). The restore guard needs the same
+conditional-start the driver trap has; noted for the next lane brief.
+
 ### 6.5 The 64-row copy window on 1.2.4: the invariance boundary is 48 rows (2026-11-08)
 
 Branch `port-64rows` (`427063f62` on `267c5af6a`, 5 files +113/-9: `max_rows` 32 -> 64, the boot-time self-check
