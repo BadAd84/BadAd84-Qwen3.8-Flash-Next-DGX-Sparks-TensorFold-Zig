@@ -241,6 +241,8 @@ real but only in the sub-second-after-reply window**: a fresh 8k prompt sent 0.2
 copy/rewrite/edit workloads are equal on all arms. Boot +0-4 s; the `nvidia-smi` memory query is N/A on GB10, so
 the memory delta is the boot log's sequence-memory line (unchanged).
 
+The remaining lever, the sequence pool of kept graphs, is queued for the same protocol; its old-engine effect was
+code decode +3.6 at one client and 12 short replies 17.8 -> 16.2 s (the graphs row of the campaign table).
 Verdict: **keep, behind `TENSORFOLD_WARM_TURNS`** - off by default (the trade is the owner's to accept per the
 fleet rule), and worth it for any agent workload whose turns are >1 s apart, which is all of ours in practice.
 
