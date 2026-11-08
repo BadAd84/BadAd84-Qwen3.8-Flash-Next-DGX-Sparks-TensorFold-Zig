@@ -1,8 +1,12 @@
 Lever 1 upstream PR package - DRAFT body (pre-restyle). Internal notes, not part of the PR.
-TEMPLATE for the 64-row-default variant. The receipt is measured and filled; two items remain OPEN before posting:
+TEMPLATE for the 64-row-default variant. The receipt is measured and filled; three items remain OPEN before posting:
 (1) the shape decision - one combined PR vs the 48-row receipt first - is the owner's;
 (2) the `tools/bench_openai.py` line needs the maintainer's tool re-run on the final head `7bf66d350`
-(one boot of upab4 + one of the 64-row arm, ~10 min in a window); marked [64ROW] in the body.
+(one boot of upab4 + one of the 64-row arm, ~10 min in a window); marked [64ROW] in the body;
+(3) if the 64-row default ships, the warm-turns port (`ed50016cdf`, branch `port-warm-turns`, its own
+next-turn TTFT receipt) should either ride the same PR or land first - the two changes touch disjoint
+files (lanes proposer vs family declarations) so neither rebases the other, but the receipt boots
+should then run a combined default-on arm.
 Branch: port-copy-windows, code commit 71f1afaee on ab4b2f05 (upstream main tip 2026-11-07, git ls-remote).
 Receipt commit sha + final head filled after the receipt lands.
 Arms: upab4 (ab4b2f05 stock) and cwab4 (71f1afaee, the port) - BOTH built from the same tip ab4b2f05 with `fatbins native`
