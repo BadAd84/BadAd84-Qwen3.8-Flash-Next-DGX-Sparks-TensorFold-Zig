@@ -13,7 +13,7 @@ largest prefix whose every row is byte-equal to its one-token step. On the NVFP4
 line - if any shape ever fails, it falls back to upstream's 32-row windows. Worst case is exactly today's
 behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
- This changes the served copy-window width and adds the probe that proves it; it changes only
+- Issue: n/a. This changes the served copy-window width and adds the probe that proves it; it changes only
   which tokens get proposed as drafts, never the math. A draft is still accepted only when it equals the plain
   token.
 - Stacked on: main.
@@ -28,11 +28,11 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 - Head commit: `190be7e35` (the receipt commit; the code beneath it is `7bf66d350`, and the measured image
   `tensorfold-qwen38:w64` was built from `8a83b6352`, which differs from the head only by two comment
   fixes). The receipt adds `docs/receipts/flashnext-window-rows/`.
-- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, this head (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's).
+- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
   build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
   test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied` as root) - and
-  equal per-test pass counts (7695/7764 on both).ounts, the failing-test lists compared, the added-test count]viceLost` under `--network none` with no GPU; the stable signal is the identical failure set.
+  equal per-test pass counts (7695/7764 on both).
 - CI: not run here; the gates above are the local equivalents.
 - Not run, and why: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
