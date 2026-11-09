@@ -1,7 +1,7 @@
-From ac459dc24d1398943f1f934d0312e3aa4e89273a Mon Sep 17 00:00:00 2001
+From ab1a465b5cd2ae021b55fec6513bde85f6b09aa0 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 5/8] kv-cache fp8: Flash Next e4m3 attention caches
+Subject: [PATCH 22/28] kv-cache fp8: Flash Next e4m3 attention caches
 
 --kv-cache fp8 (one rank, our glue; not with --slide, a captured set, the KV
 pages or --learn-conversations) keeps each position's keys and values as e4m3

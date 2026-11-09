@@ -1,7 +1,7 @@
-From 28b162aed8b7a520e0bac103bb4eece83bb7ed8f Mon Sep 17 00:00:00 2001
+From d580d577ced7ecb87e471741dd5ab744ad78661b Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 3/8] flashnext: copy re-sync past an edit, and the lone copy
+Subject: [PATCH 20/28] flashnext: copy re-sync past an edit, and the lone copy
  ramp in shared rounds
 
 Squash of stack commit 3794f6a84 (resync-on-48rows @ b212b9f4, receipt-only

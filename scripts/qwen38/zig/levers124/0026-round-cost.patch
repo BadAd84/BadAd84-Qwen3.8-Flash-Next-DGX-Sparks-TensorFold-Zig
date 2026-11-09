@@ -1,0 +1,1108 @@
+From df8fb383aa7596ecc9fef7246397a67e7655cfb5 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 10:49:34 +0000
+Subject: [PATCH 26/28] flashnext: a shared round prices itself from the
+ environment, and a draft row prices apart
+
+Nothing is timed at load on the Flash Next CUDA backend, so a shared round is unpriced:
+every draft the head's confidence rule lets through is verified. TF_FLASHNEXT_ROUND_MS
+names the forward ms by rows (an "a+b" line, or a comma list from rows 1 that the core
+interpolates between and extends past), so windows.allocate trims a round's drafts to the
+rows that pay and observeOverhead measures each round's time past the forward as its
+overhead. TF_FLASHNEXT_DRAFT_ROW_MS prices a draft row apart from the streams' rows (a
+stream's further rows share its experts and cost less): the forward prices as the table at
+the streams plus the draft row's ms for every further row, and the depth rule's
+observeOverhead prices the round the same way. Unset, rounds stay unpriced as before and
+no reply changes. Both settings have rows in platform/environment.zig: the round-ms table
+is a .text setting whose reader owns the grammar (the validator refuses control
+characters), the draft row's ms a real read through the table. The two shared-round tests
+depth.zig carried move to depth_rounds_test.zig at the lean file cap. (#9999)
+---
+ CHANGELOG.md                                  |   1 +
+ zig/src/core/lanes/allocate.zig               |  46 +++-
+ zig/src/core/lanes/config.zig                 |   2 +
+ zig/src/core/lanes/depth.zig                  |  66 +----
+ zig/src/core/lanes/depth_rounds_test.zig      |  84 +++++++
+ zig/src/core/lanes/draft_row_test.zig         |  58 +++++
+ zig/src/core/lanes/lanes.zig                  |   2 +
+ zig/src/core/lanes/windows.zig                |   3 +-
+ zig/src/families/flashnext/cuda_lanes.zig     |  10 +-
+ .../families/flashnext/cuda_round_costs.zig   |  84 +++++++
+ zig/src/platform/environment.zig              | 225 +++++++++++++++++-
+ zig/src/platform/environment_test.zig         | 126 +++++++++-
+ 12 files changed, 631 insertions(+), 76 deletions(-)
+ create mode 100644 zig/src/core/lanes/depth_rounds_test.zig
+ create mode 100644 zig/src/core/lanes/draft_row_test.zig
+ create mode 100644 zig/src/families/flashnext/cuda_round_costs.zig
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 572382fd2..522bf3674 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -13,6 +13,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+   pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
+   kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
+ - Flash Next on CUDA: a lone stream's copy window grows past the MTP chain's drafts to the boot self-check's largest row-exact width (#9999); on GB10 that is 48 rows against the 32-row upstream default, and a verify window carrying a pending-row log takes the row-by-row DeltaNet path, which the fused kernel it replaced does not serve.
++- Flash Next on CUDA: a shared round can be priced from the environment where nothing is timed at load. `TF_FLASHNEXT_ROUND_MS` names the forward ms by rows (an `a+b` line, or a comma list from rows 1 that the core interpolates and extends), so the core trims a round's drafts to the rows that pay and measures each round's time past the forward as its overhead; `TF_FLASHNEXT_DRAFT_ROW_MS` prices a draft row apart from the streams' rows (a stream's further rows share its experts and cost less). Unset, rounds stay unpriced as before, and no reply changes (#9999).
+ ## 1.2.4
+ 
+ - Docs: four subcommand-flag fixes checked against the code: `slide audit --threshold`'s range, `benchmark --context` and `--kv-cache`, `info` on Flash Next, and `run --device` and `--carveout` on CUDA builds (#2348).
+diff --git a/zig/src/core/lanes/allocate.zig b/zig/src/core/lanes/allocate.zig
+index 3fea08998..45120ce3d 100644
+--- a/zig/src/core/lanes/allocate.zig
++++ b/zig/src/core/lanes/allocate.zig
+@@ -22,6 +22,9 @@ pub const HeadCost = struct {
+     batched: bool = false,
+     free_first: bool = false,
+     row_ms: f64 = 0.0, // what each row past a stream's first costs past the table on this machine
++    /// A3: above 0 the forward is the table at its streams plus draft_row_ms a row; 0: the table by total rows.
++    draft_row_ms: f64 = 0.0,
++    streams: u64 = 0,
+ };
+ 
+ /// allocate, each stream's drafts past its first costing one more head step.
+@@ -45,7 +48,8 @@ pub fn allocateDrafts(gpa: Allocator, fixed: []const u32, probs: []const []const
+     const timed = !costs.empty();
+     var live: u64 = 0;
+     for (fixed) |f| live += @intFromBool(f > 0);
+-    var best = rate(costs, timed, rows, expected, overhead_ms + head.row_ms * @as(f64, @floatFromInt(rows -| live)));
++    const base = if (head.streams > 0) @min(head.streams, rows) else rows;
++    var best = rateRows(costs, timed, base, rows, expected, overhead_ms + head.row_ms * @as(f64, @floatFromInt(rows -| live)), head.draft_row_ms);
+     while (rows < max_rows) {
+         // the likeliest next node, ties to the lowest stream (Python's heapq of (-p, stream))
+         var pick: ?usize = null;
+@@ -66,7 +70,7 @@ pub fn allocateDrafts(gpa: Allocator, fixed: []const u32, probs: []const []const
+         deepest = @max(deepest, counts[s]);
+         expected += pick_p;
+         const steps: f64 = @floatFromInt(if (head.batched) deepest -| @intFromBool(head.free_first) else drafts - (if (head.free_first) firsts else 0));
+-        const now = rate(costs, timed, rows, expected, overhead_ms + head.step_ms * steps + head.row_ms * @as(f64, @floatFromInt(rows -| live)));
++        const now = rateRows(costs, timed, base, rows, expected, overhead_ms + head.step_ms * steps + head.row_ms * @as(f64, @floatFromInt(rows -| live)), head.draft_row_ms);
+         if (now > best or (!timed and head.step_ms == 0)) {
+             best = now;
+             @memcpy(best_counts, counts);
+@@ -75,6 +79,14 @@ pub fn allocateDrafts(gpa: Allocator, fixed: []const u32, probs: []const []const
+     return best_counts;
+ }
+ 
++/// rate with the forward priced by streams plus a draft row's ms (draft_row_ms > 0), else by total rows.
++fn rateRows(costs: *const Table, timed: bool, base: u64, total: u64, expected: f64, overhead_ms: f64, draft_row_ms: f64) f64 {
++    if (!(draft_row_ms > 0.0)) return rate(costs, timed, total, expected, overhead_ms);
++    var cost: f64 = 1.0;
++    if (timed) cost = (costs.get(@intCast(base)) orelse return -1.0) + draft_row_ms * @as(f64, @floatFromInt(total - base));
++    return expected / (cost + overhead_ms);
++}
++
+ fn rate(costs: *const Table, timed: bool, total: u64, expected: f64, overhead_ms: f64) f64 {
+     var cost: f64 = 1.0;
+     if (timed) cost = costs.get(@intCast(total)) orelse return -1.0;
+@@ -196,6 +208,36 @@ test "a zero draft step prices rounds as allocate does" {
+     try std.testing.expectEqualSlices(u32, free, priced);
+ }
+ 
++test "a draft row priced apart keeps drafts the table at total rows would cut" {
++    const gpa = std.testing.allocator;
++    // the round table rises 10 ms a row: three streams' first rows cost 50 ms, each further row another 10
++    var steep = try extendCosts(gpa, &.{ .{ .width = 1, .ms = 30.0 }, .{ .width = 8, .ms = 100.0 } }, 9);
++    defer steep.deinit(gpa);
++    const probs = [_][]const f64{ &.{ 0.5, 0.25 }, &.{ 0.5, 0.25 }, &.{ 0.5, 0.25 } };
++    const ones = [_]u32{ 1, 1, 1 };
++    const plain = try allocate(gpa, &ones, &probs, &steep, 0.0, 9);
++    defer gpa.free(plain);
++    try std.testing.expectEqualSlices(u32, &.{ 0, 0, 0 }, plain); // 10 ms a row for 0.5 tokens: not worth it
++    // no split prices as before, whatever the streams
++    const same = try allocateDrafts(gpa, &ones, &probs, &steep, 0.0, 9, .{ .draft_row_ms = 0.0, .streams = 3 });
++    defer gpa.free(same);
++    try std.testing.expectEqualSlices(u32, plain, same);
++    // draft rows at 1 ms each beside the 50 ms the three streams cost: every draft pays
++    const cheap = try allocateDrafts(gpa, &ones, &probs, &steep, 0.0, 9, .{ .draft_row_ms = 1.0, .streams = 3 });
++    defer gpa.free(cheap);
++    try std.testing.expectEqualSlices(u32, &.{ 2, 2, 2 }, cheap);
++    // draft rows at 40 ms each do not
++    const dear = try allocateDrafts(gpa, &ones, &probs, &steep, 0.0, 9, .{ .draft_row_ms = 40.0, .streams = 3 });
++    defer gpa.free(dear);
++    try std.testing.expectEqualSlices(u32, &.{ 0, 0, 0 }, dear);
++    // forced rows count among the streams' rows (fixed), not as draft rows: two rows of one stream and one of another
++    const forced = [_]u32{ 2, 1 };
++    const two = [_][]const f64{ &.{0.5}, &.{0.5} };
++    const mixed = try allocateDrafts(gpa, &forced, &two, &steep, 0.0, 9, .{ .draft_row_ms = 1.0, .streams = 2 });
++    defer gpa.free(mixed);
++    try std.testing.expectEqualSlices(u32, &.{ 1, 1 }, mixed);
++}
++
+ test "extendCosts interpolates and extrapolates" {
+     const gpa = std.testing.allocator;
+     var t = try extendCosts(gpa, &.{ .{ .width = 4, .ms = 8.0 }, .{ .width = 2, .ms = 4.0 } }, 6);
+diff --git a/zig/src/core/lanes/config.zig b/zig/src/core/lanes/config.zig
+index 5524e738b..c70189fc3 100644
+--- a/zig/src/core/lanes/config.zig
++++ b/zig/src/core/lanes/config.zig
+@@ -33,6 +33,7 @@ pub const Model = struct {
+     window_costs: []const Cost = &.{}, // forward ms by exact window width (timed at load)
+     mtp_step_ms: f64 = 0.0, // one chained head step (timed at load)
+     draft_step_ms: f64 = 0.0, // a shared round's draft past a stream's first, as the backend's head runs it (0: priced free)
++    draft_row_ms: f64 = 0.0, // a shared round's row past one a stream, apart from shared_costs at its streams (0: shared_costs by total rows)
+     streams_exact: bool = true, // shared forwards keep each stream's bits
+     hidden_rows: bool = false, // the backend runs several streams' windows in one forward
+     batch_rows: u32 = 0, // a shared forward's rows at most (0: 32)
+@@ -185,6 +186,7 @@ pub const Config = struct {
+             .k = .{
+                 .depth_rate = if (m.depth_rate > 0) m.depth_rate else (Constants{}).depth_rate,
+                 .learn_rows = m.learn_row_costs,
++                .draft_row_ms = m.draft_row_ms,
+                 .draft_slack = if (m.draft_slack > 0) m.draft_slack else (Constants{}).draft_slack,
+                 .grant_slack = if (m.draft_slack > 0) m.draft_slack else (Constants{}).grant_slack,
+                 .short_slack = if (m.draft_slack > 0) m.draft_slack else (Constants{}).short_slack,
+diff --git a/zig/src/core/lanes/depth.zig b/zig/src/core/lanes/depth.zig
+index 2d04b218e..8583c08cd 100644
+--- a/zig/src/core/lanes/depth.zig
++++ b/zig/src/core/lanes/depth.zig
+@@ -8,6 +8,7 @@ pub const pricedBatched = alloc.pricedBatched;
+ pub const Constants = struct {
+     depth_rate: f64 = 0.15, // weight of the newest round in a depth's acceptance
+     learn_rows: bool = false, // shared_costs came from another machine: learn what a row costs here
++    draft_row_ms: f64 = 0, // A3: a draft row's ms apart from the table at a round's streams (0: the table by rows)
+     depth_probe_every: u64 = 8, // rounds between probes one depth deeper
+     cost_rate: f64 = 0.2, // weight of the newest round in a depth's measured time
+     plain_margin: f64 = 1.05, // a drafted depth must beat plain rounds' tokens a ms by this much
+@@ -406,9 +407,18 @@ pub const Rule = struct {
+         return r.mtp_step_ms * @as(f64, @floatFromInt(steps));
+     }
+ 
++    /// The round's forward: the table at its rows, or with draft_row_ms the table at its streams plus a row's ms.
++    pub fn forwardMs(r: *const Rule, streams: u32, rows: u64) ?f64 {
++        if (r.k.draft_row_ms > 0.0 and rows >= streams) {
++            const base = r.shared_costs.get(@intCast(streams)) orelse return null;
++            return base + r.k.draft_row_ms * @as(f64, @floatFromInt(rows - streams));
++        }
++        return r.shared_costs.get(@intCast(rows));
++    }
++
+     /// `sampled`: the round drew keyed samples, so it counts for sampled streams' overhead alone; `head_ms` its drafts.
+     pub fn observeOverhead(r: *Rule, streams: u32, rows: u64, ms: f64, sampled: bool, head_ms: f64) !void {
+-        const forward = r.shared_costs.get(@intCast(rows)) orelse return;
++        const forward = r.forwardMs(streams, rows) orelse return;
+         if (r.k.learn_rows) try r.row_cost.observe(r.gpa, streams, rows, ms - forward - head_ms, sampled);
+         // rows the table underprices are no fixed cost: called fixed, they would make the next draft look cheaper
+         const row_ms = r.row_cost.extraMs(streams, sampled);
+@@ -485,60 +495,6 @@ test "under a confidence floor a greedy stream drafts the most, and a sampled on
+     try std.testing.expectEqual(@as(i64, 1), try rule.headDepth(&sampled, null, probe)); // a first rate under 0.8: one draft
+ }
+ 
+-test "a shared round's drafts come out the same whichever depths its overhead was measured at" {
+-    const gpa = std.testing.allocator;
+-    var shared: Table = .{};
+-    defer shared.deinit(gpa);
+-    for (1..17) |w| try shared.put(gpa, @intCast(w), 10.0 + 2.0 * @as(f64, @floatFromInt(w)));
+-    const empty: Table = .{};
+-    const No = struct {
+-        fn copy(_: *anyopaque, _: *const Who) bool {
+-            return false;
+-        }
+-    };
+-    var unused: u8 = 0;
+-    const probe: Probe = .{ .ptr = &unused, .copy = No.copy };
+-    var got: [2][2]i64 = undefined;
+-    for ([_][2]i64{ .{ 1, 1 }, .{ 3, 3 } }, &got) |measured, *out| {
+-        var rule: Rule = .{ .gpa = gpa, .prior = &.{ 0.9, 0.8, 0.7, 0.6 }, .most_drafts = 4, .family_costs = &empty, .shared_costs = &shared, .mtp_step_ms = 3.0, .plain_guard = false, .node_probabilities = false, .batch_rows = 16 };
+-        defer rule.deinit();
+-        // two streams' round: their pending rows and the drafts verified, 3 ms of its own, then each drafted step
+-        const rows: u64 = @intCast(2 + measured[0] + measured[1]);
+-        const head = rule.headMs(&measured);
+-        try rule.observeOverhead(2, rows, shared.get(@intCast(rows)).? + 3.0 + head, false, head);
+-        var states: [2]?State = .{ null, null };
+-        defer for (&states) |*s| if (s.*) |*x| x.deinit(gpa);
+-        var whos = [_]Who{ .{ .state = &states[0], .draft_room = 100, .finished = false, .forced = false }, .{ .state = &states[1], .draft_room = 100, .finished = false, .forced = false } };
+-        try rule.budgets(&whos, probe, false, out);
+-    }
+-    try std.testing.expectEqualSlices(i64, &got[0], &got[1]);
+-}
+-
+-test "granted depths in a shared round fit one hold pass: every block is as deep as the deepest" {
+-    const empty: Table = .{};
+-    var rule: Rule = .{ .gpa = std.testing.allocator, .prior = &.{0.8}, .most_drafts = 9, .family_costs = &empty, .shared_costs = &empty, .mtp_step_ms = 0.5, .plain_guard = false, .node_probabilities = true, .granted_depth = true, .batch_rows = 32 };
+-    defer rule.deinit();
+-    var states: [8]?State = @splat(null);
+-    defer for (&states) |*st| if (st.*) |*x| x.deinit(std.testing.allocator);
+-    var whos: [8]Who = undefined;
+-    for (&whos, &states, 0..) |*w, *st, i| w.* = .{ .state = st, .draft_room = 100, .finished = false, .forced = false, .granted = @intCast(i) };
+-    const No = struct {
+-        fn copy(_: *anyopaque, _: *const Who) bool {
+-            return false;
+-        }
+-    };
+-    var unused: u8 = 0;
+-    var out: [8]i64 = undefined;
+-    try rule.budgets(&whos, .{ .ptr = &unused, .copy = No.copy }, false, &out);
+-    // a grant of none probes two; grants 1..7 that took every held draft, plus one; cut to 32 rows over eight blocks
+-    try std.testing.expectEqualSlices(i64, &.{ 2, 2, 3, 4, 4, 4, 4, 4 }, &out);
+-    try rule.budgets(whos[0..2], .{ .ptr = &unused, .copy = No.copy }, false, out[0..2]);
+-    try std.testing.expectEqualSlices(i64, &.{ 2, 2 }, out[0..2]); // two blocks fit whole
+-    for (whos[0..2]) |*w| w.grant_short = true;
+-    try rule.budgets(whos[0..2], .{ .ptr = &unused, .copy = No.copy }, false, out[0..2]);
+-    try std.testing.expectEqualSlices(i64, &.{ 2, 1 }, out[0..2]); // a grant short of the held drafts: no slack
+-}
+-
+ test "a copy ahead: one head draft beside it, or none when the head's drafts cost a pass of their own" {
+     const empty: Table = .{};
+     const Yes = struct {
+diff --git a/zig/src/core/lanes/depth_rounds_test.zig b/zig/src/core/lanes/depth_rounds_test.zig
+new file mode 100644
+index 000000000..1b018dda4
+--- /dev/null
++++ b/zig/src/core/lanes/depth_rounds_test.zig
+@@ -0,0 +1,84 @@
++//! Shared-round budget and overhead tests, held beside the A3 split (Model.draft_row_ms prices a draft row apart).
++const std = @import("std");
++const depth = @import("depth.zig");
++const Table = @import("table.zig").Table;
++const Rule = depth.Rule;
++const State = depth.State;
++const Who = depth.Who;
++const Probe = depth.Probe;
++
++test "a shared round's drafts come out the same whichever depths its overhead was measured at" {
++    const gpa = std.testing.allocator;
++    var shared: Table = .{};
++    defer shared.deinit(gpa);
++    for (1..17) |w| try shared.put(gpa, @intCast(w), 10.0 + 2.0 * @as(f64, @floatFromInt(w)));
++    const empty: Table = .{};
++    const No = struct {
++        fn copy(_: *anyopaque, _: *const Who) bool {
++            return false;
++        }
++    };
++    var unused: u8 = 0;
++    const probe: Probe = .{ .ptr = &unused, .copy = No.copy };
++    var got: [2][2]i64 = undefined;
++    for ([_][2]i64{ .{ 1, 1 }, .{ 3, 3 } }, &got) |measured, *out| {
++        var rule: Rule = .{ .gpa = gpa, .prior = &.{ 0.9, 0.8, 0.7, 0.6 }, .most_drafts = 4, .family_costs = &empty, .shared_costs = &shared, .mtp_step_ms = 3.0, .plain_guard = false, .node_probabilities = false, .batch_rows = 16 };
++        defer rule.deinit();
++        // two streams' round: their pending rows and the drafts verified, 3 ms of its own, then each drafted step
++        const rows: u64 = @intCast(2 + measured[0] + measured[1]);
++        const head = rule.headMs(&measured);
++        try rule.observeOverhead(2, rows, shared.get(@intCast(rows)).? + 3.0 + head, false, head);
++        var states: [2]?State = .{ null, null };
++        defer for (&states) |*s| if (s.*) |*x| x.deinit(gpa);
++        var whos = [_]Who{ .{ .state = &states[0], .draft_room = 100, .finished = false, .forced = false }, .{ .state = &states[1], .draft_room = 100, .finished = false, .forced = false } };
++        try rule.budgets(&whos, probe, false, out);
++    }
++    try std.testing.expectEqualSlices(i64, &got[0], &got[1]);
++}
++
++test "granted depths in a shared round fit one hold pass: every block is as deep as the deepest" {
++    const empty: Table = .{};
++    var rule: Rule = .{ .gpa = std.testing.allocator, .prior = &.{0.8}, .most_drafts = 9, .family_costs = &empty, .shared_costs = &empty, .mtp_step_ms = 0.5, .plain_guard = false, .node_probabilities = true, .granted_depth = true, .batch_rows = 32 };
++    defer rule.deinit();
++    var states: [8]?State = @splat(null);
++    defer for (&states) |*st| if (st.*) |*x| x.deinit(std.testing.allocator);
++    var whos: [8]Who = undefined;
++    for (&whos, &states, 0..) |*w, *st, i| w.* = .{ .state = st, .draft_room = 100, .finished = false, .forced = false, .granted = @intCast(i) };
++    const No = struct {
++        fn copy(_: *anyopaque, _: *const Who) bool {
++            return false;
++        }
++    };
++    var unused: u8 = 0;
++    var out: [8]i64 = undefined;
++    try rule.budgets(&whos, .{ .ptr = &unused, .copy = No.copy }, false, &out);
++    // a grant of none probes two; grants 1..7 that took every held draft, plus one; cut to 32 rows over eight blocks
++    try std.testing.expectEqualSlices(i64, &.{ 2, 2, 3, 4, 4, 4, 4, 4 }, &out);
++    try rule.budgets(whos[0..2], .{ .ptr = &unused, .copy = No.copy }, false, out[0..2]);
++    try std.testing.expectEqualSlices(i64, &.{ 2, 2 }, out[0..2]); // two blocks fit whole
++    for (whos[0..2]) |*w| w.grant_short = true;
++    try rule.budgets(whos[0..2], .{ .ptr = &unused, .copy = No.copy }, false, out[0..2]);
++    try std.testing.expectEqualSlices(i64, &.{ 2, 1 }, out[0..2]); // a grant short of the held drafts: no slack
++}
++
++test "a round's overhead is measured past the forward priced by streams plus draft rows" {
++    const gpa = std.testing.allocator;
++    var shared: Table = .{};
++    defer shared.deinit(gpa);
++    for (1..17) |w| try shared.put(gpa, @intCast(w), 10.0 + 2.0 * @as(f64, @floatFromInt(w)));
++    const empty: Table = .{};
++    var rule: Rule = .{ .gpa = gpa, .prior = &.{0.9}, .most_drafts = 1, .family_costs = &empty, .shared_costs = &shared, .mtp_step_ms = 0, .plain_guard = false, .node_probabilities = true, .batch_rows = 16 };
++    defer rule.deinit();
++    // by rows: 3 streams, 9 rows: the table at 9 is 28 ms, a 31 ms round has 3 ms over
++    try std.testing.expectEqual(@as(?f64, 28.0), rule.forwardMs(3, 9));
++    try rule.observeOverhead(3, 9, 31.0, false, 0.0);
++    try std.testing.expectApproxEqAbs(@as(f64, 3.0), rule.overheadMs(3, false), 1e-12);
++    // apart, at 4 streams: the table at 4 (18) plus 1 ms a further row, 23 ms; the 31 ms round has 8 over
++    rule.k.draft_row_ms = 1.0;
++    try std.testing.expectEqual(@as(?f64, 23.0), rule.forwardMs(4, 9));
++    try std.testing.expectEqual(@as(?f64, 18.0), rule.forwardMs(4, 4));
++    try rule.observeOverhead(4, 9, 31.0, false, 0.0);
++    try std.testing.expectApproxEqAbs(@as(f64, 8.0), rule.overheadMs(4, false), 1e-12);
++    // a round with fewer rows than streams (a stream sat out) falls back to the table at its rows
++    try std.testing.expectEqual(@as(?f64, shared.get(2).?), rule.forwardMs(3, 2));
++}
+diff --git a/zig/src/core/lanes/draft_row_test.zig b/zig/src/core/lanes/draft_row_test.zig
+new file mode 100644
+index 000000000..4159fc004
+--- /dev/null
++++ b/zig/src/core/lanes/draft_row_test.zig
+@@ -0,0 +1,58 @@
++//! A shared round's draft rows priced apart from its streams' rows (Model.draft_row_ms): kept where the table cuts.
++const std = @import("std");
++const Config = @import("config.zig").Config;
++const Cost = @import("config.zig").Cost;
++const Engine = @import("engine.zig").Engine;
++const Stream = @import("stream.zig").Stream;
++const win = @import("windows.zig");
++const fake = @import("fake.zig");
++const t = std.testing;
++const gpa = t.allocator;
++
++/// Three streams' windows of 6 held drafts each allocated under `draft_row_ms`; the drafts each keeps.
++fn grants(draft_row_ms: f64) ![3]u32 {
++    // a round table rising 10 ms a row from 30 ms at one: a complete linear fixture, not a measured device table
++    var costs: [16]Cost = undefined;
++    for (&costs, 1..) |*c, row| c.* = .{ .width = @intCast(row), .ms = 20 + 10 * @as(f64, @floatFromInt(row)) };
++    var cfg = try Config.init(gpa, .{ .exact_width = 16, .mtp = true, .speculate = true, .drafts = 6, .hidden_rows = true, .batch_rows = 16, .max_streams = 8, .shared_costs = &costs, .draft_row_ms = draft_row_ms }, 16, 15);
++    defer cfg.deinit(gpa);
++    var target: fake.Fake = .{ .gpa = gpa };
++    defer target.deinit();
++    var clock: fake.FixedClock = .{};
++    var e = Engine.init(gpa, &cfg, target.backend(), clock.clock());
++    defer e.deinit();
++    var streams: [3]Stream = undefined;
++    var made: usize = 0;
++    defer for (streams[0..made]) |*s| s.deinit(gpa);
++    for (&streams) |*s| {
++        s.* = try Stream.init(gpa, .{ .id = "rows", .prompt = &.{1}, .max_new = 1000, .eos = &.{} });
++        made += 1;
++    }
++    var plans: [3]win.Plan = undefined;
++    for (&plans, &streams) |*p, *s| p.* = .{ .stream = s, .position = 0, .kind = .head, .held = 6 };
++    try win.allocate(&e, &plans);
++    var out: [3]u32 = undefined;
++    for (&out, plans) |*o, p| o.* = @intCast(p.count());
++    return out;
++}
++
++test "draft rows priced apart are kept where the table at total rows cuts them" {
++    const by_rows = try grants(0.0);
++    const apart = try grants(1.0);
++    var rows_total: u32 = 0;
++    var apart_total: u32 = 0;
++    for (by_rows, apart) |a, b| {
++        rows_total += a;
++        apart_total += b;
++        try t.expect(b >= a);
++    }
++    // 10 ms a row against drafts that land at 0.85, 0.64, 0.45 ...: a few rows pay; at 1 ms a row nearly all six do
++    try t.expect(rows_total <= 9);
++    try t.expect(apart_total > rows_total);
++    try t.expect(apart_total >= 12);
++    // dear draft rows cut at least as many as the table does
++    const dear = try grants(30.0);
++    var dear_total: u32 = 0;
++    for (dear) |d| dear_total += d;
++    try t.expect(dear_total <= rows_total);
++}
+diff --git a/zig/src/core/lanes/lanes.zig b/zig/src/core/lanes/lanes.zig
+index 1aa939fe9..9c7c6a8ee 100644
+--- a/zig/src/core/lanes/lanes.zig
++++ b/zig/src/core/lanes/lanes.zig
+@@ -76,6 +76,8 @@ test {
+     _ = @import("grammar_parallel_test.zig");
+     _ = @import("pricing_test.zig");
+     _ = @import("depth_probe_test.zig");
++    _ = @import("draft_row_test.zig");
++    _ = @import("depth_rounds_test.zig");
+     _ = @import("proposal_external_test.zig");
+     _ = @import("lone_costs_test.zig");
+     _ = @import("lone_backoff_test.zig");
+diff --git a/zig/src/core/lanes/windows.zig b/zig/src/core/lanes/windows.zig
+index 2f5bd7ab2..7b0592a4d 100644
+--- a/zig/src/core/lanes/windows.zig
++++ b/zig/src/core/lanes/windows.zig
+@@ -283,7 +283,8 @@ pub fn allocate(e: *Engine, plans: []Plan) !void {
+     const own = if (live) try lone_costs.prices(e, plans[0]) else untimed;
+     const costs = if (explicit) &untimed else if (live) &own else &e.cfg.shared_costs;
+     const overhead = if (explicit or live) 0 else e.rule.overheadMs(plans.len, anySampled(plans));
+-    const counts = try alloc.allocateDrafts(a, fixed, probs, costs, overhead, if (explicit or live) @max(plans.len, e.cfg.batch_rows) else e.rule.row_cost.capRows(plans.len, anySampled(plans), @max(plans.len, e.cfg.batch_rows)), .{ .row_ms = if (explicit or live) 0 else e.rule.row_cost.extraMs(plans.len, anySampled(plans)) });
++    // A3: the forward priced by the streams' rows plus a draft row's ms (Model.draft_row_ms) where the table is
++    const counts = try alloc.allocateDrafts(a, fixed, probs, costs, overhead, if (explicit or live) @max(plans.len, e.cfg.batch_rows) else e.rule.row_cost.capRows(plans.len, anySampled(plans), @max(plans.len, e.cfg.batch_rows)), .{ .row_ms = if (explicit or live) 0 else e.rule.row_cost.extraMs(plans.len, anySampled(plans)), .draft_row_ms = if (explicit or live) 0.0 else e.rule.k.draft_row_ms, .streams = plans.len });
+     const trial = if (live) lone_costs.probe(e, plans[0]) else null;
+     if (trial) |count| {
+         counts[0] = count;
+diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
+index 89006f63a..3bc73c55a 100644
+--- a/zig/src/families/flashnext/cuda_lanes.zig
++++ b/zig/src/families/flashnext/cuda_lanes.zig
+@@ -7,13 +7,11 @@ const weights = @import("cuda_prompt_wt.zig");
+ const mtp = @import("cuda_mtp.zig");
+ const mtp_ops = @import("cuda_mtp_ops.zig");
+ const lanes_draft = @import("cuda_lanes_draft.zig");
+-const ple_cache = @import("cuda_ple_cache.zig");
++const round_costs = @import("cuda_round_costs.zig");
+ const snap = @import("cuda_snap.zig");
+ const ranks = @import("cuda_rank_engine.zig");
+ const Glue = @import("cuda_glue.zig").Glue;
+-const living = @import("living");
+ const slide_mod = @import("cuda_slide.zig");
+-const train = @import("cuda_train.zig");
+ const bytes = @import("cuda_lanes_bytes.zig");
+ const kvl = @import("cuda_kv_lanes.zig");
+ const be = lanes.backend;
+@@ -176,7 +174,7 @@ pub fn Namespace(comptime Tri: type) type {
+             drawn: [ring]u32 = undefined,
+             next: u64 = 0,
+             /// --slide: the pocket's layout, from config.json at load.
+-            lay: living.Layout = undefined,
++            lay: @import("living").Layout = undefined,
+             kv: kvl.State = .{},
+ 
+             pub fn tri(self: *Cuda) Tri {
+@@ -244,6 +242,8 @@ pub fn Namespace(comptime Tri: type) type {
+                     .hidden_rows = true,
+                     .batch_rows = if (drafting) mtp.round_rows else round_streams,
+                     .max_streams = round_streams,
++                    .shared_costs = round_costs.sharedCosts(), // TF_FLASHNEXT_ROUND_MS's prices; else unpriced
++                    .draft_row_ms = round_costs.draftRowMs(),
+                     // a shared round's streams draft in one head pass a step (lanes_draft.batched)
+                     .draft_streams = drafting and lanes_draft.batchHeads(),
+                 };
+@@ -346,7 +346,7 @@ pub fn Namespace(comptime Tri: type) type {
+                 defer snaps.dropPrepared(self, l);
+                 const cut = snaps.cut(self, s, l, ids, at, @min(ids.len, at + rows), &marks);
+                 const last = cut.stop == ids.len;
+-                ple_cache.warmAfter(&self.engine.ngram, ids, cut.stop, @min(ids.len, cut.stop + rows));
++                @import("cuda_ple_cache.zig").warmAfter(&self.engine.ngram, ids, cut.stop, @min(ids.len, cut.stop + rows));
+                 if (l.draft) |*d| {
+                     try self.ops().prefillChunk(&l.seq, d, ids, at, cut.stop, marks);
+                 } else if (self.ranks) |r| {
+diff --git a/zig/src/families/flashnext/cuda_round_costs.zig b/zig/src/families/flashnext/cuda_round_costs.zig
+new file mode 100644
+index 000000000..af3403f2b
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_round_costs.zig
+@@ -0,0 +1,84 @@
++//! The lane core's prices for a shared Flash Next round on CUDA, from the environment (nothing is timed at load here).
++const std = @import("std");
++const lanes = @import("lanes");
++
++const Cost = lanes.config.Cost;
++const env = @import("sys").environment;
++/// Rows a shared forward holds at most (facts' batch_rows).
++pub const max_rows = 64;
++
++var table: [max_rows]Cost = undefined;
++var table_len: usize = 0;
++var read = false;
++
++/// TF_FLASHNEXT_ROUND_MS: a shared verify's forward ms by its rows ("a+b" is a + b x rows; a comma list from rows 1).
++pub fn parse(text: []const u8, out: []Cost) usize {
++    const t = std.mem.trim(u8, text, " \t");
++    if (t.len == 0) return 0;
++    if (std.mem.indexOfScalar(u8, t, ',') == null) {
++        const plus = std.mem.indexOfScalar(u8, t, '+') orelse return 0;
++        const a = std.fmt.parseFloat(f64, std.mem.trim(u8, t[0..plus], " ")) catch return 0;
++        const b = std.fmt.parseFloat(f64, std.mem.trim(u8, t[plus + 1 ..], " ")) catch return 0;
++        if (!(a > 0) or !(b >= 0) or !std.math.isFinite(a + b)) return 0;
++        for (out, 1..) |*c, rows| c.* = .{ .width = @intCast(rows), .ms = a + b * @as(f64, @floatFromInt(rows)) };
++        return out.len;
++    }
++    var n: usize = 0;
++    var it = std.mem.splitScalar(u8, t, ',');
++    while (it.next()) |part| {
++        if (n == out.len) return 0;
++        const ms = std.fmt.parseFloat(f64, std.mem.trim(u8, part, " ")) catch return 0;
++        if (!(ms > 0) or !std.math.isFinite(ms)) return 0;
++        out[n] = .{ .width = @intCast(n + 1), .ms = ms };
++        n += 1;
++    }
++    return if (n >= 2) n else 0;
++}
++
++/// The prices TF_FLASHNEXT_ROUND_MS gives (read once; empty without them). The slice lives for the process.
++pub fn sharedCosts() []const Cost {
++    if (!read) {
++        read = true;
++        const proc: env.Process = .{};
++        if (env.readText("TF_FLASHNEXT_ROUND_MS", proc.get("TF_FLASHNEXT_ROUND_MS"))) |given| {
++            if (given) |ms| {
++                table_len = parse(ms, &table);
++                if (table_len == 0) std.log.warn("flash next: TF_FLASHNEXT_ROUND_MS={s} is neither \"a+b\" nor a list of at least two positive ms: shared rounds stay unpriced", .{ms});
++            }
++        } else |_| {}
++    }
++    return table[0..table_len];
++}
++
++/// TF_FLASHNEXT_DRAFT_ROW_MS: a shared round's ms for each row past one a stream (the A3 split); 0: the table by rows.
++pub fn draftRowMs() f64 {
++    const ms = env.read(f64, "TF_FLASHNEXT_DRAFT_ROW_MS", 0) catch return 0;
++    return if (ms > 0 and std.math.isFinite(ms) and sharedCosts().len > 0) ms else 0;
++}
++
++test "round prices parse as a line or a list and refuse anything else" {
++    var out: [max_rows]Cost = undefined;
++    try std.testing.expectEqual(@as(usize, 64), parse("56+1.5", &out));
++    try std.testing.expectEqual(@as(u32, 1), out[0].width);
++    try std.testing.expectApproxEqAbs(@as(f64, 57.5), out[0].ms, 1e-12);
++    try std.testing.expectApproxEqAbs(@as(f64, 56 + 1.5 * 20), out[19].ms, 1e-12);
++    try std.testing.expectEqual(@as(u32, 64), out[63].width);
++    try std.testing.expectEqual(@as(usize, 64), parse(" 60 + 0 ", &out));
++    try std.testing.expectEqual(@as(usize, 3), parse("60, 61.5 ,63", &out));
++    try std.testing.expectEqual(@as(u32, 3), out[2].width);
++    try std.testing.expectApproxEqAbs(@as(f64, 61.5), out[1].ms, 1e-12);
++    for ([_][]const u8{ "", "  ", "60", "60,", ",60", "60,x", "60,-1", "0,5", "a+b", "56+", "+1", "-4+1", "56+-1", "nan+1", "56+inf", "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65" }) |bad| {
++        try std.testing.expectEqual(@as(usize, 0), parse(bad, &out));
++    }
++}
++
++test "the round prices and the draft row price come from the environment" {
++    const env_api = @import("sys").env;
++    defer _ = env_api.unsetenv("TF_FLASHNEXT_DRAFT_ROW_MS");
++    _ = env_api.unsetenv("TF_FLASHNEXT_DRAFT_ROW_MS");
++    // the process reads TF_FLASHNEXT_ROUND_MS once; here it is unset, so there are no prices and no split
++    try std.testing.expectEqual(@as(usize, 0), sharedCosts().len);
++    try std.testing.expectEqual(@as(f64, 0), draftRowMs());
++    _ = env_api.setenv("TF_FLASHNEXT_DRAFT_ROW_MS", "1.5", 1);
++    try std.testing.expectEqual(@as(f64, 0), draftRowMs()); // a split of a table that is not there
++}
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 2cc5e06a0..bf840feb7 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -3,8 +3,8 @@ const std = @import("std");
+ const sys = @import("sys.zig");
+ 
+ pub const Error = error{InvalidEnvironment};
+-pub const Scope = enum { common, cuda, metal, xpu, slide, hooks };
+-pub const Kind = enum { u32, u64, size, percent, positive, device, segments, mib, bit_width, pocket, prompt, flag };
++pub const Scope = enum { common, cuda, metal, xpu, slide, hooks, dsv41, gemma4, drama3 };
++pub const Kind = enum { u32, u64, size, percent, positive, device, segments, mib, bit_width, pocket, word, prompt, flag, toggle, real, positive_real, signed_real, range, path, text };
+ pub const Rule = struct {
+     name: [:0]const u8,
+     scope: Scope,
+@@ -12,8 +12,23 @@ pub const Rule = struct {
+     forms: []const u8,
+     trim: []const u8 = "",
+     first_digit: bool = false,
++    /// A whole number's own bounds inside its kind's; a real kind applies `max` too when it is set.
++    min: u64 = 0,
++    max: u64 = std.math.maxInt(u64),
++    /// When nonempty, the only whole numbers accepted.
++    only: []const u64 = &.{},
++    /// A `.word` setting's accepted texts; the parsed value is the matching index.
++    words: []const []const u8 = &.{},
++    /// A legacy name that is ignored, and so never refused, while its canonical name is set.
++    alias_of: ?[:0]const u8 = null,
++    /// False where the old reader took only 0, false and off as off: "no" is refused, not read as off.
++    no_word: bool = true,
+ };
+ 
++pub fn isReal(kind: Kind) bool {
++    return kind == .real or kind == .positive_real or kind == .signed_real;
++}
++
+ pub const rules = [_]Rule{
+     .{ .name = "TENSORFOLD_VIDEO_TOKENS", .scope = .common, .kind = .u64, .forms = "a nonnegative whole video-token budget (default 16384; unsigned 64-bit count)" },
+     .{ .name = "TENSORFOLD_MAX_PDF_PAGES", .scope = .common, .kind = .positive, .forms = "a whole number from 1 to 4294967295 (capped by --vision-max-images)" },
+@@ -22,12 +37,15 @@ pub const rules = [_]Rule{
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH", .scope = .common, .kind = .u64, .trim = " \t", .first_digit = true, .forms = "a whole unsigned 64-bit read count (0 disables reading ahead; capped at 65536)" },
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH_GIB", .scope = .common, .kind = .u64, .trim = " \t", .first_digit = true, .forms = "a whole unsigned 64-bit GiB count (capped at 16777216)" },
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH_MS", .scope = .common, .kind = .u64, .trim = " \t", .first_digit = true, .forms = "whole unsigned 64-bit milliseconds (capped at 1099511627776)" },
++    .{ .name = "TENSORFOLD_TOOL_ID_KEY_FILE", .scope = .common, .kind = .path, .forms = "a path without control characters to a file only its owner can read, holding at least 32 key bytes" },
+     .{ .name = "TF_CUDA_DEVICE", .scope = .cuda, .kind = .device, .trim = " ", .forms = "a whole GPU ordinal from 0 to 4294967295, or empty for the default" },
+     .{ .name = "TF_CUDA_SEGMENTS", .scope = .cuda, .kind = .segments, .trim = " ", .forms = "a whole number from 1 to 4, or empty for the default" },
+     .{ .name = "TF_CUDA_CARVEOUT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_CUDA_CARVEOUT_MIB", .scope = .cuda, .kind = .mib, .forms = "a positive whole MiB count fitting a native byte size, or empty for 1792 MiB" },
+     .{ .name = "TF_MTP_DRAFTS", .scope = .cuda, .kind = .u32, .forms = "a whole number from 0 to 4294967295 (clamped to the drafter's window)" },
+     .{ .name = "TF_DRAFT_NODES", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size node count (capped by the drafter's window)" },
++    .{ .name = "TF_FLASHNEXT_ROUND_MS", .scope = .cuda, .kind = .text, .trim = " \t", .forms = "a shared round's forward ms by rows: \"a+b\" (a + b x rows to 64) or a comma list of ms from rows 1" },
++    .{ .name = "TF_FLASHNEXT_DRAFT_ROW_MS", .scope = .cuda, .kind = .real, .forms = "a finite ms of at least 0 (0 prices a shared round's forward by its total rows)" },
+     .{ .name = "TF_QMMF_HALF_BELOW", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size block count (0 disables half tiles)" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (0 keeps the exact kernels)" },
+@@ -41,6 +59,9 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (0 keeps the plain last chunk)" },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
++    .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
++    .{ .name = "TF_DRAMA_PREFILL_ROWS", .scope = .drama3, .kind = .u32, .trim = " ", .forms = "whole prompt rows a chunk, 1 through 1024 (checked when a Drama 3 checkpoint opens)" },
++    .{ .name = "TF_DRAMA_REFERENCE_CACHE", .scope = .drama3, .kind = .u32, .trim = " ", .forms = "kept reference states, 0 (off) through 16 (checked when a Drama 3 checkpoint opens)" },
+     .{ .name = "TF_Q27_COPY_ROWS", .scope = .metal, .kind = .u32, .forms = "a whole number from 0 to 4294967295 (0 disables copied rows)" },
+     .{ .name = "TF_Q27_DRAFT_SLOTS", .scope = .metal, .kind = .u32, .forms = "a whole number from 0 to 4294967295 (clamped to the current stream bounds)" },
+     .{ .name = "TF_HEAD_GEOMETRY", .scope = .metal, .kind = .size, .forms = "a whole nonnegative native-size geometry count" },
+@@ -51,6 +72,87 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_SLIDE_POCKET_KEY", .scope = .slide, .kind = .pocket, .forms = "auto, reply, subject or both" },
+     .{ .name = "TF_SLIDE_FIT_GIB", .scope = .slide, .kind = .size, .forms = "a whole nonnegative native-size GiB count" },
+     .{ .name = "TF_SLIDE_FORGET_FAIL", .scope = .hooks, .kind = .u32, .trim = " ", .forms = "a whole fact index from 0 to 4294967295 (0 disables the planted failure)" },
++    .{ .name = "TF_DSV41_MHC_DEFER", .scope = .dsv41, .kind = .toggle, .trim = " \t", .no_word = false, .forms = "0, 1, true, false, on, off or yes (any case)" },
++    .{ .name = "TF_DSV41_COEF_LATE", .scope = .dsv41, .kind = .toggle, .trim = " \t", .no_word = false, .forms = "0, 1, true, false, on, off or yes (any case)" },
++    .{ .name = "TF_DSV41_LOOKUP", .scope = .dsv41, .kind = .toggle, .trim = " \t", .forms = "0, 1, true, false, on, off, yes or no (any case); blank turns lookup drafts off" },
++    .{ .name = "TF_DSV41_LOOKUP_PLAN", .scope = .dsv41, .kind = .toggle, .trim = " \t", .forms = "0, 1, true, false, on, off, yes or no (any case)" },
++    .{ .name = "TF_DSV41_GM_V3", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_OWN_PREFILL", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_DRAFTS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_GRAPHS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_AOT_GUARD", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ENGRAM_PREFETCH", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_BIAS_VL", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1 (either selects the vision bias; unset or blank does not)" },
++    .{ .name = "TF_DSV41_FLOOR_PRICE", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SESSIONS", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SAMPLING", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SLOT_DRAFTS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_FORMS_INPLACE", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_EX_STACKS", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_STREAM_LAZY", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_GRAPH_LOG", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_WIN_PROF", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_BOOT_TRACE", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_PREFILL_PIECES", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_GREEDY_GPU", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_DRAFT_TIMED", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SYNC_EACH", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ENGRAM_POLL", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ENGRAM_AIO", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ENGRAM_URING", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_KV_SPLIT", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_NEEDS_POOL", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_KV_SPLIT_DEDUP", .scope = .dsv41, .kind = .flag, .trim = " \t", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_KV_SPLIT_EARLY", .scope = .dsv41, .kind = .flag, .trim = " \t", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_KV_SPLIT_HISTORY", .scope = .dsv41, .kind = .flag, .trim = " \t", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_PREFILL_ADAPT", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_R1", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_PREFETCH_AHEAD", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_KV_NORM_STORE", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ROUTER_GROUP_ROT", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SCHEMA_PROMPT", .scope = .dsv41, .kind = .flag, .trim = " \t\r\n", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_TOOL_GRAMMAR", .scope = .dsv41, .kind = .flag, .trim = " ", .alias_of = "TENSORFOLD_TOOL_GRAMMAR", .forms = "0 or 1 (ignored while TENSORFOLD_TOOL_GRAMMAR is set)" },
++    .{ .name = "TF_DSV41_PIECE_RUNS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_REPLAY_RUNS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_JOIN_DRAFTS", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_TAIL_JOIN", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_PF_WS_SHARE", .scope = .dsv41, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SESSION_SKIP_COVERED", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SESSION_DELTA", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_SESSION_SLOTS", .scope = .dsv41, .kind = .flag, .trim = " ", .forms = "0 or 1" },
++    .{ .name = "TF_DSV41_ENGRAM_QD", .scope = .dsv41, .kind = .u32, .forms = "a whole reader-thread count from 0 to 4294967295 (0 reads serially)" },
++    .{ .name = "TF_DSV41_ENGRAM_READERS", .scope = .dsv41, .kind = .u32, .max = 32, .forms = "a whole reader-thread count from 0 to 32 (0 reads serially)" },
++    .{ .name = "TF_DSV41_GEN_STREAMS", .scope = .dsv41, .kind = .size, .min = 1, .forms = "a whole request count from 1 to the native size maximum" },
++    .{ .name = "TF_DSV41_CONTEXT", .scope = .dsv41, .kind = .u64, .min = 1, .max = std.math.maxInt(i64), .forms = "a whole position count from 1 to 9223372036854775807" },
++    .{ .name = "TF_DSV41_SLOTS", .scope = .dsv41, .kind = .u32, .min = 1, .max = 16, .forms = "a whole slot count from 1 to 16" },
++    .{ .name = "TF_DSV41_NUCLEUS", .scope = .dsv41, .kind = .u32, .forms = "a whole candidate count from 0 to 4294967295 (0 disables the nucleus)" },
++    .{ .name = "TF_DSV41_POOL_TOKENS", .scope = .dsv41, .kind = .u64, .forms = "a whole unsigned 64-bit token count" },
++    .{ .name = "TF_DSV41_KV_SPLIT_UNION_MIB", .scope = .dsv41, .kind = .u64, .max = std.math.maxInt(i64) >> 20, .forms = "a whole MiB count from 0 to 8796093022207" },
++    .{ .name = "TF_DSV41_PREFILL_ROWS", .scope = .dsv41, .kind = .u64, .trim = " ", .forms = "a whole unsigned 64-bit row count" },
++    .{ .name = "TF_DSV41_INDEX_BUDGET_MIB", .scope = .dsv41, .kind = .u64, .trim = " ", .min = 1, .max = 4096, .forms = "a whole MiB count from 1 to 4096" },
++    .{ .name = "TF_DSV41_BATCH_SHORT", .scope = .dsv41, .kind = .u64, .trim = " ", .forms = "a whole unsigned 64-bit token count" },
++    .{ .name = "TF_DSV41_LONG_PROMPT", .scope = .dsv41, .kind = .u64, .trim = " ", .min = 1, .forms = "a whole token count of at least 1" },
++    .{ .name = "TF_DSV41_PREFILL_CONCURRENT", .scope = .dsv41, .kind = .u64, .trim = " ", .forms = "a whole unsigned 64-bit prompt count" },
++    .{ .name = "TF_DSV41_PREFILL_ADAPT_MIN", .scope = .dsv41, .kind = .u64, .trim = " ", .min = 16, .forms = "a whole row count of at least 16" },
++    .{ .name = "TF_DSV41_FLOOR_HARD_GIB", .scope = .dsv41, .kind = .positive_real, .trim = " ", .forms = "a finite GiB amount greater than 0" },
++    .{ .name = "TF_DSV41_PF_WS_FLOOR_GIB", .scope = .dsv41, .kind = .real, .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_GRAPH_FLOOR_GIB", .scope = .dsv41, .kind = .real, .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_GRAPH_COST_MIB", .scope = .dsv41, .kind = .real, .forms = "a finite MiB amount of at least 0" },
++    .{ .name = "TF_DSV41_EXPERT_TOPP", .scope = .dsv41, .kind = .signed_real, .forms = "a finite number" },
++    .{ .name = "TF_DSV41_PREFILL_SHARE", .scope = .dsv41, .kind = .positive_real, .trim = " ", .max = 1, .forms = "a finite share greater than 0 and at most 1" },
++    .{ .name = "TF_DSV41_FLOOR_GIB", .scope = .dsv41, .kind = .positive_real, .trim = " ", .forms = "a finite GiB amount greater than 0" },
++    .{ .name = "TF_DSV41_FLOOR_PF_CHUNK_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_FLOOR_PF_INDEX_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_FLOOR_PF_HOST_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_FLOOR_PF_OTHER_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_ADMIT_FREE_FLOOR_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_FLOOR_REFUSE_S", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite number of seconds of at least 0" },
++    .{ .name = "TF_DSV41_ADMIT_CACHE_KEEP_GB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_PREFILL_ADAPT_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_PREFILL_ADAPT_UP_GIB", .scope = .dsv41, .kind = .real, .trim = " ", .forms = "a finite GiB amount of at least 0" },
++    .{ .name = "TF_DSV41_IMAGES", .scope = .dsv41, .kind = .word, .trim = " ", .words = &.{ "0", "native" }, .forms = "native or 0" },
++    .{ .name = "TF_DSV41_LAYERS", .scope = .dsv41, .kind = .range, .forms = "lo-hi: two whole layer numbers from 0 to 4294967295 with lo <= hi" },
++    .{ .name = "TF_DSV41_ROWS_CAP", .scope = .dsv41, .kind = .u32, .only = &.{ 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48, 64 }, .forms = "1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 24, 32, 48 or 64" },
+ };
+ 
+ pub fn rule(name: []const u8) Rule {
+@@ -58,17 +160,46 @@ pub fn rule(name: []const u8) Rule {
+     @panic("unregistered strict environment parser");
+ }
+ 
++/// A compile error unless `name` has a row, so a strict read can never reach `rule`'s panic at run time.
++pub fn registered(comptime name: []const u8) void {
++    @setEvalBranchQuota(20 * rules.len * 64);
++    for (rules) |r| if (std.mem.eql(u8, r.name, name)) return;
++    @compileError(name ++ " has no row in platform/environment.zig");
++}
++
+ /// Null means unset, empty or whitespace-only (main's readers used their defaults then), never malformed.
+ pub fn parse(name: []const u8, raw: ?[]const u8) Error!?u64 {
+     const r = rule(name);
+     if (std.mem.trim(u8, raw orelse return null, " \t\r\n").len == 0) return null;
+     const text = std.mem.trim(u8, raw.?, r.trim);
+     if (r.first_digit and (text[0] < '0' or text[0] > '9')) return error.InvalidEnvironment;
++    if (r.kind == .word) {
++        for (r.words, 0..) |v, i| if (std.mem.eql(u8, text, v)) return i;
++        return error.InvalidEnvironment;
++    }
+     if (r.kind == .pocket) {
+         for ([_][]const u8{ "auto", "reply", "subject", "both" }, 0..) |v, i|
+             if (std.mem.eql(u8, text, v)) return i;
+         return error.InvalidEnvironment;
+     }
++    if (r.kind == .toggle) return toggle(r, text) orelse error.InvalidEnvironment;
++    // a path travels as 0, its text read by `path`; the file itself is its reader's to check
++    if (r.kind == .path) return if (for (text) |ch| {
++        if (ch < 0x20 or ch == 0x7f) break true;
++    } else false) error.InvalidEnvironment else 0;
++    // a text setting travels as 0, its text read by `text`; its reader checks the forms the rule names
++    if (r.kind == .text) return if (for (text) |ch| {
++        if (ch < 0x20 or ch == 0x7f) break true;
++    } else false) error.InvalidEnvironment else 0;
++    // a real travels as its f64 bits and a range as lo above hi; `value` and `range` decode them
++    if (isReal(r.kind)) return @bitCast(try real(r, text));
++    if (r.kind == .range) {
++        var it = std.mem.splitScalar(u8, text, '-');
++        const lo = std.fmt.parseInt(u32, it.next().?, 10) catch return error.InvalidEnvironment;
++        const hi = std.fmt.parseInt(u32, it.next() orelse "", 10) catch return error.InvalidEnvironment;
++        if (it.next() != null or hi < lo) return error.InvalidEnvironment;
++        return @as(u64, lo) << 32 | hi;
++    }
+     if (r.kind == .flag or r.kind == .bit_width) {
+         const a: []const u8 = if (r.kind == .flag) "0" else "4";
+         const b: []const u8 = if (r.kind == .flag) "1" else "8";
+@@ -82,7 +213,8 @@ pub fn parse(name: []const u8, raw: ?[]const u8) Error!?u64 {
+         .segments => 4,
+         else => std.math.maxInt(u64),
+     };
+-    if (n > max) return error.InvalidEnvironment;
++    if (n > max or n < r.min or n > r.max) return error.InvalidEnvironment;
++    if (r.only.len > 0 and std.mem.indexOfScalar(u64, r.only, n) == null) return error.InvalidEnvironment;
+     if ((r.kind == .positive or r.kind == .segments or r.kind == .mib) and n == 0) return error.InvalidEnvironment;
+     if (r.kind == .mib and n > std.math.maxInt(usize) / (1 << 20)) return error.InvalidEnvironment;
+     if (r.kind == .prompt and (n < 128 or n > 2048 or n % 16 != 0)) return error.InvalidEnvironment;
+@@ -90,14 +222,37 @@ pub fn parse(name: []const u8, raw: ?[]const u8) Error!?u64 {
+     return n;
+ }
+ 
++/// A switch: 0 or 1, or the word forms older readers took, in any case; 0 is off.
++fn toggle(r: Rule, text: []const u8) ?u64 {
++    if (!r.no_word and std.ascii.eqlIgnoreCase(text, "no")) return null;
++    for ([_][]const u8{ "0", "false", "off", "no", "1", "true", "on", "yes" }, 0..) |v, i|
++        if (std.ascii.eqlIgnoreCase(text, v)) return i / 4;
++    return null;
++}
++
++/// Finite only; `.real` is at least 0, `.positive_real` above 0, and a set `max` caps either.
++fn real(r: Rule, text: []const u8) Error!f64 {
++    const x = std.fmt.parseFloat(f64, text) catch return error.InvalidEnvironment;
++    const low = switch (r.kind) {
++        .real => x >= 0,
++        .positive_real => x > 0,
++        else => true,
++    };
++    if (!std.math.isFinite(x) or !low) return error.InvalidEnvironment;
++    if (r.max != std.math.maxInt(u64) and x > @as(f64, @floatFromInt(r.max))) return error.InvalidEnvironment;
++    return x;
++}
++
++/// A `.path` setting's text is never shown: a key pasted into it by mistake would reach the log.
+ pub fn describe(a: std.mem.Allocator, name: []const u8, raw: []const u8) ![]const u8 {
++    if (rule(name).kind == .path) return std.fmt.allocPrint(a, "{s}: expected {s}", .{ name, rule(name).forms });
+     return std.fmt.allocPrint(a, "{s}=\"{f}\": expected {s}", .{ name, std.zig.fmtString(raw), rule(name).forms });
+ }
+ 
+ /// A direct family/tool entry point gets the same refusal even when it has no server problem buffer.
+ fn checked(name: [:0]const u8, raw: ?[]const u8) Error!?u64 {
+     return parse(name, raw) catch {
+-        std.log.err("{s}=\"{f}\": expected {s}", .{ name, std.zig.fmtString(raw.?), rule(name).forms });
++        if (!@import("builtin").is_test) if (rule(name).kind == .path) std.log.err("{s}: expected {s}", .{ name, rule(name).forms }) else std.log.err("{s}=\"{f}\": expected {s}", .{ name, std.zig.fmtString(raw.?), rule(name).forms });
+         return error.InvalidEnvironment;
+     };
+ }
+@@ -106,10 +261,58 @@ pub fn check(name: [:0]const u8, raw: ?[]const u8) Error!void {
+     _ = try checked(name, raw);
+ }
+ 
++/// One setting in its reader's type: a switch as bool, a real as a float, any other kind as its whole number.
++pub fn value(comptime T: type, name: [:0]const u8, raw: ?[]const u8, default: T) Error!T {
++    std.debug.assert(isReal(rule(name).kind) == (@typeInfo(Plain(T)) == .float) and rule(name).kind != .range and rule(name).kind != .path and rule(name).kind != .text);
++    return decode(T, (try checked(name, raw)) orelse return default);
++}
++
++fn Plain(comptime T: type) type {
++    return if (@typeInfo(T) == .optional) @typeInfo(T).optional.child else T;
++}
++
++fn decode(comptime T: type, n: u64) T {
++    return switch (@typeInfo(T)) {
++        .optional => |o| decode(o.child, n),
++        .bool => n != 0,
++        .float => @floatCast(@as(f64, @bitCast(n))),
++        else => @intCast(n),
++    };
++}
++
+ pub fn read(comptime T: type, name: [:0]const u8, default: T) Error!T {
+-    const raw = sys.getenv(name);
+-    if (try checked(name, raw)) |n| return @intCast(n);
+-    return default;
++    return value(T, name, sys.getenv(name), default);
++}
++
++/// A `.range` setting's lo and hi, or null when unset or blank.
++pub fn range(name: [:0]const u8, raw: ?[]const u8) Error!?[2]u32 {
++    const n = (try checked(name, raw)) orelse return null;
++    return .{ @intCast(n >> 32), @truncate(n) };
++}
++
++/// A `.path` setting's text, or null when unset or blank; nothing is logged, so the caller words the refusal.
++pub fn path(name: [:0]const u8, raw: ?[]const u8) Error!?[]const u8 {
++    std.debug.assert(rule(name).kind == .path);
++    _ = (try parse(name, raw)) orelse return null;
++    return std.mem.trim(u8, raw.?, rule(name).trim);
++}
++
++/// A `.text` setting's trimmed text, or null when unset or blank; its reader checks the rule's forms.
++pub fn readText(name: [:0]const u8, raw: ?[]const u8) Error!?[]const u8 {
++    std.debug.assert(rule(name).kind == .text);
++    _ = (try parse(name, raw)) orelse return null;
++    return std.mem.trim(u8, raw.?, rule(name).trim);
++}
++
++/// One scope's rules in table order, without allocating: the first malformed value is logged and refused.
++pub fn checkScope(scope: Scope, environment: anytype) Error!void {
++    for (rules) |r| if (r.scope == scope and !masked(r, environment)) {
++        _ = try checked(r.name, environment.get(r.name));
++    };
++}
++
++fn masked(r: Rule, environment: anytype) bool {
++    return if (r.alias_of) |canonical| environment.get(canonical) != null else false;
+ }
+ 
+ /// Every CUDA entry point shares flag precedence, accepted text and diagnostics.
+@@ -124,6 +327,9 @@ pub const Flags = struct {
+     xpu: bool = false,
+     slide: bool = false,
+     hooks: bool = false,
++    dsv41: bool = false,
++    gemma4: bool = false,
++    drama3: bool = false,
+     device: ?u32 = null,
+     segments: ?u32 = null,
+     carveout: bool = false,
+@@ -136,6 +342,9 @@ pub const Flags = struct {
+             .xpu => f.xpu,
+             .slide => f.slide,
+             .hooks => f.hooks,
++            .dsv41 => f.dsv41,
++            .gemma4 => f.gemma4,
++            .drama3 => f.drama3,
+         };
+     }
+ };
+@@ -143,7 +352,7 @@ pub const Flags = struct {
+ /// The environment is injectable so the actual startup validator runs against host fixtures without a GPU.
+ pub fn refusal(a: std.mem.Allocator, environment: anytype, flags: Flags) !?[]const u8 {
+     for (rules) |r| {
+-        if (!flags.includes(r.scope)) continue;
++        if (!flags.includes(r.scope) or masked(r, environment)) continue;
+         if (std.mem.eql(u8, r.name, "TF_CUDA_DEVICE") and flags.device != null) continue;
+         if (std.mem.eql(u8, r.name, "TF_CUDA_SEGMENTS") and flags.segments != null) continue;
+         if (std.mem.eql(u8, r.name, "TF_CUDA_CARVEOUT") and flags.carveout) continue;
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index b5a198dc0..ba780d6bb 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -3,7 +3,7 @@ const std = @import("std");
+ const e = @import("environment.zig");
+ const t = std.testing;
+ const a = t.allocator;
+-const all: e.Flags = .{ .cuda = true, .metal = true, .xpu = true, .slide = true, .hooks = true };
++const all: e.Flags = .{ .cuda = true, .metal = true, .xpu = true, .slide = true, .hooks = true, .dsv41 = true, .gemma4 = true, .drama3 = true };
+ const Env = struct {
+     name: []const u8,
+     raw: ?[]const u8,
+@@ -17,13 +17,16 @@ const Env = struct {
+ test "environment: every strict reader refuses bad text before opening a model, naming value and accepted forms" {
+     for (e.rules) |r| {
+         try t.expectEqual(@as(?u64, null), try e.parse(r.name, null));
+-        for ([_][]const u8{ "typo", "-1", "18446744073709551616", "1\nwrong" }) |raw| {
++        const bad: []const []const u8 = if (r.kind == .path) &.{ "key\nfile", "key\x1b[2Kfile", "\x7f" } else if (r.kind == .text) &.{ "a\tb", "bad\x7f" } else if (e.isReal(r.kind)) &.{ "typo", "nan", "-inf", "1\nwrong" } else &.{ "typo", "-1", "18446744073709551616", "1\nwrong" };
++        for (bad) |raw| {
+             try t.expectError(error.InvalidEnvironment, e.parse(r.name, raw));
+             const why = (try e.refusal(a, Env{ .name = r.name, .raw = raw }, all)).?;
+             defer a.free(why);
+             try t.expect(std.mem.indexOf(u8, why, r.name) != null);
+             try t.expect(std.mem.indexOf(u8, why, r.forms) != null);
+-            if (std.mem.indexOfScalar(u8, raw, '\n') == null) try t.expect(std.mem.indexOf(u8, why, raw) != null);
++            if (for (raw) |ch| {
++                if (ch < 0x20 or ch == 0x7f) break false;
++            } else true) try t.expect(std.mem.indexOf(u8, why, raw) != null);
+             for (why) |byte| try t.expect(byte >= 0x20 and byte <= 0x7e);
+         }
+         const untouched = try e.refusal(a, Env{ .name = r.name, .raw = null }, all);
+@@ -43,6 +46,7 @@ const valid = [_]Case{
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH", .raw = "65537", .n = 65537 },
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH_GIB", .raw = "16777217", .n = 16777217 },
+     .{ .name = "TENSORFOLD_RESTORE_PREFETCH_MS", .raw = "1099511627777", .n = 1099511627777 },
++    .{ .name = "TENSORFOLD_TOOL_ID_KEY_FILE", .raw = "/etc/tensorfold/tool id.key", .n = 0 },
+     .{ .name = "TF_CUDA_DEVICE", .raw = " 3 ", .n = 3 },
+     .{ .name = "TF_CUDA_DEVICE", .raw = "4294967295", .n = std.math.maxInt(u32) },
+     .{ .name = "TF_CUDA_SEGMENTS", .raw = " 1 ", .n = 1 },
+@@ -54,7 +58,10 @@ const valid = [_]Case{
+     .{ .name = "TF_MTP_DRAFTS", .raw = "4294967295", .n = std.math.maxInt(u32) },
+     .{ .name = "TF_DRAFT_NODES", .raw = "0", .n = 0 },
+     .{ .name = "TF_DRAFT_NODES", .raw = "64", .n = 64 },
+-    .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_ROUND_MS", .raw = "56+1.5", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_ROUND_MS", .raw = " 60, 61.5 ,63", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_DRAFT_ROW_MS", .raw = "1.5", .n = 4609434218613702656 },
++    .{ .name = "TF_FLASHNEXT_DRAFT_ROW_MS", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_EARLY", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_EARLY", .raw = "1", .n = 1 },
+     .{ .name = "TF_FLASHNEXT_GATHER_LOG", .raw = "0", .n = 0 },
+@@ -70,9 +77,16 @@ const valid = [_]Case{
+     .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .raw = "1", .n = 1 },
+     .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .raw = "512", .n = 512 },
++    .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "0", .n = 0 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
+     .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
++    .{ .name = "TF_DRAMA_PREFILL_ROWS", .raw = " 128 ", .n = 128 },
++    .{ .name = "TF_DRAMA_REFERENCE_CACHE", .raw = "0", .n = 0 },
++    .{ .name = "TF_GEMMA4_CHUNK_SOLO", .raw = "2048", .n = 2048 },
++    .{ .name = "TF_GEMMA4_CHUNK_SOLO", .raw = "0", .n = 0 },
++    .{ .name = "TF_GEMMA4_CHUNK_SOLO", .raw = "1000", .n = 1000 },
++    .{ .name = "TF_GEMMA4_CHUNK_SOLO", .raw = "8192", .n = 8192 },
+     .{ .name = "TF_Q27_COPY_ROWS", .raw = "0", .n = 0 },
+     .{ .name = "TF_Q27_COPY_ROWS", .raw = "48", .n = 48 },
+     .{ .name = "TF_Q27_DRAFT_SLOTS", .raw = "0", .n = 0 },
+@@ -104,12 +118,14 @@ test "environment: valid forms remain raw numbers before existing consumer clamp
+         try t.expect(why == null);
+     }
+     for (e.rules) |r| {
++        for ([_][]const u8{ "", " ", "\t \n" }) |raw| try t.expectEqual(@as(?u64, null), try e.parse(r.name, raw));
++        // the DeepSeek rows are each covered, with every kept form, by deepseek_v41/env_validate_test.zig
++        if (r.scope == .dsv41) continue;
+         var covered = false;
+         for (valid) |c| if (std.mem.eql(u8, r.name, c.name)) {
+             covered = true;
+         };
+         try t.expect(covered);
+-        for ([_][]const u8{ "", " ", "\t \n" }) |raw| try t.expectEqual(@as(?u64, null), try e.parse(r.name, raw));
+     }
+ }
+ 
+@@ -124,11 +140,28 @@ test "environment: range, enum, whitespace and native prompt geometry refusals a
+         .{ "TF_PROMPT_ROWS", "129" },           .{ "TF_PROMPT_ROWS", "2064" },
+         .{ "TF_PROMPT_ROWS", " 512" },          .{ "XPU_A8_BITS", "04" },
+         .{ "XPU_A8_BITS", "16" },               .{ "TF_SLIDE_POCKET_KEY", "AUTO" },
++        .{ "TF_DRAMA_PREFILL_ROWS", "4096x" },  .{ "TF_DRAMA_REFERENCE_CACHE", "4294967296" },
+     }) |c| try t.expectError(error.InvalidEnvironment, e.parse(c[0], c[1]));
+     try t.expectEqual(@as(?u64, null), try e.parse("TF_CUDA_DEVICE", "   "));
+     try t.expectEqual(@as(?u64, 0), try e.parse("TF_Q27_COPY_ROWS", "+0"));
+ }
+ 
++test "environment: a path setting keeps its text exactly, reads blank as unset and refuses control characters" {
++    const name = "TENSORFOLD_TOOL_ID_KEY_FILE";
++    try t.expectEqualStrings("relative/k ey", (try e.path(name, "relative/k ey")).?);
++    try t.expectEqualStrings(" /lead space", (try e.path(name, " /lead space")).?);
++    for ([_]?[]const u8{ null, "", " \t" }) |raw| try t.expectEqual(@as(?[]const u8, null), try e.path(name, raw));
++    for ([_][]const u8{ "/k\n", "/k\x00", "\t/k" }) |raw| try t.expectError(error.InvalidEnvironment, e.path(name, raw));
++    // a key pasted into the setting by mistake: the refusal names the setting and never shows its text
++    var arena: std.heap.ArenaAllocator = .init(a);
++    defer arena.deinit();
++    const pasted = "0123456789abcdefPASTEDKEY0123456789abcdef\x1b";
++    const said = try e.describe(arena.allocator(), name, pasted);
++    try t.expect(std.mem.indexOf(u8, said, "PASTEDKEY") == null and std.mem.startsWith(u8, said, name ++ ": expected "));
++    const refused = (try e.refusal(arena.allocator(), Env{ .name = name, .raw = pasted }, all)).?;
++    try t.expect(std.mem.indexOf(u8, refused, "PASTEDKEY") == null);
++}
++
+ test "environment: explicit flags and disabled features retain their old precedence" {
+     try t.expectEqual(@as(u32, 7), try e.device(7, "bad"));
+     try t.expectEqual(@as(u32, 3), try e.device(null, " 3 "));
+@@ -171,3 +204,86 @@ test "environment: video refusal describes the token budget without advertising
+     );
+     try t.expect(std.mem.indexOf(u8, why, "18446744073709551615") == null);
+ }
++
++test "environment: word switches take 0 and 1 and the word forms in any case; exact switches refuse words" {
++    for ([_][]const u8{ "0", "false", "OFF", "No" }) |raw| try t.expect(!try e.value(bool, "TF_DSV41_LOOKUP_PLAN", raw, true));
++    // MHC_DEFER and COEF_LATE read "no" as on before, so it is refused there rather than read as off
++    for ([_][]const u8{ "no", "NO", "No" }) |raw| {
++        try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_MHC_DEFER", raw));
++        try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_COEF_LATE", raw));
++    }
++    for ([_][]const u8{ "1", "TRUE", "on", "Yes" }) |raw| try t.expect(try e.value(bool, "TF_DSV41_COEF_LATE", raw, false));
++    try t.expect(try e.value(bool, "TF_DSV41_GRAPHS", null, true));
++    try t.expect(try e.value(bool, "TF_DSV41_GRAPHS", " ", true));
++    for ([_][]const u8{ "2", "00", "truee", "0 trailing" }) |raw| try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_COEF_LATE", raw));
++    try t.expect(try e.value(bool, "TF_DSV41_MHC_DEFER", "\ton ", false));
++    // main read these as on for any text but "0", so a word form must be refused, never read the other way
++    for ([_][]const u8{ "true", "on", "yes", "false", "off", "no", " 1", "2" }) |raw| {
++        try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_GM_V3", raw));
++        try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_DRAFTS", raw));
++        try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_SAMPLING", raw));
++    }
++    try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_KV_SPLIT", "true"));
++}
++
++test "environment: the keep-others switch is exact 0 or 1, checked when the CUDA backend starts" {
++    const name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS";
++    for ([_][]const u8{ "true", "on", "yes", "01", " 1", "1 ", "2" }) |raw| {
++        try t.expectError(error.InvalidEnvironment, e.parse(name, raw));
++        const why = (try e.refusal(a, Env{ .name = name, .raw = raw }, .{ .cuda = true })).?;
++        a.free(why);
++        try t.expect((try e.refusal(a, Env{ .name = name, .raw = raw }, .{ .metal = true })) == null);
++    }
++    try t.expect(!try e.value(bool, name, null, false));
++    try t.expect(try e.value(bool, name, "1", false));
++}
++
++test "environment: real settings are finite, keep their lower bound and optional cap, and read as floats" {
++    try t.expectEqual(@as(f64, 3.25), try e.value(f64, "TF_DSV41_GRAPH_FLOOR_GIB", "3.25", 0));
++    try t.expectEqual(@as(f64, 0), try e.value(f64, "TF_DSV41_GRAPH_FLOOR_GIB", "0", 1));
++    try t.expectEqual(@as(f64, 4), try e.value(f64, "TF_DSV41_FLOOR_HARD_GIB", null, 4));
++    try t.expectEqual(@as(f64, 4), try e.value(f64, "TF_DSV41_FLOOR_HARD_GIB", " 4", 1));
++    try t.expectEqual(@as(f64, 6.5), try e.value(f64, "TF_DSV41_FLOOR_GIB", " 6.5 ", 5));
++    try t.expectEqual(@as(f64, 1), try e.value(f64, "TF_DSV41_PREFILL_SHARE", "1", 0.5));
++    try t.expectEqual(@as(f64, -2.5), try e.value(f64, "TF_DSV41_EXPERT_TOPP", "-2.5", 0));
++    for ([_][2][]const u8{
++        .{ "TF_DSV41_GRAPH_FLOOR_GIB", "-1" }, .{ "TF_DSV41_GRAPH_FLOOR_GIB", "1e999" },
++        .{ "TF_DSV41_FLOOR_HARD_GIB", "0" },   .{ "TF_DSV41_FLOOR_HARD_GIB", "-1" },
++        .{ "TF_DSV41_PREFILL_SHARE", "1.1" },  .{ "TF_DSV41_EXPERT_TOPP", "nan" },
++        .{ "TF_DSV41_EXPERT_TOPP", "-inf" },   .{ "TF_DSV41_FLOOR_GIB", "4 GiB" },
++    }) |c| try t.expectError(error.InvalidEnvironment, e.parse(c[0], c[1]));
++}
++
++test "environment: ranges, word lists and whole-number bounds refuse ignored tails and values outside them" {
++    try t.expectEqual(@as(?[2]u32, .{ 2, 4 }), try e.range("TF_DSV41_LAYERS", "2-4"));
++    try t.expectEqual(@as(?[2]u32, .{ 0, 0 }), try e.range("TF_DSV41_LAYERS", "0-0"));
++    try t.expectEqual(@as(?[2]u32, null), try e.range("TF_DSV41_LAYERS", ""));
++    for ([_][]const u8{ "2", "4-2", "1-2-3", "a-b", "-1", "0--1", "0-4294967296" }) |raw| try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_LAYERS", raw));
++    try t.expectEqual(@as(?u64, 1), try e.parse("TF_DSV41_IMAGES", " native "));
++    try t.expectEqual(@as(?u64, 0), try e.parse("TF_DSV41_IMAGES", "0"));
++    for ([_][]const u8{ "Native", "1", "nativee" }) |raw| try t.expectError(error.InvalidEnvironment, e.parse("TF_DSV41_IMAGES", raw));
++    for ([_][2][]const u8{ .{ "TF_DSV41_ENGRAM_READERS", "32" }, .{ "TF_DSV41_SLOTS", "16" }, .{ "TF_DSV41_ROWS_CAP", "12" }, .{ "TF_DSV41_CONTEXT", "9223372036854775807" } }) |c|
++        try t.expect(try e.parse(c[0], c[1]) != null);
++    for ([_][2][]const u8{ .{ "TF_DSV41_ENGRAM_READERS", "33" }, .{ "TF_DSV41_SLOTS", "0" }, .{ "TF_DSV41_SLOTS", "17" }, .{ "TF_DSV41_ROWS_CAP", "9" }, .{ "TF_DSV41_CONTEXT", "9223372036854775808" }, .{ "TF_DSV41_PREFILL_ADAPT_MIN", "15" } }) |c|
++        try t.expectError(error.InvalidEnvironment, e.parse(c[0], c[1]));
++}
++
++const Alias = struct {
++    canonical: ?[]const u8,
++    video: ?[]const u8 = null,
++    pub fn get(v: Alias, name: []const u8) ?[]const u8 {
++        if (std.mem.eql(u8, name, "TENSORFOLD_TOOL_GRAMMAR")) return v.canonical;
++        if (std.mem.eql(u8, name, "TF_DSV41_TOOL_GRAMMAR")) return "bad";
++        return if (std.mem.eql(u8, name, "TENSORFOLD_VIDEO_TOKENS")) v.video else null;
++    }
++};
++
++test "environment: a legacy alias is checked only while its canonical name is unset, and a scope check stays in its scope" {
++    try t.expectError(error.InvalidEnvironment, e.checkScope(.dsv41, Alias{ .canonical = null }));
++    try e.checkScope(.dsv41, Alias{ .canonical = "0", .video = "bad" });
++    const why = (try e.refusal(a, Alias{ .canonical = null }, .{ .dsv41 = true })).?;
++    defer a.free(why);
++    try t.expectEqualStrings("TF_DSV41_TOOL_GRAMMAR=\"bad\": expected 0 or 1 (ignored while TENSORFOLD_TOOL_GRAMMAR is set)", why);
++    for ([_][]const u8{ "", "0", "1" }) |canonical| try t.expect((try e.refusal(a, Alias{ .canonical = canonical }, .{ .dsv41 = true })) == null);
++    try t.expect((try e.refusal(a, Alias{ .canonical = null }, .{})) == null);
++}
+-- 
+2.43.0
+

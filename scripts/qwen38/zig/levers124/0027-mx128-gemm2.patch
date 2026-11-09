@@ -1,0 +1,260 @@
+From 7381bf3a779f077d70e956775a1e84b1c754dd76 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 09:54:53 +0000
+Subject: [PATCH 27/28] flashnext: the prompt tile runs two stages and two
+ blocks an SM, and its launches are registered
+
+The relaxed 128 x 128 prompt tile (TF_FLASHNEXT_PROMPT_MX128, whose kernels came in with the
+prefill lever) also runs as a two-stage, two-blocks-an-SM variant under TF_FLASHNEXT_PROMPT_GEMM2=1:
+one block's output stores and pipeline fill overlap the other block's K loop, at the three-stage
+tile's bits (TF_FLASHNEXT_PROMPT_GEMM2, off by default). The tile's four launches, three-stage and
+two-stage, bf16 and fp32, carry their nvcc 13.0 sm_12x resource receipts (175 and 128 registers a
+thread) in the contract's flashnext tile records, later compilers pending. The kv-cache fp8 launch
+records return to flashnext_kv8_pending.zig (their symbols' kernels are in the stack): the file
+had been reduced to its header, which left the contract chain without the records it imports.
+
+Squash of stack commits 49ac1a495 and 4c368739f (port-0015-mx128 @ c747816f).
+---
+ CHANGELOG.md                                  |  1 +
+ zig/kernels/cuda/qmmf.cu                      | 11 ++++---
+ .../core/contract/flashnext_kv8_pending.zig   | 31 +++++++++++++++++++
+ .../core/contract/flashnext_tile_records.zig  | 28 +++++++++++++++++
+ zig/src/cuda/qmmf.zig                         | 23 +++++++++++---
+ zig/src/families/flashnext/cuda_knobs.zig     |  5 +++
+ zig/src/families/flashnext/cuda_prompt.zig    |  1 +
+ zig/src/platform/environment.zig              |  1 +
+ zig/src/platform/environment_test.zig         |  1 +
+ 9 files changed, 94 insertions(+), 8 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 522bf3674..5a9f41ab9 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -14,6 +14,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+   kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
+ - Flash Next on CUDA: a lone stream's copy window grows past the MTP chain's drafts to the boot self-check's largest row-exact width (#9999); on GB10 that is 48 rows against the 32-row upstream default, and a verify window carrying a pending-row log takes the row-by-row DeltaNet path, which the fused kernel it replaced does not serve.
+ - Flash Next on CUDA: a shared round can be priced from the environment where nothing is timed at load. `TF_FLASHNEXT_ROUND_MS` names the forward ms by rows (an `a+b` line, or a comma list from rows 1 that the core interpolates and extends), so the core trims a round's drafts to the rows that pay and measures each round's time past the forward as its overhead; `TF_FLASHNEXT_DRAFT_ROW_MS` prices a draft row apart from the streams' rows (a stream's further rows share its experts and cost less). Unset, rounds stay unpriced as before, and no reply changes (#9999).
++- Flash Next on CUDA: the relaxed 128 x 128 prompt tile also runs as a two-stage, two-blocks-an-SM variant (`TF_FLASHNEXT_PROMPT_GEMM2=1`) with the same arithmetic and bits: one block's output stores and pipeline fill overlap the other block's K loop (#9999).
+ ## 1.2.4
+ 
+ - Docs: four subcommand-flag fixes checked against the code: `slide audit --threshold`'s range, `benchmark --context` and `--kv-cache`, `info` on Flash Next, and `run --device` and `--carveout` on CUDA builds (#2348).
+diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
+index 653ef13a9..9a23bedbe 100644
+--- a/zig/kernels/cuda/qmmf.cu
++++ b/zig/kernels/cuda/qmmf.cu
+@@ -324,8 +324,8 @@ __device__ __forceinline__ void prompt_mx_body(
+         }
+ }
+ 
+-#define TF_PROMPT_MX(NAME, BM, BN, WM, WN, ST, F32)                                                                   \
+-    extern "C" __global__ void __launch_bounds__(WM * WN * 32) NAME(                                                  \
++#define TF_PROMPT_MX(NAME, BM, BN, WM, WN, ST, F32, MINB)                                                             \
++    extern "C" __global__ void __launch_bounds__(WM * WN * 32, MINB) NAME(                                            \
+         const __nv_bfloat16* __restrict__ x, const unsigned char* __restrict__ w, const uint8_t* __restrict__ bs,    \
+         float scale, void* __restrict__ out, int M, int N, int K, int npad, int ldx, int group) {                     \
+         tf_qmmf::prompt_mx_body<BM, BN, WM, WN, ST, F32>(x, w, bs, scale, out, M, N, K, npad, ldx, group);            \
+@@ -334,5 +334,8 @@ __device__ __forceinline__ void prompt_mx_body(
+ }  // namespace tf_qmmf
+ 
+ // Names the Zig launcher loads (qmmf.zig Lane.prompt_mx): block rows x columns, warps, stages, bf16 or fp32 out.
+-TF_PROMPT_MX(tf_qmmf_prompt_mx_bf16, 128, 128, 2, 4, 3, false)
+-TF_PROMPT_MX(tf_qmmf_prompt_mx_f32, 128, 128, 2, 4, 3, true)
++TF_PROMPT_MX(tf_qmmf_prompt_mx_bf16, 128, 128, 2, 4, 3, false, 1)
++TF_PROMPT_MX(tf_qmmf_prompt_mx_f32, 128, 128, 2, 4, 3, true, 1)
++// The same tile and arithmetic with two stages and two blocks an SM (TF_FLASHNEXT_PROMPT_GEMM2=1), at the same bits.
++TF_PROMPT_MX(tf_qmmf_prompt_mx2_bf16, 128, 128, 2, 4, 2, false, 2)
++TF_PROMPT_MX(tf_qmmf_prompt_mx2_f32, 128, 128, 2, 4, 2, true, 2)
+diff --git a/zig/src/core/contract/flashnext_kv8_pending.zig b/zig/src/core/contract/flashnext_kv8_pending.zig
+index 575222cb7..629463bee 100644
+--- a/zig/src/core/contract/flashnext_kv8_pending.zig
++++ b/zig/src/core/contract/flashnext_kv8_pending.zig
+@@ -1 +1,32 @@
+ //! --kv-cache fp8 launches: nvcc 13.3 resources, five SM targets; reference: tests/cuda/flashnext_kv8_tests.zig
++const registry = @import("registry.zig");
++pub const records = [_]registry.CudaRecord{
++    .{ .launch = .{ .name = "flashnext_attn fn_attn_prep_kv8", .symbol = "fn_attn_prep_kv8", .image = "flashnext_attn", .threads = 256 }, .usage = .{
++        .{ .regs = 32, .static = 128, .bound = 256 },
++        .{ .regs = 36, .static = 128, .bound = 256 },
++        .{ .regs = 36, .static = 128, .bound = 256 },
++        .{ .regs = 32, .static = 128, .bound = 256 },
++        .{ .regs = 32, .static = 128, .bound = 256 },
++    } },
++    .{ .launch = .{ .name = "flashnext_attn fn_attn_prep_media_kv8", .symbol = "fn_attn_prep_media_kv8", .image = "flashnext_attn", .threads = 256 }, .usage = .{
++        .{ .regs = 32, .static = 128, .bound = 256 },
++        .{ .regs = 36, .static = 128, .bound = 256 },
++        .{ .regs = 36, .static = 128, .bound = 256 },
++        .{ .regs = 32, .static = 128, .bound = 256 },
++        .{ .regs = 32, .static = 128, .bound = 256 },
++    } },
++    .{ .launch = .{ .name = "flashnext_attn fn_attn_chunks_kv8", .symbol = "fn_attn_chunks_kv8", .image = "flashnext_attn", .threads = 128, .dynamic = 43520, .opt_in = true }, .usage = .{
++        .{ .regs = 93, .static = 640, .bound = 128 },
++        .{ .regs = 93, .static = 640, .bound = 128 },
++        .{ .regs = 80, .static = 640, .bound = 128 },
++        .{ .regs = 96, .static = 640, .bound = 128 },
++        .{ .regs = 96, .static = 640, .bound = 128 },
++    } },
++    .{ .launch = .{ .name = "flashnext_attn fn_attn_fused_kv8", .symbol = "fn_attn_fused_kv8", .image = "flashnext_attn", .threads = 128, .dynamic = 26624 }, .usage = .{
++        .{ .regs = 128, .static = 640, .bound = 128 },
++        .{ .regs = 128, .static = 640, .bound = 128 },
++        .{ .regs = 138, .static = 640, .bound = 128 },
++        .{ .regs = 128, .static = 640, .bound = 128 },
++        .{ .regs = 128, .static = 640, .bound = 128 },
++    } },
++};
+diff --git a/zig/src/core/contract/flashnext_tile_records.zig b/zig/src/core/contract/flashnext_tile_records.zig
+index 54f46f4db..ca8a9d5e6 100644
+--- a/zig/src/core/contract/flashnext_tile_records.zig
++++ b/zig/src/core/contract/flashnext_tile_records.zig
+@@ -28,6 +28,34 @@ pub const cuda = [_]CudaRecord{
+     .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_moe", .symbol = "fn_hc_writeback_norm_moe", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 } } },
+     .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_slices", .symbol = "fn_hc_writeback_norm_slices", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 } } },
+     .{ .launch = .{ .name = "prompt16 tf_prompt_bf16", .symbol = "tf_prompt_bf16", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
++    .{ .launch = .{ .name = "qmmf MXFP8 prompt 128x128 bf16", .symbol = "tf_qmmf_prompt_mx_bf16", .image = "qmmf", .threads = 256, .dynamic = 74496, .opt_in = true, .min_sm = 120 }, .usage = .{
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 175, .static = 0, .bound = 256 },
++        .{ .regs = 175, .static = 0, .bound = 256 },
++    }, .later_pending = true },
++    .{ .launch = .{ .name = "qmmf MXFP8 prompt 128x128 fp32", .symbol = "tf_qmmf_prompt_mx_f32", .image = "qmmf", .threads = 256, .dynamic = 74496, .opt_in = true, .min_sm = 120 }, .usage = .{
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 175, .static = 0, .bound = 256 },
++        .{ .regs = 175, .static = 0, .bound = 256 },
++    }, .later_pending = true },
++    .{ .launch = .{ .name = "qmmf MXFP8 prompt 128x128 two-stage bf16", .symbol = "tf_qmmf_prompt_mx2_bf16", .image = "qmmf", .threads = 256, .dynamic = 49664, .opt_in = true, .min_sm = 120 }, .usage = .{
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 128, .static = 0, .bound = 256 },
++        .{ .regs = 128, .static = 0, .bound = 256 },
++    }, .later_pending = true },
++    .{ .launch = .{ .name = "qmmf MXFP8 prompt 128x128 two-stage fp32", .symbol = "tf_qmmf_prompt_mx2_f32", .image = "qmmf", .threads = 256, .dynamic = 49664, .opt_in = true, .min_sm = 120 }, .usage = .{
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 0, .static = 0 },
++        .{ .regs = 128, .static = 0, .bound = 256 },
++        .{ .regs = 128, .static = 0, .bound = 256 },
++    }, .later_pending = true },
+     .{ .launch = .{ .name = "prompt16 tf_prompt_bf16_f32", .symbol = "tf_prompt_bf16_f32", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
+     .{ .launch = .{ .name = "flashnext_mtp fn_row_topk", .symbol = "fn_row_topk", .image = "flashnext_mtp", .threads = 1024 }, .usage = .{ .{ .regs = 32, .static = 9228, .bound = 1024 }, .{ .regs = 59, .static = 9228, .bound = 1024 }, .{ .regs = 59, .static = 9228, .bound = 1024 }, .{ .regs = 31, .static = 9228, .bound = 1024 }, .{ .regs = 31, .static = 9228, .bound = 1024 } } },
+ };
+diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
+index 0da097b65..b2630ac95 100644
+--- a/zig/src/cuda/qmmf.zig
++++ b/zig/src/cuda/qmmf.zig
+@@ -136,13 +136,18 @@ pub const reduce_symbols = [2][:0]const u8{
+     "_ZN7tf_qmmf13reduce_kernelILb1EEEvPKfPvxif",
+ };
+ const row_tiles = [_]u32{ 16, 32, 64 };
+-/// The MXFP8 prompt tile's dynamic shared bytes (qmmf.cu Tile<MXFP8, 128, 128, 2, 4, 3>::SMEM).
+-const prompt_mx_shared: u32 = 3 * ((128 * 128 + 128 * group + 128 * 2 + 127) / 128 * 128);
++/// The prompt tile's dynamic shared bytes: 3 stages of 128 input rows, 128 weight columns and their scales.
++const prompt_mx_stage: u32 = (128 * 128 + 128 * group + 128 * 2 + 127) / 128 * 128;
++const prompt_mx_shared: u32 = 3 * prompt_mx_stage;
++/// The two-stage, two-blocks-an-SM variant (mx2_tile): both blocks fit an SM shared memory.
++const prompt_mx2_shared: u32 = 2 * prompt_mx_stage;
+ 
+ /// What a call writes: bf16 rows, or the fp32 sums unrounded (a tensor-parallel rank's partial rows).
+ pub const Out = enum { bf16, f32 };
+ /// Narrowest MXFP8 projection the relaxed 128 x 128 prompt tile takes in a prompt pass; 0: none.
+ pub var prompt_mx_min_n: usize = 1024;
++/// TF_FLASHNEXT_PROMPT_GEMM2=1: the prompt tile runs with two stages and two blocks an SM, same arithmetic and bits.
++pub var mx2_tile: bool = false;
+ 
+ fn loadTiles(mod: Module, comptime mode: Mode, comptime wide: bool) ![7]Function {
+     var set: [7]Function = undefined;
+@@ -166,6 +171,7 @@ pub const Lane = struct {
+     shared_down: [4]Function = undefined,
+     prompt: ?[2][2]Function = null, // Out, then plain / fused; loadPrompt() fills it on sm_12x
+     prompt_mx: [2]Function = undefined, // by Out: the relaxed MXFP8 prompt tile (a lane built by hand never launches it)
++    prompt_mx2: [2]Function = undefined, // by Out: the same tile, two stages, two blocks an SM (mx2_tile)
+     prompt_k32: ?[2]Function = null, // Out; unsplit BF16 prompt calls, loadPrompt() fills it on sm_12x
+     prompt_sms: usize = 0, // the device's SMs: the tile runs when its blocks fill more than half of them
+     clusters: bool, // sm_90 on: slices meet in a cluster's shared memory
+@@ -191,6 +197,10 @@ pub const Lane = struct {
+             f.* = try mod.function(name);
+             try f.allowDynamicShared(prompt_mx_shared);
+         }
++        for (&l.prompt_mx2, [_][:0]const u8{ "tf_qmmf_prompt_mx2_bf16", "tf_qmmf_prompt_mx2_f32" }) |*f, name| {
++            f.* = try mod.function(name);
++            try f.allowDynamicShared(prompt_mx2_shared);
++        }
+         inline for (.{ Mode.mxfp8, Mode.bf16 }, 0..) |mode, mi| inline for (.{ false, true }, 0..) |wide, oi| inline for (.{ false, true }, 0..) |cl, ci| {
+             const f = try mod.function(halfSymbol(mode, cl, wide));
+             try f.allowDynamicShared(halfShared(mode));
+@@ -241,10 +251,10 @@ pub const Lane = struct {
+         args.add(@as(i32, @intCast(w.npad)));
+         args.add(@as(i32, @intCast(if (m == 1) w.k else ldx)));
+         args.add(@as(i32, @intCast(band)));
+-        try launch_.launch(l.prompt_mx[@backingInt(out)], .{
++        try launch_.launch((if (mx2_tile) l.prompt_mx2 else l.prompt_mx)[@backingInt(out)], .{
+             .grid = .{ .x = @intCast(rows_t * ((w.n + 127) / 128)), .y = 1, .z = 1 },
+             .block = .{ .x = 256, .y = 1, .z = 1 },
+-            .shared = prompt_mx_shared,
++            .shared = if (mx2_tile) prompt_mx2_shared else prompt_mx_shared,
+         }, s, &args);
+     }
+ 
+@@ -386,3 +396,8 @@ test "instance names are qmmf.cu's" {
+     try std.testing.expectEqualStrings("_ZN7tf_qmmf11qmmf_kernelILi0ELi64ELi64ELi1ELi4ELi4ELb0ELb0ELb1EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", symbol(.fp4, 64, false, true, false));
+     try std.testing.expectEqualStrings("_ZN7tf_qmmf11qmmf_kernelILi0ELi32ELi64ELi1ELi4ELi4ELb1ELb1ELb0EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii", symbol(.fp4, 32, true, false, true));
+ }
++
++test "the two-stage prompt tile fits two blocks in an SM" {
++    try std.testing.expectEqual(@as(u32, 74496), prompt_mx_shared);
++    try std.testing.expectEqual(@as(u32, 49664), prompt_mx2_shared);
++}
+diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
+index 6515c6ad4..8e81a6deb 100644
+--- a/zig/src/families/flashnext/cuda_knobs.zig
++++ b/zig/src/families/flashnext/cuda_knobs.zig
+@@ -50,3 +50,8 @@ pub fn draftAhead() sys.environment.Error!bool {
+ pub fn prefillTail() sys.environment.Error!usize {
+     return sys.environment.read(usize, "TF_FLASHNEXT_PREFILL_TAIL", 0);
+ }
++
++/// TF_FLASHNEXT_PROMPT_GEMM2=1: the MX128 prompt tile runs with two pipeline stages and two blocks an SM, same bits.
++pub fn promptGemm2() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
++}
+diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
+index d6723ca24..26e0a845d 100644
+--- a/zig/src/families/flashnext/cuda_prompt.zig
++++ b/zig/src/families/flashnext/cuda_prompt.zig
+@@ -148,6 +148,7 @@ pub const Engine = struct {
+         if ((world != 1 and world != 2) or rank >= world) return error.BadRank;
+         // refused before anything loads: a bad TF_FLASHNEXT_CHUNK leaves no module or buffer behind
+         cuda.qmmf.prompt_mx_min_n = try knobs.mx128MinN();
++        cuda.qmmf.mx2_tile = try knobs.promptGemm2();
+         const busy = try chunkRows();
+         const chunk = try chunks.soloRows(busy, false);
+         const e = try gpa.create(Engine);
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index bf840feb7..dea3b8b28 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -57,6 +57,7 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to one slot)" },
+     .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (0 keeps the plain last chunk)" },
++    .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
+     .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index ba780d6bb..bf5629bac 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -108,6 +108,7 @@ const valid = [_]Case{
+     .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .raw = "1", .n = 1 },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "1024", .n = 1024 },
++    .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .raw = "1", .n = 1 },
+ };
+ 
+ test "environment: valid forms remain raw numbers before existing consumer clamps and defaults" {
+-- 
+2.43.0
+

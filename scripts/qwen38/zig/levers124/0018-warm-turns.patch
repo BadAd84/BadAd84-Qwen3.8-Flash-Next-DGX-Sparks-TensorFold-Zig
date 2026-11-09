@@ -1,7 +1,7 @@
-From a56fbf91be5572fb914ba79faea6cd8f0a9a4ad5 Mon Sep 17 00:00:00 2001
+From 8a9ac7486d1c3a1a9bb8e4dde2d0177d0cf28324 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 1/8] flashnext: a reply's background pass prefills the next
+Subject: [PATCH 18/28] flashnext: a reply's background pass prefills the next
  turn's prompt (TENSORFOLD_WARM_TURNS=1)
 
 Squash of stack commit e5e6f4776 (port-warm-turns @ 877faca4).

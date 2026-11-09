@@ -1,7 +1,7 @@
-From 4ded09b6ec1f19fabe4aaa1a12c86cae243cf297 Mon Sep 17 00:00:00 2001
+From bc71b6a546daa9ab35a621486504a396a2d81c90 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 2/8] flashnext: the copy window serves the boot self-check's
+Subject: [PATCH 19/28] flashnext: the copy window serves the boot self-check's
  largest row-exact width
 
 A lone stream's copy window grows past the MTP chain's drafts (48 rows on GB10

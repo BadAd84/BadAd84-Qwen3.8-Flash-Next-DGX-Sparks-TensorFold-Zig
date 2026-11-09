@@ -1,0 +1,282 @@
+From 675f40ed54d6bc90331598ff697410de6ee6e963 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 13:00:38 +0000
+Subject: [PATCH 28/28] flashnext: the kv-cache fp8 and row-cache levers' files
+ compile
+
+Nine defects the fp8 and pread levers landed in files their lanes never compiled: the fp8 glue's
+three On helpers take the Glue they never read, the fp8 attnChunksOn passes its shared-byte count
+as the wider type its launch takes, the prompt row cache's import block was written twice, its open
+hands the Ngram by value where the reader takes a pointer and names ple's shard bound privately,
+the row cache test's two opens discard the reader they then unwrap and call the pool's ahead free
+function as a method, the n-gram pool the reader creates is never destroyed by the Ngram's deinit,
+the snap sizing reads a Kv the file never imported and calls its own attnBytes with the old
+two-argument shape, the paging batch test's Fake lacks the fp8 calls the batched pass now routes
+to, and the draft head's KV rows lost their cap: the kv-cache squash priced and allocated one
+position's rows where the head's cache holds the window's, a window short of the thirteen caches
+the kv8 test and the snapshot moves price. No record or launch changes; every reply is the tree's
+own and the knobs stay off by default.
+---
+ zig/src/families/flashnext/cuda_glue.zig      |  6 +++---
+ zig/src/families/flashnext/cuda_mtp_draft.zig | 11 +++++-----
+ .../flashnext/cuda_paging_batch_test.zig      | 21 +++++++++++++++++++
+ zig/src/families/flashnext/cuda_ple.zig       | 11 +++++-----
+ zig/src/families/flashnext/cuda_ple_cache.zig |  5 +----
+ .../flashnext/cuda_ple_cache_test.zig         | 10 ++++-----
+ zig/src/families/flashnext/cuda_snap.zig      |  5 +++--
+ 7 files changed, 45 insertions(+), 24 deletions(-)
+
+diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
+index 9204f786e..af2ff80ac 100644
+--- a/zig/src/families/flashnext/cuda_glue.zig
++++ b/zig/src/families/flashnext/cuda_glue.zig
+@@ -250,7 +250,7 @@ pub const Glue = struct {
+     }
+ 
+     /// The prep arguments, everything but the page table the paged form appends: the layer normed, roped and stored.
+-    fn attnPrepOn(g: *const Glue, f: cuda.Function, s: cuda.Stream, proj: u64, pos: u64, q_scale: u64, k_scale: u64, i_scale: u64, inv: u64, q: u64, kc: u64, vc: u64, iq: u64, ikc: u64, eps: f32, rows: usize, h: Heads, pg: Pg) !void {
++    fn attnPrepOn(_: *const Glue, f: cuda.Function, s: cuda.Stream, proj: u64, pos: u64, q_scale: u64, k_scale: u64, i_scale: u64, inv: u64, q: u64, kc: u64, vc: u64, iq: u64, ikc: u64, eps: f32, rows: usize, h: Heads, pg: Pg) !void {
+         if (wt.head_dim != tile_head_dim) return error.RowShape;
+         var a: cuda.Args = .{};
+         ptrs(&a, &.{ proj, pos, q_scale, k_scale, i_scale, inv, q, kc, vc, iq, ikc });
+@@ -271,7 +271,7 @@ pub const Glue = struct {
+     }
+ 
+     /// The chunked attention arguments: `f` the kernel, `smem` its dynamic shared bytes, `pg` the paged form's table.
+-    fn attnChunksOn(g: *const Glue, f: cuda.Function, smem: usize, s: cuda.Stream, q: u64, kc: u64, vc: u64, pos: u64, po: u64, pm: u64, pl: u64, ids: u64, nk: u64, sparse: u64, rows: usize, h: Heads, chunks: usize, qsa: bool, pg: Pg) !void {
++    fn attnChunksOn(_: *const Glue, f: cuda.Function, smem: u32, s: cuda.Stream, q: u64, kc: u64, vc: u64, pos: u64, po: u64, pm: u64, pl: u64, ids: u64, nk: u64, sparse: u64, rows: usize, h: Heads, chunks: usize, qsa: bool, pg: Pg) !void {
+         const group = h.q / h.kv;
+         if (group > tile_heads) return error.RowShape;
+         var a: cuda.Args = .{};
+@@ -296,7 +296,7 @@ pub const Glue = struct {
+     }
+ 
+     /// The fused attention arguments: `f` the kernel, `pg` the paged form's table (fused has no ahead form).
+-    fn attnFusedOn(g: *const Glue, f: cuda.Function, s: cuda.Stream, q: u64, kc: u64, vc: u64, pos: u64, out: u64, ids: u64, nk: u64, sparse: u64, rows: usize, h: Heads, pg: Pg) !void {
++    fn attnFusedOn(_: *const Glue, f: cuda.Function, s: cuda.Stream, q: u64, kc: u64, vc: u64, pos: u64, out: u64, ids: u64, nk: u64, sparse: u64, rows: usize, h: Heads, pg: Pg) !void {
+         const group = h.q / h.kv;
+         if (group > tile_heads) return error.RowShape;
+         var a: cuda.Args = .{};
+diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
+index fa39f1993..8146b1432 100644
+--- a/zig/src/families/flashnext/cuda_mtp_draft.zig
++++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
+@@ -128,7 +128,8 @@ pub const Draft = struct {
+     /// bytes with the head's cache in format `format` (--kv-cache): the head's rows as the format's, the rest as ever.
+     pub fn bytesFor(format: @import("cuda_kv.zig").Kv, cap: usize, draft_n: usize, rows: usize, h: Heads) usize {
+         const l = Layout.of(h);
+-        const head = format.keyRow(head_heads) + format.valueRow(head_heads) + sizes.indexBytes(cap) + sizes.pooledBytes(cap);
++        // the head's cache holds the window's rows like every layer's
++        const head = cap * format.kvRow(head_heads) + sizes.indexBytes(cap) + sizes.pooledBytes(cap);
+         const log = if (late()) logBytes() else 0;
+         return head + @max(rows, max_rows) * wide * 2 + wide * 2 + max_rows * vocab * 2 + draft_n * 2 + best_bytes + l.saved + linear_n * l.state + log;
+     }
+@@ -170,9 +171,9 @@ pub const Draft = struct {
+     /// init with the head's cache in format `format` (--kv-cache).
+     pub fn initFor(format: @import("cuda_kv.zig").Kv, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: cuda.Stream, cap: usize, draft_n: usize, rows: usize, h: Heads) !Draft {
+         var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .kv = format, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .host = undefined, .layout = .of(h) };
+-        d.kc = try cuda.DeviceBuffer.alloc(driver, format.keyRow(head_heads));
++        d.kc = try cuda.DeviceBuffer.alloc(driver, cap * format.keyRow(head_heads));
+         errdefer d.kc.free();
+-        d.vc = try cuda.DeviceBuffer.alloc(driver, format.valueRow(head_heads));
++        d.vc = try cuda.DeviceBuffer.alloc(driver, cap * format.valueRow(head_heads));
+         errdefer d.vc.free();
+         d.ikc = try cuda.DeviceBuffer.alloc(driver, sizes.indexBytes(cap));
+         errdefer d.ikc.free();
+@@ -219,9 +220,9 @@ pub const Draft = struct {
+         const bytes_in = partsBytes(draft_n, rows, h);
+         if (block.len < bytes_in) return error.FlashNextRunTooShort;
+         var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .kv = format, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .spare = undefined, .host = undefined, .layout = .of(h) };
+-        d.kc = try cuda.DeviceBuffer.alloc(driver, format.keyRow(head_heads));
++        d.kc = try cuda.DeviceBuffer.alloc(driver, cap * format.keyRow(head_heads));
+         errdefer d.kc.free();
+-        d.vc = try cuda.DeviceBuffer.alloc(driver, format.valueRow(head_heads));
++        d.vc = try cuda.DeviceBuffer.alloc(driver, cap * format.valueRow(head_heads));
+         errdefer d.vc.free();
+         d.ikc = try cuda.DeviceBuffer.alloc(driver, sizes.indexBytes(cap));
+         errdefer d.ikc.free();
+diff --git a/zig/src/families/flashnext/cuda_paging_batch_test.zig b/zig/src/families/flashnext/cuda_paging_batch_test.zig
+index dc236fac9..5b9de83a7 100644
+--- a/zig/src/families/flashnext/cuda_paging_batch_test.zig
++++ b/zig/src/families/flashnext/cuda_paging_batch_test.zig
+@@ -48,6 +48,24 @@ const Fake = struct {
+     pub fn attnPrep(_: @This(), _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, pg: flash.Pg) !void {
+         try std.testing.expectEqual(C.expected_pg, pg);
+     }
++
++    pub fn attnPrepKv8(
++        _: @This(),
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++        _: anytype,
++    ) !void {}
+     pub fn qsaPool(_: @This(), _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, pg: flash.Pg) !void {
+         try std.testing.expectEqual(C.expected_pg, pg);
+     }
+@@ -59,6 +77,9 @@ const Fake = struct {
+         try std.testing.expectEqual(C.expected_pg, pg);
+         C.chunks += 1;
+     }
++
++    pub fn attnChunksKv8(_: @This(), _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: bool) !void {}
++    pub fn attnFusedKv8(_: @This(), _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype) !void {}
+     pub fn attnMerge(_: @This(), _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype, _: anytype) !void {
+         C.merge += 1;
+     }
+diff --git a/zig/src/families/flashnext/cuda_ple.zig b/zig/src/families/flashnext/cuda_ple.zig
+index 03b752a27..fc51a4786 100644
+--- a/zig/src/families/flashnext/cuda_ple.zig
++++ b/zig/src/families/flashnext/cuda_ple.zig
+@@ -1,10 +1,8 @@
+ //! Layer 2's n-gram table: the hash of each token's row ids, and the mapped table a pass gathers its rows from.
+-
+ const std = @import("std");
+ const cuda = @import("cuda");
+ const core = @import("core");
+ const embed = @import("cuda_embed.zig");
+-const hc = @import("cuda_hc.zig");
+ const ple_pool = @import("cuda_ple_pool.zig");
+ const ple_cache = @import("cuda_ple_cache.zig");
+ const ple_reader = @import("cuda_ple_reader.zig");
+@@ -17,7 +15,7 @@ const mix2: u64 = 0x94D049BB133111EB;
+ const prime_step: u64 = 10007;
+ pub const max_n: usize = 8;
+ pub const max_heads: usize = 64;
+-const max_shards: usize = 128;
++pub const max_shards: usize = 128;
+ pub const layer: usize = 1;
+ 
+ const Tensor = core.safetensors.Tensor;
+@@ -427,17 +425,20 @@ pub const Ngram = struct {
+             }
+         }
+         g.pool = try ple_pool.Pool.create(gpa, io);
+-        if (g.format == .nvfp4 and knobs.gatherRead() catch false) g.cache = try ple_cache.open(g, io) catch |err| std.debug.print("warning: flashnext: n-gram rows stay on the plain reader (the row cache is unavailable: {t})\n", .{err});
++        if (g.format == .nvfp4 and knobs.gatherRead() catch false) g.openCache(io) catch |err| std.debug.print("warning: flashnext: n-gram rows stay on the plain reader (the row cache is unavailable: {t})\n", .{err});
+         try gather_lanes.maybeLockScales(&g, io);
+         return g;
+     }
++    pub fn openCache(g: *Ngram, io: std.Io) !void {
++        g.cache = try ple_cache.open(g, io);
++    }
+     pub fn deinit(g: *Ngram) void {
+         if (g.ahead_thread) |th| th.join();
+         if (g.cache) |c| c.destroy();
+         for (g.files.items) |*o| o.close(g.gpa);
+         g.files.deinit(g.gpa);
++        if (g.pool) |p| p.destroy();
+     }
+-
+     /// Values a row's embedding holds (heads x head width).
+     pub fn width(g: *const Ngram) usize {
+         return g.hash.heads * g.hash.dh;
+diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
+index c629ad72a..3496bbd4c 100644
+--- a/zig/src/families/flashnext/cuda_ple_cache.zig
++++ b/zig/src/families/flashnext/cuda_ple_cache.zig
+@@ -4,9 +4,6 @@ const core = @import("core");
+ const ple = @import("cuda_ple.zig");
+ const knobs = @import("cuda_knobs.zig");
+ const direct_io = core.direct_io;
+-const std = @import("std");
+-const core = @import("core");
+-const direct_io = core.direct_io;
+ 
+ /// Bytes of a row's codes and scales a cache slot holds (dh / 2 + dh / 16 of a 160-wide head: 90).
+ pub const max_row = 96;
+@@ -341,7 +338,7 @@ pub fn open(g: *ple.Ngram, io: std.Io) !*Reader {
+         if (scales_at < base or scales_at + t.scales.len > base + g.files.items[fi].file.map.memory.len) return error.UnexpectedTensor;
+         shards[s] = .{ .file = @intCast(fi), .codes_at = at - base, .scales_at = scales_at - base };
+     }
+-    return create(g.gpa, io, paths[0..g.files.items.len], shards[0..g.hash.shards], g.hash.starts[0 .. g.hash.shards + 1], dh / 2, dh / 16, try cacheSlots(), try workers());
++    return Reader.create(g.gpa, io, paths[0..g.files.items.len], shards[0..g.hash.shards], g.hash.starts[0 .. g.hash.shards + 1], dh / 2, dh / 16, try cacheSlots(), try workers());
+ }
+ 
+ fn cacheSlots() !usize {
+diff --git a/zig/src/families/flashnext/cuda_ple_cache_test.zig b/zig/src/families/flashnext/cuda_ple_cache_test.zig
+index 8dd185e61..6aff9e5b4 100644
+--- a/zig/src/families/flashnext/cuda_ple_cache_test.zig
++++ b/zig/src/families/flashnext/cuda_ple_cache_test.zig
+@@ -22,7 +22,7 @@ test "NVFP4 rows read by pread equal the mapped rows, cold, ahead and after evic
+     var want_hist = [_]i64{99};
+     try g.rows(&want_hist, &tokens, &want, &want_xs);
+ 
+-    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
+     const rd = g.cache.?;
+     var got: [513 * 32]u16 = undefined;
+     var got_xs: [513]f32 = undefined;
+@@ -46,9 +46,9 @@ test "NVFP4 rows read by pread equal the mapped rows, cold, ahead and after evic
+     // ahead: a fresh reader's cache filled by a chunk's read-ahead, then gathered with no read of the gather's own
+     g.cache = null;
+     rd.destroy();
+-    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
+     const rd2 = g.cache.?;
+-    g.aheadChunk(&[_]i64{99}, tokens[0..300]);
++    ple_cache.aheadChunk(&g, &[_]i64{99}, tokens[0..300]);
+     g.ahead_thread.?.join();
+     g.ahead_thread = null;
+     rd2.drain();
+@@ -145,7 +145,7 @@ test "real checkpoint: pread rows equal the mapped rows" {
+     try gather(&g, &hist, tokens[100..190], small, xs);
+     std.debug.print("mapped, 90 rows: {d:.2} ms\n", .{ms(io, t0)});
+ 
+-    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
+     const rd = g.cache.?;
+     hist = .{ g.hash.eos, g.hash.eos };
+     t0 = std.Io.Clock.awake.now(io).toNanoseconds();
+@@ -160,7 +160,7 @@ test "real checkpoint: pread rows equal the mapped rows" {
+     // read ahead of the second chunk, then its gather
+     hist = .{ tokens[n - 2], tokens[n - 1] };
+     t0 = std.Io.Clock.awake.now(io).toNanoseconds();
+-    g.aheadChunk(&hist, tokens[n..]);
++    ple_cache.aheadChunk(&g, &hist, tokens[n..]);
+     g.ahead_thread.?.join();
+     g.ahead_thread = null;
+     std.debug.print("ahead of {d} rows asked: {d:.1} ms; ", .{ n, ms(io, t0) });
+diff --git a/zig/src/families/flashnext/cuda_snap.zig b/zig/src/families/flashnext/cuda_snap.zig
+index 42f0a63d2..6a002e5cb 100644
+--- a/zig/src/families/flashnext/cuda_snap.zig
++++ b/zig/src/families/flashnext/cuda_snap.zig
+@@ -8,6 +8,7 @@ const Draft = @import("cuda_mtp_draft.zig").Draft;
+ const pages = @import("cuda_pages.zig");
+ const sizes = @import("cuda_seq_bytes.zig");
+ const Heads = @import("cuda_heads.zig").Heads;
++const Kv = @import("cuda_kv.zig").Kv;
+ 
+ const index_row = wt.index_dim * 2;
+ const tail_bytes = wt.ple_tail_n * wt.wide * 2;
+@@ -63,7 +64,7 @@ pub const layout = struct {
+     }
+     /// The n-gram tail of a state after `n` tokens (after every attention cache's rows).
+     pub fn tail(n: usize) u64 {
+-        return wt.linear_n * (conv_bytes + state_bytes) + wt.attn_n * attnBytes(n, .full);
++        return wt.linear_n * (conv_bytes + state_bytes) + wt.attn_n * attnBytes(.bf16, n, .full);
+     }
+ };
+ 
+@@ -83,7 +84,7 @@ pub fn orderFor(format: Kv, at: usize, head: bool, h: Heads, head_format: Kv) st
+     return .{ .p = o, .len = if (head) 11 else 7 };
+ }
+ 
+-pub fn order(at: usize, head: bool, h: Heads) struct { p: [11]Piece, len: usize } {
++pub fn order(at: usize, head: bool, h: Heads) @TypeOf(orderFor(.bf16, at, head, h, .bf16)) {
+     return orderFor(.bf16, at, head, h, .bf16);
+ }
+ 
+-- 
+2.43.0
+

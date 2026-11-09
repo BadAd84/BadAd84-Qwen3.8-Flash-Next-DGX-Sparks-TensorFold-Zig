@@ -1,8 +1,8 @@
-From 479ee8d17ccccae93db52ae23627bd921d18e4aa Mon Sep 17 00:00:00 2001
+From 9b4f6144ad7d7acdbe28c90ccb410099c9f14c5a Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 6/8] flashnext: prompt passes drain less, fill 3072-row chunks
- and route MXFP8 projections to a relaxed tile
+Subject: [PATCH 23/28] flashnext: prompt passes drain less, fill 3072-row
+ chunks and route MXFP8 projections to a relaxed tile
 
 Squash of stack commit 97d352948 (port-0006-prefill @ fea018cc7).
 ---

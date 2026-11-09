@@ -1,8 +1,8 @@
-From 5761a7fa55e84c38fb81027b0fbb71934dade789 Mon Sep 17 00:00:00 2001
+From 6ff5b340823a60c68d1270a91784ae817c8a7507 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 7/8] flashnext: gather a shared pass's n-gram rows in one pool
- call and lock the tables' scales at load
+Subject: [PATCH 24/28] flashnext: gather a shared pass's n-gram rows in one
+ pool call and lock the tables' scales at load
 
 Squash of stack commit 2ef9abb4f (port-0010-ngram @ 81d9995f4).
 ---

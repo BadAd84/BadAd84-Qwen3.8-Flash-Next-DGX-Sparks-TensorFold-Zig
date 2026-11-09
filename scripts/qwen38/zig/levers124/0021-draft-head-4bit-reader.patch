@@ -1,7 +1,7 @@
-From 3ff2e6ac406df91179bb4b01a7e46bd48279ddb7 Mon Sep 17 00:00:00 2001
+From ac8cba258ea857f40ddec881d7a4c37598f33a9a Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 4/8] flashnext: the draft head's rows are 4-bit by default
+Subject: [PATCH 21/28] flashnext: the draft head's rows are 4-bit by default
 
 Squash of stack commit b11ed0568 (port-0005-reader @ d6197769; its two
 changelog-only commits excluded).

@@ -1,7 +1,7 @@
-From 6187efccd84e2869ecf2c5e099402e358cef4810 Mon Sep 17 00:00:00 2001
+From 7a5fb21ab7f4e9dda6c1f2cd19193955ee52438a Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 12:02:16 +0000
-Subject: [PATCH 8/8] Flash Next: the NVFP4 n-gram table through a row cache,
+Subject: [PATCH 25/28] Flash Next: the NVFP4 n-gram table through a row cache,
  read ahead of the gather, and an evened prompt tail
 
 Squash of stack commit cf1b10c4e (port-0013-pread @ 2bcac6708).

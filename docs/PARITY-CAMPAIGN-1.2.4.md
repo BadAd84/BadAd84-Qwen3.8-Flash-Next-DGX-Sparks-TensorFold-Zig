@@ -96,7 +96,16 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
-- THE STACK + SERIES (owner request 2026-11-09): DONE - branch `levers124-stack` @ `0b673402a`
+- THE STACK + SERIES (owner request 2026-11-09): FINAL - `levers124-stack` @ `fa4f6611` (12 signed
+  commits on 267c5af6a: the 8 levers + 0026 round-cost + 0027 mx128 tile/records + 0028 compile
+  repairs) and `levers124-series` @ `05a2bbcf` (11 patches, 0018-0028), both all-G signed, pushed to
+  the Gitea fork; local `scripts/qwen38/zig/levers124/` holds all 11 + README, TREE_IDENTICAL +
+  SERIES_EQUALS_STACK verified. The 0028 round is the campaign's gate catching what single-lever
+  gates could not: a dropped `cap` in the kv8 squash's draft-KV pricing (an overflow on the first
+  real draft), 9 defect groups total - repaired in 0028 (`4a446e3e0`), gates green (pr_check 0/0,
+  host suite = stock three, kv8 + environment_test pass). The stacked A/B (stock124 vs stack124) is
+  the migration gate, queued FIFO.
+- THE STACK (superseded detail): branch @ `0b673402a`
   (16 signed commits on 267c5af6a) and `levers124-series` @ `7a5fb21ab`, pushed to the Gitea fork.
   Stacked clean: warm-turns, 0005-reader, 0006, 0010, 0013; resolved honestly: 0003-kv8 (5 commits
   vs its newer base). The series `scripts/qwen38/zig/levers124/0018-*.patch` .. `0025-*.patch` (8
