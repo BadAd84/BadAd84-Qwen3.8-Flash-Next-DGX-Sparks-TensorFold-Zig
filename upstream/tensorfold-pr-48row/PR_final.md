@@ -24,14 +24,17 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
 ## Checks on this head
 
-- Head commit: `190be7e35` (the receipt commit; the code beneath it is `7bf66d350`, and the measured image
-  `tensorfold-qwen38:w64` was built from `8a83b6352`, which differs from the head only by two comment
-  fixes). The receipt adds `docs/receipts/flashnext-window-rows/`.
-- Lean checker, `python3 tools/zig/lean_check.py`, each tree with its own copy: base `267c5af6a` 5768 files / 116 problems, the 48-row code tree (`427063f62`) 5771 files / 116 problems, 0 new (the three extra files are the port's); the two comment fixes on the head change no findings.
-- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and head
-  build 581/585 steps with identical failing-test lists - the three pre-existing environment tests (a listener
-  test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied` as root) - and
-  equal per-test pass counts (7695/7764 on both).
+- Head commit: `68761ba11a` (the CHANGELOG bullet and the two comment-length fixes; the window code is
+  `7bf66d350` beneath them, and the measured image `tensorfold-qwen38:w64` was built from `8a83b6352`,
+  which differs from the head only by comments and the CHANGELOG bullet). The receipt adds
+  `docs/receipts/flashnext-window-rows/`.
+- `tools/pr_check.py --base origin/main` (upstream's own gate): 0 errors, 0 warnings, 8 changed files, lean 116 vs 116, 0 new. `zig fmt --check` clean on every touched file.
+- Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and
+  head build the same steps with the identical failing-test list - the three pre-existing environment tests
+  (a listener test needing a network, two `drama_voice_tool` cleanup tests expecting `error.AccessDenied`
+  as root) - and equal per-test pass counts. The two layout-test pinning changes in the diff re-derive the
+  scores/saved-projection/n-gram terms from `max_rows` (the totals they pin come from the suite's own
+  measured values at 64 rows).
 - CI: not run here; the gates above are the local equivalents.
 
 ## Receipt
