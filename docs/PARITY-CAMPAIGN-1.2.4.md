@@ -107,6 +107,10 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   A/B armed (window_p6.sh), queued on the GPU lock. BEFORE ITS PR: the kernel-contract records
   (launch-record + FP64 reference, nvcc 13.0 sm_12x measured) for the two new kernels, and the ATC
   overlap (laptop recipe above).
+- The 1.0.0-stack settings retune (CONFIDENCE / PRODUCT_STREAMS / PARALLEL / pool size on 1.2.4) is
+  QUEUED BEHIND the port A/Bs, not parallel with them: tuning settings on a stock-engine baseline is
+  throwaway - the ports change the picture. After the port windows drain, one ABBA settings sweep on
+  the fully ported build, then the serve moves to 1.2.4 with its measured settings.
 - Everything else: queued in the order above.
 
 ## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
