@@ -69,6 +69,24 @@ now survives an edit at the 48 row window's depth (the re-sync carries the posit
 draft and the lone-copy ramp covers the restart). The numbers stack on the 48 row receipt's own base
 (up48 is 254.3 vs the 32 row receipt's upab4 230.5 - The wider window alone bought the edit paths ~10%)
 - Decode speed before and after, `tools/bench_openai.py` one request at a time, greedy (six boots an arm, `decode_tps_median`): code 71.5-72.8 stock against 71.4-71.9, gpu-chat 46.0-46.5 against 46.0-46.2. Plain decode is unchanged within the boot spread - not a regression, and not a gain.
+- `tools/bench_concurrent.py --alone --serial`, aggregate tok/s (code / chat):
+
+  | streams | stock | this change |
+  |---|---|---|
+  | 1 | 72.2 / 46.3 | 71.3 / 45.9 |
+  | 2 | 71.6 / 46.1 | 135.4 / 84.8 |
+  | 4 | 71.2 / 45.9 | 236.2 / 152.7 |
+  | 6 | 71.0 / 45.9 | 297.9 / 205.3 |
+
+  Without the re-sync the streams serialize behind a copy stall (aggregate pinned at the 1-stream
+  rate); with it, aggregate scales near-linearly (x4.2 code, x4.5 chat at 6 streams, per-stream
+  51.5 / 35.0). This is the strongest single result in the receipt, and the workload table above is
+  its per-stream view.
+
+  One nuance in the workload table: at 1 stream the edit2.0 gain is absent (-1.6%) and edit2.1 /
+  editprose.0 shrink to about +9% - the re-sync win is a cross-stream stall, so it appears from 2
+  streams up. Single-stream edits were never stalling.
+
 - Prompt speed before and after: n/a. The change is in the decode-time copy proposer and does not reach prompt processing.
 - Licence: n/a, no new weights.
 
