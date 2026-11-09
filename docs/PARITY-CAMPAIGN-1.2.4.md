@@ -150,7 +150,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   above +Inf upstream BY DOCUMENTED CONTRACT (contract_flashnext_topk.zig) - the recipe's fallback
   would replace a contract-tested design. Verification receipt on the branch (`port-0008-topk`,
   badd33309, signed).
-- Item 2 (copy re-sync) RECEIPT COMPLETE 2026-11-09 20:14: the 12-boot 48-row matrix (12/12 golden
+- Item 2 (copy re-sync) RECEIPT COMPLETE 2026-11-09 20:14, PR TEXT ASSEMBLED (restyle running):
+  gitea `resync-on-48` = `cb32b158b` (G, YubiKey), sparkDash active, prod /health 200. Headline
+  (up48/cw48): rewrite 254.3/377.7 (+48.6%), edit2 135.6/195.6 + 136.6/210.2 (+44.2/+53.9%),
+  editprose edit 145.9/297.4 (+103.8%), prose 46.9/50.1 (+7%), copy 467.5/468.5 (flat), decode
+  flat (six boots an arm), every workload sha equal, 0 failed/0 unmeasured. Stacked on the 48-row
+  base (up48 254.3 vs the 32-row upab4 230.5: the wider window alone buys ~10%). PR text at
+  upstream/tensorfold-pr-copy-resync-v2/PR_final.md - presented after the restyle + line review. the 12-boot 48-row matrix (12/12 golden
   6/6) + both arms' bench_concurrent; SIGNED push done - gitea `resync-on-48` = `cb32b158b` (G,
   YubiKey), sparkDash active, prod /health 200. Headline (up48/cw48): rewrite 254.3/377.7 (+49%),
   edit2 135.6/195.6 + 136.6/210.2 (+44/+54%), editprose edit 145.9/297.4 (+104%), prose 46.9/50.1
