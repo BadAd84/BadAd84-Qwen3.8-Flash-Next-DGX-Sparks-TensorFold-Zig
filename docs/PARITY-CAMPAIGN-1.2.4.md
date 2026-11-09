@@ -109,6 +109,14 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   beyond the stock three; the A/B window (stock124 vs stack124, 12-cell ABBA + golden + probes) is
   queued FIFO. The combined A/B receipt is the 1.2.4 serve migration's gate; after it, the settings
   retune runs on the stack.
+- Item 7 (0010 n-gram gather): PORTED, correctness-clean, and PERFORMANCE-NEUTRAL at 1-6 streams
+  (receipt 2026-11-09, 12/12 golden identical, the poff cell proving the default path stock-identical).
+  The mechanism verified exactly (GATHER lines: 1 pool call per shared pass, gather 0.18-0.21 ms) but
+  a shared pass holds 1.0 rows per lane window at PARALLEL<=6 - nothing to batch. The recipe's gain
+  came from SSD-table reads + the 0013 pread path at higher concurrency; 0010 is the enabler knob for
+  high-stream shared rounds. Verdict: carry behind the knob in the series (0024); the PR text (if
+  posted) quotes neutral-at-1-6 + mechanism-verified, never a percent. Whether to spend upstream
+  queue on a neutral lever is the owner's call - stated once, decision at approval.
 - Item 17 (0001/0002 NVFP4 vision tower + 16k image tokens): PORTED AND GATED 2026-11-09 -
   the plan's "probably already upstream-adjacent" was REFUTED with evidence: 1.2.4's NVFP4 default is
   the LLM weights only; the vision tower decode is absent (loader expects .bf16 and fails closed on a
