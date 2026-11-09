@@ -42,6 +42,17 @@ reply-sha equality on every cell; ABBA, boot-split medians with group counts sta
 boot; the fleet GPU protocol (announce, lock, restore serve+sparkDash, named timers). Upstream flow:
 fork branch -> PR -> the receipt in `docs/receipts/<name>/`.
 
+## Checkpoint route: DECIDED 2026-11-09 - NVFP4, no INT4 port
+
+The quality comparison (QualCompare124, 30 identical prompts, both arms greedy): NVFP4 16/24 gradable
+ground-truth passes vs INT4 15/24, the 3 disagreements single-item coin flips both ways. Long-context
+recall is BYTE-IDENTICAL at 32k and 120k (needle, multi-hop, verbatim quote, config recall), exact-copy
+identical, sampled prose clean on both arms. No failure mode unique to NVFP4. Stated confound: INT4 arm
+= engine 1.0.0 + our levers + fp8 KV; NVFP4 arm = stock 1.2.4 + bf16 KV; 1.2.4 refuses INT4 so this
+cross-engine pairing is the only possible comparison. Verdict: quality does not require porting the
+INT4 loader/kernels to 1.2.4. The campaign is the decode levers only (items 4-17), and the serve moves
+to NVFP4 when its parity is measured. Artifacts: spark6 `~/work/lanes/par114/quality/report.md`.
+
 ## Status
 
 - Quality comparison: in flight (QualCompare124) - decides the checkpoint route.
