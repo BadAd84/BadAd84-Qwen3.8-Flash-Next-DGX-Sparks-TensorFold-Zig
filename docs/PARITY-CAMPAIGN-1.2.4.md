@@ -96,6 +96,15 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
+- Item 15 (0009 round-cost model): PORTED AND GATED 2026-11-09 - one signed commit `88c8920d`
+  pushed as `port-0009-cost` (12 files, +311/-61). The load-bearing finding: 1.2.4 has the row-pricing
+  machinery (HeadCost.row_ms, row_cost.zig, observeOverhead) but NO price source for flashnext CUDA
+  (facts() sets no shared_costs - the sweep machinery is Metal/qwen3_5-only), and upstream's learned
+  fit cannot express A3's cheaper-draft-row model (it only charges more). Ported the recipe's
+  cuda_round_costs.zig verbatim + facts() wiring + rateRows + forwardMs; knobs via strict-environment
+  rows. Gates: fmt, pr_check 0/0, lean 0 new, host suite identical failing lists, 5/5 mutants killed,
+  ATC 0 hard conflicts. A/B window_p9.sh self-driving (queued ~8-10h out; two scheduling probes prove
+  the knob is live; report.md auto-filled at WINDOWDONE).
 - Item 16 (0003 `--kv-cache fp8`): PORTED 2026-11-09 (lane Port0003KV8; prove half with Port0003KV8b) -
   branch `port-0003-kv8` on spark6 `~/work/lanes/port0003/tf124`, commits `21356a9cb`/`fbd671349`/`9fb74d6ad` on
   upstream main `c5a044877`. Mapping: 1.2.4 already carries the flag plumbing (`engine_api.Open.kv8`, generic
