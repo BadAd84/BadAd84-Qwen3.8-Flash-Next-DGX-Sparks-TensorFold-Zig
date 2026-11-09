@@ -251,7 +251,15 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   WINDOW absent from 4a446e3, recorded N/A); R2 CONFIDENCE-only. c1/c2 ABBA, c4/c6 reversed, c8
   R1-only at CONTEXT=98304 (8-stream scratch fit) with levels 1,2,4,6,8; ~15 boots; gated on a fresh
   stack124 WINDOWDONE then FIFO; restore qwen6-start-prod.sh + /health.
-- THE KINDLING HANG (owner directive 2026-10-26): CLOSED 2026-11-09. 0050 (every blocking H2D upload
+- THE KINDLING HANG (owner directive 2026-10-26): CLOSED + UPSTREAM SUBMISSION STAGED 2026-11-09.
+  0050 boot-verified (five clean boots 59-83 s, all gates green); the upstream lane then found the
+  premise stale - current main 23b69e25e ALREADY stages DeviceBuffer.upload through anonymous memory
+  (upstream e9bf05ffd, 2026-10-17) - and audited every cuMemcpyHtoD_v2 site: ONE residual live
+  defect-class site (minimax_m3/cuda_vision.zig Tower.up passing checkpoint mmap bytes straight to
+  the driver). The submission is that one-commit fix (branch fix-upload-staging = 9bee291f0, signed,
+  gates 0/0 + all four non-unit CI steps green, ATC clear, boot-verified on kindling: base and head
+  both 34 s with golden 6/6 identical). PR TEXT PENDING: restyle + owner approval.
+- THE KINDLING HANG (the fix evidence, superseded detail): CLOSED 2026-11-09. 0050 (every blocking H2D upload
   staged through a pinned 1 MiB stack block in zig/src/cuda/memory.zig) boot-verified on kindling:
   five consecutive clean boots 59-83 s through the checkpoint load that previously spun forever, ALL
   fp4chain2 gates green (int4v/int4b golden 6/6 + exact; nvfp4d/e/f exact + toolcheck/needle/sampled/
