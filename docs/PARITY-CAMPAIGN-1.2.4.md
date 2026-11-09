@@ -143,8 +143,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   fit cannot express A3's cheaper-draft-row model (it only charges more). Ported the recipe's
   cuda_round_costs.zig verbatim + facts() wiring + rateRows + forwardMs; knobs via strict-environment
   rows. Gates: fmt, pr_check 0/0, lean 0 new, host suite identical failing lists, 5/5 mutants killed,
-  ATC 0 hard conflicts. A/B window_p9.sh self-driving (queued ~8-10h out; two scheduling probes prove
-  the knob is live; report.md auto-filled at WINDOWDONE).
+  ATC 0 hard conflicts. A/B RECEIVED 2026-11-09 14:05 (window done, serve restored + health ok,
+  14 GOLDCMP identical): the knob-liveness probes WORK - P1 (drafts priced out) decodes at
+  fib 18.3 / chat 20.6 tok/s (plain-round speed) and P2 (priced in) at 72.3 / 46.1 (stock speed),
+  golden identical in both - the allocator reads the table and routes correctly. Aggregate
+  (bench_concurrent chat, stock9/port9): 1s 46.5/46.6, 2s 46.3/46.3, 4s 46.1/46.2, 6s 43.9/46.1 -
+  neutral-to-slightly-positive; the lever's value is the SCHEDULING CONTROL (price drafts out under
+  load, like the 6s cell already shows +2.2), not a raw gain at idle. Default knob off = stock.
 - Item 16 (0003 `--kv-cache fp8`): PORTED 2026-11-09 (lane Port0003KV8; prove half with Port0003KV8b) -
   branch `port-0003-kv8` on spark6 `~/work/lanes/port0003/tf124`, commits `21356a9cb`/`fbd671349`/`9fb74d6ad` on
   upstream main `c5a044877`. Mapping: 1.2.4 already carries the flag plumbing (`engine_api.Open.kv8`, generic
