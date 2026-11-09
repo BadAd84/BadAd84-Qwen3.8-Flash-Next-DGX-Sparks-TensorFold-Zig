@@ -53,6 +53,24 @@ cross-engine pairing is the only possible comparison. Verdict: quality does not 
 INT4 loader/kernels to 1.2.4. The campaign is the decode levers only (items 4-17), and the serve moves
 to NVFP4 when its parity is measured. Artifacts: spark6 `~/work/lanes/par114/quality/report.md`.
 
+## ATC coordination - instrument and results (2026-11-09)
+
+The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instrument is the LAPTOP:
+`C:/Users/Adam/atcboard.cmd` / `atcoverlapN.cmd` drive `npx --yes github:ashhart/ATC` via cmd.exe
+(WSL cannot invoke npx.cmd directly - write a .cmd file), against the full clone
+`C:/Users/Adam/Gitea/tf-atc-full` (a blobless clone breaks atc's working-tree read:
+`workingTreeUnavailable`, changedFiles null). Per-port recipe: fetch the port branch into tf-atc-full,
+`git checkout -B atc-<name> FETCH_HEAD`, run the cmd file.
+
+- Board (`--repo ashhart/TensorFold`): coordinationEnabled=true, 199 open PRs, 51 contributors;
+  `complete: false` (`pullFilesLimit`, `timeLimit`) so claim advice is unreliable - our levers have no
+  issues to claim; the draft-PR route covers the claim per docs/atc/SKILL.md.
+- 48-row branch overlap: 13 changed files, 142 PRs share >=1, **9 hard conflicts, all CHANGELOG.md**,
+  0 code conflicts, 132 unknown (pullFilesLimit). JSON: work/atcoverlap3.json.
+- Resync branch overlap: 21 changed files, 53 PRs share >=1, **1 hard conflict: #1394** (Llama2 DSpark
+  drafting) on 2 paths of `core/lanes` - the known same-function sequencing case. JSON:
+  work/atcoverlap4.json.
+
 ## Status
 
 - Quality comparison: in flight (QualCompare124) - decides the checkpoint route.
