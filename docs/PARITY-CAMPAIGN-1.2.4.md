@@ -91,6 +91,15 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   every arm image (a PATH overlay re-adds the bare `tensorfold-native` the recipe's docker run
   resolves). A/B vs stock at 1/2/4/6 ABBA in flight; first cell reader124-c1 booted 40s, GOLDUP 6/6
   identical to zgold-up124.json.
+- Item 5 (0006 prefill speed): PORTED 2026-11-09 - branch `port-0006-prefill` = `fea018cc7` on the
+  Gitea fork, base `e5889236b` (upstream main at clone time, post-1.2.4). Two pieces already upstream
+  (vectorised hc, MoE memset skip); ported the relaxed MXFP8 prompt tile (bits differ from the exact
+  kernels - golden is the test, bisect with TF_FLASHNEXT_PROMPT_MX128=0), the no-drain, chunk 3072;
+  knobs via the lean-gate-compliant environment rules. Gates: fmt clean, pr_check 0/0, lean 398 vs
+  398, host suite 1 new failure found and fixed (environment valid-list), full head re-run verifying.
+  A/B armed (window_p6.sh), queued on the GPU lock. BEFORE ITS PR: the kernel-contract records
+  (launch-record + FP64 reference, nvcc 13.0 sm_12x measured) for the two new kernels, and the ATC
+  overlap (laptop recipe above).
 - Everything else: queued in the order above.
 
 ## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
