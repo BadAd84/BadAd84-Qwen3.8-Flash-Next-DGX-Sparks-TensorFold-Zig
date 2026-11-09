@@ -173,8 +173,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   C=1/2/6, golden 3/3 identical): prose RECOVERS to 46.21 mean (vs 44.9 tile-on, 45.9 base) - the
   relaxed MXFP8 tile CARRIES the prose delta; prefill keeps its gains with the tile off (64k 29.26 s
   = -7.8% vs base, BETTER than tile-on's -5.1%; 8k -3.3%, 2k -7.0%). ACTION: tile default OFF
-  (opt-in TF_FLASHNEXT_PROMPT_MX128=1), re-gate, re-push; the PR presents prefill +3.3-7.8% with
-  no decode trade.
+  (opt-in TF_FLASHNEXT_PROMPT_MX128=N), re-gate, re-push - DONE 2026-11-09: `port-0006-prefill`
+  new tip `6c53d7f05` (G, signed, branch grew), pr_check 0/0, host suite confirming. Default-path
+  numbers for the PR text (tile OFF vs stock e5889236b8): cold prefill 64k -7.8% at C>=2 / -1.5%
+  C1, 8k -3.3 to -9.5%, 2k -7.0% at C>=2 (parity at C1); decode code +1.2-1.4%, prose +0.5-1.5%
+  (NO trade); golden 15/15 boots identical. Tile-on is the documented opt-in (prefill a further
+  0.7-2.2% faster, prose -1.4 to -1.7 at every level - the known cost). The 0006 PR text presents
+  the default path with the opt-in note.
 - Item 13 (0015 prompt MX128 two-stage tile): PORTED AND GATED 2026-11-09 - branch `port-0015-mx128`
   (3 signed commits on f212eeabd; substrate byte-identical to 0006's tile pieces - land 0006 first,
   then 0015 rebases to its delta). Gates: pr_check 0/0 (lean 0 new), host suite stock three + 2 new
