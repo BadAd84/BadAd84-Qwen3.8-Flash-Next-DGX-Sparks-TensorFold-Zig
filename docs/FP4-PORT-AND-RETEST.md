@@ -305,7 +305,9 @@ the four JSONs under `docs/receipts/flashnext-window-rows/`. A combined-PR test 
 cherry-picking lever 1's code and the warm-turns commit onto one `267c5af6a` scratch applied cleanly (18
 files; the only shared
 file is `cuda_startup_phase.zig`, whose hunks sit in different functions - the copy block and the one-line
-`warm_quiet` line), so the default-on stack is mechanically one branch if that shape is picked. The 48-row PR text is
+`warm_quiet` line), so the default-on stack is mechanically one branch if that shape is picked. The full parity campaign
+(porting the recipe's remaining patches onto 1.2.4, then upstreaming everything) is planned in
+`docs/PARITY-CAMPAIGN-1.2.4.md`. The 48-row PR text is
 final in `upstream/tensorfold-pr-48row/PR_final.md` (head `190be7e35`, lean 0 new, host suite with
 identical failure lists, all eight checklist items evidence-backed); the resync PR text is
 `PR_final.md` in `upstream/tensorfold-pr-copy-resync/`, to be re-cut on the 48-row line (branch
