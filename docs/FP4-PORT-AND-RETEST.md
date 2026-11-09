@@ -221,6 +221,44 @@ Verdict: the +2.6-3.7% the 12-bit read-out measured on the 1.0.0 engine does not
 hc read-out kernels no longer leave the cost the old patch removed. No PR. The negative is recorded so the lever is
 not retried; the branch and image stay for reference.
 
+### 6.8 The stacked levers on 1.2.4: the resync's gains hold and grow on the 48-row base (2026-11-09)
+
+Three-arm A/B (`~/work/lanes/par114/runsRV/`, arm-major, one boot per cell, 18 boots all golden 6/6 vs
+`zgold-up124.json`, exactly one distinct reply-sha per (workload, kind, level) across all three arms; driver
+`abq_rv.sh`/`arm_rv.sh`, summariser `wsum_rv.py`/`cmp_rv.py`; the rs48 image is `resync-on-48rows` @
+`b212b9f4` relabelled `tf.kernels=embedded`, and the lane added that label to `build-br.sh`'s final stage so
+the next branch build passes the gate).
+
+**The levers stack, and the combined effect is bigger than the sum of its parts** (client tok/s, rs48 vs
+up124, per level):
+
+| workload | up124 | w64 (48-row) | rs48 (48-row + resync) | rs48 delta |
+|---|---:|---:|---:|---|
+| verbatim copy | 374-376 | 470-473 | 470-472 | **+25-26%** |
+| one-word rewrite | 228-229 | 256-257 | **380-382** | **+66-67%** |
+| two concurrent edits | 138-141 | 137-138 | 201-202 | **+42-45%** |
+| edit beside prose (edit) | 96-97 | 96-97 | 174 | **+79-81%** |
+| edit beside prose (prose) | 47 | 51 | 47.4-51 | +8% |
+
+The window lever gives +12% on the rewrite; the resync stacks a further +48% on top of it. The
+edit-beside-prose edit stream goes +58% on the 32-row base to +79-81% on the 48-row base.
+
+Decode and TTFT: all arms within ±1-2% at every level (C=1 code 71-73 / prose 51-53; C=6 ~166-168 /
+~117-120 prose/code aggregate). rs48's C=4/6 cells are single boots, so the -1/-2% there is inside the
+boot-to-boot swing the paired C=1/2 boots show. Loaded 120k TTFT: identical at C=2; +0.8-1.0 s at C=4/6 on
+the largest prompt (~+1%, single boots). Memory: the 48-row scratch costs ~+0.05 GiB/stream and the resync
+adds nothing further (rs48 == w64 at every level).
+
+**Default-on for the combined stack is measured, not assumed**: 18/18 boots byte-identical to stock's own
+replies, the self-check boundary holds at 48 rows on the stacked build, and the memory line is the w64
+line. The PR texts: `PR_64row.md` (the 48-row receipt) and `PR_48row_stacked.md` (the resync on top), both
+filled from these runs.
+
+Incident, disclosed: the first launch's rs48 cells silently probed the still-running w64 container (the
+image lacked the `tf.kernels=embedded` label, the recipe's start.sh refused it, and the cell fell through
+to the running container). The lane stopped the matrix, discarded the poisoned runs, relabelled the image,
+added the label to `build-br.sh`'s final stage, and re-ran the full matrix clean from 21:58.
+
 ### 6.7 The sequence pool on 1.2.4: `TF_FLASHNEXT_DECODE_GRAPH=1` is flat - measured negative (2026-11-09)
 
 Stage 1 of the sequence-pool lever (`bench_graph.sh`, both arms stock `up124` on `267c5af6a`, one boot per
