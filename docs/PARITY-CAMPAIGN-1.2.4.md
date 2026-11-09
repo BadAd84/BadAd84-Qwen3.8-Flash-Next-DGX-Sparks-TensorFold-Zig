@@ -141,6 +141,14 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   prefill; nvfp4 golden exit-1 expected, no FP4 ref on kindling). Evidence:
   ~/work/gpuev/runs/fp4-*/hold.log + HANDOVER.md 2026-11-09. REMAINING: the upstream submission of the
   fix (text drafting + restyle + approval).
+- Item 6 (0016 shared-expert side stream + lane-batched DeltaNet): NO-OP, verified 2026-11-09
+  (Verify0016Shared) - upstream 1.2.4 carries BOTH mechanisms, default-on, with contract proofs:
+  lane-batched DeltaNet via 15f118ab6/4fb2f65ef (superset: 16 lanes, one unified log + ctl, optional
+  per-lane logs, contract_flashnext_lanes.zig 435 lines) and the shared-expert side stream via the
+  #1763 merge + 52b9f90a4/12e0e57f0/2a92fb6c9 (superset: the strided direct down generalizes the
+  recipe's direct idea, plus a TP split_shared gather the recipe never had). Only two recipe-only
+  debug knobs absent (SHARED_SIDE_PRIO/POISON). Our 1.2.4 move gets 0016's gains free. The stale
+  note ("maintainer re-implemented part") undercounted: it is a full superset.
 - Item 11 (0012 delta rollback): NO-OP, verified 2026-11-09 (Port0012Delta) - upstream 1.2.4 carries
   the complete KEEP_LATE folding (merged 2026-11-02 as #1763), DEFAULT ON at TP=1: our serve gets it
   free on the 1.2.4 move. The stale campaign note came from a signature-shaped grep - 1.2.4's
