@@ -136,6 +136,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   byte-identical, ATC zero code conflicts (6 PRs CHANGELOG-only). A/B window armed (vision-off golden
   6/6 byte-equal; base EXPECTED to fail the tower load - the refusal captured as the receipt's
   before-state; port answers the red probe + the 16,384-row probe).
+- Item 5 (0006 prefill speed) RECEIPT 2026-11-09 17:39: 12/12 boots, golden 6/6 every boot (the
+  relaxed MXFP8 tile did NOT diverge). Cold prefill (fresh-prompt TTFT): +2.3% C1, +9.5% C2/4/6 on
+  both 64k and 8k (the no-drain + 3072-chunk effect; 2k loses base's c1->c2 step). Decode TRADE
+  FOUND: code +2.2%, prose -2.2% at EVERY level (consistent across 6 boots/arm + both clients) -
+  per the fleet rule this is the owner's call UNLESS the staged bisect (TF_FLASHNEXT_PROMPT_MX128=0)
+  recovers prose, in which case the tile goes opt-in and the PR presents a strict improvement.
+  VmHWM equal, boot 34-38s, temps 54-69C. Bisect window dispatched.
 - Item 15 (0009 round-cost model): PORTED AND GATED 2026-11-09 - one signed commit `88c8920d`
   pushed as `port-0009-cost` (12 files, +311/-61). The load-bearing finding: 1.2.4 has the row-pricing
   machinery (HeadCost.row_ms, row_cost.zig, observeOverhead) but NO price source for flashnext CUDA
