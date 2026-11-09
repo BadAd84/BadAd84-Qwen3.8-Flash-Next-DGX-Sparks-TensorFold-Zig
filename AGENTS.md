@@ -74,12 +74,16 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   beside the lock, and a waiter queued more than a few minutes checks whether that PID is still alive
   before settling in - a dead holder means exorcise, not wait.
 
-- **Never clean docker containers by label/ancestor filter on a shared box** (measured 2026-11-09,
-  spark6, twice): the arm images share the production image's `ai-engine.kindling` label, so a build
-  pre-clean like `docker rm $(docker ps -aq --filter label=...)` DESTROYS the running production
-  container with it. The production container was destroyed at 07:48 and 08:27 during unrelated
-  builds; `docker events --filter type=container --filter event=destroy` gives the timeline. Clean up
-  by explicit container name only, and never `docker system prune` while any lane is working.
+- **The recipe's `stop.sh` STOPS AND REMOVES the container by name** (corrected 2026-11-09 after a
+  wrong attribution): the two production-container destroys (07:48, 08:27) were HangVerify0050's own
+  documented verify0050 flow - "Stopped and removed qwen38-flash-next-tf". That is by design: the
+  recipe's `start.sh` line 178 recreates the container from nothing (`docker run -d --name`), so any
+  window that stops the serve for its boot test must restore via `qwen6-start.sh` (which calls it),
+  never `docker start`. Hygiene rules that stand: no label/ancestor/wildcard container cleanup
+  (the arm images share the production image's label), no `docker system prune` while any lane works,
+  and ASK THE ACTOR before attributing a destroy to a rogue filter - `docker events
+  --filter type=container --filter event=destroy` gives the timeline, the lane's own script output
+  gives the confession.
 
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
