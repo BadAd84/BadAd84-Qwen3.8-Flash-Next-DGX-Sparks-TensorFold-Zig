@@ -74,6 +74,13 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   beside the lock, and a waiter queued more than a few minutes checks whether that PID is still alive
   before settling in - a dead holder means exorcise, not wait.
 
+- **Never clean docker containers by label/ancestor filter on a shared box** (measured 2026-11-09,
+  spark6, twice): the arm images share the production image's `ai-engine.kindling` label, so a build
+  pre-clean like `docker rm $(docker ps -aq --filter label=...)` DESTROYS the running production
+  container with it. The production container was destroyed at 07:48 and 08:27 during unrelated
+  builds; `docker events --filter type=container --filter event=destroy` gives the timeline. Clean up
+  by explicit container name only, and never `docker system prune` while any lane is working.
+
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
   only; style findings are INFO.
