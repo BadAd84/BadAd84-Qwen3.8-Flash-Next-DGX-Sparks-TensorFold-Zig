@@ -66,13 +66,16 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   (never exceeded ~2275 MHz) - not a speed lever. Full envelope + rules:
   docs/GB10-THERMAL-BENCHMARK-METHODOLOGY.md.
 
-- **The shared GPU lock can GHOST-LOCK** (measured 2026-11-09, spark6): a dead task's open-file
-  description held `~/work/gpu.lock` with no live process behind it - invisible without sudo, and every
-  waiter stacked forever on the dead inode. Exorcism (done once, preserved as
-  `gpu.lock.ghost-2093720`): `mv` the lock aside, `touch` a fresh one, kill the stranded waiters
-  (their runners relaunch), FIFO re-queue. Prevention: a long window runner writes its holder PID
-  beside the lock, and a waiter queued more than a few minutes checks whether that PID is still alive
-  before settling in - a dead holder means exorcise, not wait.
+- **The shared GPU lock can GHOST-LOCK, and the mechanism is known** (root-caught 2026-11-09, spark6):
+  a runner that does `exec 9>gpu.lock` and then forks children (docker build, a boot) leaves the lock
+  alive in ANY surviving child after the runner dies - `/proc/locks` shows a dead creator pid and every
+  waiter queues forever. Pattern fix for runner scripts: scope the lock as
+  `( flock 9; ... ) 9>lock`, or `exec 9>&-` before long-lived children. Exorcism if it happens
+  (done once, preserved as `gpu.lock.ghost-2093720`): `mv` the lock aside, `touch` a fresh one, kill
+  the stranded waiters (their runners relaunch), FIFO re-queue. Also on that box: the tf.kernels label
+  gate is generation-split (`present` for e1f564e/364f21a-era start.sh, `embedded` for fd3f43e) -
+  `~/work/lanes/fp4port/relabel.sh IMAGE TOKEN` fixes a mismatch in 5 s; and the zmerge8-kfix image's
+  restore is `~/qwen6-start-prod.sh` (the fd3f43e recipe arg-check rejects `--kv-cache`).
 
 - **The recipe's `stop.sh` STOPS AND REMOVES the container by name** (corrected 2026-11-09 after a
   wrong attribution): the two production-container destroys (07:48, 08:27) were HangVerify0050's own

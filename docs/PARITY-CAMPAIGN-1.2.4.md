@@ -134,6 +134,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   QUEUED BEHIND the port A/Bs, not parallel with them: tuning settings on a stock-engine baseline is
   throwaway - the ports change the picture. After the port windows drain, one ABBA settings sweep on
   the fully ported build, then the serve moves to 1.2.4 with its measured settings.
+- THE KINDLING HANG (owner directive 2026-10-26): CLOSED 2026-11-09. 0050 (every blocking H2D upload
+  staged through a pinned 1 MiB stack block in zig/src/cuda/memory.zig) boot-verified on kindling:
+  five consecutive clean boots 59-83 s through the checkpoint load that previously spun forever, ALL
+  fp4chain2 gates green (int4v/int4b golden 6/6 + exact; nvfp4d/e/f exact + toolcheck/needle/sampled/
+  prefill; nvfp4 golden exit-1 expected, no FP4 ref on kindling). Evidence:
+  ~/work/gpuev/runs/fp4-*/hold.log + HANDOVER.md 2026-11-09. REMAINING: the upstream submission of the
+  fix (text drafting + restyle + approval).
 - Item 11 (0012 delta rollback): NO-OP, verified 2026-11-09 (Port0012Delta) - upstream 1.2.4 carries
   the complete KEEP_LATE folding (merged 2026-11-02 as #1763), DEFAULT ON at TP=1: our serve gets it
   free on the 1.2.4 move. The stale campaign note came from a signature-shaped grep - 1.2.4's
