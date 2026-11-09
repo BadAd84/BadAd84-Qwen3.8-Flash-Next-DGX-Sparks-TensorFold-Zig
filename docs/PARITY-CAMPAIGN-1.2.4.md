@@ -96,6 +96,16 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
+- Item 17 (0001/0002 NVFP4 vision tower + 16k image tokens): PORTED AND GATED 2026-11-09 -
+  the plan's "probably already upstream-adjacent" was REFUTED with evidence: 1.2.4's NVFP4 default is
+  the LLM weights only; the vision tower decode is absent (loader expects .bf16 and fails closed on a
+  quantized tower; zero nvfp4/mxfp8 hits in zig/src/vision), and 16k tokens is uncapped at 4096. The
+  served checkpoint's tower IS quantized (MXFP8 attn.qkv/proj, NVFP4 mlp/merger). Ported as branch
+  `port-vision-fp4` tip `fd0eafcde` (2 signed commits; qwen_cuda_dequant.zig + the linear() routing
+  + max_image_tokens 16384 + a ModelOpt-fixture test), gates 0/0 + lean 0 new + host suite
+  byte-identical, ATC zero code conflicts (6 PRs CHANGELOG-only). A/B window armed (vision-off golden
+  6/6 byte-equal; base EXPECTED to fail the tower load - the refusal captured as the receipt's
+  before-state; port answers the red probe + the 16,384-row probe).
 - Item 15 (0009 round-cost model): PORTED AND GATED 2026-11-09 - one signed commit `88c8920d`
   pushed as `port-0009-cost` (12 files, +311/-61). The load-bearing finding: 1.2.4 has the row-pricing
   machinery (HeadCost.row_ms, row_cost.zig, observeOverhead) but NO price source for flashnext CUDA
