@@ -73,10 +73,24 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
 
 ## Status
 
-- Quality comparison: in flight (QualCompare124) - decides the checkpoint route.
+- Quality comparison: DONE - NVFP4 acceptable, no INT4 port (see above).
 - Sequence-pool: measured negative (6.7).
-- Item 4 (0005 fp8 reader + head cache): port in flight (ReaderP5Port, branch `port-0005-reader`,
-  image `reader124` when built) - the first kernel-level parity port.
+- Item 4 (0005 fp8 reader + head cache): SPLIT by verification - 0005 builds ON recipe 0003
+  (`--kv-cache fp8`), which introduces the KV8 kernel path and the fp8 Kv format that 1.2.4 does not
+  carry (`zig grep KV8` on abc39af1b: absent; no `--kv-cache`, no fp8 in any flashnext kv file). The
+  kernel half cannot port until 0003 does. The checkpoint-agnostic half DID port: the draft head's
+  rows load 4-bit by default (recipe 0005's `TF_FLASHNEXT_DRAFT_HEAD` default flip; 1.2.4's
+  `cuda_mtp_load.zig` had the affine4 path and the GLM family already packs its head 4-bit). One
+  commit on `port-0005-reader` (signed b34f52952, base 267c5af6a): default_mode const + test moved
+  into cuda_mtp_draft.zig after the mutant proved the test dead inside cuda_mtp_load.zig (its only
+  importer references it inside a function body, so the test never enters the graph). Gates: fmt
+  green; lean base/head 0 new (5768 files); host suite failing lists = stock three (listener Nagle +
+  two drama_voice); mutant KILLED in a scratch copy. Overlap sweep: 6 open PRs touch the file, all
+  add an EXL3 draft hook in `draft()`; none touch `mode()` - CLEAR. Gitea `ots/tensorfold-levers124`
+  branch pushed; images up124/reader124 built on the nvcr pytorch base after the cleanup wave deleted
+  every arm image (a PATH overlay re-adds the bare `tensorfold-native` the recipe's docker run
+  resolves). A/B vs stock at 1/2/4/6 ABBA in flight; first cell reader124-c1 booted 40s, GOLDUP 6/6
+  identical to zgold-up124.json.
 - Everything else: queued in the order above.
 
 ## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
