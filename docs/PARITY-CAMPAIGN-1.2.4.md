@@ -122,6 +122,12 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   QUEUED BEHIND the port A/Bs, not parallel with them: tuning settings on a stock-engine baseline is
   throwaway - the ports change the picture. After the port windows drain, one ABBA settings sweep on
   the fully ported build, then the serve moves to 1.2.4 with its measured settings.
+- Item 11 (0012 delta rollback): NO-OP, verified 2026-11-09 (Port0012Delta) - upstream 1.2.4 carries
+  the complete KEEP_LATE folding (merged 2026-11-02 as #1763), DEFAULT ON at TP=1: our serve gets it
+  free on the 1.2.4 move. The stale campaign note came from a signature-shaped grep - 1.2.4's
+  `gdn_rows_late` has a different signature than the recipe's, and the qwen3_5 family's
+  `TF_QWEN_KEEP_LATE` really is constant-only. The only 0012 residue absent is its standalone GPU test
+  script; 1.2.4 proves the same property with per-kernel contract tests.
 - Item 10 (0007 sampled streams in the batched head) WAITS for item 9's verdict (Port0008Topk): both
   touch the same sampled-decode area, and if 0008's mechanism is already upstream, 0007 is likely moot.
   No new port lanes until the GPU window queue drains - the CPU ports finish long before their A/B
