@@ -91,6 +91,13 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   every arm image (a PATH overlay re-adds the bare `tensorfold-native` the recipe's docker run
   resolves). A/B vs stock at 1/2/4/6 ABBA in flight; first cell reader124-c1 booted 40s, GOLDUP 6/6
   identical to zgold-up124.json.
+- Item 4 A/B (2026-11-09, complete): reader124 vs stock up124, 12 ABBA cells, golden 6/6 every cell.
+  Code +7.3% (s1) / +4.1% (s2) / +6.5% (s4) / +9.6% (s6); prose +9.9 / +2.9 / +4.6 / +9.7; rewrite
+  probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
+  on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
+  202 open PRs - none touch mode()).
+- Item 16 (0003 `--kv-cache fp8`) is now CRITICAL PATH: 0005's kernel half AND its own 5-window memory
+  win depend on it. 1,647 lines over ~20 files (KV8 kernels + fp8 Kv plumbing). Dispatched 2026-11-09.
 - Item 5 (0006 prefill speed): PORTED 2026-11-09 - branch `port-0006-prefill` = `fea018cc7` on the
   Gitea fork, base `e5889236b` (upstream main at clone time, post-1.2.4). Two pieces already upstream
   (vectorised hc, MoE memset skip); ported the relaxed MXFP8 prompt tile (bits differ from the exact
