@@ -170,6 +170,14 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   per the fleet rule this is the owner's call UNLESS the staged bisect (TF_FLASHNEXT_PROMPT_MX128=0)
   recovers prose, in which case the tile goes opt-in and the PR presents a strict improvement.
   VmHWM equal, boot 34-38s, temps 54-69C. Bisect window dispatched.
+- Item 13 (0015 prompt MX128 two-stage tile): PORTED AND GATED 2026-11-09 - branch `port-0015-mx128`
+  (3 signed commits on f212eeabd; substrate byte-identical to 0006's tile pieces - land 0006 first,
+  then 0015 rebases to its delta). Gates: pr_check 0/0 (lean 0 new), host suite stock three + 2 new
+  tests passing, contract records for all four prompt_mx kernels (128 regs two-stage, the minBlocks=2
+  hint hit; missing stated: the FP64 reference + sm_80-89 audit rows). Receipt: golden 6/6 on all
+  18 boots, g1 == g0 bit-identical (the same-bits claim verified), cold prefill -3.6% (64k) /
+  -4.2% (32k) vs stock; the two-stage variant vs the 3-stage tile is timing-neutral end-to-end
+  (the recipe's 61->76 TF is one projection shape, not whole-turn). Decode within noise.
 - Item 15 (0009 round-cost model): PORTED AND GATED 2026-11-09 - one signed commit `88c8920d`
   pushed as `port-0009-cost` (12 files, +311/-61). The load-bearing finding: 1.2.4 has the row-pricing
   machinery (HeadCost.row_ms, row_cost.zig, observeOverhead) but NO price source for flashnext CUDA
@@ -248,6 +256,29 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   No new port lanes until the GPU window queue drains - the CPU ports finish long before their A/B
   windows run, so the remaining items (0007, 0014, 0015, 0004, 0009) dispatch as lanes free up.
 - Everything else: queued in the order above.
+- Item 13 (0015 prompt MX128 two-stage tile): PORTED and MEASURED 2026-11-09 (Port0015Mx128) - branch
+  `port-0015-mx128` on gitea `ots/tensorfold-levers124`, signed `a9a70a173`/`a5aac174d`/`c747816fa` on upstream
+  main `f212eeabd`. Mapping: NOTHING of 0015 is in 1.2.4 - no MXFP8 prompt tile at all (upstream has the BF16
+  128x128 3-stage tile + K32 prompt kernel only, no `cuda_knobs.zig`); the substrate is exactly recipe 0006's
+  tile, so commit 1 re-lands the sibling's `port-0006-prefill` tile pieces BYTE-IDENTICAL (verified empty
+  `git diff` on qmmf.cu/qmmf.zig/cuda_tiles.zig) and commit 2 is 0015's delta (`TF_FLASHNEXT_PROMPT_GEMM2`:
+  two stages, two blocks an SM, same arithmetic and bits) + nvcc-13.0 contract records (175/128 regs,
+  sm_120/121; the two-stage variant compiles to exactly the 65536-reg file two blocks need). Sibling overlap:
+  8 of 10 files shared with port-0006-prefill - PR-time sequencing: land 0006 first, then 0015 rebases to its
+  delta; if 0015 lands first, 0006 drops the tile pieces. ATC: 10 changed files, 5 hard conflicts all
+  CHANGELOG.md, zero code. Gates: fmt clean, pr_check 0/0, lean 398 vs 398 (0 new), host suite failing lists
+  identical to stock, +2 tests passing. Receipt (spark6 `~/work/lanes/port0015/REPORT-P15.txt`): golden 6/6
+  on EVERY boot of all three arms (base 6 boots, port 12 boots) and g1 == g0 bit-identical on every g1 boot
+  (0015's same-bits claim holds); cold prefill (arm medians, n=6): 64k 33.752 -> 32.522 s (-3.6%), 32k
+  16.447 -> 15.750 (-4.2%), 8k -3.4%, 2k -3.6%; the two-stage variant vs the 3-stage tile is timing-neutral
+  end to end (<=0.013 s at every size; the recipe's 61->76 TF is a kernel microbench at one shape); decode
+  and concurrent within noise; VmHWM 6.80-6.83 GiB both arms, temps 51-68C. Checkpoint note: the NVFP4
+  checkpoint's GDN/attention projections are MXFP8 native (weight+weight_scale), so the tile routes; experts
+  are nvfp4 and do not. Deviations: window B's port cells failed on an arm-name/image-tag mixup (rebuilt as
+  window C, base data valid); build-br.sh was edited mid-build by another lane, crashing my wrapper after
+  the image tagged (p15base needed a 2-s PATH-overlay patch - same fix sent to Port0006Prefill for p6base);
+  the FP64 reference + served envelope for contract gates 1-4 are NOT done (upstream's prompt records carry
+  the same shape: launch receipts only, sm_80-89 audit entries pending).
 
 ## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
 
