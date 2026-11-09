@@ -109,6 +109,18 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   `flock ~/work/gpu.lock`, Gitea push `ots/tensorfold-levers124`, ATC overlap. ATC overlap: CLEAR 2026-11-09
   (atcoverlap5.cmd, laptop recipe) - 25 changed files, zero hard conflicts against any open PR (the closest
   shares are 1-2 files at conflict "unknown" under the pullFilesLimit).
+- COMPLETION (Port0003KV8b, 2026-11-09): all prove items done - the stage_kv8_tile junk lines fixed
+  (+ HK parameterized), flashnext_kv8.cuh namespaced (the ambiguous decl/defn pair), the paged
+  __shared__ table restored, the MISSING fn_attn_prep_media_kv8 defined (nvcc now compiles all four
+  kernels for 5 SMs, rc=0), streamBytes pricing bf16+paged correctly (the underflow fix + test).
+  Contract records wired into landed_cuda (4 launches, FP64 reference = the device test
+  flashnext-kv8). fmt clean tree-wide (glue refactored to 599 lines), pr_check 0/0 (lean 398 vs 398),
+  host suite failing lists byte-identical (the 13 extra head steps were GPU contention from the
+  concurrent window, not failures). FIVE commits re-signed on the laptop, tree hash identical
+  (89ae01af7), pushed as tip `7ff8292bc`; ATC overlap re-run: 27 files, 6 hard conflicts (5
+  CHANGELOG-only, 1 adjacent test-import line vs #2475). A/B window armed (window_kv8.sh, 12 ABBA
+  cells + the five-window memory claim, golden byte-equality as the storage-only check), queued on
+  QUEUE.GO behind the 0050 window.
 - Item 5 (0006 prefill speed): PORTED 2026-11-09 - branch `port-0006-prefill` = `fea018cc7` on the
   Gitea fork, base `e5889236b` (upstream main at clone time, post-1.2.4). Two pieces already upstream
   (vectorised hc, MoE memset skip); ported the relaxed MXFP8 prompt tile (bits differ from the exact
