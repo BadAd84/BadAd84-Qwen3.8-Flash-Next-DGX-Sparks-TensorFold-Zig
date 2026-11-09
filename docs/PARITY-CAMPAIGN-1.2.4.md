@@ -174,7 +174,10 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   relaxed MXFP8 tile CARRIES the prose delta; prefill keeps its gains with the tile off (64k 29.26 s
   = -7.8% vs base, BETTER than tile-on's -5.1%; 8k -3.3%, 2k -7.0%). ACTION: tile default OFF
   (opt-in TF_FLASHNEXT_PROMPT_MX128=N), re-gate, re-push - DONE 2026-11-09: `port-0006-prefill`
-  new tip `6c53d7f05` (G, signed, branch grew), pr_check 0/0, host suite CONFIRMED 20:56 (failing list = stock three, 0 new; the lane complete). Default-path
+  new tip `6c53d7f05` (G, signed, branch grew), pr_check 0/0, host suite CONFIRMED TWICE (Port0006Prefill hostsuite-head2.txt + Port0050Upstream's
+  independent run at 21:4x: 613/616 steps, failing list = stock three, 0 new, plus the four
+  non-unit CI steps green - kernel-contract 236/236, golden 5/5, security 31/31, fuzz 21/21);
+  the lane complete. Default-path
   numbers for the PR text (tile OFF vs stock e5889236b8): cold prefill 64k -7.8% at C>=2 / -1.5%
   C1, 8k -3.3 to -9.5%, 2k -7.0% at C>=2 (parity at C1); decode code +1.2-1.4%, prose +0.5-1.5%
   (NO trade); golden 15/15 boots identical. Tile-on is the documented opt-in (prefill a further
@@ -240,6 +243,14 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   QUEUED BEHIND the port A/Bs, not parallel with them: tuning settings on a stock-engine baseline is
   throwaway - the ports change the picture. After the port windows drain, one ABBA settings sweep on
   the fully ported build, then the serve moves to 1.2.4 with its measured settings.
+  STAGED 2026-11-09 21:42 (Port0015Mx128, window_retune.sh on spark6): the retune base is the
+  stack migration's lever set (stack124's STACKENV verbatim - verified live: the COPY_* knobs route
+  through the startup-phase flag() helper, GATHER_*/DRAFT_AHEAD in the rules), so the sweep isolates
+  the production deltas ON the served config: R0 STACKENV; R1 STACKENV + CONFIDENCE=-0.15 +
+  DEPTH=15 + PREFILL_TAIL=512 (the only m8env knobs the stack implements - PRODUCT_STREAMS/pool/
+  WINDOW absent from 4a446e3, recorded N/A); R2 CONFIDENCE-only. c1/c2 ABBA, c4/c6 reversed, c8
+  R1-only at CONTEXT=98304 (8-stream scratch fit) with levels 1,2,4,6,8; ~15 boots; gated on a fresh
+  stack124 WINDOWDONE then FIFO; restore qwen6-start-prod.sh + /health.
 - THE KINDLING HANG (owner directive 2026-10-26): CLOSED 2026-11-09. 0050 (every blocking H2D upload
   staged through a pinned 1 MiB stack block in zig/src/cuda/memory.zig) boot-verified on kindling:
   five consecutive clean boots 59-83 s through the checkpoint load that previously spun forever, ALL
