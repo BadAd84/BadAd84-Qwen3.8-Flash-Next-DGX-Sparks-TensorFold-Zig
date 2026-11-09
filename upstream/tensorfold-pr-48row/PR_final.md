@@ -24,9 +24,9 @@ behaviour. `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
 ## Checks on this head
 
-- Head commit: `68761ba11a` (the CHANGELOG bullet and the two comment-length fixes; the window code is
-  `7bf66d350` beneath them, and the measured image `tensorfold-qwen38:w64` was built from `8a83b6352`,
-  which differs from the head only by comments and the CHANGELOG bullet). The receipt adds
+- Head commit: `93475cf7e` (the receipt; beneath it `68761ba11a` carries the CHANGELOG bullet and the two
+  comment-length fixes, and the measured image `tensorfold-qwen38:w64` was built from `8a83b6352`, which
+  differs from the head only by comments, the CHANGELOG bullet and the receipt files). The receipt adds
   `docs/receipts/flashnext-window-rows/`.
 - `tools/pr_check.py --base origin/main` (upstream's own gate): 0 errors, 0 warnings, 8 changed files, lean 116 vs 116, 0 new. `zig fmt --check` clean on every touched file.
 - Tests: `zig build test --summary all` in `nvcr.io/nvidia/pytorch:26.07-py3`, no GPU, no network. Base and
