@@ -66,6 +66,14 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   (never exceeded ~2275 MHz) - not a speed lever. Full envelope + rules:
   docs/GB10-THERMAL-BENCHMARK-METHODOLOGY.md.
 
+- **The shared GPU lock can GHOST-LOCK** (measured 2026-11-09, spark6): a dead task's open-file
+  description held `~/work/gpu.lock` with no live process behind it - invisible without sudo, and every
+  waiter stacked forever on the dead inode. Exorcism (done once, preserved as
+  `gpu.lock.ghost-2093720`): `mv` the lock aside, `touch` a fresh one, kill the stranded waiters
+  (their runners relaunch), FIFO re-queue. Prevention: a long window runner writes its holder PID
+  beside the lock, and a waiter queued more than a few minutes checks whether that PID is still alive
+  before settling in - a dead holder means exorcise, not wait.
+
 ## Gate
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
   only; style findings are INFO.
