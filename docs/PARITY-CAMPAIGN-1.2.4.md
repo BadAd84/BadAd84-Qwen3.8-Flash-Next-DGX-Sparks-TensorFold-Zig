@@ -139,9 +139,17 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
 - Item 9 (0008 sampled GPU top-k) RECEIPT 2026-11-09 18:38 (log-complete; its WINDOWDONE marker was
   dead from the morning kill list, touched 19:54): 6/6 golden identical on the sampled arm, sampled
   decode cells p8on/p8off within 0.2% at every level (no regression), 18 SAMPLED sha rows collected.
-  ONE OPEN CORRECTNESS QUESTION: the kernel microbench printed "MISMATCH rec n=79591 k=20 rows=1"
-  unlabeled - the lane owes the verdict (which arm, pass/fail convention, the sampled-path sha
-  comparison). Item 10 (0007) stays gated on it.
+  VERDICT CLOSED 2026-11-09 (Port0008Topk final): 1.2.4 carries its own complete sampled top-k
+  (fn_row_topk, the same two-pass histogram, TF_FLASHNEXT_GPU_TOPK default ON, topk_max 64) AND
+  recipe 0007's gate (TF_FLASHNEXT_SAMPLED_HEADS) - items 9 AND 10 both close as covered. The
+  sampled sha256 sets are IDENTICAL between arms on every (prompt, seed) pair (the candidate path
+  draws the same bits); sampled decode settled ON 64.2-65.0 vs OFF 64.2-64.4 (not slower). The
+  MISMATCH line was a bug in the lane's own bench harness (it compared a K-entry reference against
+  44 memset-garbage slots) - fixed in the shipped bench source; NO kernel latencies were measured,
+  so the recipe's 3x-faster claim stays unverified. One divergence NOT ported: NaN rows order
+  above +Inf upstream BY DOCUMENTED CONTRACT (contract_flashnext_topk.zig) - the recipe's fallback
+  would replace a contract-tested design. Verification receipt on the branch (`port-0008-topk`,
+  badd33309, signed).
 - Item 5 (0006 prefill speed) RECEIPT 2026-11-09 17:39: 12/12 boots, golden 6/6 every boot (the
   relaxed MXFP8 tile did NOT diverge). Cold prefill (fresh-prompt TTFT): +2.3% C1, +9.5% C2/4/6 on
   both 64k and 8k (the no-drain + 3072-chunk effect; 2k loses base's c1->c2 step). Decode TRADE
