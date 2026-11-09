@@ -136,6 +136,12 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   byte-identical, ATC zero code conflicts (6 PRs CHANGELOG-only). A/B window armed (vision-off golden
   6/6 byte-equal; base EXPECTED to fail the tower load - the refusal captured as the receipt's
   before-state; port answers the red probe + the 16,384-row probe).
+- Item 9 (0008 sampled GPU top-k) RECEIPT 2026-11-09 18:38 (log-complete; its WINDOWDONE marker was
+  dead from the morning kill list, touched 19:54): 6/6 golden identical on the sampled arm, sampled
+  decode cells p8on/p8off within 0.2% at every level (no regression), 18 SAMPLED sha rows collected.
+  ONE OPEN CORRECTNESS QUESTION: the kernel microbench printed "MISMATCH rec n=79591 k=20 rows=1"
+  unlabeled - the lane owes the verdict (which arm, pass/fail convention, the sampled-path sha
+  comparison). Item 10 (0007) stays gated on it.
 - Item 5 (0006 prefill speed) RECEIPT 2026-11-09 17:39: 12/12 boots, golden 6/6 every boot (the
   relaxed MXFP8 tile did NOT diverge). Cold prefill (fresh-prompt TTFT): +2.3% C1, +9.5% C2/4/6 on
   both 64k and 8k (the no-drain + 3072-chunk effect; 2k loses base's c1->c2 step). Decode TRADE
