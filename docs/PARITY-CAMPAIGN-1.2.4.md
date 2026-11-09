@@ -174,7 +174,7 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   relaxed MXFP8 tile CARRIES the prose delta; prefill keeps its gains with the tile off (64k 29.26 s
   = -7.8% vs base, BETTER than tile-on's -5.1%; 8k -3.3%, 2k -7.0%). ACTION: tile default OFF
   (opt-in TF_FLASHNEXT_PROMPT_MX128=N), re-gate, re-push - DONE 2026-11-09: `port-0006-prefill`
-  new tip `6c53d7f05` (G, signed, branch grew), pr_check 0/0, host suite confirming. Default-path
+  new tip `6c53d7f05` (G, signed, branch grew), pr_check 0/0, host suite CONFIRMED 20:56 (failing list = stock three, 0 new; the lane complete). Default-path
   numbers for the PR text (tile OFF vs stock e5889236b8): cold prefill 64k -7.8% at C>=2 / -1.5%
   C1, 8k -3.3 to -9.5%, 2k -7.0% at C>=2 (parity at C1); decode code +1.2-1.4%, prose +0.5-1.5%
   (NO trade); golden 15/15 boots identical. Tile-on is the documented opt-in (prefill a further
