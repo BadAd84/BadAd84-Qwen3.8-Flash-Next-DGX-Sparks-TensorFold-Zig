@@ -49,3 +49,27 @@ fork branch -> PR -> the receipt in `docs/receipts/<name>/`.
 - Item 4 (0005 fp8 reader + head cache): port in flight (ReaderP5Port, branch `port-0005-reader`,
   image `reader124` when built) - the first kernel-level parity port.
 - Everything else: queued in the order above.
+
+## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
+
+- **ATC coordination is mandatory**: check the agent radar before choosing an issue, claim via ATC,
+  `atc overlap --json` before opening a PR, publish the session, pulse while working. Agents read
+  `docs/atc/SKILL.md`. Our two staged levers have no claimed issue - the 48-row and resync PRs each
+  need an ATC claim (or an issue first for the arithmetic-change rule; a copy-window width and a
+  proposer policy are kernel/behaviour changes, so an issue is the safer route for both).
+- **Performance receipts in their format**: `tools/bench_openai.py` and `tools/bench_concurrent.py`
+  with `--alone --serial`, 256 tokens, 3 reps, temperatures 0 - which the 48-row receipt already ran
+  (bench64, both arms, the JSONs on the branch). Cold prefill: exact 2k/8k/32k/64k token arrays.
+  Compare against the previous release AND the applicable standard server; alternate before/after runs
+  for few-percent differences (our ABBA order satisfies this).
+- **Memory receipts**: peak physical process footprint + device/pinned allocations, the hardware RAM
+  class, one model process per machine, the existing GPU lock. Our boot-line records satisfy the
+  device part; VmHWM should be added to the next window.
+- **Kernel contract**: a changed GPU kernel registers with `docs/kernel-contract.md` and the PR posts
+  each backend's SUMMARY line - this binds the 48-row window (its kernels changed shape) and would
+  bind any int4 kernel port. The FP64-reference rule binds any changed reduction order.
+- **The lean gate**: `tools/zig/lean_check.py` (0 new), plus `tools/pr_check.py --base origin/main
+  --pr NUMBER` before pushing - a tool we have not been running; add it to the pre-post checklist.
+- **Public identity**: the approved noreply address (`598804+BadAd84@users.noreply.github.com`),
+  no machine names/local paths - as our texts already comply.
+- **One change per PR, main is the only branch** - matches our one-lever-one-branch flow.
