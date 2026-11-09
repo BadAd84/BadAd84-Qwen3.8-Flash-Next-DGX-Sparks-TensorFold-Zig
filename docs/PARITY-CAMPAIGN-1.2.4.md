@@ -96,8 +96,18 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
-- Item 16 (0003 `--kv-cache fp8`) is now CRITICAL PATH: 0005's kernel half AND its own 5-window memory
-  win depend on it. 1,647 lines over ~20 files (KV8 kernels + fp8 Kv plumbing). Dispatched 2026-11-09.
+- Item 16 (0003 `--kv-cache fp8`): PORTED 2026-11-09 (lane Port0003KV8; prove half with Port0003KV8b) -
+  branch `port-0003-kv8` on spark6 `~/work/lanes/port0003/tf124`, commits `21356a9cb`/`fbd671349`/`9fb74d6ad` on
+  upstream main `c5a044877`. Mapping: 1.2.4 already carries the flag plumbing (`engine_api.Open.kv8`, generic
+  options/refusal gates), so the change is the family side; KV8 device code split into
+  `zig/kernels/cuda/flashnext_kv8.cuh` (the 600-line lean rule forces it), sizes parameterized by `Heads`, fp8
+  refused with pages/`--slide`/captured glue/tp=2/disk states (all new in 1.2.4, none combinable). 0005's reader
+  half (`stage_kv8`/`kv8_widen8`) is in this change and closes 0005's blocked half. Gates: fmt clean; lean 0 new
+  on every ported file (.cu exactly 600 lines, glue 600). Known defect for the next pass: the generated
+  `stage_kv8_tile` body kept the lambda's `kc`/`vc` redeclarations - delete those two lines. With Port0003KV8b
+  (live on the tree 08:07) or a re-dispatch: kernel-contract records (launch-record + FP64 reference, 4 kernels),
+  host-suite base/head diff, builds + golden 6/6 byte-equality, bench + the 5-window memory lines behind
+  `flock ~/work/gpu.lock`, Gitea push `ots/tensorfold-levers124`, ATC overlap.
 - Item 5 (0006 prefill speed): PORTED 2026-11-09 - branch `port-0006-prefill` = `fea018cc7` on the
   Gitea fork, base `e5889236b` (upstream main at clone time, post-1.2.4). Two pieces already upstream
   (vectorised hc, MoE memset skip); ported the relaxed MXFP8 prompt tile (bits differ from the exact
@@ -111,6 +121,10 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   QUEUED BEHIND the port A/Bs, not parallel with them: tuning settings on a stock-engine baseline is
   throwaway - the ports change the picture. After the port windows drain, one ABBA settings sweep on
   the fully ported build, then the serve moves to 1.2.4 with its measured settings.
+- Item 10 (0007 sampled streams in the batched head) WAITS for item 9's verdict (Port0008Topk): both
+  touch the same sampled-decode area, and if 0008's mechanism is already upstream, 0007 is likely moot.
+  No new port lanes until the GPU window queue drains - the CPU ports finish long before their A/B
+  windows run, so the remaining items (0007, 0014, 0015, 0004, 0009) dispatch as lanes free up.
 - Everything else: queued in the order above.
 
 ## CONTRIBUTING requirements verified 2026-11-08 (the full file read)
