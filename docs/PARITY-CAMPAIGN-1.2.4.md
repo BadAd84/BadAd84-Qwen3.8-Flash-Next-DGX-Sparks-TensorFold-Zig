@@ -169,7 +169,12 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   FOUND: code +2.2%, prose -2.2% at EVERY level (consistent across 6 boots/arm + both clients) -
   per the fleet rule this is the owner's call UNLESS the staged bisect (TF_FLASHNEXT_PROMPT_MX128=0)
   recovers prose, in which case the tile goes opt-in and the PR presents a strict improvement.
-  VmHWM equal, boot 34-38s, temps 54-69C. Bisect window dispatched.
+  VmHWM equal, boot 34-38s, temps 54-69C. BISECT VERDICT 2026-11-09 20:32 (3 tile-off boots at
+  C=1/2/6, golden 3/3 identical): prose RECOVERS to 46.21 mean (vs 44.9 tile-on, 45.9 base) - the
+  relaxed MXFP8 tile CARRIES the prose delta; prefill keeps its gains with the tile off (64k 29.26 s
+  = -7.8% vs base, BETTER than tile-on's -5.1%; 8k -3.3%, 2k -7.0%). ACTION: tile default OFF
+  (opt-in TF_FLASHNEXT_PROMPT_MX128=1), re-gate, re-push; the PR presents prefill +3.3-7.8% with
+  no decode trade.
 - Item 13 (0015 prompt MX128 two-stage tile): PORTED AND GATED 2026-11-09 - branch `port-0015-mx128`
   (3 signed commits on f212eeabd; substrate byte-identical to 0006's tile pieces - land 0006 first,
   then 0015 rebases to its delta). Gates: pr_check 0/0 (lean 0 new), host suite stock three + 2 new
