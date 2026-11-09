@@ -106,8 +106,9 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   on every ported file (.cu exactly 600 lines, glue 600). Known defect for the next pass: the generated
   `stage_kv8_tile` body kept the lambda's `kc`/`vc` redeclarations - delete those two lines. With Port0003KV8b
   (live on the tree 08:07) or a re-dispatch: kernel-contract records (launch-record + FP64 reference, 4 kernels),
-  host-suite base/head diff, builds + golden 6/6 byte-equality, bench + the 5-window memory lines behind
-  `flock ~/work/gpu.lock`, Gitea push `ots/tensorfold-levers124`, ATC overlap.
+  `flock ~/work/gpu.lock`, Gitea push `ots/tensorfold-levers124`, ATC overlap. ATC overlap: CLEAR 2026-11-09
+  (atcoverlap5.cmd, laptop recipe) - 25 changed files, zero hard conflicts against any open PR (the closest
+  shares are 1-2 files at conflict "unknown" under the pullFilesLimit).
 - Item 5 (0006 prefill speed): PORTED 2026-11-09 - branch `port-0006-prefill` = `fea018cc7` on the
   Gitea fork, base `e5889236b` (upstream main at clone time, post-1.2.4). Two pieces already upstream
   (vectorised hc, MoE memset skip); ported the relaxed MXFP8 prompt tile (bits differ from the exact
