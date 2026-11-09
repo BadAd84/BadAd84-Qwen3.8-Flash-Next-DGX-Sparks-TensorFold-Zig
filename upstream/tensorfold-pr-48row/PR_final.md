@@ -14,10 +14,10 @@ behaviour; `TF_FLASHNEXT_WINDOW_CHECK=0` skips the probe.
 
   *   Issue: n/a. This changes which tokens get proposed as drafts, and never the math. A draft is still only accepted when it equals the plain token.
   *   Stacked on: main.
-  *   Overlap: run as a file-level intersection against all 181 open PRs (the git protocol, not the REST API)
-    (`proposer.zig` and `windows.zig` core logic is clear of live overlap; it is hit by #2373 only, whose merge
-base is "6960 commits behind main" and predates the lanes split - so that one hit is a stale whole-file
-anomaly). One same-function overlap to sequence: #1394 (Llama2), a decode-time copy proposer that runs on CUDA/GB10.
+  *   Overlap: `atc overlap --json` on this head: 13 changed files, 142 open PRs share at least one of
+them, and 9 hard merge conflicts - every one is `CHANGELOG.md`, the ordinary case; no code file conflicts.
+One same-function change to sequence: #1394 (Llama2), a decode-time copy proposer on CUDA/GB10. The board
+snapshot is partial (`pullFilesLimit`), so 132 PRs' conflicts are unknown.
 
 ## Checks on this head
   *   Head commit: `93475cf7e` (the receipt; beneath it `68761ba11a` carries the CHANGELOG bullet and the two

@@ -28,10 +28,10 @@ a default boot is exactly like always was.
   arithmetic change) and it changes only which tokens get proposed as drafts, never the math. A draft is still
   accepted only when it equals the plain token.
 - Stacked on: the copy-window-width PR (this change is written against the 48-row default; the receipt numbers are from the 32-row base and are re-verified before merge).
-- Overlap: run as a file-level intersection against all 181 open PRs (the git protocol, not the REST API). Core
-  logic in `proposer.zig` and `windows.zig` is clear of live overlap; `proposer.zig` is hit by #2373 only, whose
-  merge base is 6,960 commits behind main and predates the lanes split, so that one hit is a stale whole-file
-  artifact. One same-function overlap to sequence: #1394 (Llama2), a decode-time copy proposer, runs on CUDA/GB10.
+- Overlap: `atc overlap --json` on this head: 21 changed files, 53 open PRs share at least one of them, and
+  one hard merge conflict - #1394 (Llama2, DSpark drafting), which touches the same `core/lanes` files on 2
+  paths and needs sequencing with this change. No other code conflicts. The board snapshot is partial
+  (`pullFilesLimit`).
 - Not run: Metal, HIP and XPU host tests (this box is CUDA only), and any GPU kernel contract (no kernel changes).
 
 ## Checks on this head
