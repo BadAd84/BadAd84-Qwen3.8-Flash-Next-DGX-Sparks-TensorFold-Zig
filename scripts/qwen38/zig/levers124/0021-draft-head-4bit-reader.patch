@@ -1,0 +1,43 @@
+From 3ff2e6ac406df91179bb4b01a7e46bd48279ddb7 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 12:02:16 +0000
+Subject: [PATCH 4/8] flashnext: the draft head's rows are 4-bit by default
+
+Squash of stack commit b11ed0568 (port-0005-reader @ d6197769; its two
+changelog-only commits excluded).
+---
+ zig/src/families/flashnext/cuda_mtp_draft.zig | 4 ++++
+ zig/src/families/flashnext/cuda_mtp_load.zig  | 4 +++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
+index dc53927c3..2a3539eec 100644
+--- a/zig/src/families/flashnext/cuda_mtp_draft.zig
++++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
+@@ -375,3 +375,7 @@ test "the saved pieces follow one another at the model's heads, and the spares h
+     try std.testing.expectEqual(@as(usize, 79_646_720), Draft.Layout.of(.full).saved);
+     try std.testing.expectEqual(@as(usize, 40_570_880), Draft.Layout.of(.half).saved);
+ }
++
++test "the draft head's rows are 4-bit unless the environment asks for the exact rows" {
++    try std.testing.expectEqual(.affine4, @import("cuda_mtp_load.zig").default_mode);
++}
+diff --git a/zig/src/families/flashnext/cuda_mtp_load.zig b/zig/src/families/flashnext/cuda_mtp_load.zig
+index 37062a694..0a911ba4f 100644
+--- a/zig/src/families/flashnext/cuda_mtp_load.zig
++++ b/zig/src/families/flashnext/cuda_mtp_load.zig
+@@ -6,8 +6,10 @@ const core = @import("core");
+ const projection = @import("cuda_projection.zig");
+ 
+ pub const Mode = enum { bf16, affine4 };
++/// The draft head's rows: 4-bit by default (drafts are only proposals); TF_FLASHNEXT_DRAFT_HEAD=bf16 for exact rows.
++pub const default_mode: Mode = .affine4;
+ pub fn mode() !Mode {
+-    const value = if (std.c.getenv("TF_FLASHNEXT_DRAFT_HEAD")) |v| std.mem.span(v) else "bf16";
++    const value = if (std.c.getenv("TF_FLASHNEXT_DRAFT_HEAD")) |v| std.mem.span(v) else @tagName(default_mode);
+     if (std.mem.eql(u8, value, "bf16")) return .bf16;
+     if (std.mem.eql(u8, value, "affine4")) return .affine4;
+     return error.BadDraftHead;
+-- 
+2.43.0
+

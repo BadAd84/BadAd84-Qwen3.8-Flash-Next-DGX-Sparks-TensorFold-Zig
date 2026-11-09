@@ -1,0 +1,529 @@
+From 28b162aed8b7a520e0bac103bb4eece83bb7ed8f Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 12:02:16 +0000
+Subject: [PATCH 3/8] flashnext: copy re-sync past an edit, and the lone copy
+ ramp in shared rounds
+
+Squash of stack commit 3794f6a84 (resync-on-48rows @ b212b9f4, receipt-only
+commit excluded).
+---
+ zig/src/core/lane_host.zig            |   2 +
+ zig/src/core/lane_stream.zig          |   7 +-
+ zig/src/core/lanes/config.zig         |  13 ++
+ zig/src/core/lanes/engine.zig         |   5 +-
+ zig/src/core/lanes/proposer.zig       | 205 ++++++++++++++++++++++++--
+ zig/src/core/lanes/stream.zig         |   2 +
+ zig/src/core/lanes/windows.zig        |  67 ++++++++-
+ zig/src/native/cuda_startup_phase.zig |  27 ++++
+ 8 files changed, 308 insertions(+), 20 deletions(-)
+
+diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
+index b96e69e34..f34e310e7 100644
+--- a/zig/src/core/lane_host.zig
++++ b/zig/src/core/lane_host.zig
+@@ -38,6 +38,8 @@ pub const LaneHost = struct {
+     core: *lanes.Engine,
+     info_: Info,
+     min_match: i64 = 4,
++    resync: bool = false, // copy proposers resume the source right after an edit (lanes/proposer.zig Params.resync)
++    resync_prompt_only: bool = true, // ... and only copies out of the prompt arm one
+     /// A family's own copy proposer for each request (null: lanes.SuffixLookup at `min_match`)
+     proposers: ?Proposers = null,
+     mutex: std.Io.Mutex = .init,
+diff --git a/zig/src/core/lane_stream.zig b/zig/src/core/lane_stream.zig
+index 279ab9795..7fa1f8e2c 100644
+--- a/zig/src/core/lane_stream.zig
++++ b/zig/src/core/lane_stream.zig
+@@ -33,7 +33,12 @@ pub fn open(h: *LaneHost, job: *Job) bool {
+     } else |_| {};
+     if (h.proposers) |ps| {
+         job.custom = ps.make(ps.ctx, h.gpa, r.prompt, r.eos) catch return !h.drop(job, "the drafter could not start");
+-    } else job.proposer = lanes.SuffixLookup.init(h.gpa, .{ .min_match = h.min_match }) catch return !h.drop(job, "the drafter could not start");
++    } else {
++        // with resyncs the threshold is the round loop's entry gate: a match the loop drops cannot hide a resync
++        const min_match = if (h.resync) @max(h.min_match, h.core.cfg.enter_match) else h.min_match;
++        const source_end = if (h.resync_prompt_only) r.prompt.len else std.math.maxInt(usize);
++        job.proposer = lanes.SuffixLookup.init(h.gpa, .{ .min_match = min_match, .resync = h.resync, .resync_source_end = source_end }) catch return !h.drop(job, "the drafter could not start");
++    }
+     const recall = recalls.reader(h, job);
+     job.stream = lanes.Stream.init(h.gpa, .{
+         .id = "request",
+diff --git a/zig/src/core/lanes/config.zig b/zig/src/core/lanes/config.zig
+index 4d13462c1..5524e738b 100644
+--- a/zig/src/core/lanes/config.zig
++++ b/zig/src/core/lanes/config.zig
+@@ -104,8 +104,17 @@ pub const Config = struct {
+     enter_match: i64 = 8, // matching tokens a copy needs (rejects coincidental indentation)
+     copy_rate: f64 = 0.94, // a copied token's chance of landing in allocation
+     lone_copies: bool = true, // Model.lone_copies
++    /// A lone stream's copy window after a round that kept fewer than all its rows: back to first_copy, or kept.
++    copy_miss: CopyMiss = .first,
++    /// ... and after a round that kept every copied row: twice the width plus one, or straight to max_copy.
++    copy_ramp: CopyRamp = .double,
++    /// Streams in shared rounds take that ramp too, for copies out of the prompt only; false: they keep first_copy.
++    copy_shared: bool = false,
+     k: Constants = .{},
+ 
++    pub const CopyMiss = enum { first, keep };
++    pub const CopyRamp = enum { double, jump };
++
+     pub fn init(gpa: Allocator, m: Model, max_rows: u32, max_draft: u32) !Config {
+         if (max_rows < 1) return error.BadMaxRows;
+         const width: u32 = @max(1, @min(@max(m.exact_width, 1), max_rows));
+@@ -206,4 +215,8 @@ test "setup derives widths like Python" {
+     var steady = try Config.init(gpa, .{ .exact_width = 16, .mtp = true, .speculate = true, .drafts = 4, .depth_rate = 0.08 }, 16, 15);
+     defer steady.deinit(gpa);
+     try std.testing.expectEqual(@as(f64, 0.08), steady.k.depth_rate);
++    // the copy policy's defaults are the widening rule as it stands: shared rounds copy first_copy rows
++    try std.testing.expectEqual(Config.CopyMiss.first, c.copy_miss);
++    try std.testing.expectEqual(Config.CopyRamp.double, c.copy_ramp);
++    try std.testing.expect(!c.copy_shared);
+ }
+diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
+index 018ae4a72..43035aafb 100644
+--- a/zig/src/core/lanes/engine.zig
++++ b/zig/src/core/lanes/engine.zig
+@@ -353,10 +353,7 @@ pub const Engine = struct {
+                 const own: usize = own_end - 1;
+                 if (p.kind == .copy) {
+                     win.observeCopied(e, s, p.recalled, own_kept, own);
+-                    if (e.alone) {
+-                        const width = s.copy_width orelse e.cfg.first_copy;
+-                        s.copy_width = if (own_kept == own) @min(e.cfg.max_copy, 2 * width + 1) else e.cfg.first_copy;
+-                    }
++                    win.rampCopy(e, s, p.recalled, own_kept, own);
+                 } else if (p.kind == .head) {
+                     if (p.lanes) |l| if (s.odds != null) s.observeLanes(l, path);
+                     const ds = try accept.depths(a, parents);
+diff --git a/zig/src/core/lanes/proposer.zig b/zig/src/core/lanes/proposer.zig
+index 127dbe450..3cf52b55d 100644
+--- a/zig/src/core/lanes/proposer.zig
++++ b/zig/src/core/lanes/proposer.zig
+@@ -59,6 +59,20 @@ pub const Params = struct {
+     silence_rounds: i64 = 16,
+     window: usize = 4,
+     confident_match: i64 = 24,
++    /// After a copy window misses, propose the source where it resumes past the edit, with no new suffix match.
++    resync: bool = false,
++    /// Resyncs that land nothing before the pending miss is dropped.
++    resync_tries: u32 = 2,
++    /// Source tokens past the miss searched for the last two tokens the target wrote.
++    resync_span: usize = 24,
++    /// ... and searched for the last token alone (an insertion, or a replacement longer than one token).
++    resync_near: usize = 4,
++    /// Tokens the target may write past a miss before the resync is dropped.
++    resync_wait: usize = 32,
++    /// Rows the missed copy must have landed to arm a resync: a copy that was copying, not a coincidence.
++    resync_min_kept: i64 = 2,
++    /// Only a copy whose source lies before this history index arms a resync (the host passes the prompt's length).
++    resync_source_end: usize = std.math.maxInt(usize),
+ };
+ 
+ /// Continuations backed by enough matching context; silent for `silence_rounds` asks (not rounds) after rejections.
+@@ -79,6 +93,14 @@ pub const SuffixLookup = struct {
+     last_match: i64 = 0,
+     last_confident: bool = false,
+     last_end: usize = 0, // the history index the last match's continuation starts at
++    last_from: usize = 0, // where the last proposal that returned tokens read them from
++    last_len: usize = 0, // the history's length at that proposal
++    last_out: bool = false, // the latest ask returned tokens
++    last_resync: bool = false, // ... and a resync, not a suffix match, placed them
++    resync_miss: ?usize = null, // the history index of the first draft the target rejected (null: none pending)
++    resync_base: usize = 0, // the history's length right after that round
++    resync_tried: u32 = 0, // resyncs since that miss that landed nothing
++    resyncs: i64 = 0, // proposals a resync placed
+ 
+     pub fn init(gpa: Allocator, params: Params) !SuffixLookup {
+         if (params.ngram < 1 or params.ngram > max_ngram) return error.BadNgram;
+@@ -161,10 +183,13 @@ pub const SuffixLookup = struct {
+         s.out.clearRetainingCapacity();
+         s.last_match = 0;
+         s.last_confident = false;
++        s.last_out = false;
++        s.last_resync = false;
+         const changed = s.indexed > history.len or (s.indexed != 0 and !std.mem.eql(u32, &s.keyAt(history, s.indexed), &s.last_key));
+         if (changed) {
+             s.clearIndex();
+             s.indexed = 0;
++            s.resync_miss = null;
+         }
+         if (max_draft <= 0 or history.len < n + 1) return s.out.items;
+         if (s.silent_for > 0) {
+@@ -177,35 +202,89 @@ pub const SuffixLookup = struct {
+         const len = std.math.add(usize, history.len, tail.len) catch return error.ContextTooLong;
+         var key: Key = @splat(0xFFFF_FFFF);
+         for (key[0..n], len - n..) |*k, i| k.* = joined(history, tail, i);
+-        const positions = (s.index.get(key) orelse return s.out.items).items;
+         var best_end: usize = 0;
+         var best_len: i64 = 0;
+-        var i = positions.len;
+-        while (i > 0) {
+-            i -= 1;
+-            const end: usize = positions[i] + 1;
+-            if (end >= history.len) continue;
+-            var length: i64 = 0;
+-            while (length < s.params.max_extension and length < end and history[end - 1 - @as(usize, @intCast(length))] == joined(history, tail, len - 1 - @as(usize, @intCast(length)))) length += 1;
+-            if (length > best_len) {
+-                best_len = length;
+-                best_end = end;
+-                if (length >= s.params.max_extension) break;
++        if (s.index.get(key)) |list| {
++            const positions = list.items;
++            var i = positions.len;
++            while (i > 0) {
++                i -= 1;
++                const end: usize = positions[i] + 1;
++                if (end >= history.len) continue;
++                var length: i64 = 0;
++                while (length < s.params.max_extension and length < end and history[end - 1 - @as(usize, @intCast(length))] == joined(history, tail, len - 1 - @as(usize, @intCast(length)))) length += 1;
++                if (length > best_len) {
++                    best_len = length;
++                    best_end = end;
++                    if (length >= s.params.max_extension) break;
++                }
+             }
+         }
+         s.last_match = best_len;
+         s.last_end = best_end;
+-        if (best_len < s.params.min_match) return s.out.items;
+-        s.last_confident = best_len >= s.params.confident_match;
++        if (best_len < s.params.min_match) {
++            // no suffix match right after an edit: the source's continuation past it, as if it had matched
++            best_end = s.resyncFrom(history, tail) orelse return s.out.items;
++            s.last_resync = true;
++            s.last_match = s.params.confident_match;
++            s.last_end = best_end;
++        } else s.last_confident = best_len >= s.params.confident_match;
+         const count = @min(history.len - best_end, @as(usize, @intCast(max_draft)));
+         try s.out.appendSlice(s.gpa, history[best_end..][0..count]);
+         if (s.out.items.len > 0) {
+             s.proposals += 1;
+             s.proposed_tokens += @intCast(s.out.items.len);
++            s.resyncs += @intFromBool(s.last_resync);
++            s.last_out = true;
++            s.last_from = best_end;
++            s.last_len = history.len;
+         }
+         return s.out.items;
+     }
+ 
++    /// Where the source resumes past the pending miss: a deletion, a substitution, or the tokens written matched.
++    fn resyncFrom(s: *const SuffixLookup, history: []const u32, tail: []const u32) ?usize {
++        if (!s.params.resync or tail.len != 0) return null;
++        const miss = s.resync_miss orelse return null;
++        if (history.len < s.resync_base or history.len - s.resync_base >= s.params.resync_wait) return null;
++        if (s.resync_tried >= s.params.resync_tries) return null;
++        const written = history[s.resync_base - 1 ..];
++        if (written.len == 0) return null;
++        const last = written[written.len - 1];
++        const end = history.len - written.len;
++        if (written.len >= 2) {
++            const prev = written[written.len - 2];
++            var j = miss;
++            while (j + 1 < end and j <= miss + s.params.resync_span) : (j += 1) {
++                if (j >= 1 and history[j - 1] == prev and history[j] == last) return j + 1;
++            }
++        }
++        var j = miss;
++        while (j + 1 < end and j <= miss + s.params.resync_near) : (j += 1) {
++            if (history[j] == last) return j + 1;
++        }
++        return if (written.len == 1 and miss + 1 < history.len) miss + 1 else null;
++    }
++
++    /// A missed copy that was landing arms a resync; false: a resync landed nothing, so it spends a try alone.
++    fn observeResync(s: *SuffixLookup, proposed: i64, accepted: i64) bool {
++        if (accepted >= proposed) {
++            s.resync_miss = null;
++            return true;
++        }
++        if (s.last_resync and accepted == 0) {
++            s.resync_tried += 1;
++            return false;
++        }
++        s.resync_miss = null;
++        if (accepted >= s.params.resync_min_kept and s.last_from < s.params.resync_source_end) {
++            s.resync_miss = s.last_from + @as(usize, @intCast(accepted));
++            s.resync_base = s.last_len + @as(usize, @intCast(accepted)) + 1;
++            s.resync_tried = 0;
++        }
++        return true;
++    }
++
+     fn joined(history: []const u32, tail: []const u32, i: usize) u32 {
+         return if (i < history.len) history[i] else tail[i - history.len];
+     }
+@@ -214,6 +293,7 @@ pub const SuffixLookup = struct {
+         s.judged_tokens += proposed;
+         s.accepted_tokens += accepted;
+         if (proposed <= 0) return;
++        if (s.params.resync and !s.observeResync(proposed, accepted)) return;
+         try s.recent.append(s.gpa, accepted);
+         if (s.recent.items.len > s.params.window) {
+             const drop = s.recent.items.len - s.params.window;
+@@ -237,6 +317,103 @@ test "suffix lookup copies the continuation after a repeated n-gram" {
+     try std.testing.expectEqual(@as(i64, 3), s.last_match);
+ }
+ 
++test "a resync proposes the source past an edit, realigns on what the target wrote, and gives up bounded" {
++    const gpa = std.testing.allocator;
++    var s = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2, .resync = true });
++    defer s.deinit();
++    var ctx: std.ArrayList(u32) = .empty;
++    defer ctx.deinit(gpa);
++    try ctx.appendSlice(gpa, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    try std.testing.expectEqualSlices(u32, &.{ 4, 5, 6, 7, 8 }, try s.propose(ctx.items, 5));
++    try std.testing.expect(!s.last_resync);
++    // the target kept 4 and 5, then said 50 for 6 (a substitution): the context grew by the kept rows and its own
++    try s.observe(5, 2);
++    try ctx.appendSlice(gpa, &.{ 4, 5, 50 });
++    try std.testing.expectEqualSlices(u32, &.{ 7, 8, 9, 1, 2 }, try s.propose(ctx.items, 5));
++    try std.testing.expect(s.last_resync and s.last_match >= 24);
++    try std.testing.expectEqual(@as(usize, 6), s.last_end);
++    // the same proposal again on the same context, at the width asked
++    try std.testing.expectEqualSlices(u32, &.{ 7, 8 }, try s.propose(ctx.items, 2));
++    try s.observe(2, 2);
++    try ctx.appendSlice(gpa, &.{ 7, 8, 60 });
++    try std.testing.expectEqual(@as(usize, 0), (try s.propose(ctx.items, 5)).len);
++    try std.testing.expectEqual(@as(?usize, null), s.resync_miss);
++    // a deletion: copying 1 2 3, the target skips 4 and says 5 at once, so the source resumes at 6
++    var t = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2, .resync = true, .resync_min_kept = 0 });
++    defer t.deinit();
++    var c2: std.ArrayList(u32) = .empty;
++    defer c2.deinit(gpa);
++    try c2.appendSlice(gpa, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    _ = try t.propose(c2.items, 3);
++    try t.observe(3, 0);
++    try c2.append(gpa, 5);
++    try std.testing.expectEqualSlices(u32, &.{ 6, 7, 8 }, try t.propose(c2.items, 3));
++    // a resync that lands nothing spends a try; while the target is still inside its edit it gets no proposal
++    try t.observe(3, 0);
++    try std.testing.expectEqual(@as(u32, 1), t.resync_tried);
++    try c2.appendSlice(gpa, &.{ 70, 71 });
++    try std.testing.expectEqual(@as(usize, 0), (try t.propose(c2.items, 3)).len);
++    try c2.append(gpa, 6);
++    try std.testing.expectEqualSlices(u32, &.{ 7, 8, 9 }, try t.propose(c2.items, 3));
++    try std.testing.expect(t.last_resync);
++    // two resyncs that land nothing end this miss, and none of them silences the proposer
++    try t.observe(3, 0);
++    try c2.append(gpa, 80);
++    try std.testing.expectEqual(@as(usize, 0), (try t.propose(c2.items, 3)).len);
++    try std.testing.expectEqual(@as(i64, 0), t.silent_for);
++}
++
++test "a resync is armed only by a copy that was landing, and only out of the prompt" {
++    const gpa = std.testing.allocator;
++    var s = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2, .resync = true });
++    defer s.deinit();
++    var ctx: std.ArrayList(u32) = .empty;
++    defer ctx.deinit(gpa);
++    try ctx.appendSlice(gpa, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    // a coincidental match the target leaves at once: nothing pends, the next ask needs a suffix match again
++    _ = try s.propose(ctx.items, 3);
++    try s.observe(3, 1);
++    try ctx.appendSlice(gpa, &.{ 4, 50 });
++    try std.testing.expectEqual(@as(?usize, null), s.resync_miss);
++    try std.testing.expectEqual(@as(usize, 0), (try s.propose(ctx.items, 3)).len);
++    // a reply repeating its own lines (its source past the prompt) never resyncs
++    var t = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2, .resync = true, .resync_source_end = 2 });
++    defer t.deinit();
++    var c2: std.ArrayList(u32) = .empty;
++    defer c2.deinit(gpa);
++    try c2.appendSlice(gpa, &.{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    _ = try t.propose(c2.items, 3);
++    try t.observe(3, 2);
++    try c2.appendSlice(gpa, &.{ 4, 5, 50 });
++    try std.testing.expectEqual(@as(?usize, null), t.resync_miss);
++    try std.testing.expectEqual(@as(usize, 0), (try t.propose(c2.items, 3)).len);
++    // the same copy out of the prompt does arm one
++    var u = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2, .resync = true, .resync_source_end = 11 });
++    defer u.deinit();
++    var c3: std.ArrayList(u32) = .empty;
++    defer c3.deinit(gpa);
++    try c3.appendSlice(gpa, &.{ 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    _ = try u.propose(c3.items, 3);
++    try u.observe(3, 2);
++    try c3.appendSlice(gpa, &.{ 4, 5, 50 });
++    try std.testing.expectEqualSlices(u32, &.{ 7, 8, 9 }, try u.propose(c3.items, 3));
++}
++
++test "resync off leaves every proposal and the silence rule as they were" {
++    const gpa = std.testing.allocator;
++    var s = try SuffixLookup.init(gpa, .{ .ngram = 2, .min_match = 2 });
++    defer s.deinit();
++    var ctx: std.ArrayList(u32) = .empty;
++    defer ctx.deinit(gpa);
++    try ctx.appendSlice(gpa, &.{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3 });
++    _ = try s.propose(ctx.items, 5);
++    try s.observe(5, 2);
++    try ctx.appendSlice(gpa, &.{ 4, 5, 50 });
++    try std.testing.expectEqual(@as(usize, 0), (try s.propose(ctx.items, 5)).len);
++    try std.testing.expectEqual(@as(?usize, null), s.resync_miss);
++    try std.testing.expect(!s.last_resync);
++}
++
+ test "a drafted tail continues the history's copy, and history alone is indexed" {
+     const gpa = std.testing.allocator;
+     var s = try SuffixLookup.init(gpa, .{ .ngram = 3, .min_match = 4 });
+diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
+index d950d5640..ec2f595f2 100644
+--- a/zig/src/core/lanes/stream.zig
++++ b/zig/src/core/lanes/stream.zig
+@@ -244,6 +244,7 @@ pub const Stream = struct {
+     grant_gain: ?f64 = null, // the drafts its last grant expected to keep (the chances it was priced by)
+     draft_chances: std.ArrayList(f64) = .empty, // last full head prices, retained through zero-row rounds
+     copy_width: ?u32 = null,
++    copy_prompt: bool = false, // the last copied window read out of the prompt (windows.rampCopy)
+ 
+     pub fn init(gpa: Allocator, spec: Spec) !Stream {
+         var s: Stream = .{
+@@ -318,6 +319,7 @@ pub const Stream = struct {
+         s.draft_chances.deinit(gpa);
+         s.draft_chances = .empty;
+         s.copy_width = null;
++        s.copy_prompt = false;
+         s.proposal_depth = null;
+     }
+ 
+diff --git a/zig/src/core/lanes/windows.zig b/zig/src/core/lanes/windows.zig
+index 47c9c82f5..2f5bd7ab2 100644
+--- a/zig/src/core/lanes/windows.zig
++++ b/zig/src/core/lanes/windows.zig
+@@ -202,7 +202,8 @@ fn headTrunk(e: *Engine, s: *Stream, p: Plan, levels: usize) !?fill.Trunk {
+ /// A copy from the context backed by `enter_match` ids (Python `_copy_proposal`), else Recall's when it should pay.
+ pub fn copyProposal(e: *Engine, s: *Stream) !Copy {
+     if (e.cfg.max_copy == 0 or s.force.items.len > 0 or (e.cfg.root_copies and s.root_copy_miss)) return .{};
+-    const width: u32 = if (e.alone) (s.copy_width orelse e.cfg.first_copy) else e.cfg.first_copy;
++    const ramped = e.alone or (e.cfg.copy_shared and s.copy_prompt);
++    const width: u32 = if (ramped) (s.copy_width orelse e.cfg.first_copy) else e.cfg.first_copy;
+     const most = @min(@as(i64, width), s.draftRoom() - 1);
+     if (s.proposer) |p| if (!e.alone or e.cfg.lone_copies) {
+         // a priced proposer's drafts are as it gives them, its none too: no width, length or match gate, no Recall
+@@ -420,6 +421,21 @@ pub fn observeCopied(e: *const Engine, s: *Stream, recalled: bool, kept: usize,
+     s.copied_broke[i] = copy_decay * s.copied_broke[i] + @as(f64, @floatFromInt(@intFromBool(kept < offered)));
+ }
+ 
++/// A copied window's next width: the lone ramp, which shared rounds take under copy_shared for prompt copies only.
++pub fn rampCopy(e: *const Engine, s: *Stream, recalled: bool, kept: usize, offered: usize) void {
++    const at: ?usize = if (recalled) null else if (s.proposer) |pr| pr.lastEnd() else null;
++    s.copy_prompt = if (at) |x| x <= s.prompt_len else false;
++    if (!e.alone and !(e.cfg.copy_shared and s.copy_prompt)) return;
++    const width = s.copy_width orelse e.cfg.first_copy;
++    s.copy_width = if (kept == offered) switch (e.cfg.copy_ramp) {
++        .double => @min(e.cfg.max_copy, 2 * width + 1),
++        .jump => e.cfg.max_copy,
++    } else switch (e.cfg.copy_miss) {
++        .first => e.cfg.first_copy,
++        .keep => width,
++    };
++}
++
+ /// A context copy's appended rows: each its parent's chance times the stream's copy rate; the drafts keep their own.
+ fn planChances(e: *Engine, p: Plan, n: usize) ![]const f64 {
+     if (!p.context_copy or p.branch_from == 0 or p.parents == null or n < p.branch_from) return nodeChances(e, p.stream, n);
+@@ -490,6 +506,55 @@ test "a copy is trusted after a long match, or out of the prompt early in the re
+     try std.testing.expect(!trustedCopy(&s)); // out of the prompt, past the reply's first tokens
+ }
+ 
++test "shared rounds take the lone ramp only under copy_shared, and only for copies out of the prompt" {
++    const a = std.testing.allocator;
++    const Cfg = @import("config.zig").Config;
++    var cfg = try Cfg.init(a, .{ .exact_width = 32, .first_copy_rows = 16, .mtp = true, .speculate = true, .drafts = 15, .hidden_rows = true, .batch_rows = 64, .max_streams = 8 }, 32, 31);
++    defer cfg.deinit(a);
++    try std.testing.expectEqual(@as(u32, 15), cfg.first_copy);
++    try std.testing.expectEqual(@as(u32, 31), cfg.max_copy);
++    var target: @import("fake.zig").Fake = .{ .gpa = a };
++    defer target.deinit();
++    var clock: @import("fake.zig").FixedClock = .{};
++    var e = Engine.init(a, &cfg, target.backend(), clock.clock());
++    defer e.deinit();
++    e.alone = false;
++    var look = try @import("proposer.zig").SuffixLookup.init(a, .{ .min_match = 4 });
++    defer look.deinit();
++    var prompt: [100]u32 = undefined;
++    for (&prompt, 0..) |*t, i| t.* = @intCast(1000 + i);
++    var s = try Stream.init(a, .{ .id = "s", .prompt = &prompt, .max_new = 400, .proposer = look.proposer() });
++    defer s.deinit(a);
++    try s.context.appendSlice(a, prompt[0..20]);
++    s.copy_width = 31;
++    s.copy_prompt = true;
++    // a stream in a shared round copies first_copy rows, whatever its ramp reached
++    try std.testing.expectEqual(@as(usize, 15), (try copyProposal(&e, &s)).tokens.len);
++    cfg.copy_shared = true;
++    try std.testing.expectEqual(@as(usize, 31), (try copyProposal(&e, &s)).tokens.len);
++    s.copy_prompt = false;
++    try std.testing.expectEqual(@as(usize, 15), (try copyProposal(&e, &s)).tokens.len);
++    // the ramp itself: the copy's source is read back from the proposer, so a prompt copy ramps in a shared round
++    s.copy_width = 15;
++    rampCopy(&e, &s, false, 15, 15);
++    try std.testing.expect(s.copy_prompt);
++    try std.testing.expectEqual(@as(?u32, 31), s.copy_width);
++    rampCopy(&e, &s, false, 3, 31);
++    try std.testing.expectEqual(@as(?u32, 15), s.copy_width);
++    cfg.copy_miss = .keep;
++    cfg.copy_ramp = .jump;
++    rampCopy(&e, &s, false, 3, 15);
++    try std.testing.expectEqual(@as(?u32, 15), s.copy_width);
++    rampCopy(&e, &s, false, 15, 15);
++    try std.testing.expectEqual(@as(?u32, 31), s.copy_width);
++    // with copy_shared off a shared round's copy never moves the width, and a recalled copy is not a prompt copy
++    cfg.copy_shared = false;
++    rampCopy(&e, &s, false, 3, 31);
++    try std.testing.expectEqual(@as(?u32, 31), s.copy_width);
++    rampCopy(&e, &s, true, 3, 31);
++    try std.testing.expect(!s.copy_prompt);
++}
++
+ /// The head's chance for each held draft, else chain chances from the stream's per-depth acceptance.
+ pub fn nodeChances(e: *Engine, s: *Stream, n: usize) ![]const f64 {
+     const a = e.arena.allocator();
+diff --git a/zig/src/native/cuda_startup_phase.zig b/zig/src/native/cuda_startup_phase.zig
+index 9dc399da2..6608a23a2 100644
+--- a/zig/src/native/cuda_startup_phase.zig
++++ b/zig/src/native/cuda_startup_phase.zig
+@@ -6,8 +6,34 @@ const lanes = @import("lanes");
+ const nemotron = @import("nemotron");
+ const kv_pages = @import("cuda_kv_pool.zig");
+ const family_memory = @import("cuda_family_memory.zig");
++const getenv = @import("cuda_device.zig").getenv;
+ pub const Hook = ?*const fn (*anyopaque, cuda.startup_watch.Phase) void;
+ 
++/// A 0 or 1 setting; any other value refuses the start rather than falling back to the default in silence.
++fn flag(name: [:0]const u8) !?bool {
++    const v = getenv(name) orelse return null;
++    if (std.mem.eql(u8, v, "0")) return false;
++    if (std.mem.eql(u8, v, "1")) return true;
++    std.log.err("{s}={s}: 0 or 1", .{ name, v });
++    return error.BadCopySetting;
++}
++
++/// The copy policy from TENSORFOLD_COPY_*; every setting unset leaves the engine's own widening rule.
++fn copyPolicy(h: anytype) !void {
++    if (getenv("TENSORFOLD_COPY_MISS")) |v| h.cfg.copy_miss = std.meta.stringToEnum(lanes.Config.CopyMiss, v) orelse {
++        std.log.err("TENSORFOLD_COPY_MISS={s}: first or keep", .{v});
++        return error.BadCopySetting;
++    };
++    if (getenv("TENSORFOLD_COPY_RAMP")) |v| h.cfg.copy_ramp = std.meta.stringToEnum(lanes.Config.CopyRamp, v) orelse {
++        std.log.err("TENSORFOLD_COPY_RAMP={s}: double or jump", .{v});
++        return error.BadCopySetting;
++    };
++    if (try flag("TENSORFOLD_COPY_SHARED")) |v| h.cfg.copy_shared = v;
++    if (try flag("TENSORFOLD_COPY_RESYNC")) |v| h.host.resync = v;
++    if (try flag("TENSORFOLD_COPY_RESYNC_PROMPT_ONLY")) |v| h.host.resync_prompt_only = v;
++    std.log.info("copy policy: miss {s}, ramp {s}, shared rounds {s}, resync {s}", .{ @tagName(h.cfg.copy_miss), @tagName(h.cfg.copy_ramp), if (h.cfg.copy_shared) "ramp prompt copies" else "first width", if (!h.host.resync) "off" else if (h.host.resync_prompt_only) "prompt copies" else "every copy" });
++}
++
+ pub fn readiness(h: anytype, comptime F: type) void {
+     if (@hasDecl(F, "startup_phase")) h.startup_phase = F.startup_phase;
+     if (@hasDecl(F, "healthy")) h.health = .{ .ctx = h.family, .read = F.healthy };
+@@ -29,6 +55,7 @@ pub fn serve(h: anytype, io: std.Io, facts: lanes.Model, rows: u32, info: api.In
+     h.core = lanes.Engine.init(h.gpa, &h.cfg, callbacks.backend(h), h.clock.clock());
+     errdefer h.core.deinit();
+     h.host = api.LaneHost.init(h.gpa, io, &h.core, info);
++    try copyPolicy(h);
+     h.host.on_thread = .{ .ctx = h, .run = callbacks.initThread };
+     h.host.memory = if (h.gpu != null) .{ .read = family_memory.read } else null;
+     h.host.explain = explain;
+-- 
+2.43.0
+

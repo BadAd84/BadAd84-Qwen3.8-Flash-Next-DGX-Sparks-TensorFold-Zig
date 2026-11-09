@@ -96,6 +96,19 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
+- THE STACK + SERIES (owner request 2026-11-09): DONE - branch `levers124-stack` @ `0b673402a`
+  (16 signed commits on 267c5af6a) and `levers124-series` @ `7a5fb21ab`, pushed to the Gitea fork.
+  Stacked clean: warm-turns, 0005-reader, 0006, 0010, 0013; resolved honestly: 0003-kv8 (5 commits
+  vs its newer base). The series `scripts/qwen38/zig/levers124/0018-*.patch` .. `0025-*.patch` (8
+  toggleable patches, numbering after the recipe's 0017) verifies: all 8 apply in order on pristine
+  267c5af6a producing a byte-identical tree. SKIPPED pending their lanes' pushes: 0009-cost and
+  0015-mx128 - they become 0026/0027 at PR time. The lane found and fixed real defects in the levers
+  (0013 did not compile as committed - the missing ple_reader import + a duplicated cache region; the
+  .word env kind absent at the older base), amended into the owning commits (own branches, no PRs,
+  force-push announced). Stack gates: fmt green, pr_check 0/0 (lean 116 vs 116), host suite zero new
+  beyond the stock three; the A/B window (stock124 vs stack124, 12-cell ABBA + golden + probes) is
+  queued FIFO. The combined A/B receipt is the 1.2.4 serve migration's gate; after it, the settings
+  retune runs on the stack.
 - Item 17 (0001/0002 NVFP4 vision tower + 16k image tokens): PORTED AND GATED 2026-11-09 -
   the plan's "probably already upstream-adjacent" was REFUTED with evidence: 1.2.4's NVFP4 default is
   the LLM weights only; the vision tower decode is absent (loader expects .bf16 and fails closed on a

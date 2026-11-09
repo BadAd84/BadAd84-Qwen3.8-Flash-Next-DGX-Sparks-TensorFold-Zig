@@ -1,0 +1,155 @@
+From a56fbf91be5572fb914ba79faea6cd8f0a9a4ad5 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 12:02:16 +0000
+Subject: [PATCH 1/8] flashnext: a reply's background pass prefills the next
+ turn's prompt (TENSORFOLD_WARM_TURNS=1)
+
+Squash of stack commit e5e6f4776 (port-warm-turns @ 877faca4).
+---
+ zig/src/core/engine_api.zig               |  2 ++
+ zig/src/families/flashnext/cuda_lanes.zig |  3 ++
+ zig/src/native/cuda.zig                   | 11 ++++++-
+ zig/src/native/cuda_snaps.zig             | 36 ++++++++++++++++++++++-
+ zig/src/native/cuda_startup_phase.zig     |  2 +-
+ 5 files changed, 51 insertions(+), 3 deletions(-)
+
+diff --git a/zig/src/core/engine_api.zig b/zig/src/core/engine_api.zig
+index 70ad41009..a9606529b 100644
+--- a/zig/src/core/engine_api.zig
++++ b/zig/src/core/engine_api.zig
+@@ -203,6 +203,8 @@ pub const Info = struct {
+     startup: []const u8 = "",
+     /// A prompt-only request (max_tokens 0) keeps its end state: the server prefills each reply for the next turn.
+     warm_turns: bool = false,
++    /// Nanoseconds a warm pass waits for other work before its first chunk: the family's `warm_quiet`.
++    warm_quiet_ns: u64 = 0,
+     /// The engine decodes plain whatever a request asks: no drafter loaded, or this chip is faster plain.
+     plain_only: bool = false,
+     /// Available proposals, independent of a request's choice to use them.
+diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
+index 7afdb74f6..105169a5e 100644
+--- a/zig/src/families/flashnext/cuda_lanes.zig
++++ b/zig/src/families/flashnext/cuda_lanes.zig
+@@ -59,6 +59,9 @@ pub fn Namespace(comptime Tri: type) type {
+             pub const min_gap: u32 = 256;
+             pub const min_prompt: u32 = 512;
+         };
++        /// A reply's background pass waits `warm_quiet` for the next request; it runs under TENSORFOLD_WARM_TURNS=1.
++        pub const warm_quiet: u64 = 150 * std.time.ns_per_ms;
++        pub const warm_opt_in = true;
+         pub const Options = struct { vision: ?@import("cuda_images.zig").Limits = null, context: usize, drafts: bool, segments: usize = 1, slide: bool = false, tp: usize = 1, rank: usize = 0, master: ?[]const u8 = null, master_port: u16 = 29551, one_stream: bool = false };
+         /// Living Weights' learner (--slide): lessons put neurons in each layer's pocket beside its shared expert.
+         pub const slide = slide_mod.Slide(Tri);
+diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
+index c03b30d3f..c67bd2ba0 100644
+--- a/zig/src/native/cuda.zig
++++ b/zig/src/native/cuda.zig
+@@ -179,6 +179,10 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+         problem.* = why;
+         return null;
+     }
++    if (snaps.warmSetting() == .invalid) {
++        problem.* = "TENSORFOLD_WARM_TURNS: 1 runs a reply's background passes, 0 or unset keeps them off";
++        return null;
++    }
+     // a family whose rope can stretch (Qwen's YaRN, from its config or --rope-yarn) names its own ceiling
+     const native = if (comptime @hasDecl(F, "contextCeiling")) F.contextCeiling(a, io, o.dir, o.rope_yarn) catch |e| {
+         problem.* = try std.fmt.allocPrint(a, "{s} ({s}): YaRN takes rope_type yarn, factor, original_max_position_embeddings and their product as max_position_embeddings, and --rope-yarn a factor from 1 matching it", .{ if (o.rope_yarn != null) "--rope-yarn" else "the checkpoint's rope scaling", @errorName(e) });
+@@ -437,6 +441,10 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+     h.kv = kv_pages.watchOf(F, loaded, paged);
+     h.kv_count = if (admit != null) kv_pages.ledgerPool(F, loaded) else null;
+     const bench = if (@hasDecl(F, "benchmark")) F.benchmark(loaded.ctx) else api.Benchmark{ .ranks = 1 };
++    const warm = h.store != null and @hasDecl(F, "warm_quiet") and snaps.warmTurns(F);
++    if (warm) std.log.info("warm turns: a reply's background pass prefills the next turn's prompt, pre-empted by a real request", .{});
++    if (!warm and @hasDecl(F, "warm_opt_in") and snaps.warmSetting() == .on and h.store == null)
++        std.log.warn("TENSORFOLD_WARM_TURNS=1 ignored: this serve has no prompt cache", .{});
+     try h.serve(io, served.facts, loaded.rows, .{
+         .benchmark_ranks = bench.ranks,
+         .benchmark_group = bench.group,
+@@ -448,7 +456,8 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, o: api.O
+         .prompt_cache = h.store != null,
+         .decode_share = o.decode_share,
+         .prompt_cache_capacity = cache_capacity,
+-        .warm_turns = h.store != null and @hasDecl(F, "warm_quiet"),
++        .warm_turns = warm,
++        .warm_quiet_ns = if (warm) snaps.warmQuiet(F) else 0,
+         .logprobs = served.backend.vtable.first_row != null,
+         .prompt_logprobs = served.backend.vtable.prompt_rows,
+         .penalties = served.backend.penalties,
+diff --git a/zig/src/native/cuda_snaps.zig b/zig/src/native/cuda_snaps.zig
+index 5faaf2b5c..6ccb8cd99 100644
+--- a/zig/src/native/cuda_snaps.zig
++++ b/zig/src/native/cuda_snaps.zig
+@@ -6,7 +6,7 @@ const api = @import("engine_api");
+ pub fn cacheRules(comptime F: type) api.prompt_cache.Rules {
+     var rules: api.prompt_cache.Rules = .{ .lookahead = 1, .min_prompt = 0 };
+     if (@hasDecl(F, "snap_lookahead")) rules.lookahead = F.snap_lookahead;
+-    if (@hasDecl(F, "warm_quiet")) rules.warm = .waits;
++    if (@hasDecl(F, "warm_quiet") and warmTurns(F)) rules.warm = .waits;
+     if (@hasDecl(F, "snap_fork")) rules.fork = F.snap_fork; // opt-in, a family at a time after its device check
+     if (@hasDecl(F, "snap_tail")) rules.tail = if (@import("core").profile.lookup(F.snap_tail)) |v| std.mem.eql(u8, v, "1") else false;
+     if (@hasDecl(F, "snap_grid")) {
+@@ -16,6 +16,29 @@ pub fn cacheRules(comptime F: type) api.prompt_cache.Rules {
+     return rules;
+ }
+ 
++/// TENSORFOLD_WARM_TURNS: exactly "1" or "0" or unset; anything else is invalid and refused at open.
++pub fn warmSetting() enum { unset, off, on, invalid } {
++    const v = @import("cuda_device.zig").getenv("TENSORFOLD_WARM_TURNS") orelse return .unset;
++    if (v.len == 0) return .unset;
++    if (std.mem.eql(u8, v, "1")) return .on;
++    if (std.mem.eql(u8, v, "0")) return .off;
++    return .invalid;
++}
++
++/// Whether a warm family runs background reply passes: an opt-in one (`warm_opt_in`) only when TENSORFOLD_WARM_TURNS=1.
++pub fn warmTurns(comptime F: type) bool {
++    if (comptime @hasDecl(F, "warm_opt_in")) return warmSetting() == .on;
++    return switch (warmSetting()) {
++        .unset, .on => true,
++        else => false,
++    };
++}
++
++/// A warm family's `warm_quiet`, or 0 without the declaration.
++pub fn warmQuiet(comptime F: type) u64 {
++    return if (@hasDecl(F, "warm_quiet")) F.warm_quiet else 0;
++}
++
+ /// Native CUDA families own their grid, independently of the server's template chunk starts.
+ pub fn passRules(comptime F: type, prompt_rows: u32) api.prompt_cache.Rules {
+     var rules = cacheRules(F);
+@@ -103,6 +126,17 @@ test "a family with snap_grid keeps on its chunk starts, any other at any row as
+         try std.testing.expect(cacheRules(Tail).tail == on and passRules(Tail, 2048).tail == on);
+     }
+     try std.testing.expect(!cacheRules(Other).tail);
++    // an opt-in warm family runs its background passes only under TENSORFOLD_WARM_TURNS=1
++    const OptIn = struct {
++        pub const warm_quiet: u64 = 1;
++        pub const warm_opt_in = true;
++    };
++    defer _ = env.unsetenv("TENSORFOLD_WARM_TURNS");
++    for ([_]?[:0]const u8{ null, "", "0", "2", "1" }) |v| {
++        _ = if (v) |s| env.setenv("TENSORFOLD_WARM_TURNS", s, 1) else env.unsetenv("TENSORFOLD_WARM_TURNS");
++        const opt_rules = cacheRules(OptIn);
++        if (std.mem.eql(u8, v orelse "", "1")) try std.testing.expect(opt_rules.warm == .waits) else try std.testing.expect(opt_rules.warm == .off);
++    }
+ }
+ 
+ test {
+diff --git a/zig/src/native/cuda_startup_phase.zig b/zig/src/native/cuda_startup_phase.zig
+index abb2d1e9b..9dc399da2 100644
+--- a/zig/src/native/cuda_startup_phase.zig
++++ b/zig/src/native/cuda_startup_phase.zig
+@@ -34,7 +34,7 @@ pub fn serve(h: anytype, io: std.Io, facts: lanes.Model, rows: u32, info: api.In
+     h.host.explain = explain;
+     h.host.health = @import("cuda_readiness.zig").source(h);
+     h.host.cache = h.store;
+-    h.host.warm_quiet = if (info.warm_turns) nemotron.native.warm_quiet else 0;
++    h.host.warm_quiet = info.warm_quiet_ns;
+     if (h.lone != null) h.host.lone = .{ .ctx = h, .run = callbacks.loneRun, .sampled = true, .logprobs = h.inner.vtable.first_row != null, .structures = h.inner.vtable.first_masked != null, .min_budget = nemotron.native.lone_min_budget, .resumes = true };
+     if (h.learn != null) h.host.learner = callbacks.learner(h);
+     kv_pages.install(&h.kv, &h.host); // the pool's first census, before the engine thread owns the pool
+-- 
+2.43.0
+
