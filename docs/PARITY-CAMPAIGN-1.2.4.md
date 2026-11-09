@@ -44,6 +44,8 @@ fork branch -> PR -> the receipt in `docs/receipts/<name>/`.
 
 ## Status
 
-- Quality comparison: in flight (QualCompare124).
+- Quality comparison: in flight (QualCompare124) - decides the checkpoint route.
 - Sequence-pool: measured negative (6.7).
+- Item 4 (0005 fp8 reader + head cache): port in flight (ReaderP5Port, branch `port-0005-reader`,
+  image `reader124` when built) - the first kernel-level parity port.
 - Everything else: queued in the order above.
