@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 05:18:11 +0000
+Subject: [PATCH 2/5] flashnext: a verify window with a pending-row log takes
+ the row-by-row GDN path
+
+The fused DeltaNet kernel writes no pending-row log, and a lone verify
+window of 64 rows takes it (n >= 64), so a 64-row copy window errored
+with UnexpectedTensor at the first layer. The fusion now also requires
+no log; prompt passes (no keep) fuse as before, and the shared lanes
+path never fused. The window self-check settles the draft before it
+reuses it across widths: a kept window swaps its spares back on entry,
+so reusing one draft without settling fed the next width a stale state.
+---
+ zig/src/families/flashnext/cuda_batch.zig     | 3 ++-
+ zig/src/families/flashnext/cuda_mtp_check.zig | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index bd1b87e63..ab73d8e2a 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -258,7 +258,8 @@ pub fn Pass(comptime Tri: type) type {
+                 try self.copy(keep.hist, self.seq.conv[li].ptr, (gdn.taps - 1) * cd * 2);
+             }
+             // every row's conv, norms and gates, the recurrence, then the gated norm: the one-block chain's bits
+-            const fused = self.lanes.len == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
++            // a pending-row log needs the row-by-row path: the fused kernel writes no log
++            const fused = self.lanes.len == 0 and keep.log == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
+             const cuts = try marks.cuts(self, li, fused);
+             if (fused and keep.log != 0) return error.UnexpectedTensor;
+             if (fused) {
+diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
+index ce87967f9..4c5b66341 100644
+--- a/zig/src/families/flashnext/cuda_mtp_check.zig
++++ b/zig/src/families/flashnext/cuda_mtp_check.zig
+@@ -198,6 +198,7 @@ pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft,
+     }
+     var total: usize = 0;
+     for (widths, bad) |w, *b| {
++        d.settle(seq); // the last window's spares back to the sequence before its reset
+         seq.fed = 0;
+         seq.history = .{ o.e.eos, o.e.eos };
+         try resetSeq(seq, o.e.stream.*);
