@@ -44,3 +44,17 @@ own constants. Scripts and raw output: `work/overlap126.sh`, `work/overlap126b.s
 3. v1.2.6 still serves Flash Next with bf16 KV unless a change lands, so 6 and 8 streams at 262,144
    tokens do not fit on stock (32.9 GiB of bf16 cache against 31.4 free on the INT4 serve's numbers).
    The stock 1.2.6 arm of any A/B therefore runs 131,072-token windows or 5 streams, and says so.
+
+## Branch layout in ots/tensorfold-levers124 (2026-11-10)
+
+| branch | content |
+|---|---|
+| `main` | the zmerge8-kfix production stack: the recipe 1.0.0 patches, 0010-0028, tfm-fixes, tfm-warm-t and c68-shared-cost-levels, 23 commits over TensorFold `db281878` |
+| `1.2.6` | upstream `6e9af9302`, untouched |
+
+The 23 former port and series branches are tags `archive/<name>` on the remote (their content is also in
+`scripts/qwen38/zig/levers124/*.patch`). `rows126` (local until it is measured) is the 48-row lever
+rebased onto `1.2.6`: six commits, with three conflicts resolved against 1.2.6's own API (the batch path's
+`self.k.forms.gdn_fused`, and the changelog's Unreleased section placed above the 1.2.6 section). Its
+receipt files still carry the 1.2.4 measurements (`up124` against `w64`) and are replaced when the lever
+is re-measured on 1.2.6.

@@ -1,5 +1,11 @@
 # Parity campaign: upstream 1.2.4 to our 1.0.0-stack level, then upstream everything
 
+SUPERSEDED BASE (2026-11-10): upstream released v1.2.5 and v1.2.6 (654 commits, 1,644 files past 1.2.4), so
+the campaign's base is now `1.2.6` (`6e9af9302`) in `ots/tensorfold-levers124`, and `main` there is the
+current production stack. Which levers upstream already carries, and which still apply, is
+`docs/OVERLAP-1.2.6.md`. Everything below is the 1.2.4-era record: the measurements stand, the branches
+do not (they are archived as `archive/*` tags).
+
 Owner decision 2026-11-08: bring TensorFold 1.2.4 up to parity with our 1.0.0-based stack (the spark6
 production serve), then upstream all of it to `ashhart/TensorFold`. The two levers already measured on
 1.2.4 (the 48-row window, the copy re-sync) are the first two entries; the rest is the recipe's 17-patch
