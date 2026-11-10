@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Sun, 8 Nov 2026 08:16:03 +0000
+Subject: [PATCH 04/27] flashnext: the two comments the 64-row port added trip
+ the single-line checker
+
+---
+ zig/src/families/flashnext/cuda_batch.zig     | 3 +--
+ zig/src/families/flashnext/cuda_mtp_check.zig | 4 +---
+ 2 files changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index ab73d8e2a..d5686306a 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -257,8 +257,7 @@ pub fn Pass(comptime Tri: type) type {
+                 try self.copy(keep.proj, s.proj, n * pw * 2);
+                 try self.copy(keep.hist, self.seq.conv[li].ptr, (gdn.taps - 1) * cd * 2);
+             }
+-            // every row's conv, norms and gates, the recurrence, then the gated norm: the one-block chain's bits
+-            // a pending-row log needs the row-by-row path: the fused kernel writes no log
++            // one-block chain's bits every row (conv, norms, gates, recurrence, gated norm); a pending-row log needs the row path
+             const fused = self.lanes.len == 0 and keep.log == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
+             const cuts = try marks.cuts(self, li, fused);
+             if (fused and keep.log != 0) return error.UnexpectedTensor;
+diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
+index 242886861..3a46f7df5 100644
+--- a/zig/src/families/flashnext/cuda_mtp_check.zig
++++ b/zig/src/families/flashnext/cuda_mtp_check.zig
+@@ -217,9 +217,7 @@ pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft,
+     return total;
+ }
+ 
+-/// The boot self-check: the full width sweep to `rows` over a synthetic prompt. `rows` when every row of
+-/// every width scored byte-equal to its one-token step, else 32 (the upstream window); the summary and the
+-/// first differing width go to the log.
++/// The boot self-check sweeps widths to `rows` on a synthetic prompt: `rows` when every row is byte-equal to its one-token step, else 32.
+ pub fn probeServed(comptime Tri: type, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: *cuda.Stream, tri: Tri, e: *prompt.Engine, h: *Head, rows: usize) !usize {
+     var ids: [96]u32 = undefined;
+     for (&ids, 0..) |*t, i| t.* = @intCast(1000 + (i * 7919) % 200_000);

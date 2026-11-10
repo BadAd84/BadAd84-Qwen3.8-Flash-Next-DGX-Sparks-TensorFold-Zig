@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 10:59:34 +0000
+Subject: [PATCH 27/27] vision: a request's image rows may reach 16,384
+
+The per-request image-row limit becomes the named 16,384 maximum; the default
+configuration is unchanged and one image still keeps at most one tower call's 4,096
+rows, with a request's images sharing the configured budget.
+---
+ CHANGELOG.md                       |  2 ++
+ zig/src/vision/qwen_cuda_media.zig | 18 ++++++++++++++++--
+ 2 files changed, 18 insertions(+), 2 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 656a1705d..88c0e64ec 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -74,6 +74,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - HIP: the load-time timing of shared rows gives every row a distinct token for any vocabulary; its stride is 7919, or 7927 where 7919 divides the span, so it is always coprime to it. Served vocabularies keep #2652's ids and table, and tokens are unchanged (#2661, refs #2605). Thanks to @AbrahamCete.
+ 
++- Qwen3.8-Flash-Next on CUDA: `--vision` serves the FP4 checkpoint's tower - ModelOpt's MXFP8 and NVFP4 linears decode to bf16 on the host at load, so the tower runs bf16 as ever - and a request's image rows may reach 16,384 (#9999).
++
+ - CUDA: GLM-5.3-Flash's KDA chain and saved-row replay move into a shared module (`cuda.kda`) that another family can use. GLM keeps its projections, convolution commit, wide selection and state; its kernels compile to the same SASS on every supported GPU and launch with the same arguments, so replies are unchanged (#2142, part of #850).
+ 
+ - Tests: host pins for the request and flag limits `docs/api.md` and the README state, for the documented `TF_*` defaults and for the server's flag dependencies; a rerunnable replay of the prompt cache's eviction on agent-shaped traces; and a timing of the prompt cache's snapshot index at 16 to 1,024 kept states (#2305).
+diff --git a/zig/src/vision/qwen_cuda_media.zig b/zig/src/vision/qwen_cuda_media.zig
+index 87248f79a..5cd954852 100644
+--- a/zig/src/vision/qwen_cuda_media.zig
++++ b/zig/src/vision/qwen_cuda_media.zig
+@@ -3,9 +3,11 @@ const std = @import("std");
+ const cuda = @import("cuda");
+ const lanes = @import("lanes");
+ const vision = @import("qwen_cuda.zig");
++/// The image rows one request holds in all (each image keeps one tower call's 4,096 at most).
++pub const max_image_tokens = 16384;
+ pub const Limits = struct { image_tokens: u32 = 4096, max_images: u32 = 4 };
+ pub fn checkLimits(l: Limits) !void {
+-    if (l.image_tokens == 0 or l.image_tokens > 4096 or l.max_images == 0 or l.max_images > 64)
++    if (l.image_tokens == 0 or l.image_tokens > max_image_tokens or l.max_images == 0 or l.max_images > 64)
+         return error.BadImageLimits;
+ }
+ pub const Run = extern struct {
+@@ -200,5 +202,17 @@ test "an image plan bounds its grids, counts and limits, and lays out interleave
+     try std.testing.expectError(error.BadImagePlaceholders, Plan.init(a, 5, &.{.{ .at = 2, .gh = 4, .gw = 4 }}, .{}));
+     try std.testing.expectError(error.BadImageCount, Plan.init(a, 20, &.{ .{ .at = 2, .gh = 2, .gw = 2 }, .{ .at = 8, .gh = 2, .gw = 2 } }, .{ .max_images = 1 }));
+     try std.testing.expectError(error.BadImageLimits, checkLimits(.{ .max_images = 65 }));
+-    try std.testing.expectError(error.BadImageLimits, checkLimits(.{ .image_tokens = 4097 }));
++    try std.testing.expectError(error.BadImageLimits, checkLimits(.{ .image_tokens = max_image_tokens + 1 }));
++    try checkLimits(.{ .image_tokens = max_image_tokens, .max_images = 64 });
++}
++
++test "a request's images share the configured token budget, each at most one tower call's" {
++    const a = std.testing.allocator;
++    const runs = [_]Run{ .{ .at = 2, .gh = 128, .gw = 128 }, .{ .at = 5000, .gh = 128, .gw = 128 }, .{ .at = 9500, .gh = 128, .gw = 128 } };
++    var p = try Plan.init(a, 14000, &runs, .{ .image_tokens = max_image_tokens, .max_images = 4 });
++    defer p.deinit();
++    try std.testing.expectEqual(@as(usize, 3 * 4096), p.rows);
++    try std.testing.expectEqual(@as(i32, 2 * 4096), p.src[9500]);
++    try std.testing.expectError(error.BadImageGrid, Plan.init(a, 14000, &runs, .{ .max_images = 4 }));
++    try std.testing.expectError(error.BadImageGrid, Plan.init(a, 14000, &.{.{ .at = 2, .gh = 130, .gw = 128 }}, .{ .image_tokens = max_image_tokens }));
+ }

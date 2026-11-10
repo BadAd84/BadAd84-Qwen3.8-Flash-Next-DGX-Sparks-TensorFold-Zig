@@ -1,0 +1,72 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 20:49:36 +0000
+Subject: [PATCH 15/27] flashnext: the relaxed MXFP8 prompt tile defaults off
+
+The tile carried a measured prose decode cost (44.9 vs 45.9-46.6 tok/s
+across 1/2/6 streams) while the no-drain and 3072-row chunk changes keep
+the prefill gains without it (64k fresh-prompt TTFT -7.8% vs stock with
+the tile off, -5.1% with it on). The tile stays opt-in for profiling via
+TF_FLASHNEXT_PROMPT_MX128=N.
+---
+ CHANGELOG.md                              | 2 +-
+ zig/src/cuda/qmmf.zig                     | 4 ++--
+ zig/src/families/flashnext/cuda_knobs.zig | 4 ++--
+ zig/src/platform/environment.zig          | 2 +-
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c374364c6..d4164037e 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -122,7 +122,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - GLM on CUDA: an empty or whitespace-only value of a setting its start checks (`TF_GLM_MM`, `TF_GLM_PROMPT_TAIL`, `TF_GLM_L2PF` and every other name `Settings.read` reads) now means unset, as `docs/environment.md` says of every variable, instead of stopping the start; `TF_GLM_ROCE_MULTI=1` with a blank `TF_TP_MASTER` or `TF_TP_KERNEL_IMAGE` is refused by name, at TP=2 too, as an unset one already was (#2636, follows #2487, refs #2591). Thanks to @Bizuayeu.
+ 
+-- Flash Next on CUDA: a prompt pass fills its chunks without draining the stream between them on one rank (`TF_FLASHNEXT_PROMPT_SYNC=1` restores the drain; ranks above one keep it), takes 3,072-row chunks by default, and points MXFP8 projections of 1,024 columns or more at a relaxed 128 x 128 prompt tile (`TF_FLASHNEXT_PROMPT_MX128`, 0 keeps the exact kernels) whose UE8M0 block scales ride in the mma B fragment over one fp32 chain per K; a row's sums keep their order whatever the chunk holds, but they are not the exact kernels' bits (#9999).
++- Flash Next on CUDA: a prompt pass fills its chunks without draining the stream between them on one rank (`TF_FLASHNEXT_PROMPT_SYNC=1` restores the drain; ranks above one keep it), takes 3,072-row chunks by default, and can point MXFP8 projections of N columns or more at a relaxed 128 x 128 prompt tile (opt-in, `TF_FLASHNEXT_PROMPT_MX128=N`; default off, the exact kernels everywhere) whose UE8M0 block scales ride in the mma B fragment over one fp32 chain per K; a row's sums keep their order whatever the chunk holds, but they are not the exact kernels' bits (#9999).
+ 
+ - Tests: compile the runtime Metal libraries selected by each loader, check every registered launch mapping on the host, and keep limits running across unsupported probes, including LFM2 masked prompts on pre-M5 devices (#2601).
+ 
+diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
+index daed9a5e0..4e920db81 100644
+--- a/zig/src/cuda/qmmf.zig
++++ b/zig/src/cuda/qmmf.zig
+@@ -142,8 +142,8 @@ const prompt_mx_shared: u32 = 3 * ((128 * 128 + 128 * group + 128 * 2 + 127) / 1
+ 
+ /// What a call writes: bf16 rows, or the fp32 sums unrounded (a tensor-parallel rank's partial rows).
+ pub const Out = enum { bf16, f32 };
+-/// Narrowest MXFP8 projection the relaxed 128 x 128 prompt tile takes in a prompt pass; 0: none.
+-pub var prompt_mx_min_n: usize = 1024;
++/// Narrowest MXFP8 projection the relaxed 128 x 128 prompt tile takes in a prompt pass; 0 (the default): none.
++pub var prompt_mx_min_n: usize = 0;
+ 
+ fn loadTiles(mod: Module, comptime mode: Mode, comptime wide: bool) ![7]Function {
+     var set: [7]Function = undefined;
+diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
+index d6e08ddaa..c67916aa8 100644
+--- a/zig/src/families/flashnext/cuda_knobs.zig
++++ b/zig/src/families/flashnext/cuda_knobs.zig
+@@ -47,7 +47,7 @@ pub fn chunkSync() sys.environment.Error!bool {
+     return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_SYNC", false);
+ }
+ 
+-/// TF_FLASHNEXT_PROMPT_MX128: the narrowest MXFP8 projection taking the relaxed 128 x 128 prompt tile; 0: none.
++/// TF_FLASHNEXT_PROMPT_MX128=N: the narrowest MXFP8 projection taking the relaxed tile; default 0: the exact kernels.
+ pub fn mx128MinN() sys.environment.Error!usize {
+-    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 1024);
++    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
+ }
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 4cc0b6027..65f38824f 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -56,7 +56,7 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_GATHER_LOG", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+-    .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (0 keeps the exact kernels)" },
++    .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (default 0: the exact kernels; N or more takes the relaxed prompt tile)" },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
+     .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },

@@ -1,0 +1,799 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Sat, 7 Nov 2026 18:12:31 +0000
+Subject: [PATCH 24/27] flashnext: the hyper-connection read-outs from a
+ lossless 12-bit copy of their weights
+
+A decode window's read-out spends most of its time reading weights: each layer's
+attention and MLP hyper-connection hold a BF16 down [320 + 4 inject, 10240] and up
+[10240, 320] matrix, and a token's round walks every one of them, about 1.27 GB of
+weights for 97 read-outs. The lane tile that reads them (qmmf.cu's BF16 mode) stages
+8,192 bytes a 64-column tile and 64-input group.
+
+TF_FLASHNEXT_HC_Q12=1 keeps a second copy of those matrices in 12 bits and reads the
+copy at decode widths. Per (row, 64 inputs) the copy holds the top exponent; per weight
+its sign and mantissa byte and a 4-bit offset below that exponent; a weight further
+below than the offset can say escapes to a per-block list of exact bits, which on this
+checkpoint is a small fraction of the weights. The copy is lossless by construction:
+the decode rebuilds the BF16 word, so the tile's operands, its mma chain, its K slices
+and its epilogue are the ones the BF16 weights give, and the result is the same bytes.
+The blocks are the packed BF16 tile's own blocks (one n8 tile of one 64-input group,
+the 32 lanes' 16 weights each), so a block decodes straight into the operand pair the
+mma reads.
+
+qmmf.cu gains a Q12 mode whose only difference from BF16 is where the operands come
+from: no weights are staged in shared memory, each lane reads its block's 24 bytes from
+global memory and decodes them. The instances are the decode row tiles (16 and 32 rows
+at 64 columns, and the 16-row half tile), so a prompt pass keeps the BF16 weights and
+its bytes without a second path. qmmf_q12.zig owns the format, its host packer and the
+launcher; the packer is covered by a host test that reads every weight of a copy back
+and compares it to the word the BF16 tile would have read, over every BF16 bit pattern,
+over rows past the matrix (a tile's zero padding), and over exponents far enough apart
+to escape.
+
+The setting is strict: 1 or 0, any other value refuses the start. With the copies on,
+the engine proves them on the GPU before it serves: it packs a read-out's own shape
+with two exponent spreads and compares the 12-bit tiles against the BF16 tiles at 1, 5,
+16, 17 and 32 rows for both output kinds, and refuses to start if a byte differs.
+
+The copies cost device memory beside the BF16 rows, which prefill still reads, and the
+boot line reports what they hold.
+---
+ zig/kernels/cuda/qmmf.cu                      |  19 +-
+ zig/kernels/cuda/qmmf_body.cuh                |  10 +-
+ zig/kernels/cuda/qmmf_q12.cuh                 | 106 +++++++
+ zig/src/cuda/qmmf_q12.zig                     | 291 ++++++++++++++++++
+ zig/src/cuda/root.zig                         |   2 +
+ zig/src/families/flashnext/cuda_batch_hc.zig  |   4 +-
+ .../families/flashnext/cuda_batch_kernels.zig |  10 +
+ zig/src/families/flashnext/cuda_hc_q12.zig    | 105 +++++++
+ zig/src/families/flashnext/cuda_prompt.zig    |   5 +
+ zig/src/families/flashnext/cuda_prompt_wt.zig |  15 +-
+ 10 files changed, 559 insertions(+), 8 deletions(-)
+ create mode 100644 zig/kernels/cuda/qmmf_q12.cuh
+ create mode 100644 zig/src/cuda/qmmf_q12.zig
+ create mode 100644 zig/src/families/flashnext/cuda_hc_q12.zig
+
+diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
+index f58c28b1f..f851651a3 100644
+--- a/zig/kernels/cuda/qmmf.cu
++++ b/zig/kernels/cuda/qmmf.cu
+@@ -7,12 +7,13 @@
+ #include <cuda_runtime.h>
+ 
+ #include "common/qmm_frag.cuh"
++#include "qmmf_q12.cuh"
+ 
+ namespace tf_qmmf {
+ 
+ using namespace qmm_frag;
+ 
+-enum Mode : int { FP4 = 0, FP8 = 1, MXFP8 = 2, FP8G = 3, BF16 = 4 };
++enum Mode : int { FP4 = 0, FP8 = 1, MXFP8 = 2, FP8G = 3, BF16 = 4, Q12 = 5 };
+ 
+ constexpr int GS = 64;
+ 
+@@ -41,7 +42,7 @@ struct Tile {
+     static constexpr int ROW = GS * 2;
+     static constexpr int CHUNKS = ROW / 16;
+     static constexpr int X = BM * ROW;
+-    static constexpr int W = MODE == FP4 ? BN * GS / 2 : MODE == BF16 ? BN * GS * 2 : BN * GS;
++    static constexpr int W = MODE == FP4 ? BN * GS / 2 : MODE == Q12 ? 0 : MODE == BF16 ? BN * GS * 2 : BN * GS;
+     static constexpr int S = MODE == FP4 || MODE == FP8G ? BN * 4 : MODE == MXFP8 ? BN * 2 : 0;
+     static constexpr int STAGE = (X + W + S + 127) / 128 * 128;
+     static constexpr int PARTIALS = MT * NT * 4 * THREADS * 4;
+@@ -240,6 +241,20 @@ BF16_K32(false)
+ BF16_K32(true)
+ #undef BF16_K32
+ 
++
++// The 12-bit weights' decode row tiles (qmmf_q12.cuh): 16 and 32 rows at 64 columns, and the 16-row half tile.
++template __global__ void qmmf_kernel<Q12, 16, 64, 1, 4, 4, false, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 64, 1, 4, 4, false, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 64, 1, 4, 4, true, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 64, 1, 4, 4, true, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 32, 64, 1, 4, 4, false, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 32, 64, 1, 4, 4, false, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 32, 64, 1, 4, 4, true, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 32, 64, 1, 4, 4, true, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 32, 1, 4, 4, false, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 32, 1, 4, 4, false, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 32, 1, 4, 4, true, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
++template __global__ void qmmf_kernel<Q12, 16, 32, 1, 4, 4, true, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
+ template __global__ void reduce_kernel<true>(const float* __restrict__, void* __restrict__, long long, int, float);
+ template __global__ void reduce_kernel<false>(const float* __restrict__, void* __restrict__, long long, int, float);
+ 
+diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
+index 716ddc517..0b379a65d 100644
+--- a/zig/kernels/cuda/qmmf_body.cuh
++++ b/zig/kernels/cuda/qmmf_body.cuh
+@@ -117,6 +117,9 @@
+         commit();
+     }
+     for (int it = 0; it < per; ++it) {
++        // the 12-bit weights of this group, read straight from global memory and decoded before the staged inputs
++        uint32_t bw[MODE == Q12 ? T::NT : 1][8];
++        if constexpr (MODE == Q12) tf_qmmf_q12::warp_tiles<T::NT>(bw, w, npad, K, n0, g0 + it, wn, lane);
+         if constexpr (FUSE) {
+             if (it > 0 && it % slice_groups == 0) {
+ #pragma unroll
+@@ -164,7 +167,7 @@
+             if constexpr (MODE == FP4) {
+                 const uint2 u = reinterpret_cast<const uint2*>(pw)[jj * 32 + lane];
+                 wq[j] = make_uint4(u.x, u.y, 0u, 0u);
+-            } else if constexpr (MODE != BF16) {
++            } else if constexpr (MODE != BF16 && MODE != Q12) {
+                 wq[j] = reinterpret_cast<const uint4*>(pw)[jj * 32 + lane];
+             }
+         }
+@@ -196,6 +199,9 @@
+ #endif
+                     b0 = v.x;
+                     b1 = v.y;
++                } else if constexpr (MODE == Q12) {
++                    b0 = bw[j][2 * kt];
++                    b1 = bw[j][2 * kt + 1];
+                 } else {
+                     const uint32_t word = comp(wq[j], kt);
+                     b0 = fp8pair(word & 0xFFFFu);
+@@ -203,7 +209,7 @@
+                 }
+ #pragma unroll
+                 for (int i = 0; i < T::MT; ++i) {
+-                    if constexpr (MODE == FP8 || MODE == BF16) mma(acc[i][j], a[i], b0, b1);
++                    if constexpr (MODE == FP8 || MODE == BF16 || MODE == Q12) mma(acc[i][j], a[i], b0, b1);
+                     else if (MODE == FP4 || (MODE == MXFP8 && (kt & 1) == 0) || (MODE == FP8G && kt == 0))
+                         mma0(d[i][j], a[i], b0, b1);
+                     else mma(d[i][j], a[i], b0, b1);
+diff --git a/zig/kernels/cuda/qmmf_q12.cuh b/zig/kernels/cuda/qmmf_q12.cuh
+new file mode 100644
+index 000000000..818e2aec0
+--- /dev/null
++++ b/zig/kernels/cuda/qmmf_q12.cuh
+@@ -0,0 +1,106 @@
++// The BF16 lane weights' lossless 12-bit copy: a sign and mantissa byte a weight, 4-bit exponents, exact escapes.
++#pragma once
++
++#include <cuda_bf16.h>
++#include <cuda_runtime.h>
++#include <stdint.h>
++
++namespace tf_qmmf_q12 {
++
++// A block is one n8 tile of one 64-input group: 512 weights, 16 a lane, in the BF16 tile's own word order.
++constexpr int SM = 512;
++
++// Bytes a block spends on its 4-bit exponent offsets, and on the top exponent of each of its 8 rows.
++constexpr int EX = 256;
++constexpr int BASE = 8;
++constexpr int HEAD = SM + EX + BASE;
++
++struct View {
++    const uint4* sm;
++    const uint2* ex;
++    const uint8_t* base;
++    const uint32_t* escoff;
++    const uint32_t* esc;
++};
++
++// The arrays of a [npad, K] copy, in the order qmmf_q12.zig's pack writes them.
++__device__ __forceinline__ View view(const unsigned char* p, int npad, int K) {
++    const size_t n = size_t(npad / 8) * (K / 64);
++    View v;
++    v.sm = reinterpret_cast<const uint4*>(p);
++    v.ex = reinterpret_cast<const uint2*>(p + n * SM);
++    v.base = p + n * (SM + EX);
++    v.escoff = reinterpret_cast<const uint32_t*>(p + n * HEAD);
++    v.esc = v.escoff + n + 1;
++    return v;
++}
++
++struct Raw {
++    uint4 sm;
++    uint2 ex;
++    uint32_t base;
++};
++
++__device__ __forceinline__ void load(Raw& r, const View& w, uint32_t blk, int lane) {
++    const size_t i = size_t(blk) * 32 + lane;
++    r.sm = __ldg(w.sm + i);
++    r.ex = __ldg(w.ex + i);
++    r.base = __ldg(w.base + size_t(blk) * 8 + (lane >> 2));
++}
++
++// The exact bits of the weight at `pos` (16 lane + j) in this block's escape list, which is ordered by position.
++__device__ __noinline__ uint32_t escape_bits(const uint32_t* esc, uint32_t e0, uint32_t e1, uint32_t pos) {
++    for (uint32_t e = e0; e < e1; ++e) {
++        const uint32_t v = __ldg(esc + e);
++        if ((v >> 16) == pos) return v & 0xFFFFu;
++    }
++    return 0;
++}
++
++// A lane's 16 weights as its 4 k16 chunks' operand pairs (chunk c is o[2 c] then o[2 c + 1]).
++__device__ __forceinline__ void decode(uint32_t (&o)[8], const Raw& r, const View& w, uint32_t blk, int lane) {
++    const uint32_t sw[4] = {r.sm.x, r.sm.y, r.sm.z, r.sm.w};
++    // the row's top exponent in both halves, a guard bit above each so the subtraction never borrows across them
++    const uint32_t bwd = (r.base * 0x00800080u) | 0x80008000u;
++#pragma unroll
++    for (int p = 0; p < 8; ++p) {
++        const uint32_t sa = 2u * (p & 1), sb = sa + 1u;
++        // the stored sign and mantissa bytes into bytes 0 and 2, their signs replicated into bytes 1 and 3
++        const uint32_t x = __byte_perm(sw[p >> 1], 0u, sa | ((sa | 8u) << 4) | (sb << 8) | ((sb | 8u) << 12));
++        const uint32_t z = __byte_perm(r.ex.x, r.ex.y, uint32_t(p & 3) | (uint32_t(4 + (p & 3)) << 8));
++        const uint32_t off = p < 4 ? (z & 0x000F000Fu) * 128u : (z & 0x00F000F0u) * 8u;
++        o[p] = (x & 0x807F807Fu) | ((bwd - off) & 0x7F807F80u);
++    }
++    const uint32_t mx = r.ex.x & (r.ex.x >> 1) & (r.ex.x >> 2) & (r.ex.x >> 3) & 0x11111111u;
++    const uint32_t my = r.ex.y & (r.ex.y >> 1) & (r.ex.y >> 2) & (r.ex.y >> 3) & 0x11111111u;
++    if (mx | my) {
++        const uint32_t e0 = __ldg(w.escoff + blk), e1 = __ldg(w.escoff + blk + 1);
++#pragma unroll 1
++        for (int c = 0; c < 16; ++c) {
++            const uint32_t h = c >> 3, nib = c & 7;
++            if (!(((h ? my : mx) >> (4 * nib)) & 1)) continue;
++            const int p = (nib >> 1) + 4 * (nib & 1), j = 2 * p + h;
++            const uint32_t bits = escape_bits(w.esc, e0, e1, uint32_t(16 * lane + j));
++            const uint32_t sh = 16u * h, keep = ~(0xFFFFu << sh);
++#pragma unroll
++            for (int pp = 0; pp < 8; ++pp) o[pp] = pp == p ? ((o[pp] & keep) | (bits << sh)) : o[pp];
++        }
++    }
++}
++
++// The warp's n8 tiles of one 64-input group, decoded: the block at column tile n0 / 64, group g, tile wn NT + j.
++template <int NT>
++__device__ __forceinline__ void warp_tiles(uint32_t (&o)[NT][8], const unsigned char* p, int npad, int K, int n0,
++                                           int g, int wn, int lane) {
++    const View w = view(p, npad, K);
++    const uint32_t first = (uint32_t(n0 / 64) * uint32_t(K / 64) + uint32_t(g)) * 8 + uint32_t((n0 % 64) / 32 * 4);
++#pragma unroll
++    for (int j = 0; j < NT; ++j) {
++        const uint32_t blk = first + uint32_t(wn * NT + j);
++        Raw r;
++        load(r, w, blk, lane);
++        decode(o[j], r, w, blk, lane);
++    }
++}
++
++}  // namespace tf_qmmf_q12
+diff --git a/zig/src/cuda/qmmf_q12.zig b/zig/src/cuda/qmmf_q12.zig
+new file mode 100644
+index 000000000..769f47ee7
+--- /dev/null
++++ b/zig/src/cuda/qmmf_q12.zig
+@@ -0,0 +1,291 @@
++//! A BF16 lane weight's lossless 12-bit copy (qmmf_q12.cuh): the image it packs into, and the tiles that read it.
++const std = @import("std");
++const module = @import("module.zig");
++const launch_ = @import("launch.zig");
++const stream_ = @import("stream.zig");
++const qmmf = @import("qmmf.zig");
++
++const Module = module.Module;
++const Function = module.Function;
++const Stream = stream_.Stream;
++
++/// Bytes a block spends on its weights' sign and mantissa bytes, their 4-bit offsets, and its 8 rows' top exponents.
++pub const sm_bytes = 512;
++pub const ex_bytes = 256;
++pub const base_bytes = 8;
++pub const head_bytes = sm_bytes + ex_bytes + base_bytes;
++
++/// The row tiles these instances carry: a window of up to this many rows reads the copy, wider passes the weights.
++pub const max_rows = 32;
++
++/// A weight is escaped when its exponent is further below its row's top exponent than a 4-bit offset can say.
++pub const max_offset = 14;
++
++/// The column of each of a lane's 16 weights inside its 64-input group, by weight index (4 k16 chunks of 4).
++const cols: [16]usize = blk: {
++    var c: [16]usize = undefined;
++    for (&c, 0..) |*v, j| v.* = (j >> 2) * 16 + (j & 1) + 8 * ((j & 2) >> 1);
++    break :blk c;
++};
++
++const Slot = struct { q: u8, j: u8 };
++
++/// The lane and weight index each of a row's 64 inputs belongs to: `cols` read the other way round.
++const slot: [64]Slot = blk: {
++    var s: [64]Slot = undefined;
++    for (0..4) |q| for (cols, 0..) |c, j| {
++        s[2 * q + c] = .{ .q = q, .j = j };
++    };
++    break :blk s;
++};
++
++/// Blocks of a [npad, k] copy: one n8 tile of one 64-input group each, numbered as packBf16 orders its words.
++pub fn blocks(npad: usize, k: usize) usize {
++    return (npad / 8) * (k / qmmf.group);
++}
++
++/// Bytes of the image: the blocks' arrays, their escape offsets, then the escaped weights' exact bits.
++pub fn bytes(npad: usize, k: usize, escapes: usize) usize {
++    const n = blocks(npad, k);
++    return n * head_bytes + (n + 1) * 4 + escapes * 4;
++}
++
++/// The [n, k] row and column of weight `j` of `lane` in block `blk`; a row past n is the tile's zero padding.
++pub fn at(blk: usize, lane: usize, j: usize, k: usize) struct { row: usize, col: usize } {
++    const kg = k / qmmf.group;
++    const tg = blk / 8;
++    return .{
++        .row = (tg / kg) * 64 + (blk % 8) * 8 + lane / 4,
++        .col = (tg % kg) * qmmf.group + 2 * (lane % 4) + cols[j],
++    };
++}
++
++fn exponent(v: u16) u8 {
++    return @intCast((v >> 7) & 0xFF);
++}
++
++/// Escapes the image holds: the count its last offset carries.
++pub fn escapeCount(image: []const u8, npad: usize, k: usize) usize {
++    const nb = blocks(npad, k);
++    return std.mem.readInt(u32, image[nb * head_bytes + nb * 4 ..][0..4], .little);
++}
++
++/// One block row's 64 inputs into the lanes' bytes and offsets, its escaped weights onto `esc`.
++fn packRow(head: []u8, esc: *std.ArrayList(u32), gpa: std.mem.Allocator, span: []const u8, nb: usize, blk: usize, g: usize) !void {
++    var v: [64]u16 = @splat(0);
++    var base: u8 = 0;
++    for (&v, 0..) |*o, c| {
++        if (span.len != 0) o.* = std.mem.readInt(u16, span[c * 2 ..][0..2], .little);
++        base = @max(base, exponent(o.*));
++    }
++    head[nb * (sm_bytes + ex_bytes) + blk * 8 + g] = base;
++    const sm = head[blk * sm_bytes + 4 * g * 16 ..][0..64];
++    const ex = head[nb * sm_bytes + blk * ex_bytes + 4 * g * 8 ..][0..32];
++    @memset(ex, 0);
++    for (v, slot) |x, s| {
++        const q: usize = s.q;
++        const j: usize = s.j;
++        const below = @as(u16, base) - exponent(x);
++        const code: u8 = if (below > max_offset) 15 else @intCast(below);
++        sm[q * 16 + j] = @intCast(((x >> 8) & 0x80) | (x & 0x7F));
++        ex[q * 8 + 4 * (j & 1) + ((j >> 1) & 3)] |= code << @intCast(4 * (j >> 3));
++        if (code != 15) continue;
++        const pos: u32 = @intCast(16 * (4 * g + q) + j);
++        try esc.append(gpa, pos << 16 | @as(u32, x));
++    }
++}
++
++/// The 12-bit image of the BF16 [n, k] rows `w` padded to `npad`: one pass, its escapes gathered as it is written.
++pub fn pack(gpa: std.mem.Allocator, w: []const u8, n: usize, k: usize, npad: usize) ![]u8 {
++    std.debug.assert(w.len == n * k * 2 and k % qmmf.group == 0 and npad % 128 == 0);
++    const nb = blocks(npad, k);
++    const head_len = nb * head_bytes + (nb + 1) * 4;
++    const head = try gpa.alloc(u8, head_len);
++    defer gpa.free(head);
++    var esc: std.ArrayList(u32) = .empty;
++    defer esc.deinit(gpa);
++    for (0..nb) |blk| {
++        std.mem.writeInt(u32, head[nb * head_bytes + blk * 4 ..][0..4], @intCast(esc.items.len), .little);
++        for (0..8) |g| {
++            const p = at(blk, 4 * g, 0, k);
++            const span: []const u8 = if (p.row < n) w[(p.row * k + p.col) * 2 ..][0..128] else &.{};
++            try packRow(head, &esc, gpa, span, nb, blk, g);
++        }
++    }
++    std.mem.writeInt(u32, head[nb * head_bytes + nb * 4 ..][0..4], @intCast(esc.items.len), .little);
++    const image = try gpa.alloc(u8, head_len + esc.items.len * 4);
++    @memcpy(image[0..head_len], head);
++    @memcpy(image[head_len..], std.mem.sliceAsBytes(esc.items));
++    return image;
++}
++
++/// The weight the image holds at `j` of `lane` in `blk`, read back the way qmmf_q12.cuh's decode reads it.
++pub fn word(image: []const u8, npad: usize, k: usize, blk: usize, lane: usize, j: usize) u16 {
++    const nb = blocks(npad, k);
++    const sm = image[blk * sm_bytes + lane * 16 + j];
++    const ex = image[nb * sm_bytes + blk * ex_bytes + lane * 8 + 4 * (j & 1) + ((j >> 1) & 3)];
++    const code: u8 = @intCast((ex >> @intCast(4 * (j >> 3))) & 0xF);
++    if (code == 15) {
++        const e0 = std.mem.readInt(u32, image[nb * head_bytes + blk * 4 ..][0..4], .little);
++        const e1 = std.mem.readInt(u32, image[nb * head_bytes + (blk + 1) * 4 ..][0..4], .little);
++        const list = nb * head_bytes + (nb + 1) * 4;
++        for (e0..e1) |e| {
++            const v = std.mem.readInt(u32, image[list + e * 4 ..][0..4], .little);
++            if (v >> 16 == 16 * lane + j) return @truncate(v);
++        }
++        return 0;
++    }
++    const base = image[nb * (sm_bytes + ex_bytes) + blk * 8 + lane / 4];
++    return (@as(u16, sm & 0x80) << 8) | (@as(u16, base - code) << 7) | @as(u16, sm & 0x7F);
++}
++
++/// qmmf.cu's Q12 instances: row tiles 16 and 32 at 64 columns, and the 16-row half tile, each plain then clustered.
++fn symbol(comptime bm: u32, comptime bn: u32, comptime wide: bool, comptime cluster: bool) [:0]const u8 {
++    const name = "_ZN7tf_qmmf11qmmf_kernelILi5ELi{d}ELi{d}ELi1ELi4ELi4ELb{d}ELb{d}ELb0" ++
++        "EEEvPK13__nv_bfloat16PKhS5_fPvPfiiiiiii";
++    return std.fmt.comptimePrint(name, .{ bm, bn, @intFromBool(wide), @intFromBool(cluster) });
++}
++
++/// Dynamic shared bytes of a 12-bit tile: the inputs' stages alone, its weights coming straight from global memory.
++pub fn sharedBytes(bm: u32, bn: u32) u32 {
++    const stage = (bm * qmmf.group * 2 + 127) / 128 * 128;
++    const partials = (bm / 16) * (bn / 32) * 4 * 128 * 4;
++    return @max(4 * stage, partials);
++}
++
++const row_tiles = [_]u32{ 16, 32 };
++
++pub const Lane = struct {
++    /// By row tile, then output kind, then plain or clustered; `half` is the 16-row tile at 32 columns.
++    fns: [row_tiles.len][2][2]Function,
++    half: [2][2]Function,
++    reduce: [2]Function,
++
++    /// The instances of an already loaded qmmf module; an image without them refuses here, not at the first launch.
++    pub fn load(mod: Module) !Lane {
++        var l: Lane = undefined;
++        inline for (row_tiles, 0..) |bm, ti| inline for (.{ false, true }, 0..) |wide, oi| inline for (.{ false, true }, 0..) |cl, ci| {
++            const f = try mod.function(symbol(bm, 64, wide, cl));
++            try f.allowDynamicShared(sharedBytes(bm, 64));
++            l.fns[ti][oi][ci] = f;
++        };
++        inline for (.{ false, true }, 0..) |wide, oi| inline for (.{ false, true }, 0..) |cl, ci| {
++            const f = try mod.function(symbol(16, 32, wide, cl));
++            try f.allowDynamicShared(sharedBytes(16, 32));
++            l.half[oi][ci] = f;
++        };
++        for (&l.reduce, qmmf.reduce_symbols) |*f, name| f.* = try mod.function(name);
++        return l;
++    }
++
++    /// qmmf.Lane.matmulOut over `image`, the weight's 12-bit copy: the same tile, slices, sums and epilogue.
++    pub fn matmulOut(l: Lane, s: Stream, x: u64, ldx: usize, m: usize, w: qmmf.Weight, image: u64, y: u64, out: qmmf.Out, part: u64, clusters: bool, half_below: usize) !void {
++        const p = qmmf.planFor(m, w, clusters);
++        if (p.fused or p.bm > max_rows) return error.LaneRows;
++        if (p.reduce and part == 0) return error.MissingLanePart;
++        const rows_t = (m + p.bm - 1) / p.bm;
++        const half = p.bm == 16 and rows_t * ((w.n + 63) / 64) * p.sk < half_below;
++        const cols_n: u32 = if (half) 32 else 64;
++        const f = if (half) l.half[@backingInt(out)][@intFromBool(p.cluster)] else l.fns[@intFromBool(p.bm == 32)][@backingInt(out)][@intFromBool(p.cluster)];
++        const band = @max(1, @min(rows_t, (12 << 20) / (@as(usize, p.bm) * w.k * 2)));
++        var args: launch_.Args = .{};
++        args.add(x);
++        args.add(image);
++        args.add(@as(u64, 0));
++        args.add(w.scale);
++        args.add(y);
++        args.add(if (p.reduce) part else @as(u64, 0));
++        args.add(@as(i32, @intCast(m)));
++        args.add(@as(i32, @intCast(w.n)));
++        args.add(@as(i32, @intCast(w.k)));
++        args.add(@as(i32, @intCast(p.sk)));
++        args.add(@as(i32, @intCast(w.npad)));
++        args.add(@as(i32, @intCast(if (m == 1) w.k else ldx)));
++        args.add(@as(i32, @intCast(band)));
++        try launch_.launch(f, .{
++            .grid = .{ .x = @intCast(rows_t * ((w.n + cols_n - 1) / cols_n)), .y = 1, .z = p.sk },
++            .block = .{ .x = 128, .y = 1, .z = 1 },
++            .shared = sharedBytes(p.bm, cols_n),
++            .cluster = if (p.cluster) .{ .x = 1, .y = 1, .z = p.sk } else null,
++        }, s, &args);
++        if (!p.reduce) return;
++        const total: usize = m * w.n;
++        var r: launch_.Args = .{};
++        r.add(part);
++        r.add(y);
++        r.add(@as(i64, @intCast(total)));
++        r.add(@as(i32, @intCast(p.sk)));
++        r.add(w.scale);
++        try launch_.launch(l.reduce[@backingInt(out)], .{
++            .grid = .{ .x = @intCast((total + 255) / 256), .y = 1, .z = 1 },
++            .block = .{ .x = 256, .y = 1, .z = 1 },
++        }, s, &r);
++    }
++};
++
++const testing = std.testing;
++
++/// Every weight of the image read back, against the BF16 words the lane tile would have read in its place.
++fn roundTrip(gpa: std.mem.Allocator, w: []const u16, n: usize, k: usize) !usize {
++    const npad = (n + 127) / 128 * 128;
++    const tiled = try gpa.alloc(u16, npad * k);
++    defer gpa.free(tiled);
++    qmmf.packBf16(tiled, w, n, k);
++    const image = try pack(gpa, std.mem.sliceAsBytes(w), n, k, npad);
++    defer gpa.free(image);
++    try testing.expectEqual(bytes(npad, k, escapeCount(image, npad, k)), image.len);
++    for (0..blocks(npad, k)) |blk| for (0..32) |lane| for (0..16) |j| {
++        const want = tiled[blk * 512 + (j >> 2) * 128 + lane * 4 + (j & 3)];
++        try testing.expectEqual(want, word(image, npad, k, blk, lane, j));
++    };
++    return escapeCount(image, npad, k);
++}
++
++test "the copy gives back every bf16 bit pattern the BF16 tile would have read" {
++    const gpa = testing.allocator;
++    const n = 1024;
++    const k = 64;
++    const w = try gpa.alloc(u16, n * k);
++    defer gpa.free(w);
++    for (w, 0..) |*v, i| v.* = @truncate(i);
++    _ = try roundTrip(gpa, w, n, k);
++}
++
++test "rows past n, zeros and exponents far below their row's top survive as escapes" {
++    const gpa = testing.allocator;
++    const n = 324;
++    const k = 640;
++    const w = try gpa.alloc(u16, n * k);
++    defer gpa.free(w);
++    var prng = std.Random.DefaultPrng.init(0x12b0c12);
++    const r = prng.random();
++    // a checkpoint's own shape: one row's exponents within a few binades, with exact zeros among them
++    for (w) |*v| v.* = if (r.uintLessThan(u32, 50) == 0) 0 else @as(u16, r.int(u1)) << 15 | @as(u16, r.intRangeAtMost(u8, 118, 127)) << 7 | r.int(u7);
++    try testing.expect(try roundTrip(gpa, w, n, k) > 0);
++}
++
++test "a narrow row escapes nothing and its image is three quarters of the weights" {
++    const gpa = testing.allocator;
++    const n = 128;
++    const k = 128;
++    const w = try gpa.alloc(u16, n * k);
++    defer gpa.free(w);
++    var prng = std.Random.DefaultPrng.init(7);
++    const r = prng.random();
++    for (w) |*v| v.* = @as(u16, r.int(u1)) << 15 | @as(u16, r.intRangeAtMost(u8, 120, 127)) << 7 | r.int(u7);
++    try testing.expectEqual(@as(usize, 0), try roundTrip(gpa, w, n, k));
++    try testing.expectEqual(@as(usize, 24_964), bytes(n, k, 0)); // 32 blocks of 512 weights: 776 bytes each, plus offsets
++}
++
++test "block numbering and the bytes of a copy follow the tile's own order" {
++    try testing.expectEqual(@as(usize, 7680), blocks(384, 10240));
++    const first = at(0, 0, 0, 10240);
++    try testing.expect(first.row == 0 and first.col == 0);
++    // block 8 is the next 64-input group of the same column tile: the same rows, 64 inputs along
++    const next = at(8, 5, 3, 10240);
++    try testing.expect(next.row == 1 and next.col == 64 + 2 + 9);
++    // block 1 is the next n8 tile of the first group: its rows are 8 to 15
++    try testing.expectEqual(@as(usize, 8), at(1, 0, 0, 10240).row);
++    try testing.expectEqual(@as(u8, 1), slot[2].q);
++    try testing.expectEqual(@as(u8, 2), slot[8].j);
++}
+diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
+index b6476817f..fceaa7ca6 100644
+--- a/zig/src/cuda/root.zig
++++ b/zig/src/cuda/root.zig
+@@ -36,6 +36,7 @@ pub const aot = @import("aot.zig");
+ pub const kernels = @import("kernels.zig");
+ pub const qmmf_shared = @import("qmmf_shared.zig");
+ pub const qmmf = @import("qmmf.zig");
++pub const qmmf_q12 = @import("qmmf_q12.zig");
+ pub const fp8 = @import("fp8.zig");
+ pub const mxfp8 = @import("mxfp8.zig");
+ pub const exlr8 = @import("exlr8.zig");
+@@ -125,6 +126,7 @@ test {
+     _ = aot;
+     _ = segments;
+     _ = @import("qmmf.zig");
++    _ = @import("qmmf_q12.zig");
+     _ = @import("qmmf_shared.zig");
+     _ = @import("fp8.zig");
+     _ = @import("mxfp8.zig");
+diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
+index 303cc0174..5e52a1afd 100644
+--- a/zig/src/families/flashnext/cuda_batch_hc.zig
++++ b/zig/src/families/flashnext/cuda_batch_hc.zig
+@@ -104,9 +104,9 @@ pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+     const down = hc_w.down.native orelse return error.UnexpectedTensor;
+     const up = hc_w.up.native orelse return error.UnexpectedTensor;
+     if (n * hc_w.n_down * 4 > s.hc_part_bytes) return error.UnexpectedTensor; // one slice within hc_part (hcPartRows)
+-    try pass.k.nativeMatmul(pass.stream, norm, wide, n, down, s.hc_part, s.native_part, .f32);
++    try pass.k.nativeMatmulQ12(pass.stream, norm, wide, n, down, hc_w.down_q12, s.hc_part, s.native_part, .f32);
+     const inj_ptr = if (hc_w.has_inj == 1) inj else act;
+     try pass.tri.hcReduceAct(s.hc_part, act, xs_act, inj_ptr, 1, n, streams, low, hc_w.n_down, hc_w.has_inj);
+-    try pass.k.nativeMatmul(pass.stream, act, low, n, up, s.hc_up, s.native_part, .bf16);
++    try pass.k.nativeMatmulQ12(pass.stream, act, low, n, up, hc_w.up_q12, s.hc_up, s.native_part, .bf16);
+     try pass.tri.hcDenseMix(s.hc_up, norm, s.mixed + r0 * dims * 2, s.xsm + r0 * (dims / 32) * 4, n, dims, streams);
+ }
+diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
+index 548a10b6c..176bc29c9 100644
+--- a/zig/src/families/flashnext/cuda_batch_kernels.zig
++++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
+@@ -67,6 +67,8 @@ pub const Kernels = struct {
+     tiles: tk.TileKernels,
+     /// qmmf's lane, BF16 projections from qmmf.prompt_rows rows on its 128-row tile (TF_FLASHNEXT_PROMPT_BF16=0: off).
+     native_lane: cuda.qmmf.Lane,
++    /// The 12-bit weight instances of the same image, loaded with the read-outs' copies (TF_FLASHNEXT_HC_Q12).
++    q12: ?cuda.qmmf_q12.Lane = null,
+     nvfp4: cuda.experts.Nvfp4Experts,
+     /// Block-FP8 routed experts (the MTP head of NVIDIA's NVFP4 checkpoint; cuda_moe_native.zig).
+     fp8: cuda.experts.Fp8Experts,
+@@ -115,6 +117,7 @@ pub const Kernels = struct {
+         k.moe = try cuda.experts.RowsExperts.resolve(k.rows);
+         k.native_lane = try cuda.qmmf.Lane.load(d, (try d.currentCapability()) / 10); // the current device: its tiles
+         errdefer k.native_lane.unload();
++        k.q12 = if (try @import("cuda_hc_q12.zig").on()) try cuda.qmmf_q12.Lane.load(k.native_lane.mod) else null;
+         if (envOn("TF_FLASHNEXT_PROMPT_BF16")) try k.native_lane.loadPrompt(d); // the shapes qmmf-prompt-bench times
+         var device: c_int = 0;
+         var sms: c_int = 0;
+@@ -150,6 +153,13 @@ pub const Kernels = struct {
+         return k.native_lane.matmulOut(s, x, ldx, m, w, y, out, part);
+     }
+ 
++    /// nativeMatmul from a weight's 12-bit copy when it has one and a decode row tile carries it.
++    pub fn nativeMatmulQ12(k: *const Kernels, s: cuda.Stream, x: u64, ldx: usize, m: usize, w: cuda.qmmf.Weight, copy: ?cuda.DeviceBuffer, y: u64, part: u64, out: cuda.qmmf.Out) !void {
++        if (copy) |image| if (k.q12) |fast| if (m <= cuda.qmmf_q12.max_rows)
++            return fast.matmulOut(s, x, ldx, m, w, image.ptr, y, out, part, k.native_lane.clusters, k.native_lane.half_below);
++        return k.nativeMatmul(s, x, ldx, m, w, y, part, out);
++    }
++
+     /// TF_FLASHNEXT_PROFILE=1: each chunk's wall time (synchronized) and its host n-gram gather on stderr.
+     pub fn profile() bool {
+         const v = std.c.getenv("TF_FLASHNEXT_PROFILE") orelse return false;
+diff --git a/zig/src/families/flashnext/cuda_hc_q12.zig b/zig/src/families/flashnext/cuda_hc_q12.zig
+new file mode 100644
+index 000000000..50d7befd8
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_hc_q12.zig
+@@ -0,0 +1,105 @@
++//! The read-out matrices' lossless 12-bit copies (TF_FLASHNEXT_HC_Q12) and the boot check that they read back equal.
++const std = @import("std");
++const cuda = @import("cuda");
++
++const q12 = cuda.qmmf_q12;
++
++/// What the copies cost and hold, for the boot line: the matrices, their BF16 and 12-bit bytes, and their escapes.
++pub const Stats = struct { matrices: usize = 0, bf16: usize = 0, q12: usize = 0, escapes: usize = 0 };
++
++pub var stats: Stats = .{};
++
++var cached: ?bool = null;
++
++/// TF_FLASHNEXT_HC_Q12=1 builds the copies, 0 or unset keeps the BF16 weights; any other value refuses the start.
++pub fn on() !bool {
++    if (cached) |v| return v;
++    const v = std.c.getenv("TF_FLASHNEXT_HC_Q12") orelse {
++        cached = false;
++        return false;
++    };
++    const s = std.mem.span(v);
++    if (std.mem.eql(u8, s, "1") or std.mem.eql(u8, s, "0")) {
++        cached = s[0] == '1';
++        return cached.?;
++    }
++    std.log.err("TF_FLASHNEXT_HC_Q12 is \"{s}\": it takes 1 or 0", .{s});
++    return error.BadSetting;
++}
++
++/// The device copy of a read-out's BF16 [n, k] rows, counted into `stats`; the rows themselves stay for the prompt.
++pub fn build(gpa: std.mem.Allocator, driver: *const cuda.Driver, w: []const u8, n: usize, k: usize) !cuda.DeviceBuffer {
++    const npad = cuda.nvfp4.padded(n);
++    const image = try q12.pack(gpa, w, n, k, npad);
++    defer gpa.free(image);
++    stats.matrices += 1;
++    stats.bf16 += npad * k * 2;
++    stats.q12 += image.len;
++    stats.escapes += q12.escapeCount(image, npad, k);
++    return cuda.DeviceBuffer.fromHost(driver, image);
++}
++
++/// The copies' boot line: what they hold and what they cost beside the BF16 rows they do not replace.
++pub fn report() void {
++    if (stats.matrices == 0) return;
++    const gb = @as(f64, @floatFromInt(stats.q12)) / 1e9;
++    const share = 100 * @as(f64, @floatFromInt(stats.q12)) / @as(f64, @floatFromInt(stats.bf16));
++    std.log.info("flashnext: read-outs in 12 bits: {d} matrices, {d:.2} GB beside their rows ({d:.1}% of them), {d} escapes", .{ stats.matrices, gb, share, stats.escapes });
++}
++
++fn sample(r: std.Random, lo: u8, hi: u8) u16 {
++    if (r.uintLessThan(u32, 50) == 0) return 0;
++    return @as(u16, r.int(u1)) << 15 | @as(u16, r.intRangeAtMost(u8, lo, hi)) << 7 | r.int(u7);
++}
++
++/// The boot check: a packed copy of a read-out's own shape gives the BF16 weights' bytes at every decode row tile.
++pub fn selfCheck(gpa: std.mem.Allocator, driver: *const cuda.Driver, s: cuda.Stream, lane: *const cuda.qmmf.Lane, fast: *const q12.Lane) !void {
++    const n: usize = 324;
++    const k: usize = 10240;
++    const npad = cuda.nvfp4.padded(n);
++    const w = try gpa.alloc(u16, n * k);
++    defer gpa.free(w);
++    const x = try gpa.alloc(u16, q12.max_rows * k);
++    defer gpa.free(x);
++    const tiled = try gpa.alloc(u16, npad * k);
++    defer gpa.free(tiled);
++    const got = try gpa.alloc(u8, 2 * q12.max_rows * n * 4);
++    defer gpa.free(got);
++    var prng = std.Random.DefaultPrng.init(0x12b0c12);
++    const r = prng.random();
++    var y = try cuda.DeviceBuffer.alloc(driver, 2 * q12.max_rows * n * 4);
++    defer y.free();
++    var part = try cuda.DeviceBuffer.alloc(driver, 8 * q12.max_rows * n * 4);
++    defer part.free();
++    var xb = try cuda.DeviceBuffer.alloc(driver, q12.max_rows * k * 2);
++    defer xb.free();
++    // a narrow spread of exponents, then one wide enough that weights fall past what a 4-bit offset can say
++    for ([_]u8{ 120, 112 }) |lo| {
++        for (w) |*v| v.* = sample(r, lo, 127);
++        for (x) |*v| v.* = sample(r, 112, 127);
++        cuda.qmmf.packBf16(tiled, w, n, k);
++        try xb.upload(0, std.mem.sliceAsBytes(x));
++        var wb = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(tiled));
++        defer wb.free();
++        const image = try q12.pack(gpa, std.mem.sliceAsBytes(w), n, k, npad);
++        defer gpa.free(image);
++        var qb = try cuda.DeviceBuffer.fromHost(driver, image);
++        defer qb.free();
++        const weight = cuda.modelopt.bf16Weight(wb.ptr, n, k);
++        for ([_]cuda.qmmf.Out{ .f32, .bf16 }) |out| {
++            const unit: usize = if (out == .f32) 4 else 2;
++            for ([_]usize{ 1, 5, 16, 17, 32 }) |m| {
++                try y.fill8(0xA5, s.handle);
++                try lane.matmulOut(s, xb.ptr, k, m, weight, y.ptr, out, part.ptr);
++                try fast.matmulOut(s, xb.ptr, k, m, weight, qb.ptr, y.ptr + q12.max_rows * n * 4, out, part.ptr, lane.clusters, lane.half_below);
++                try s.synchronize();
++                try y.download(0, got);
++                const a = got[0 .. m * n * unit];
++                const b = got[q12.max_rows * n * 4 ..][0 .. m * n * unit];
++                if (std.mem.eql(u8, a, b)) continue;
++                std.log.err("flashnext: the 12-bit read-out differs from its BF16 weights at {d} rows, {s} out", .{ m, @tagName(out) });
++                return error.Q12NotLossless;
++            }
++        }
++    }
++}
+diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
+index 26e0a845d..5f113bfa7 100644
+--- a/zig/src/families/flashnext/cuda_prompt.zig
++++ b/zig/src/families/flashnext/cuda_prompt.zig
+@@ -12,6 +12,7 @@ const pocket = @import("cuda_pocket.zig");
+ pub const kv_format = @import("cuda_kv.zig");
+ const chunks = @import("cuda_chunk.zig");
+ const knobs = @import("cuda_knobs.zig");
++const hc_q12 = @import("cuda_hc_q12.zig");
+ const layers_n = weights.layers_n;
+ const linear_n = weights.linear_n;
+ const attn_n = weights.attn_n;
+@@ -221,6 +222,10 @@ pub const Engine = struct {
+         e.ngram = try ple.Ngram.init(gpa, io, e.model_dir);
+         errdefer e.ngram.deinit();
+         e.batch_k = try batch.Kernels.load(driver);
++        if (e.batch_k.q12) |*fast| {
++            try hc_q12.selfCheck(gpa, driver, stream.*, &e.batch_k.native_lane, fast);
++            hc_q12.report();
++        }
+         e.batch_s = null;
+         e.scores = null;
+         e.chunk = chunk;
+diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
+index 423194ba6..f1314ffea 100644
+--- a/zig/src/families/flashnext/cuda_prompt_wt.zig
++++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
+@@ -349,11 +349,16 @@ pub const HcW = struct {
+     up: Q4,
+     n_down: usize,
+     has_inj: usize,
++    /// the two matrices' lossless 12-bit copies, which decode windows read instead (TF_FLASHNEXT_HC_Q12)
++    down_q12: ?cuda.DeviceBuffer = null,
++    up_q12: ?cuda.DeviceBuffer = null,
+ 
+     pub fn free(self: *HcW) void {
+         self.scale.free();
+         self.down.free();
+         self.up.free();
++        if (self.down_q12) |*b| b.free();
++        if (self.up_q12) |*b| b.free();
+     }
+ };
+ 
+@@ -549,8 +554,14 @@ fn loadDenseHc(gpa: std.mem.Allocator, driver: *cuda.Driver, store: *Store, pref
+     const gamma = try store.normScale(gpa, try store.tensor(try std.fmt.bufPrint(&buf, "{s}.hc_norm.weight", .{prefix})));
+     defer gpa.free(gamma);
+     if (gamma.len != wide) return error.UnexpectedTensor;
+-    const scale = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(gamma));
+-    return .{ .scale = scale, .down = dq, .up = uq, .n_down = n, .has_inj = @intFromBool(inject) };
++    var scale = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(gamma));
++    errdefer scale.free();
++    const q12 = @import("cuda_hc_q12.zig");
++    const copies = try q12.on();
++    var dq12 = if (copies) try q12.build(gpa, driver, data, n, wide) else null;
++    errdefer if (dq12) |*b| b.free();
++    const uq12 = if (copies) try q12.build(gpa, driver, up.bytes, wide, low) else null;
++    return .{ .scale = scale, .down = dq, .up = uq, .n_down = n, .has_inj = @intFromBool(inject), .down_q12 = dq12, .up_q12 = uq12 };
+ }
+ 
+ pub fn stitch(gpa: std.mem.Allocator, store: *Store, prefix: []const u8, names: []const []const u8) !struct { w: []u8, s: []u8, b: []u8, n: usize } {

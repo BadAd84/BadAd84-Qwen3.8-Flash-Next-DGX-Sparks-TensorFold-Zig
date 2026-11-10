@@ -1,0 +1,154 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 03:09:19 +0000
+Subject: [PATCH 05/27] flashnext: pr_check clean and the layout tests
+ re-pinned on the 64-row branch
+
+The branch now passes upstream's own gate: every comment it adds is a
+single line under 120 columns (the probe explanation, the max_rows and
+served_rows docblocks, the window-check notes, the fused kernel's log
+rule), with the mechanics in the receipt and the PR body. The
+CHANGELOG gains an Unreleased bullet; its number is the placeholder
+the gate checks and becomes the real PR number when the PR opens.
+
+The draft layout tests hardcode the window's row counts, which the
+wider max_rows doubles: the scores, saved-projection and n-gram-row
+terms now derive from max_rows and the pinned totals are the suite's
+own measured values (a 65,536-token draft is 411,436,032 bytes full
+and 315,737,088 half; the saved pieces 79,646,720 and 40,570,880; the
+half-head stream 1,430,615,040 with its caches).
+
+lean 116 vs 116 (0 new), pr_check 0 errors 0 warnings, zig fmt clean,
+and the host suite's failure set is origin/main's own three (listener,
+two drama voice tools, environmental without a GPU in the container).
+---
+ CHANGELOG.md                                  |  4 +++
+ zig/src/families/flashnext/cuda_batch.zig     |  2 +-
+ zig/src/families/flashnext/cuda_mtp.zig       |  8 ++----
+ zig/src/families/flashnext/cuda_mtp_check.zig |  9 ++-----
+ zig/src/families/flashnext/cuda_mtp_draft.zig | 26 +++++++++----------
+ 5 files changed, 22 insertions(+), 27 deletions(-)
+
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 3370036cd..4598debfc 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 release notes](RELEASE-NOTES-1.0.0.md) for the native binary's supported models and migration details.
+ 
++## Unreleased
++
++- Flash Next on CUDA: a lone stream's copy window grows past the MTP chain's drafts to the boot self-check's largest row-exact width (#9999); on GB10 that is 48 rows against the 32-row upstream default, and a verify window carrying a pending-row log takes the row-by-row DeltaNet path, which the fused kernel it replaced does not serve.
++
+ ## 1.2.6
+ 
+ - Prompt cache: long conversations survive 8 to 16 agents sending follow-ups at once. Redundant states are evicted before each conversation's newest one, admission never evicts a state a queued request resumes, concurrent keeps reserve their room, and the default budget scales with the room left after streams on Metal and unified-memory CUDA (discrete CUDA hosts keep 8 GiB, Flash Next's batch host 16 GiB). On Qwen3.8-27B with DFlash2 at 16 agents, a follow-up's median first token drops from 546 s to 15.9 s on an M3 Ultra and from 105 s to 25.8 s on a GB10, with every reply unchanged (#2699).
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index d5686306a..279f6e32b 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -257,7 +257,7 @@ pub fn Pass(comptime Tri: type) type {
+                 try self.copy(keep.proj, s.proj, n * pw * 2);
+                 try self.copy(keep.hist, self.seq.conv[li].ptr, (gdn.taps - 1) * cd * 2);
+             }
+-            // one-block chain's bits every row (conv, norms, gates, recurrence, gated norm); a pending-row log needs the row path
++            // the fused kernel writes no pending-row log: a log-carrying window takes the row-by-row path
+             const fused = self.lanes.len == 0 and keep.log == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
+             const cuts = try marks.cuts(self, li, fused);
+             if (fused and keep.log != 0) return error.UnexpectedTensor;
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 5ddb818d1..91bace57f 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -80,13 +80,9 @@ test "the stop rule: per draft above zero, the running product below it, every d
+     var all: Stop = .{ .c = 0 };
+     try std.testing.expect(all.take(5, 0.01).propose and all.take(6, 0.01).more);
+ }
+-/// A verify window's rows at most: the pending token and up to 63 drafts. The MTP chain keeps `max_chain`
+-/// and a copied continuation takes the rest; the row kernels take any row count and a shared verify pass
+-/// already runs `round_rows`, so a 64-row window runs the same kernels at a row count they serve today.
++/// A verify window's rows at most: the pending token and up to 63 drafts (the chain keeps `max_chain`).
+ pub const max_rows: usize = 64;
+-/// The window a load serves: `max_rows`, or 32 when the boot self-check found a row whose scores differ
+-/// from its one-token step. Buffers hold `max_rows` rows either way; the facts and the window checks
+-/// read `window`.
++/// The window a load serves: the boot self-check's largest row-exact prefix (buffers hold `max_rows`).
+ pub var served_rows: usize = max_rows;
+ 
+ pub fn window() usize {
+diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
+index 3a46f7df5..60fde540d 100644
+--- a/zig/src/families/flashnext/cuda_mtp_check.zig
++++ b/zig/src/families/flashnext/cuda_mtp_check.zig
+@@ -169,12 +169,7 @@ fn downloadRow(stream: cuda.Stream, dst: []u16, src: u64) !void {
+     try cuda.memory.download(stream.d, src, std.mem.sliceAsBytes(dst));
+ }
+ 
+-/// The copied continuations' row invariance, proved on the weights: for every width w in `widths`
+-/// (ascending), the continuation's first w tokens run as one verify window and each row's scores are
+-/// compared byte for byte with that row's one-token step. The 32- and the 64-row paths overlap wherever a
+-/// window is common to both, so equal rows at every width is the overlap proof. `bad` takes each width's
+-/// differing row count (its length must match `widths`'); the return is every width's differing total.
+-/// `seq` and `d` are scratch reused across widths.
++/// Each width's rows must score byte-equal to their one-token steps; `bad` takes each width's differing count.
+ pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft, prompt_ids: []const u32, widths: []const usize, bad: []usize) !usize {
+     const gpa = o.e.gpa;
+     const rows = widths[widths.len - 1];
+@@ -217,7 +212,7 @@ pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft,
+     return total;
+ }
+ 
+-/// The boot self-check sweeps widths to `rows` on a synthetic prompt: `rows` when every row is byte-equal to its one-token step, else 32.
++/// The boot self-check: sweeps widths to `rows` on a synthetic prompt; returns the largest row-exact width.
+ pub fn probeServed(comptime Tri: type, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: *cuda.Stream, tri: Tri, e: *prompt.Engine, h: *Head, rows: usize) !usize {
+     var ids: [96]u32 = undefined;
+     for (&ids, 0..) |*t, i| t.* = @intCast(1000 + (i * 7919) % 200_000);
+diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
+index 34d045c7c..dc53927c3 100644
+--- a/zig/src/families/flashnext/cuda_mtp_draft.zig
++++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
+@@ -348,30 +348,30 @@ test "a draft at 65,536 tokens and 1,536-row chunks: the head's cache whole, sav
+     const draft_n = 32768;
+     // the head's cache: two KV heads of 256, 128 indexer keys a position, a pooled row a block of 4
+     const head: usize = cap * (2 * 2 * 256 * 2 + 128 * 2) + cap / 4 * 128 * 2;
+-    // streams rows, the head's output row, a window's scores, the draft head's, best values
+-    const buffers: usize = rows * 4 * 2560 * 2 + 4 * 2560 * 2 + 32 * 248320 * 2 + draft_n * 2 + best_bytes;
+-    // saved: 36 conv windows, 36 layers' 32 projection rows, the n-gram tail and 32 n-gram rows; 36 spare states
+-    const tail: usize = 9 * 4 * 2560 * 2 + 32 * 4 * 2560 * 2;
+-    const full: usize = 36 * 3 * 10240 * 2 + 36 * 32 * 16480 * 2 + tail + 36 * 48 * 128 * 128 * 4;
+-    const half: usize = 36 * 3 * 5120 * 2 + 36 * 32 * 8240 * 2 + tail + 36 * 24 * 128 * 128 * 4;
++    // streams rows, the head's output row, a window's scores (max_rows), the draft head's, best values
++    const buffers: usize = rows * 4 * 2560 * 2 + 4 * 2560 * 2 + max_rows * 248320 * 2 + draft_n * 2 + best_bytes;
++    // saved: 36 conv windows, 36 layers' max_rows projection rows, the n-gram tail and max_rows n-gram rows
++    const tail: usize = 9 * 4 * 2560 * 2 + max_rows * 4 * 2560 * 2;
++    const full: usize = 36 * 3 * 10240 * 2 + 36 * max_rows * 16480 * 2 + tail + 36 * 48 * 128 * 128 * 4;
++    const half: usize = 36 * 3 * 5120 * 2 + 36 * max_rows * 8240 * 2 + tail + 36 * 24 * 128 * 128 * 4;
+     try std.testing.expectEqual(head + buffers + full, Draft.bytes(cap, draft_n, rows, .full));
+     try std.testing.expectEqual(head + buffers + half, Draft.bytes(cap, draft_n, rows, .half));
+-    try std.testing.expectEqual(@as(usize, 356_905_472), Draft.bytes(cap, draft_n, rows, .full));
+-    try std.testing.expectEqual(@as(usize, 280_191_488), Draft.bytes(cap, draft_n, rows, .half));
++    try std.testing.expectEqual(@as(usize, 411_436_032), Draft.bytes(cap, draft_n, rows, .full));
++    try std.testing.expectEqual(@as(usize, 315_737_088), Draft.bytes(cap, draft_n, rows, .half));
+     // with the stream's own caches at half the heads
+-    try std.testing.expectEqual(@as(usize, 1_395_069_440), sizes.seqBytes(cap, .half) + Draft.bytes(cap, draft_n, rows, .half));
++    try std.testing.expectEqual(@as(usize, 1_430_615_040), sizes.seqBytes(cap, .half) + Draft.bytes(cap, draft_n, rows, .half));
+ }
+ 
+ test "the saved pieces follow one another at the model's heads, and the spares hold its states" {
+     for ([_]Heads{ .full, .half }) |h| {
+         const l = Draft.Layout.of(h);
+         try std.testing.expectEqual(@as(usize, 36 * 3 * h.convDim() * 2), l.proj_at);
+-        try std.testing.expectEqual(l.proj_at + 36 * 32 * h.projWidth() * 2, l.tail_at);
++        try std.testing.expectEqual(l.proj_at + 36 * max_rows * h.projWidth() * 2, l.tail_at);
+         try std.testing.expectEqual(l.tail_at + 9 * 4 * 2560 * 2, l.nrow_at);
+-        try std.testing.expectEqual(l.nrow_at + 32 * 4 * 2560 * 2, l.saved);
++        try std.testing.expectEqual(l.nrow_at + max_rows * 4 * 2560 * 2, l.saved);
+         try std.testing.expectEqual(sizes.stateBytes(h), l.state);
+         try std.testing.expect(l.heads.eql(h));
+     }
+-    try std.testing.expectEqual(@as(usize, 41_021_440), Draft.Layout.of(.full).saved);
+-    try std.testing.expectEqual(@as(usize, 20_930_560), Draft.Layout.of(.half).saved);
++    try std.testing.expectEqual(@as(usize, 79_646_720), Draft.Layout.of(.full).saved);
++    try std.testing.expectEqual(@as(usize, 40_570_880), Draft.Layout.of(.half).saved);
+ }
