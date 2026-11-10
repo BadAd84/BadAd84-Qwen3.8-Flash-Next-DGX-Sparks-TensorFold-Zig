@@ -1,4 +1,4 @@
-From 675f40ed54d6bc90331598ff697410de6ee6e963 Mon Sep 17 00:00:00 2001
+From b41b4b6af0131c49668c814ad49c7c0c03e7cc9f Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 13:00:38 +0000
 Subject: [PATCH 28/28] flashnext: the kv-cache fp8 and row-cache levers' files

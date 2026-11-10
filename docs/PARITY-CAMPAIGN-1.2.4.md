@@ -96,7 +96,15 @@ The `atc` CLI needs node + an authenticated `gh`; spark6 has neither. The instru
   probe +4.5%; model memory 76.16 -> 75.89 GiB. Negatives: the fp8 reader half is NOT ported (blocked
   on 0003); C=4/6 ran one boot each. BEFORE ITS PR: ATC overlap is already clear (the lane swept all
   202 open PRs - none touch mode()).
-- THE STACK + SERIES (owner request 2026-11-09): FINAL - `levers124-stack` @ `fa4f6611` (12 signed
+- THE STACK + SERIES (owner request 2026-11-09): RE-SIGNED after a compile repair - the stack
+  branch's kv8/row-cache commit called `attnFusedKv8` with the pre-0028 11-arg signature (the
+  0015-lane's window caught it; the single-lever gates never compiled that file). Fixed in
+  0028 (`b41b4b6af` on spark6), the series regenerated (TREE_IDENTICAL + SERIES_EQUALS_STACK),
+  and both branches re-signed + force-pushed over the lane's own earlier state: Gitea
+  `levers124-stack` = `60db77f6`, `levers124-series` = `86ed7f5c`, every commit G. The local
+  `scripts/qwen38/zig/levers124/` holds the regenerated 11 patches. The 0006 re-arm
+  (`6c53d7f05`, tile default off) and the resync (`cb32b158b`) are unaffected.
+- THE STACK + SERIES (superseded detail): FINAL - `levers124-stack` @ `fa4f6611` (12 signed
   commits on 267c5af6a: the 8 levers + 0026 round-cost + 0027 mx128 tile/records + 0028 compile
   repairs) and `levers124-series` @ `05a2bbcf` (11 patches, 0018-0028), both all-G signed, pushed to
   the Gitea fork; local `scripts/qwen38/zig/levers124/` holds all 11 + README, TREE_IDENTICAL +

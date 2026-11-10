@@ -1,4 +1,4 @@
-From 7381bf3a779f077d70e956775a1e84b1c754dd76 Mon Sep 17 00:00:00 2001
+From a27f78629f62e0ebe5ddbfdfc0eb7c0005de3bd0 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 09:54:53 +0000
 Subject: [PATCH 27/28] flashnext: the prompt tile runs two stages and two
