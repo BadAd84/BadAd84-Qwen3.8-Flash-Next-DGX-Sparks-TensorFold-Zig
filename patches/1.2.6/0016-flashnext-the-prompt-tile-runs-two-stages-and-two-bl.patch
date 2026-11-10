@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 09:54:53 +0000
-Subject: [PATCH 16/27] flashnext: the prompt tile runs two stages and two
+Subject: [PATCH 16/28] flashnext: the prompt tile runs two stages and two
  blocks an SM under TF_FLASHNEXT_PROMPT_GEMM2=1
 
 The same tile and arithmetic with two pipeline stages instead of three and two blocks an SM

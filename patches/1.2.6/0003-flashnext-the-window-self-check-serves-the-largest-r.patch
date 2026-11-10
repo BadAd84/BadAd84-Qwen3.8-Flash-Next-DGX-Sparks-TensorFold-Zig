@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sun, 8 Nov 2026 05:56:34 +0000
-Subject: [PATCH 03/27] flashnext: the window self-check serves the largest
+Subject: [PATCH 03/28] flashnext: the window self-check serves the largest
  row-exact width
 
 A differing row no longer falls back to a fixed 32: the check reports

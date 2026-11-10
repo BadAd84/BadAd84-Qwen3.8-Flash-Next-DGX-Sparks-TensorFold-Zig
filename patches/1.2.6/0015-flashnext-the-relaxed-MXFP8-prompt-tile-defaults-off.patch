@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 20:49:36 +0000
-Subject: [PATCH 15/27] flashnext: the relaxed MXFP8 prompt tile defaults off
+Subject: [PATCH 15/28] flashnext: the relaxed MXFP8 prompt tile defaults off
 
 The tile carried a measured prose decode cost (44.9 vs 45.9-46.6 tok/s
 across 1/2/6 streams) while the no-drain and 3072-row chunk changes keep

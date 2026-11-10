@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 06:51:10 +0000
-Subject: [PATCH 19/27] changelog: the draft head's default in Unreleased
+Subject: [PATCH 19/28] changelog: the draft head's default in Unreleased
 
 ---
  CHANGELOG.md | 1 +

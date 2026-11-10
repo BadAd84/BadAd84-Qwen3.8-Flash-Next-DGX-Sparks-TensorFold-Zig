@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 04:09:46 +0000
-Subject: [PATCH 18/27] flashnext: the draft head's rows are 4-bit by default
+Subject: [PATCH 18/28] flashnext: the draft head's rows are 4-bit by default
 
 The Flash Next draft head's rows load as affine4 unless TF_FLASHNEXT_DRAFT_HEAD
 names a mode. The head's drafts are only proposals, so the replies are the

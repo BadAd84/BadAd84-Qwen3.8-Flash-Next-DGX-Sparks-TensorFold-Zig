@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 07:46:42 +0000
-Subject: [PATCH 13/27] flashnext: gather a shared pass's n-gram rows in one
+Subject: [PATCH 13/28] flashnext: gather a shared pass's n-gram rows in one
  pool call and lock the tables' scales at load
 
 A shared pass's gather thread takes every lane's rows in one pool call

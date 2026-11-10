@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 05:20:39 +0000
-Subject: [PATCH 14/27] flashnext: prompt passes drain less, fill 3072-row
+Subject: [PATCH 14/28] flashnext: prompt passes drain less, fill 3072-row
  chunks and route MXFP8 projections to a relaxed tile
 
 A prompt pass no longer drains the stream after a non-final chunk on one rank

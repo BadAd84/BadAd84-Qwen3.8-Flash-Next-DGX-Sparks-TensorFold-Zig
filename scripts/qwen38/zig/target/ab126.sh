@@ -21,7 +21,7 @@ loads=idle
 [ "$C" -gt 1 ] && loads="idle,load$((C - 1))"
 echo "=== $ARM C=$C image $IMG start $(date -Is) gpu $(gpu)"
 t0=$SECONDS
-( cd "$HOME/work/lanes/rpr/recipe" && env PREPARE=0 IMAGE="$IMG" CHECKPOINT=nvfp4 VISION=0 \
+( cd "$HOME/work/lanes/rpr/recipe" && env PREPARE=0 IMAGE="$IMG" CHECKPOINT=nvfp4 VISION=0 TENSORFOLD_CUDA_KERNELS=native \
     KV_DTYPE="${KV_DTYPE:-bf16}" PARALLEL="$C" CONTEXT="${CONTEXT:-131072}" HOST=127.0.0.1 ./start.sh restart </dev/null ) 2>&1 \
   | grep -a "answered\|LIVE\|refus\|rror\|ERROR\|needs" | head -20
 echo "BOOT seconds $((SECONDS - t0))"

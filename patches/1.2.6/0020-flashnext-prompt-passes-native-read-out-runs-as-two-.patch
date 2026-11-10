@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:11:41 +0000
-Subject: [PATCH 20/27] flashnext: prompt passes native read-out runs as two
+Subject: [PATCH 20/28] flashnext: prompt passes native read-out runs as two
  fused kernels and the shared output reads in place
 
 A prompt pass native hyper-connection read-out (TF_FLASHNEXT_PROMPT_HC2=1, from TF_FLASHNEXT_HC2_MIN

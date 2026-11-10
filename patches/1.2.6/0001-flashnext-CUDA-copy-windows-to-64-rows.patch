@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sun, 8 Nov 2026 00:59:34 +0000
-Subject: [PATCH 01/27] flashnext: CUDA copy windows to 64 rows
+Subject: [PATCH 01/28] flashnext: CUDA copy windows to 64 rows
 
 A lone stream's verify window held 32 rows, so a copied continuation
 stopped at 31 drafts. It now grows to 63 after a copy that lands whole,

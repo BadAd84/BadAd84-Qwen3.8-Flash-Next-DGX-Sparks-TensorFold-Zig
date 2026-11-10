@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 07:31:10 +0000
-Subject: [PATCH 08/27] kv-cache fp8: Flash Next e4m3 attention caches on 1.2.4
+Subject: [PATCH 08/28] kv-cache fp8: Flash Next e4m3 attention caches on 1.2.4
 
 ---
  CHANGELOG.md                                  |   6 +

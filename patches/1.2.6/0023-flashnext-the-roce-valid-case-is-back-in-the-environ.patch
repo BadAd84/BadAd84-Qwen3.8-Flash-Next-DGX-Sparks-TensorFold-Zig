@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 11:18:15 +0000
-Subject: [PATCH 23/27] flashnext: the roce valid case is back in the
+Subject: [PATCH 23/28] flashnext: the roce valid case is back in the
  environment test
 
 The covered check requires a valid case per rule row, and my insert replaced the

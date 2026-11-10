@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:59:13 +0000
-Subject: [PATCH 22/27] flashnext: the plan declaration, the dims const, the
+Subject: [PATCH 22/28] flashnext: the plan declaration, the dims const, the
  roce rule row and the split test flag are back
 
 The first host-suite run caught four defects the lean gate cannot see: the grouped plan constant my

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:59:34 +0000
-Subject: [PATCH 26/27] vision: ModelOpt NVFP4 and MXFP8 tower linears decode
+Subject: [PATCH 26/28] vision: ModelOpt NVFP4 and MXFP8 tower linears decode
  to bf16 at load
 
 The FP4 checkpoint's tower stores its attention linears as MXFP8 and its MLP and

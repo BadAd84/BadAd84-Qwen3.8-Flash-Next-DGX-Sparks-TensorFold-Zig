@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 09:04:07 +0000
-Subject: [PATCH 12/27] Flash Next: the NVFP4 n-gram table through a row cache,
+Subject: [PATCH 12/28] Flash Next: the NVFP4 n-gram table through a row cache,
  read ahead of the gather, and an evened prompt tail
 
 Adapts MiaAI-Lab recipe patch 0013 onto 1.2.4: TF_FLASHNEXT_GATHER_READ=pread reads an NVFP4 table's rows into a

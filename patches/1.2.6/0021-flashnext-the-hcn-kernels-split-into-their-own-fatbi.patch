@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:40:03 +0000
-Subject: [PATCH 21/27] flashnext: the hcn kernels split into their own fatbin
+Subject: [PATCH 21/28] flashnext: the hcn kernels split into their own fatbin
  and the comments read one line
 
 The lean gate holds every touched source at 600 lines and one-line comments: the hcn block moves to

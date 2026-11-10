@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:08:58 +0000
-Subject: [PATCH 17/27] cuda contract: the MXFP8 prompt tile registers its
+Subject: [PATCH 17/28] cuda contract: the MXFP8 prompt tile registers its
  sm_12x launches
 
 The relaxed tile and its two-stage variant record nvcc 13.0 receipts on sm_120 and sm_121

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sun, 8 Nov 2026 05:18:11 +0000
-Subject: [PATCH 02/27] flashnext: a verify window with a pending-row log takes
+Subject: [PATCH 02/28] flashnext: a verify window with a pending-row log takes
  the row-by-row GDN path
 
 The fused DeltaNet kernel writes no pending-row log, and a lone verify

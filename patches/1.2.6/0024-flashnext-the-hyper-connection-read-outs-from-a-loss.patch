@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sat, 7 Nov 2026 18:12:31 +0000
-Subject: [PATCH 24/27] flashnext: the hyper-connection read-outs from a
+Subject: [PATCH 24/28] flashnext: the hyper-connection read-outs from a
  lossless 12-bit copy of their weights
 
 A decode window's read-out spends most of its time reading weights: each layer's
@@ -104,7 +104,7 @@ index f58c28b1f..f851651a3 100644
  template __global__ void reduce_kernel<false>(const float* __restrict__, void* __restrict__, long long, int, float);
  
 diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
-index 716ddc517..0b379a65d 100644
+index 716ddc517..634b6c08d 100644
 --- a/zig/kernels/cuda/qmmf_body.cuh
 +++ b/zig/kernels/cuda/qmmf_body.cuh
 @@ -117,6 +117,9 @@
@@ -113,7 +113,7 @@ index 716ddc517..0b379a65d 100644
      for (int it = 0; it < per; ++it) {
 +        // the 12-bit weights of this group, read straight from global memory and decoded before the staged inputs
 +        uint32_t bw[MODE == Q12 ? T::NT : 1][8];
-+        if constexpr (MODE == Q12) tf_qmmf_q12::warp_tiles<T::NT>(bw, w, npad, K, n0, g0 + it, wn, lane);
++        if constexpr (MODE == Q12) tf_qmmf_q12::warp_tiles(bw, w, npad, K, n0, g0 + it, wn, lane);
          if constexpr (FUSE) {
              if (it > 0 && it % slice_groups == 0) {
  #pragma unroll

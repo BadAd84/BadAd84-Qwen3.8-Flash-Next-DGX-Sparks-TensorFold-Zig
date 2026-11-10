@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:59:34 +0000
-Subject: [PATCH 27/27] vision: a request's image rows may reach 16,384
+Subject: [PATCH 27/28] vision: a request's image rows may reach 16,384
 
 The per-request image-row limit becomes the named 16,384 maximum; the default
 configuration is unchanged and one image still keeps at most one tower call's 4,096

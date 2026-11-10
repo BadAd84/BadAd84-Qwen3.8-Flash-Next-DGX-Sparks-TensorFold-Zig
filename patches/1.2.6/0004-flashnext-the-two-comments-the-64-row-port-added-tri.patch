@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sun, 8 Nov 2026 08:16:03 +0000
-Subject: [PATCH 04/27] flashnext: the two comments the 64-row port added trip
+Subject: [PATCH 04/28] flashnext: the two comments the 64-row port added trip
  the single-line checker
 
 ---

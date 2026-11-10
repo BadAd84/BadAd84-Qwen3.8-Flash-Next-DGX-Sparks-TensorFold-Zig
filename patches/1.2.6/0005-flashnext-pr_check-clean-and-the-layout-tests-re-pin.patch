@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 03:09:19 +0000
-Subject: [PATCH 05/27] flashnext: pr_check clean and the layout tests
+Subject: [PATCH 05/28] flashnext: pr_check clean and the layout tests
  re-pinned on the 64-row branch
 
 The branch now passes upstream's own gate: every comment it adds is a

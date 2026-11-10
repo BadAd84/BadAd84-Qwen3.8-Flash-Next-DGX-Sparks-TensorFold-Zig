@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Sat, 7 Nov 2026 14:33:29 +0000
-Subject: [PATCH 06/27] lanes: copy re-sync past an edit, and the lone copy
+Subject: [PATCH 06/28] lanes: copy re-sync past an edit, and the lone copy
  ramp in shared rounds
 
 A copy window that misses in the middle of an edit loses its source: the next proposal

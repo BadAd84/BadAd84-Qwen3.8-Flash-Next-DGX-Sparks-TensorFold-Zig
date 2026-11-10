@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 08:08:00 +0000
-Subject: [PATCH 09/27] kv-cache fp8: KV8 device code split into
+Subject: [PATCH 09/28] kv-cache fp8: KV8 device code split into
  flashnext_kv8.cuh, lean-gate comment fixes
 
 ---

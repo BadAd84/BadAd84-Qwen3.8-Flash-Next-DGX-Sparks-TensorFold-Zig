@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 10:49:34 +0000
-Subject: [PATCH 25/27] flashnext: a shared round prices itself from the
+Subject: [PATCH 25/28] flashnext: a shared round prices itself from the
  environment, and a draft row prices apart
 
 Nothing is timed at load on the Flash Next CUDA backend, so a shared round is unpriced:

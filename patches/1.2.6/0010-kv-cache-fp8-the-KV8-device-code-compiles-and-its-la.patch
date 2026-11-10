@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
 Date: Mon, 9 Nov 2026 08:34:57 +0000
-Subject: [PATCH 10/27] kv-cache fp8: the KV8 device code compiles and its
+Subject: [PATCH 10/28] kv-cache fp8: the KV8 device code compiles and its
  launch records register
 
 stage_kv8_tile takes the KV-head count as an argument (HK is a runtime
