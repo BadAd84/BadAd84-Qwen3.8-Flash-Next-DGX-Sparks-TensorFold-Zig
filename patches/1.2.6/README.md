@@ -4,7 +4,7 @@ The TensorFold tree stays pristine at upstream v1.2.6 (`6e9af930261a88bb28ac0bfb
 change we own is one numbered patch here, applied in filename order. This is the artifact the image build
 consumes: `build_patches.sh TAG git://192.168.99.16/up-pr/tf 6e9af9302 <this directory>`.
 
-Applied in order, the 30 patches touch 85 paths and reproduce the `stacked126` development branch exactly
+Applied in order, the 32 patches touch 87 paths and reproduce the `stacked126` development branch exactly
 (that branch is the same series as commits, kept as the tag `archive/stacked126`).
 
 | patches | lever | buildable prefix? |
@@ -23,6 +23,8 @@ Applied in order, the 30 patches touch 85 paths and reproduce the `stacked126` d
 | 0026 | the hyper-connection read-outs from a lossless 12-bit copy of their weights | after 0030 |
 | 0027 | a shared round priced from the environment | after 0030 |
 | 0028-0029 | vision: ModelOpt NVFP4 and MXFP8 tower linears decode to bf16 at load, and image rows may reach 16,384 | after 0030 |
+| 0031 | `TF_FLASHNEXT_GATHER_DIRECT=0` reads the n-gram row cache through the page cache instead of `O_DIRECT` (the plain reader and this variant both beat the `O_DIRECT` path) | after 0030 |
+| 0032 | `TF_FLASHNEXT_CHECK_LOG=1` logs the first row the window self-check finds differing from its one-token step | after 0030 |
 | 0030 | the remaining integration tail: the draft files reverted to upstream, the tile kernels' fields, the parity test's argument, and the relaxed tile's default | full series only |
 
 ## Applying
@@ -39,7 +41,7 @@ build refuses an unregistered CUDA switch.
 
 ## State (2026-11-11, overnight)
 
-The series builds `tensorfold-qwen38:stack126` from a pristine `6e9af9302` (30 patches apply with `git apply`;
+The series builds `tensorfold-qwen38:stack126` from a pristine `6e9af9302` (32 patches apply with `git apply`;
 `zig build fatbins install native` passes in nvcr.io/nvidia/pytorch:26.07-py3 with zig 0.17.0). The image boots
 through the campaign recipe with `KV_DTYPE=fp8` or `bf16`, `TENSORFOLD_CUDA_KERNELS=native` (the image's own Triton
 AOT set is refused beside Flash Next's glue), and serves requests whose replies are byte-identical to stock's at

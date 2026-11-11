@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <--show-origin>
+Date: Wed, 11 Nov 2026 20:24:36 +0000
+Subject: [PATCH] flashnext: the window self-check can log its first differing
+ row
+
+TF_FLASHNEXT_CHECK_LOG=1 logs the first row whose windowed scores differ from its one-token step, with four scores
+from each path, so the boot check distinguishes a byte-layout mismatch from a numeric difference.
+---
+ zig/src/families/flashnext/cuda_mtp_check.zig | 10 +++++++++-
+ 1 file changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
+index 60fde540..0ebc25c9 100644
+--- a/zig/src/families/flashnext/cuda_mtp_check.zig
++++ b/zig/src/families/flashnext/cuda_mtp_check.zig
+@@ -205,7 +205,15 @@ pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft,
+         for (0..w) |r| {
+             try downloadRow(o.e.stream.*, got, d.logits.ptr + r * vocab * 2);
+             total += 1;
+-            if (!std.mem.eql(u16, got, ref[r * vocab ..][0..vocab])) differ += 1;
++            if (!std.mem.eql(u16, got, ref[r * vocab ..][0..vocab])) {
++                differ += 1;
++                // TF_FLASHNEXT_CHECK_LOG: the first differing row's scores from both paths, so a byte mismatch is
++                // diagnosable at boot
++                if (differ == 1 and std.c.getenv("TF_FLASHNEXT_CHECK_LOG") != null) {
++                    const r0 = ref[r * vocab ..][0..vocab];
++                    std.log.warn("check row {d}: one-token {d} {d} {d} {d}, the window {d} {d} {d} {d}", .{ r, r0[0], r0[1], r0[2], r0[3], got[0], got[1], got[2], got[3] });
++                }
++            }
+         }
+         b.* = differ;
+     }
