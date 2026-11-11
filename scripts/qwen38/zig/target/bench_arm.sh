@@ -6,15 +6,16 @@
 set -uo pipefail
 ARM=${1:?arm} C=${2:?streams}
 IMG=${IMG:-tensorfold-qwen38:up126}
+CHKPT=${CHKPT:-nvfp4}
 OUT=$HOME/work/target/bench/$ARM/c$C
 mkdir -p "$OUT" || exit 1
 exec > "$OUT/arm.log" 2>&1
 gpu() { nvidia-smi --query-gpu=temperature.gpu,clocks.sm,power.draw --format=csv,noheader 2>/dev/null | tr -d ' '; }
 loads=idle
 [ "$C" -gt 1 ] && loads="idle,load$((C - 1))"
-echo "=== $ARM C=$C image $IMG kv ${KV_DTYPE:-bf16} ctx ${CONTEXT:-131072} start $(date -Is) gpu $(gpu)"
+echo "=== $ARM C=$C image $IMG kv ${KV_DTYPE:-bf16} ctx ${CONTEXT:-131072} ckpt $CHKPT start $(date -Is) gpu $(gpu)"
 t0=$SECONDS
-( cd "$HOME/work/lanes/rpr/recipe" && env PREPARE=0 IMAGE="$IMG" CHECKPOINT=nvfp4 VISION=0 TENSORFOLD_CUDA_KERNELS=native \
+( cd "$HOME/work/lanes/rpr/recipe" && env PREPARE=0 IMAGE="$IMG" CHECKPOINT="$CHKPT" VISION=0 TENSORFOLD_CUDA_KERNELS=native \
     KV_DTYPE="${KV_DTYPE:-bf16}" PARALLEL="$C" CONTEXT="${CONTEXT:-131072}" HOST=127.0.0.1 ${ARM_ENV:-} ./start.sh restart </dev/null ) 2>&1 \
   | grep -a "answered\|LIVE\|refus\|rror\|ERROR\|needs" | head -20
 echo "BOOT seconds $((SECONDS - t0))"

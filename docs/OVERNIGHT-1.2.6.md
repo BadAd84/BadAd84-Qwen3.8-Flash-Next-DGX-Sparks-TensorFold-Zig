@@ -109,8 +109,10 @@ above.
   (`TF_FLASHNEXT_PROMPT_MX128=0`, which is what patch 0015 intended and what the environment row documents), and the
   rebuild at the end of the night still reports 4/6 golden and 0 of 2080, so the tile was not the cause. Inverting
   the other suspects at boot (`PROMPT_SYNC=1`, `TF_FLASHNEXT_CHUNK=1024`, `DRAFT_HEAD=bf16`, `PROMPT_HC2=1`) each
-  still reports 32 rows, so the break is in a lever with no switch: the attention-glue refactor (patches 0007-0011)
-  is the prime suspect now, then the prompt-pass chunk work. The rows-only arm isolates the self-check itself as
+  still reports 32 rows. The prefix ladder then localised it: rows, rows+kv8 and rows to n-gram all report 1,176 of
+  2,080 rows and serve 48-row windows, and only the full series reports 0, so the regression is in 0016-0030 and the
+  attention-glue refactor of 0007-0011 is excluded. Skipping the read-out patch 0026 still applies as a series, so it
+  is the first compile candidate. The rows-only arm isolates the self-check itself as
   correct.
 
 ## What "adding the patches in" showed
@@ -131,16 +133,30 @@ around it, and a wedged run needs the queue killed and the production serve rest
 The valid ladder point is rows against stock: +3-6% at 1-2 streams, level at 4. The full stack then adds the
 prompt, gather and read-out levers: +15.6/+7.9/+7.6/+6.2% code decode at 1/2/4/6 and 7-15% faster cold prefill.
 
+The same ladder read out the boot self-check, which is the sharper signal:
+
+| image | patches | self-check | windows served |
+|---|---|---|---|
+| stock `up126` | none (the check is our patch) | - | 32 rows |
+| `stack126a` | 0001-0005 | 1,176 of 2,080 | 48 rows |
+| `stack126kv` | 0001-0012 | 1,176 of 2,080 | 48 rows |
+| `stack126ng` | 0001-0015 | 1,176 of 2,080 | 48 rows |
+| `stack126` | 0001-0030 | 0 of 2,080 | 32 rows |
+
+So the rows lever, the kv8 glue and the n-gram work all keep the window exact, and the break enters between 0016
+and 0030. Skipping 0026 (the 12-bit read-out) still applies as a 29-patch series, and that build is the first
+compile candidate.
+
 ## Next steps, in the order they block
 
 1. **Finish the per-lever split.** Done overnight: 0012 (kv8) and 0015 (pread) carry their corrections, three
    prefixes compile, and the 30-patch series reproduces the same tree byte for byte. Next: move the draft revert
    (now in 0030) into the kv8 rung, which makes that rung serve and the speed ladder meaningful; then the tile and
    knob pieces.
-2. **Root-cause the 4/6 golden and 0-of-2080 self-check** on the full stack. The rows-only arm is 6/6 and 1,176 of
-   2,080 (48 rows), the tile, chunk, sync, head and HC2 knobs are excluded by boot probes, so the attention-glue
-   refactor (0007-0011) is next: revert its glue files alone on top of the stack and read the golden and the
-   self-check line.
+2. **Root-cause the 4/6 golden and 0-of-2080 self-check** on the full stack. The self-check ladder narrows it to
+   0016-0030: every prefix up to 0015 reports 1,176 of 2,080 rows and serves 48, while the full series reports 0 and
+   serves 32. The 12-bit read-out patch 0026 is the first compile candidate, since the series still applies without
+   it: build that series, boot it, and read the self-check line.
 3. **Re-land the pread draft read-ahead** behind the reconciled draft code (TF_FLASHNEXT_DRAFT_AHEAD is parked).
 4. **Reconcile the per-stream memory estimate**: the 1.0.0 stack fit 8 streams at 262,144 tokens in 24.1 GiB; this
    stack estimates 4.54 GiB a stream at fp8 (36.3 GiB for 8) and refuses. The kv8 caches are not larger; the
