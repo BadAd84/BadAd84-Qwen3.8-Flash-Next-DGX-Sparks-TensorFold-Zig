@@ -47,6 +47,7 @@ def parse_metrics(text):
         else:
             parts = line.split()
             name = parts[0] if parts else ""
+        name = name.rsplit(":", 1)[-1]  # the server prefixes its families: tensorfold:mtp_drafted_total
         if name in got and parts:
             try:
                 got[name] = float(parts[-1])

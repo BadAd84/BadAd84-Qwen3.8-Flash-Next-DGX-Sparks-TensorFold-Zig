@@ -16,7 +16,20 @@ decode_rounds_total 300
 """
 
 
+PROM_PREFIXED = """# TYPE tensorfold:mtp_drafted_total counter
+tensorfold:mtp_drafted_total 111
+tensorfold:mtp_accepted_total 66
+tensorfold:decode_rounds_total 33
+"""
+
+
 class ParseMetrics(unittest.TestCase):
+    def test_the_servers_prefixed_families(self):
+        m = draft_accounting.parse_metrics(PROM_PREFIXED)
+        self.assertEqual(m["mtp_drafted_total"], 111.0)
+        self.assertEqual(m["mtp_accepted_total"], 66.0)
+        self.assertEqual(m["decode_rounds_total"], 33.0)
+
     def test_reads_the_three_counters(self):
         m = draft_accounting.parse_metrics(PROM)
         self.assertEqual(m["mtp_drafted_total"], 900.0)
