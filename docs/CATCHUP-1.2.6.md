@@ -98,6 +98,30 @@ FP8 MTP drafter overlay (`TF_FLASHNEXT_MTP_FP8` points at a separate azampatti I
 set that our tree does not load at all). That is what has to be ported, and it is where the levers of cluster 1 and 2
 land.
 
+## The 262,144-target memory refusal
+
+Our stack refuses 6 streams at 262,144 tokens: "`--parallel 6 needs 30.23 GiB for its streams at a 262144-token
+window, and the CUDA memory budget leaves 27.27 GiB`", i.e. 5.04 GiB a stream. Production serves 8 streams in
+25.61 GiB, 3.20 GiB a stream. Measured:
+
+- switching drafting off (`TF_FLASHNEXT_DRAFTS=0`) leaves the estimate at 30.23 GiB, unchanged: the budget is
+  computed from the loaded draft head (`cuda_lanes_load.streamBytes` adds `mtp.Draft.bytes(window, head_ids, ...)`
+  whenever a head is present), so the drafts flag does not enter it;
+- the sequence alone, from `cuda_seq_bytes.seqBytesFor` at fp8 and 262,144 tokens, is about 3.21 GiB a stream:
+  36 DeltaNet layers of conv tails and fp32 states (0.11 GiB), 12 attention layers at 1,056 bytes a position a
+  layer (3.09 GiB), pooled indexer blocks (0.02 GiB).
+
+So of the 5.04 GiB priced a stream, about 3.21 is the sequence and roughly 1.8 is the draft head's caches plus the
+draft pass's own arrays (`cuda_mtp_draft.zig`'s `bytes`: two bf16 head caches at the full window, the indexer keys,
+the pooled blocks, the logits, the saved states and the per-layer state). Production does not pay that at bf16: its
+drafter runs the FP8 MTP overlay. Half of 1.8 GiB takes a stream to about 4.1 GiB, and 6 streams to 24.8 GiB, which
+fits the 27.27 GiB budget.
+
+Two fixes follow, in expected value order: price and serve the draft head caches in fp8 (the port of production's
+`TF_FLASHNEXT_MTP_FP8`, cluster 1), or size them to the window the serve actually accepts rather than the full
+context. Neither is done yet, and the split between "draft caches" and "draft arrays" above is arithmetic from the
+sizing functions, not an instrumented measurement: the next step is one boot that prints `streamBytes`' parts.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
