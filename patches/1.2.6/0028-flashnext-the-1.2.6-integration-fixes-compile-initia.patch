@@ -24,6 +24,7 @@ This patch is those corrections, each proven by the compile, a boot or the first
 ---
  .../core/contract/flashnext_kv8_pending.zig   | 49 +++++++++++++++-
  zig/src/families/flashnext/cuda_glue.zig      | 20 +++----
+ zig/src/families/flashnext/cuda_knobs.zig     |  2 +-
  zig/src/families/flashnext/cuda_lanes.zig     |  4 +-
  .../families/flashnext/cuda_lanes_draft.zig   |  4 +-
  .../families/flashnext/cuda_lanes_load.zig    |  4 +-
@@ -36,7 +37,7 @@ This patch is those corrections, each proven by the compile, a boot or the first
  .../families/flashnext/cuda_tile_kernels.zig  | 10 ++++
  zig/tests/cuda/flashnext_kv8_tests.zig        |  2 +-
  zig/tests/cuda/flashnext_mtp_parity_tests.zig |  4 +-
- 14 files changed, 117 insertions(+), 92 deletions(-)
+ 15 files changed, 118 insertions(+), 93 deletions(-)
 
 diff --git a/zig/src/core/contract/flashnext_kv8_pending.zig b/zig/src/core/contract/flashnext_kv8_pending.zig
 index 575222cb7..e8b6c98b8 100644
@@ -168,6 +169,19 @@ index 9c506630d..adca444da 100644
      }
  
      pub fn attnMerge(g: *const Glue, s: cuda.Stream, po: u64, pm: u64, pl: u64, pos: u64, out: u64, nk: u64, sparse: u64, rows: usize, h: Heads, qsa: bool) !void {
+diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
+index 06d5fb56a..b5701c6d1 100644
+--- a/zig/src/families/flashnext/cuda_knobs.zig
++++ b/zig/src/families/flashnext/cuda_knobs.zig
+@@ -49,7 +49,7 @@ pub fn chunkSync() sys.environment.Error!bool {
+ 
+ /// TF_FLASHNEXT_PROMPT_MX128: the narrowest MXFP8 projection taking the relaxed 128 x 128 prompt tile; 0: none.
+ pub fn mx128MinN() sys.environment.Error!usize {
+-    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 1024);
++    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
+ }
+ 
+ /// TF_FLASHNEXT_PROMPT_HC2=1: the native hyper-connection read-out of prompt passes (TF_FLASHNEXT_HC2_MIN rows or
 diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
 index 7514bd5cd..ded77e856 100644
 --- a/zig/src/families/flashnext/cuda_lanes.zig
