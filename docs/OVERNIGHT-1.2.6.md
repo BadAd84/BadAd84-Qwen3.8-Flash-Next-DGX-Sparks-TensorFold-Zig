@@ -13,7 +13,7 @@ benchmark sweep that compares it with stock.
    prompt state's copy overran a 1,024-byte cache (`cuMemcpyDtoDAsync` invalid value); after a partial fix a kernel
    faulted (`CUDA_ERROR_ILLEGAL_ADDRESS`). The draft files are now upstream's exactly, and the draft caches are bf16
    beside either sequence format, which is what the engine's own refusal text says.
-3. **Compile-level merges** (all in patch 0028): duplicate prelude and `Reader.create` scope in the pread reader, its
+3. **Compile-level merges** (integration patches 0012 and 0029): duplicate prelude and `Reader.create` scope in the pread reader, its
    missing imports, the attention helpers' unused parameter and `u32` cast, the snapshot tail's format, the q12
    call's template deduction, the tile kernels' `fexp_up`, `hcn_updbg` and `hcn_peak`, the kv8 launch records
    measured with `cuobjdump -res-usage` (sm_80/86/89/120/121), and the fp8 test's new `pg` argument.
@@ -115,18 +115,28 @@ above.
 
 ## What "adding the patches in" showed
 
-Only one intermediate arm fits the night: the rows lever (0001-0005), which the series can build alone because it
-needs no integration patch. The rest of the series cannot be partitioned into applyable prefixes (each later
-lever's knob and environment rows are appended to the same two tables, and the integration patch's hunks depend on
-the full chain), so the meaningful comparison is rows-only against the full stack: the rows/copy-window work buys
-+3-6% at 1-2 streams, and the prefill, tile, gather and read-out levers add the rest of the code-decode gain and
-the 7-15% prefill gain. A per-lever ladder needs the series split into per-lever integration patches, which is the
-next structural step.
+The integration patch is now split by lever (0012 kv8, 0015 pread, 0030 the rest), so three prefixes build from a
+pristine tree, each verified by a container compile: rows (0001-0005), rows to kv8 (0001-0012), rows to n-gram
+(0001-0015). The full 30-patch series reproduces the previous tree byte for byte.
+
+Two intermediate images were built and run (`stack126kv` from 0001-0012, `stack126ng` from 0001-0015). Both boot
+and pass the golden, and both FAULT on the first 512-token decode: they carry the kv8 draft defect whose fix sits
+only in the tail (0030). That is the honest reason the speed ladder has one valid intermediate rung tonight (rows
+against stock) rather than three, and it is the concrete reason to move the draft revert into the kv8 rung next:
+the kv prefix then serves, and the ladder can separate the kv8 lever's contribution from the prompt levers'.
+
+Harness gotcha for that work: `tfm_decode` waits forever on a faulted serve, so a ladder cell needs a timeout
+around it, and a wedged run needs the queue killed and the production serve restored by hand (both done here).
+
+The valid ladder point is rows against stock: +3-6% at 1-2 streams, level at 4. The full stack then adds the
+prompt, gather and read-out levers: +15.6/+7.9/+7.6/+6.2% code decode at 1/2/4/6 and 7-15% faster cold prefill.
 
 ## Next steps, in the order they block
 
-1. **Split patch 0028 into per-lever integration patches** so the series has applyable, compiling prefixes. That is
-   what a per-lever ladder needs; until then only the rows lever can be built alone.
+1. **Finish the per-lever split.** Done overnight: 0012 (kv8) and 0015 (pread) carry their corrections, three
+   prefixes compile, and the 30-patch series reproduces the same tree byte for byte. Next: move the draft revert
+   (now in 0030) into the kv8 rung, which makes that rung serve and the speed ladder meaningful; then the tile and
+   knob pieces.
 2. **Root-cause the 4/6 golden and 0-of-2080 self-check** on the full stack. The rows-only arm is 6/6 and 1,176 of
    2,080 (48 rows), the tile, chunk, sync, head and HC2 knobs are excluded by boot probes, so the attention-glue
    refactor (0007-0011) is next: revert its glue files alone on top of the stack and read the golden and the
