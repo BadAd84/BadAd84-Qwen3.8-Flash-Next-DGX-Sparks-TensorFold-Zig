@@ -198,6 +198,28 @@ avoids, so the plain reader (page faults through the mapping) wins. The obvious 
 with ordinary buffered reads instead of `O_DIRECT`, which would keep the parked readers and drop the alignment and
 copy cost.
 
+### The completed set, with the drafter and the stack
+
+| batch | arm | C1 code | C4 code | C1 prose | C4 prose | golden | verdict |
+|---|---|---|---|---|---|---|---|
+| prompt path | `PROMPT_SHARED_DIRECT=0` | +0.0% | +0.2% | +0.2% | +0.4% | - | inert |
+| prompt path | `PROMPT_SYNC=1` | -0.3% | +0.1% | +0.0% | +0.4% | - | inert |
+| prompt path | `HEAD_PIECE=0` | -0.3% | +0.1% | +0.2% | +0.1% | - | inert |
+| drafter | `DRAFTS=0` (the recipe's switch: `--no-drafts`) | **-65.9%** | **-58.5%** | -56.2% | -40.1% | - | the drafter is worth 2.4x to 2.9x: protect it |
+| 31 patches | `GATHER_DIRECT=0` (buffered row cache) | +2.9% | +1.9% | +6.3% | +3.8% | 6/6 identical | ties the plain reader |
+| 31 patches | `GATHER_READ=0` (plain reader) | +2.8% | +2.1% | +6.8% | +3.9% | 6/6 identical | the simpler of the two equals |
+| stacked | `GATHER_READ=0 ATTN_LANES=1 DECODE_GRAPH=1 SPLIT_DENSE=0 CHUNK=1024`, first pass | +3.1% | +3.1% | +6.5% | +5.3% | 6/6 identical | **the best measured set** |
+| stacked | the same, second pass (ABBA) | +3.1% | +3.0% | +7.0% | +4.9% | 6/6 identical | confirmed |
+
+Two conclusions. The micro-gains do stack: individually 0 to 2% each, together 3.1% at both stream counts on code and
+5 to 7% on prose, reproduced twice against its own baseline. And the read-ahead path is now fully characterised: with
+`O_DIRECT` it loses 2 to 7%, with the page cache it merely ties the plain reader, so the plain reader is the default
+and patch 0031's knob stays as the opt-in for a box where the table is cold.
+
+The measured set is recorded in `scripts/qwen38/zig/target/serve-env126.sh` (a launch through the recipe is
+`env $(serve-env126.sh) IMAGE=... ./start.sh restart`), and `TF_FLASHNEXT_WINDOW_ROWS=32` is called out there as a
+5% regression at four streams.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
