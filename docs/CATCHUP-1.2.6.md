@@ -240,6 +240,23 @@ the engine, which is the port this document scopes: the FP8 MTP drafter and the 
 is priced too: fp8 KV decode is identical to bf16 (61.6/78.0 against 61.7/77.8), so those patches buy capacity, not
 speed, and should be kept for the 262,144 window rather than for tok/s.
 
+### The last two code-only questions
+
+| test | C1 code | C4 code | C4 prose | verdict |
+|---|---|---|---|---|
+| `WINDOW=64 WINDOW_CHECK=0` (force the 64-row window past the failing self-check) | - | 165.5 against 165.8 | 116.9 against 117.3 | the rows lever is inert while the self-check fails; forcing the window buys nothing |
+| full series minus the vision pair (0028, 0029) | 76.8 against 77.2 | **159.4 against 165.8 (-3.9%)** | 115.7 against 117.3 | keep the vision patches: dropping them measured slower |
+
+That completes the accounting for every patch: 0019 and 0026 are speed-neutral and droppable; 0024, 0025 and 0027
+are required to compile; the vision pair is worth up to 3.9% at four streams; kv8 is capacity, not speed; the rows
+window is inert until its exactness defect is fixed; and 0013's read-ahead is the one lever that is a net loss.
+
+A correction to the comparison's premises, from production's own banner once restored: it serves the
+INT4-AutoRound checkpoint with **bf16 KV** at 262,144 tokens and 8 streams, not fp8 as the target document states.
+fp8 KV measured identical to bf16 in decode (61.6/78.0 against 61.7/77.8), so the difference does not change any
+comparison here, but the document's config line should be read as the state it was measured in, not as the live
+serve's.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
