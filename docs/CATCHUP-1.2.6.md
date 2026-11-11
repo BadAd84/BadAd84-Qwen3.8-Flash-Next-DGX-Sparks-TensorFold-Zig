@@ -148,6 +148,29 @@ Nothing of this is done yet. The diagnostic phase of the catch-up is complete: t
 the cost of a round, the levers that carry it are enumerated by knob and file, the memory refusal is explained, and
 the rows regression is localised to patches 0016-0030 with the read-out, tile, chunk, HC and copy knobs excluded.
 
+## Knob sweep on the new engine (step one: tune what already exists)
+
+The new tree carries 68 `TF_FLASHNEXT_*` knobs that production's launcher never sets. Swept at the target's settings,
+one fresh boot a cell, C=1 and C=4, one decode pass, with a discarded warm-up arm and a warm baseline (`base2`)
+because a first boot is 1.4-2.0% cold on code and 5.5-6.0% on prose (the tables page from disk).
+
+Against the warm baseline, every knob in the set is inert (within +/-0.3%) except three:
+
+| knob | C1 code | C4 code | C1 prose | C4 prose | verdict |
+|---|---|---|---|---|---|
+| `WINDOW_GRAPH=0` | -29.0% | -0.6% | -30.6% | +1.7% | graph replay is worth about 40% at one stream and it is already ON |
+| `WINDOW_ROWS=32` | +1.4% | -5.2% | +6.1% | +2.4% | a real 5% regression at four streams: never set it |
+| `GATHER_READ=0` (for scale: the read-ahead lever) | +3.9% | +2.1% | +7.0% | +4.1% | see below |
+
+`DECODE_GRAPH=1` with `SPLIT_DENSE=0`, `ATTN_LANES=1`, `CHUNK` 512 and 1024, `CHUNK_SOLO=1536`, `GREEDY_WIDE=8`,
+`FACT_ROWS=128`, `READOUT_ROWS=128`, `PROMPT_GEMM2=0`, `PROMPT_HC2=1`, `HC_Q12=0`, `PREFILL_TAIL=0`,
+`GATHER_THREADS=0`, and `TF_MTP_DRAFTS=0` all landed inside the noise.
+
+Two consequences. First, the answer to "does an unused knob explain the 23-35%": no. The decode-path knobs the
+production env never sets are either already on by default, or harmful (`WINDOW_ROWS`). Second, `TF_MTP_DRAFTS=0`
+changing nothing means neither it nor `TF_FLASHNEXT_DRAFTS=0` is the drafting switch in this build, so the drafter's
+contribution is still unmeasured and needs the real switch found before any drafter conclusion is drawn.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
