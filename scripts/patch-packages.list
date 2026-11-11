@@ -1,0 +1,3 @@
+# Roots the gate walks for patch packages (depth 2). One directory per line.
+patches
+upstream

@@ -17,6 +17,13 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
 - `upstream/` - recipe PR packages; skill `submit-ots-patch-as-miaai-recipe-pr`.
 
 ## Conventions
+- **Everything external arrives as .patch files (owner 2026-11-11).** A contributor's branch, an upstream PR's
+  commits or our own delta against a pin is carried as numbered `.patch` files in a package under ``patches/` and `upstream/``, applied to
+  a pristine checkout at a recorded base sha. Each package carries `RECORD.md` (repository, branch, sha, the base it
+  applies to, and whether we edited the text), `SHA256SUMS`, and `apply.sh` whose `--check` writes nothing. Someone
+  else's commits come from `git format-patch` verbatim, ours from `git diff`; never merge, rebase or cherry-pick into
+  the base tree, and never edit it in place, so the gates and any A/B run against upstream's own source. A measurement
+  taken on a patched tree names the base sha and the patches applied.
 - **GPG-signed commits. Never `--no-gpg-sign`** (pinentry = YubiKey touch; if it fails, retry).
 - **Current-state docs**; retired things marked RETIRED in one line; "current" claims carry a date.
 - New `.sh` files need `git update-index --chmod=+x`.
@@ -95,6 +102,10 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   gives the confession.
 
 ## Gate
+- `scripts/check-patch-packages.sh` - every package dir that carries `.patch` files (walked to depth 3 under the
+  roots in `scripts/patch-packages.list`) has `RECORD.md` and `SHA256SUMS`, and the hashes match. Packages written
+  before the rule are listed in `scripts/patch-packages.allow` and skipped; `--strict` shows that debt, and each is
+  brought up to the rule the next time it is touched.
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
   only; style findings are INFO.
 
