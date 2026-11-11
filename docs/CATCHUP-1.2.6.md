@@ -171,6 +171,33 @@ production env never sets are either already on by default, or harmful (`WINDOW_
 changing nothing means neither it nor `TF_FLASHNEXT_DRAFTS=0` is the drafting switch in this build, so the drafter's
 contribution is still unmeasured and needs the real switch found before any drafter conclusion is drawn.
 
+## Per-lever evaluation of our own patches (step two)
+
+Each lever our patches gate is measured on/off at the target settings, C=1 and C=4, against a warm baseline
+(`base2`), with a discarded warm-up arm; every arm's golden is compared against the baseline's. Results after the
+A/B/A confirmation:
+
+| lever (patch) | arm | C1 code | C4 code | C1 prose | C4 prose | golden | verdict |
+|---|---|---|---|---|---|---|---|
+| n-gram pread row cache (0013) | `GATHER_READ=0` | +4.2% | +1.8% | +7.5% | +4.3% | 6/6 identical | **the plain reader is faster: serve with it off** |
+| the same, repeated A/B/A | `GATHER_READ=0` again | +3.2% | +1.8% | +7.2% | +4.0% | 6/6 identical | confirmed |
+| early gather (0014) | `GATHER_EARLY=0` | -0.3% | **-4.5%** | -0.3% | -4.3% | - | keep: it is load-bearing at four streams |
+| read-ahead threads (0013) | `GATHER_THREADS=0` | +0.0% | +0.2% | +0.2% | -0.1% | - | inert |
+| prefill tail (0013) | `PREFILL_TAIL=0` | -0.3% | -0.2% | -0.5% | -0.3% | - | inert |
+| draft ahead (0013) | `DRAFT_AHEAD=0` | -0.1% | +0.0% | +0.0% | +0.0% | - | inert (parked, as expected) |
+| row-cache size (0013) | `GATHER_CACHE_MIB=32` | -0.1% | -0.2% | +0.0% | -0.2% | - | inert |
+| table scale locks (0014) | `GATHER_LOCK_SCALES=0` | +0.1% | -0.1% | +0.0% | -0.1% | - | inert |
+| shared-direct prompt read-out (0022) | `PROMPT_SHARED_DIRECT=0` | see the batch table | | | | | |
+| prompt sync (0016) | `PROMPT_SYNC=1` | see the batch table | | | | | |
+| head piece (0022) | `HEAD_PIECE=0` | see the batch table | | | | | |
+
+The mechanism behind the read-ahead result is worth naming because it inverts the patch's premise: patch 0013 exists
+to stop page faults on the checkpoint's 28.7 GiB n-gram mapping, and it reads rows with `pread` using `O_DIRECT`
+where the file system allows. With the table's working set already resident, that path costs more than the faults it
+avoids, so the plain reader (page faults through the mapping) wins. The obvious modify to test is the same row cache
+with ordinary buffered reads instead of `O_DIRECT`, which would keep the parked readers and drop the alignment and
+copy cost.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
