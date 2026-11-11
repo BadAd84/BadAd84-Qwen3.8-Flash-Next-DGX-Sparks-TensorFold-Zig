@@ -148,6 +148,37 @@ Nothing of this is done yet. The diagnostic phase of the catch-up is complete: t
 the cost of a round, the levers that carry it are enumerated by knob and file, the memory refusal is explained, and
 the rows regression is localised to patches 0016-0030 with the read-out, tile, chunk, HC and copy knobs excluded.
 
+## Correction (2026-11-11 evening): the evaluation ran in the wrong order, and the stack was never the sum of its patches
+
+The owner's procedure was: stock with no patches, then environment tuning on stock, then our patches added one at a
+time. Everything above this section did the reverse: it started from the full 30-patch stack and subtracted. Two
+consequences make the earlier tables unsafe as verdicts:
+
+1. **Every "baseline" was the patched stack with our levers already on.** The campaign recipe (`scripts/config.sh` of
+   the unmodified MiaAI recipe checkout) exports seventeen lever defaults, eleven of them ours (`GATHER_READ=pread`,
+   `PROMPT_HC2=1`, `PROMPT_SHARED_DIRECT=1`, `PROMPT_GEMM2=1`, `HEAD_PIECE=1536`, ...). So arms such as `hc2on` or
+   `PROMPT_GEMM2=0` were not what their names say, and "inert" above means "inert on top of everything else".
+2. **The old series only compiled at 0005, 0012, 0015 and 0030**, so no lever after 0015 was ever tested alone. The
+   reasons are blind-port damage, found by reading the intermediate trees:
+   - `0030` (the "integration tail") reset `cuda_mtp_draft.zig` and `cuda_mtp_ops.zig` to upstream to undo kv8's
+     broken draft-cache sizing (one fp8 row where the window's rows belong). Seven patches touch those files, so the
+     reset also deleted the rows lever's window guards (0001, 0005), the n-gram draft-ahead argument (0013), the
+     4-bit draft head (0020) and the read-out pieces (0022). The "full stack" was therefore missing parts of four
+     levers, which is the likeliest cause of the self-check reading 0 of 2,080 only with the full series;
+   - `0018` defines `promptGemm2` twice; a later patch deletes one copy;
+   - `0022` wrote merge-tool residue (`22: @both`, `23: @both`, `24: @both`, `25: @both`) over real lines in the test
+     registry and the changelog; `0027` repaired the registry in passing.
+
+The rework (`scripts/qwen38/zig/target/mkrung.sh` + `overlay.py`): each rung tree is pristine `6e9af930` plus the old
+patches through that lever, with the repair applied where the damage happens: `0012b` makes kv8 leave the draft head
+bf16 without touching the other levers' hunks, the duplicate knob is removed at 0018, the residue at 0022, and the
+tile-kernel fields move from the tail to the read-out lever. Eleven rungs assemble (0005, 0012, 0015, 0017, 0019,
+0021, 0025, 0026, 0027, 0029, 0032), each exported as one cumulative patch for the box to build.
+
+The measurement now runs in the stated order (`buildup.sh`): stage 1 stock, stage 2 one upstream knob per arm on
+stock, stage 3 one rung at a time against the rung before it, at bf16 and 131,072 tokens because the pristine engine
+cannot hold four bf16 windows of 262,144.
+
 ## Knob sweep on the new engine (step one: tune what already exists)
 
 The new tree carries 68 `TF_FLASHNEXT_*` knobs that production's launcher never sets. Swept at the target's settings,
