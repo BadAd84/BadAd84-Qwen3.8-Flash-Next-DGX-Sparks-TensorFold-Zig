@@ -34,3 +34,33 @@ for p in /path/to/patches/1.2.6/*.patch; do git apply --whitespace=nowarn "$p" |
 Every patch is a fact about the code it changes; the message in each carries the reason and the measurement.
 Settings these patches add are read through `zig/src/platform/environment.zig`, so each has a row there and the
 build refuses an unregistered CUDA switch.
+
+## State (2026-11-11, overnight)
+
+The series builds `tensorfold-qwen38:stack126` from a pristine `6e9af9302` (28 patches apply with `git apply`;
+`zig build fatbins install native` passes in nvcr.io/nvidia/pytorch:26.07-py3 with zig 0.17.0). The image boots
+through the campaign recipe with `KV_DTYPE=fp8` or `bf16`, `TENSORFOLD_CUDA_KERNELS=native` (the image's own Triton
+AOT set is refused beside Flash Next's glue), and serves requests whose replies are byte-identical to stock's at
+the 16-token probe (sha 9b3560a2...).
+
+Defects found and fixed in patch 0028 while bringing it up (each found by a boot or a request, not by a test):
+
+1. `e.graphs = .{}` had been replaced by the kv8 hunk's `e.kv = .bf16`, so the graph caches were undefined memory
+   and the first graph use panicked ("incorrect alignment").
+2. The kv8 hunk had also re-priced the draft head's caches as a single fp8 row; upstream sizes them
+   `sizes.kvBytes(cap, head_heads)` (bf16) for both key and value. The first kept prompt state's copy overran a
+   1,024-byte cache (cuMemcpyDtoDAsync invalid value) and a kernel then faulted.
+3. The draft files now stay upstream's exactly (cuda_mtp_draft.zig, cuda_mtp_ops.zig reverted), because the
+   refusal text is right: the draft head's caches are bf16 beside any sequence format. The pread read-ahead wiring
+   and the tests' extra argument were dropped with that revert; TF_FLASHNEXT_DRAFT_AHEAD is therefore not wired
+   into the draft pass yet (it still drives the n-gram warm reads), noted for the pread lever's next round.
+4. The other compile-level corrections (duplicate prelude, Reader.create scope, missing imports, unused
+   parameters, q12 template deduction, tile kernel fields, kv8 launch records measured with cuobjdump, the fp8
+   test's pg argument) are listed in patch 0028's message.
+
+Open: the boot self-check reports 0 of 2080 rows row-equal on the full stack (the rows-only image reports widths
+1-48 and serves 48-row windows), so the stack falls back to upstream's 32 rows. The prime suspect is a prompt-pass
+lever that changes summation order (the fused hyper-connection read-out or the prompt tiles), which the self-check
+would correctly reject; the next round A/Bs those knobs with the check on. Also open: `--parallel 8` at 262,144
+tokens is refused on the memory estimate (36.31 GiB of streams against 27.41 GiB left), where the 1.0.0 stack fit
+8 streams in 24.14 GiB.
