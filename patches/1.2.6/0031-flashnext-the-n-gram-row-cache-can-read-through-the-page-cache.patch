@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Adam Hillson <--show-origin>
+Date: Wed, 11 Nov 2026 17:03:25 +0000
+Subject: [PATCH 29/29] flashnext: the n-gram row cache can read through the
+ page cache
+
+TF_FLASHNEXT_GATHER_DIRECT=0 opens the row cache through the page cache instead of O_DIRECT, so the parked
+readers and the cache stay without the alignment and copy cost. The row cache on the plain reader measured 2 to
+7 percent faster at the target settings, so this variant is the one to measure before the read-ahead path is
+retuned or retired.
+---
+ zig/src/core/direct_io.zig                    | 7 +++++++
+ zig/src/families/flashnext/cuda_knobs.zig     | 5 +++++
+ zig/src/families/flashnext/cuda_ple_cache.zig | 3 ++-
+ zig/src/platform/environment.zig              | 1 +
+ zig/src/platform/environment_test.zig         | 2 ++
+ 5 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/zig/src/core/direct_io.zig b/zig/src/core/direct_io.zig
+index d61c9cdc..bebb0037 100644
+--- a/zig/src/core/direct_io.zig
++++ b/zig/src/core/direct_io.zig
+@@ -40,6 +40,13 @@ pub const File = struct {
+         f.* = undefined;
+     }
+ 
++    /// `path` read-only through the page cache, never direct (TF_FLASHNEXT_GATHER_DIRECT=0).
++    pub fn openBuffered(path: [:0]const u8) !File {
++        const fd = platform.c.open(path, .{ .ACCMODE = .RDONLY, .CLOEXEC = true });
++        if (fd < 0) return error.FileNotFound;
++        return .{ .fd = fd, .direct = false };
++    }
++
+     /// `len` bytes at `offset`, read as their aligned span into `buf`; the result is the requested bytes within it.
+     pub fn read(f: File, buf: Buffer, offset: u64, len: usize) ![]u8 {
+         var ignored: u8 = 0;
+diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
+index b5701c6d..10303742 100644
+--- a/zig/src/families/flashnext/cuda_knobs.zig
++++ b/zig/src/families/flashnext/cuda_knobs.zig
+@@ -7,6 +7,11 @@ pub fn gatherRead() sys.environment.Error!bool {
+     return (try sys.environment.read(usize, "TF_FLASHNEXT_GATHER_READ", 0)) == 1;
+ }
+ 
++/// TF_FLASHNEXT_GATHER_DIRECT=0: the row cache reads through the page cache instead of O_DIRECT.
++pub fn gatherDirect() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_DIRECT", true);
++}
++
+ /// TF_FLASHNEXT_GATHER_THREADS: parked readers of the row cache (default 128, the most; 0 gathers every row itself).
+ pub fn gatherThreads() sys.environment.Error!usize {
+     return sys.environment.read(usize, "TF_FLASHNEXT_GATHER_THREADS", 128);
+diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
+index ca70d12d..303f9aa4 100644
+--- a/zig/src/families/flashnext/cuda_ple_cache.zig
++++ b/zig/src/families/flashnext/cuda_ple_cache.zig
+@@ -72,8 +72,9 @@ pub const Reader = struct {
+         errdefer gpa.free(files);
+         var opened: usize = 0;
+         errdefer for (files[0..opened]) |*f| f.close();
++        const direct = try knobs.gatherDirect();
+         for (paths, files) |p, *f| {
+-            f.* = try direct_io.File.open(p);
++            f.* = if (direct) try direct_io.File.open(p) else try direct_io.File.openBuffered(p);
+             opened += 1;
+         }
+         const own_shards = try gpa.dupe(Shard, shards);
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 8b307e76..4eb4a2bb 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -50,6 +50,7 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_QMMF_HALF_BELOW", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size block count (0 disables half tiles)" },
+     .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .scope = .cuda, .kind = .flag, .forms = "0 or 1 (0 skips the boot copy-window self-check)" },
+     .{ .name = "TF_FLASHNEXT_GATHER_READ", .scope = .cuda, .kind = .word, .words = &.{ "0", "pread" }, .forms = "pread (the n-gram table's rows through a row cache and parked readers) or 0 (the plain reader)" },
++    .{ .name = "TF_FLASHNEXT_GATHER_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1 (0 reads the n-gram row cache through the page cache instead of O_DIRECT)" },
+     .{ .name = "TF_FLASHNEXT_GATHER_THREADS", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size reader count (0 disables read-ahead; capped at 128)" },
+     .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to one slot)" },
+     .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index d9f67e40..b6acf8d9 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -67,6 +67,8 @@ const valid = [_]Case{
+     .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "pread", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_GATHER_DIRECT", .raw = "1", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_GATHER_DIRECT", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_THREADS", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_GATHER_THREADS", .raw = "128", .n = 128 },
+     .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .raw = "0", .n = 0 },
