@@ -257,6 +257,30 @@ fp8 KV measured identical to bf16 in decode (61.6/78.0 against 61.7/77.8), so th
 comparison here, but the document's config line should be read as the state it was measured in, not as the live
 serve's.
 
+## Runbook: reproducing the per-lever evaluation
+
+Every number in this document comes from these commands on spark6. The serve is started through the campaign recipe
+(`~/work/lanes/rpr/recipe`), one fresh boot a cell, `MEM_CHECK=0` because the host-memory precheck refuses a
+262,144-token window on this box, and a clean `docker rm -f` plus a lock removal first when a previous run was
+interrupted (`~/.local/state/qwen38-flash-next-tf/start.lock`).
+
+```
+# one arm: a fresh boot, golden, one decode pass a kind, the boot self-check, then stop
+IMG=tensorfold-qwen38:stack126v2 bash ~/work/target/patcheval.sh "<armname>:<ENV KNOBS>"
+# the measured serve environment, as a knob string
+E=$(bash ~/work/target/serve-env126.sh)
+# build an image from a patch directory (a pristine TensorFold at the recorded sha plus the numbered series)
+bash ~/work/target/build_patches.sh <tag> git://192.168.99.16/up-pr/tf 6e9af930261a88bb28ac0bfb157ce8e57e9eea07 <patchdir>
+# the recipe gate wants tf.kernels=embedded on anything this table measures
+bash ~/work/lanes/fp4port/relabel.sh tensorfold-qwen38:<tag> embedded
+```
+
+Rules that the measurements depend on, each learned the hard way here: discard a warm-up arm and compare against a
+warm baseline (a first boot is 1.4-2.0% cold on code and 5.5-6.0% on prose, the tables paging from disk); run the A/B/A
+when a delta is small enough to matter; compare replies with `python3 ~/work/zgold_cmp.py <ref> <arm>` and demand 6/6;
+and never read a production-image cell as a fresh boot, because that image's binary predates `--kv-cache` and the
+recipe refuses it, so `docker logs` will be the container that was already running.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
