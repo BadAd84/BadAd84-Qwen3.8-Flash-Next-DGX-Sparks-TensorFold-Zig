@@ -5,7 +5,7 @@
 # golden, one decode pass (prose then code) and the boot self-check. Output: bench/pe-<name>/c<N>/.
 set -u
 cd ~/work/target || exit 1
-IMG=tensorfold-qwen38:stack126
+IMG=${IMG:-tensorfold-qwen38:stack126}
 gpu() { nvidia-smi --query-gpu=temperature.gpu,clocks.sm --format=csv,noheader 2>/dev/null | tr -d ' '; }
 for spec in "$@"; do
   name=${spec%%:*}; envs=${spec#*:}
@@ -13,7 +13,7 @@ for spec in "$@"; do
   for C in 1 4; do
     out="bench/pe-$name/c$C"; mkdir -p "$out"
     ( cd ~/work/lanes/rpr/recipe && env $envs PREPARE=0 IMAGE="$IMG" CHECKPOINT=nvfp4 VISION=0 \
-        TENSORFOLD_CUDA_KERNELS=native KV_DTYPE=fp8 PARALLEL="$C" CONTEXT=262144 HOST=127.0.0.1 \
+        TENSORFOLD_CUDA_KERNELS=native KV_DTYPE="${KV_DTYPE:-fp8}" PARALLEL="$C" CONTEXT="${CONTEXT:-262144}" HOST=127.0.0.1 \
         TF_FLASHNEXT_MEM_LOG=1 MEM_CHECK=0 ./start.sh restart </dev/null ) > "$out/boot.log" 2>&1
     echo "=== pe-$name C=$C env=[$envs] gpu $(gpu)"
     docker logs qwen38-flash-next-tf > "$out/logs.txt" 2>&1

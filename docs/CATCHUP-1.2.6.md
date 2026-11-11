@@ -220,6 +220,26 @@ The measured set is recorded in `scripts/qwen38/zig/target/serve-env126.sh` (a l
 `env $(serve-env126.sh) IMAGE=... ./start.sh restart`), and `TF_FLASHNEXT_WINDOW_ROWS=32` is called out there as a
 5% regression at four streams.
 
+### What the evaluation bought, and what is left
+
+With the measured serve environment (`serve-env126.sh`) the stack runs 61.6 / 78.0 tok/s at one stream (prose / code)
+and 117.5 / 165.5 at four, against the target's 70.9 / 113.0 and 162.3 / 254.0: still -13% / -31% at one stream and
+-28% / -35% at four. So the whole knob and lever sweep is worth about 3% on code decode, and the gap is intact.
+
+The round economics say where it is:
+
+| one stream, code | rounds for 512 tokens | ms a round | tok/s |
+|---|---|---|---|
+| production | 81 | 49.5 | 127.7 |
+| our stack with the measured env | 90 | 73.3 | 77.5 |
+
+Rounds are 11% worse (draft quality) and the round itself is 48% more expensive. Nothing reachable by a knob moves
+that: the graph path is already on, the lane-wide attention, decode graph and chunk size are now set, the prompt and
+read-out levers are inert, and the drafter is what it is (bf16 head, 2.4-2.9x over no drafts). The remaining 48% is
+the engine, which is the port this document scopes: the FP8 MTP drafter and the draw/scheduling family. The kv8 lever
+is priced too: fp8 KV decode is identical to bf16 (61.6/78.0 against 61.7/77.8), so those patches buy capacity, not
+speed, and should be kept for the 262,144 window rather than for tok/s.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
