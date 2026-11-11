@@ -122,6 +122,32 @@ Two fixes follow, in expected value order: price and serve the draft head caches
 context. Neither is done yet, and the split between "draft caches" and "draft arrays" above is arithmetic from the
 sizing functions, not an instrumented measurement: the next step is one boot that prints `streamBytes`' parts.
 
+## The FP8 drafter port, scoped against what v1.2.6 already has
+
+Production's drafter lever is `TF_FLASHNEXT_MTP_FP8`, an overlay directory of the MTP layer's linears on block FP8
+(`tools/mtp_fp8.py` builds it). Its patch upstream is 50 lines across two files: an `overlay2` option on the weight
+loader and one condition that makes the MTP layer's attention weights load through the block-FP8 path.
+
+What v1.2.6 already carries: an FP8 experts loader (`cuda_fp8_experts_load.zig`) whose tests load the MTP layer's
+experts by name (`language_model.mtp.layers.0.mlp`), and FP8 KV with 1,056 bytes a position a layer. What it does
+not carry: any `int4ar` / overlay plumbing at all (28 files mention fp8; none of them has an overlay), and the MTP
+layer's attention linears load as 4-bit affine like the rest of the body.
+
+So the port is three commits, in this order:
+
+1. **Price the draft head caches by their own format.** `cuda_mtp_draft.zig`'s `bytes` assumes bf16 head caches; with
+   an fp8 head the same stream drops by roughly 0.9 GiB, which is what puts six streams at 262,144 inside the
+   budget. This is memory only and does not touch kernels.
+2. **Load the MTP layer's attention linears in FP8.** The experts half exists; this is the attention half, plus the
+   overlay-directory plumbing if we want the weights in a separate directory rather than the checkpoint.
+3. **Measure it as an artifact**: the same cells as the table at the top of this document, plus the round economics,
+   because the whole point of the drafter lever is a cheaper round (production 49.5 ms a code round against our
+   77.7 ms).
+
+Nothing of this is done yet. The diagnostic phase of the catch-up is complete: the gap is measured, its mechanism is
+the cost of a round, the levers that carry it are enumerated by knob and file, the memory refusal is explained, and
+the rows regression is localised to patches 0016-0030 with the read-out, tile, chunk, HC and copy knobs excluded.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
