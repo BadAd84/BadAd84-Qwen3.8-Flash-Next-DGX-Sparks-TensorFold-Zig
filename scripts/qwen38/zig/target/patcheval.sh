@@ -25,6 +25,9 @@ for spec in "$@"; do
   done
 done
 ( cd ~/work/lanes/rpr/recipe && ./stop.sh ) > /dev/null 2>&1
-( env LOCK_HOLDER=0 ~/qwen6-start-prod.sh </dev/null ) 2>&1 | grep -a answered | head -1
-echo "=== production $(date -Is)"
+# NORESTORE=1: a caller running several images in a row restores the production serve once, at its own end
+if [ "${NORESTORE:-0}" != 1 ]; then
+  ( env LOCK_HOLDER=0 ~/qwen6-start-prod.sh </dev/null ) 2>&1 | grep -a answered | head -1
+  echo "=== production $(date -Is)"
+fi
 touch "$HOME/work/target/PATCHEVAL-DONE"

@@ -179,6 +179,46 @@ The measurement now runs in the stated order (`buildup.sh`): stage 1 stock, stag
 stock, stage 3 one rung at a time against the rung before it, at bf16 and 131,072 tokens because the pristine engine
 cannot hold four bf16 windows of 262,144.
 
+## The build-up, in the stated order
+
+All arms: one fresh boot a cell, C=1 and C=4, 512-token decode on the prose and code prompts, bf16 KV at 131,072
+tokens, through the unmodified upstream recipe. Harness `scripts/qwen38/zig/target/buildup.sh` (stages 1 and 2) and
+`stage3.sh` (the rungs).
+
+### Stage 1: stock, no patches (image `up126`, pristine `6e9af930`)
+
+| arm | C1 prose | C1 code | C4 prose | C4 code |
+|---|---|---|---|---|
+| stock | 54.4 | 74.3 | 106.8 | 155.9 |
+| stock, repeated | 54.5 | 74.7 | 106.8 | 155.3 |
+
+Repeatable to 0.4%. This is the number every rung is judged against.
+
+### Stage 2: environment tuning on stock, no patches
+
+One upstream knob an arm, on the pristine binary. Baseline (warm) 54.5 / 74.3 and 107.0 / 155.7, repeated at the end
+as 54.1 / 74.5 and 106.4 / 155.1.
+
+| knob | C1 prose | C1 code | C4 prose | C4 code | reading |
+|---|---|---|---|---|---|
+| `ATTN_LANES=1` | 54.5 | 73.9 | 108.0 | 156.3 | noise (+0.9% / +0.4% at four, -0.5% code at one) |
+| `DECODE_GRAPH=1 SPLIT_DENSE=0` | 54.2 | 74.4 | 106.6 | 155.6 | none |
+| `CHUNK=1024` / `2048` | 54.3 / 54.4 | 74.2 / 74.2 | 106.4 / 106.7 | 155.5 / 155.1 | none |
+| `GREEDY_WIDE=8` | 54.3 | 74.3 | 106.7 | 155.3 | none |
+| `DRAFTS=8` / `4` | 54.4 / 54.1 | 73.9 / 74.1 | 106.4 / 106.6 | 155.7 / 155.8 | none |
+| `CONFIDENCE=0.70` | 54.2 | 74.5 | 106.7 | 155.0 | none |
+| `CONFIDENCE=0.50` | 51.6 | 74.1 | 106.2 | 154.8 | -5% prose at one stream |
+| `KEEP_LATE=0` | 53.9 | 73.5 | 104.4 | 153.3 | -1.1% / -2.2%: the default (on) is right |
+| `SHARED_SIDE=0` | 53.8 | 74.0 | 105.9 | 154.2 | -1%: the default (on) is right |
+| `GDN_LANES=0` | 54.3 | 74.3 | 104.8 | 153.3 | -1.5% at four: the default (on) is right |
+| `GDN_FUSED=1` | 54.4 | 74.4 | 106.7 | 154.8 | none |
+| `HC_FUSE=0` | 54.3 | 73.9 | 106.5 | 154.5 | none |
+| `FIRST_EARLY=1` | 54.3 | 74.0 | 106.4 | 155.0 | none |
+
+No knob improves on the upstream recipe's own defaults; the only movements are losses when a default is switched
+off. The accepted environment for stock is therefore the recipe default, unchanged, and stage 3 adds our rungs on
+exactly that.
+
 ## Knob sweep on the new engine (step one: tune what already exists)
 
 The new tree carries 68 `TF_FLASHNEXT_*` knobs that production's launcher never sets. Swept at the target's settings,
