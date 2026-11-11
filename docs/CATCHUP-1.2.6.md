@@ -65,6 +65,39 @@ rows lever is worth about 3-6% at one to two streams. The bulk of the catch-up i
 the only honest order is: fix the rows regression (it gates the copy lever), then port the drafter and round
 scheduling levers, measuring each against this table.
 
+## Where the time actually goes: the round, not the tokens a round yields
+
+Attribution on the production tree, with production's own launcher (its binary predates `--kv-cache`, so the 1.2.6
+recipe cannot boot it at all: every earlier production cell was silently measuring the already-running container).
+One stream, one pass, 512 tokens, same prompts:
+
+| arm | prose tok/s | code tok/s | prose rounds | code rounds |
+|---|---|---|---|---|
+| production, all levers on | 71.5 | 127.7 | 186 | 81 |
+| `MTP_Q4=0` | 75.0 | 130.6 | 186 | 81 |
+| `DRAFT_INT4=0` | 72.4 | 126.4 | 186 | 81 |
+| `UPMIX_DECODE=0` | 75.1 | 130.5 | 186 | 81 |
+| `QSA_SELECT=0` | 75.0 | 130.7 | 186 | 81 |
+| `EARLY_DRAW=0` | 75.3 | 130.9 | 186 | 81 |
+
+Every arm came out 3-5% faster than the base, including knobs that cannot plausibly help, which is the cold-boot
+confound of a first boot (the n-gram tables page from disk), so no single knob is the lever. The round counts are
+identical across arms, which is the useful part: those knobs change the cost of a round, not how many tokens it
+yields, and none of them carries a large share of the gap.
+
+The round economics, same prompt, one stream:
+
+| | ms a round, prose | ms a round, code | rounds for 512 tokens, code |
+|---|---|---|---|
+| production | 38.5 | 49.5 | 81 |
+| our v1.2.6 stack | 64.7 | 77.7 | 90 |
+
+So production's verify round costs about 1.6x less than ours, and it needs about 10% fewer rounds. The gap is
+per-round cost, which is the engine: production's `cuda_engine` / `cuda_forward` / `cuda_fp8` architecture plus the
+FP8 MTP drafter overlay (`TF_FLASHNEXT_MTP_FP8` points at a separate azampatti INT4-AutoRound-derived drafter weight
+set that our tree does not load at all). That is what has to be ported, and it is where the levers of cluster 1 and 2
+land.
+
 ## Lever map (production-only knobs, and the code each gates in the production tree)
 
 | knob | files in production |
