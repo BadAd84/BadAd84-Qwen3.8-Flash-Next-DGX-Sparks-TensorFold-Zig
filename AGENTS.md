@@ -126,3 +126,19 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
 - spark4 is stock DGX OS on a 1 Gb/s LAN link; spark6 (the comparison box) is the same. Production restarts take
   ~2 min; the container restarts by itself after a reboot (`unless-stopped`).
 - Nesting heredocs inside `ssh '...'` breaks quoting: write a script, `scp` it, run it (or base64 it).
+- **Type-check a patched tree on the laptop before any box build (found 2026-11-12).** The tree's own
+  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` cross-compiles the real CUDA server (the Flash Next
+  lane backend included) with no nvcc and no GPU, using the local Zig 0.17.0
+  (`C:\Users\Adam\tools\zig-x86_64-windows-0.17.0\zig.exe`, run through `work/zigl.py TREE build ...`): about
+  3.5 minutes cold, about 10 seconds to a first error. A box build is 7.5 minutes and a failed one silently drops its
+  arms from a queued run, so every rung and every new patch is compiled here first. It checks types, not kernels:
+  the `.cu` side still needs the box.
+- **The upstream recipe's `scripts/config.sh` exports lever settings** (`~/work/lanes/rpr/recipe`, MiaAI `20e15e4`):
+  `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1`, `PREFILL_TAIL=512`, `PROMPT_HC2=1`,
+  `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536`, `PROMPT_GEMM2=1`, `CONFIDENCE=-0.4` and more. A binary that knows a knob
+  runs with it ON through this recipe whatever the code's default says, so an arm that means "lever off" passes the
+  explicit `=0`, and a table states the environment it ran in.
+- **A patch cut against an older tree can revert base lines silently.** Old 0022 deleted `self.pos0 = pos0` from
+  `Pass.chunk`, the `prompt_last` store and 0017's MX128 default while adding its own feature; it applied cleanly and
+  compiled. The window self-check (`window self-check: N of 2080` in the boot log, 1,176 when exact) is what shows
+  it: read that line for every rung, and diff a ported patch's `-` lines against the base before trusting it.

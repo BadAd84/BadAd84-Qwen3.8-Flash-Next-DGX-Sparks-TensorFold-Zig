@@ -6,7 +6,7 @@
 # a 512-token reply cannot show them.
 set -u
 cd ~/work/target || exit 1
-for i in $(seq 1 900); do [ -f STAGE3B-DONE ] && break; sleep 30; done
+for i in $(seq 1 900); do [ -f PROFILE-DONE ] && break; sleep 30; done
 echo "=== building the repaired rungs $(date -Is)"
 for K in 0025 0026 0027 0029 0032; do
   T=f$K; dir=patches126/$T
