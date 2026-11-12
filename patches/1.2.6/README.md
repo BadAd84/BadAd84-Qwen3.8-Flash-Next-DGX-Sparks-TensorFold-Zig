@@ -22,10 +22,10 @@ recipe. "Decode" is 512-token prose and code replies at one and four streams. A 
 | 0002 | copy re-sync past an edit, copy ramp and miss rules | lane core config | exact; decode flat; copy workload not yet run |
 | 0003 | `--kv-cache fp8` for Flash Next | `KV_DTYPE` | exact at bf16; decode flat at bf16; fp8 capacity not yet run on this series |
 | 0004 | n-gram row cache, draft-ahead, one gather a shared pass | `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1` (all on) | exact; decode level with the base's own readers (61.6 / 81.3 against 62.1 / 81.9); cold 32k prompt 14.1 s against 14.3 |
-| 0005 | prompt passes drain less, 3072-row chunks, the relaxed MX128 prompt tile | `PROMPT_MX128` (0: off) | exact with the tile off; cold prompt unchanged with it off; 32k 13.4 s against 14.1 with `=1024`, replies not yet compared |
+| 0005 | prompt passes drain less, 3072-row chunks, the relaxed MX128 prompt tile | `PROMPT_MX128` (0: off) | exact with the tile off; cold prompt unchanged with it off; 32k 13.42 s against 14.14 (-5.1%) with `=1024`, replies not yet compared |
 | 0006 | the MX128 tile in two stages, two blocks an SM | `PROMPT_GEMM2=1` (on, acts only with MX128) | 32k 13.4 s against 13.8 without it, under MX128 |
 | 0007 | the draft head's rows 4-bit by default | `DRAFT_HEAD` (`affine4`; `bf16` restores) | **exact; +14.0% prose, +9.9% code at one stream, +6.1% / +7.5% at four** (same binary, switch on and off, repeated) |
-| 0008 | prompt passes' hyper-connection read-out as fused kernels, the shared expert read in place, wider head pieces | `PROMPT_HC2=1`, `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536` (all on) | repaired (see `RECORD.md`), builds; arms queued |
+| 0008 | prompt passes' hyper-connection read-out as fused kernels, the shared expert read in place, wider head pieces | `PROMPT_HC2=1`, `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536` (all on) | repaired (see `RECORD.md`); **cold 32k prompt 13.58 s against 14.14 (-3.9%)**: fused read-out -2.3%, shared expert in place -3.1%, head piece none; decode and golden arms queued |
 | 0009 | hyper-connection read-outs from a lossless 12-bit copy | `HC_Q12` (off) | exact off; never run switched on with 1.2.6; flat on 1.2.4 |
 | 0010 | a shared round priced from the environment | `ROUND_MS`, `DRAFT_ROW_MS` (unset) | exact unset; never run priced |
 | 0011 | vision tower linears decoded at load, image rows up to 16,384 | none | exact on text; not a speed lever |
@@ -37,5 +37,6 @@ against stock's 54.4 / 74.3 and 106.8 / 155.9. Patch 0007 is a default flip of a
 same gain is expected from `TF_FLASHNEXT_DRAFT_HEAD=affine4` on an unpatched binary; that arm is queued.
 
 Not in this series: `TF_FLASHNEXT_HC_MXFP8` (the hyper-connection matrices re-coded to MXFP8 at load,
-`work/ladder/rungs/gm21.patch`, measured by `mx.sh`). It is not exact, so it goes in only on the owner's word. The
+`work/ladder/rungs/gm21.patch`): +3.5% prose and +6.5% code at one stream, +3.1% / +5.3% at four, golden 6/6, but
+the long replies differ (it is not exact), so it goes in only on the owner's word. The
 diagnostic logs are `scripts/qwen38/zig/target/diag/`.

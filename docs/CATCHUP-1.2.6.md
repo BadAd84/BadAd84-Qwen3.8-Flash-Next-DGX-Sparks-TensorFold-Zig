@@ -443,6 +443,51 @@ series replays onto pristine to the last rung's exact tree, `apply.sh --check` p
 27 reviewed findings and none open, and the package gate now covers the directory (`RECORD.md`, `SHA256SUMS`). The
 old integration tail is gone. `patches/1.2.6/README.md` carries each lever's switch and what is measured for it.
 
+Measured (`mx.sh`, image `gm21`, the same binary with the switch off and on, each twice):
+
+| | C1 prose | C1 code | C4 prose | C4 code | cold 32k prompt |
+|---|---|---|---|---|---|
+| off | 61.6 / 61.4 | 81.5 / 81.3 | 113.1 / 113.1 | 166.7 / 165.7 | 14.08 s |
+| on | 63.7 / 63.6 | 86.7 / 86.6 | 116.6 / 116.7 | 175.3 / 174.9 | 14.32 s |
+| gain | +3.5% | +6.5% | +3.1% | +5.3% | none (inside the 14.0 to 14.3 of stock's own repeats) |
+
+Off, it is the accepted rung (6/6, self-check 1,176 of 2,080). On, the six golden replies are still identical to
+stock's and the two on-arms agree with each other, but the decode replies are not the same text: prose takes 149
+rounds where the exact arms take 146, code 91 against 89. So it is a 3 to 6% lever that changes long replies, and it
+ships only on the owner's word. It is also about half of what the kernel table suggested (7.7 ms of a 62.6 ms round
+would be 14%): halving the bytes did not halve the read-outs' time, which is what the up read-out's low rate already
+said. The kernel table with the lever on is `mxk.sh`.
+
+### Cold prompt time, rung by rung (`stage3c.sh`, `prefill_arm.sh`)
+
+One stream, bf16, 131,072 window, three salted prompts a size, seconds to the first token:
+
+| image, setting | 8k | 32k | against the accepted rung at 32k |
+|---|---|---|---|
+| stock (twice) | 3.43 / 3.52 | 14.02 / 14.34 | |
+| n-gram rung, as first cut | 3.52 | 14.15 | |
+| prompt-chunk rung | 3.49 | 14.27 | |
+| GEMM2 rung | 3.53 | 14.34 | |
+| accepted rung (`g21`) | 3.49 | 14.14 | - |
+| `g21`, `PREFILL_TAIL=0` | 3.46 | 14.04 | -0.7% |
+| `g21`, base reader instead of the row cache | 3.51 | 14.29 | +1.1% |
+| `g21`, `PROMPT_MX128=1024` (the relaxed tile, with GEMM2) | 3.31 | 13.42 | **-5.1%** |
+| `g21`, `PROMPT_MX128=1024`, `PROMPT_GEMM2=0` | 3.40 | 13.75 | -2.7% |
+| read-out rung (`g25`), its three switches off | 3.49 | 14.10 | -0.2% |
+| `g25`, `PROMPT_HC2=1` alone | 3.43 | 13.82 | -2.3% |
+| `g25`, `PROMPT_SHARED_DIRECT=1` alone | 3.37 | 13.70 | -3.1% |
+| `g25`, `HEAD_PIECE=1536` alone | 3.47 | 14.05 | -0.6% |
+| `g25`, all three (the recipe's default) | 3.36 | 13.58 | **-3.9%** |
+| + q12 (`g26`), + cost (`g27`), all 13 (`g32`) | 3.39 / 3.40 / 3.37 | 13.65 / 13.67 / 13.63 | -3.5% |
+
+- With their defaults, the prompt levers through the accepted rung do nothing for a cold prompt: every image from
+  stock to `g21` is inside stock's own 14.02 to 14.34.
+- **The repaired read-out group works and is worth 3.9% at 32k** (the fused read-out 2.3%, the shared expert read in
+  place 3.1%, the wider head piece nothing). Its decode and golden arms are in stage 3c's second half.
+- **The relaxed MX128 tile is worth 5.1% at 32k, 2.4 points of it from the two-stage GEMM2 form**, but it is the
+  inexact tile and its replies have not been compared yet.
+- Production's target for this prompt is 10.77 s. Everything here together would be about 13 s.
+
 ### The n-gram lever with its fill path merged right
 
 Same accepted rung, old (`r0021`) against repaired (`g21`), then the three readers on the repaired image:
