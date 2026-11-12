@@ -11,8 +11,9 @@
   argument and three calls go in it), 0005 and 0006 (`qmmf.cu`: v1.2.7 appended a native FP4 check at the file's end),
   0010 (the lane core: v1.2.7's `rowTerm` and `least_rows` and our `draft_row_ms` pricing both stay).
 - **Whether we edited it:** yes, by those resolutions only. The repairs of `patches/1.2.6` are part of the text.
-  Nothing here has been built into an image or measured on v1.2.7 yet; `scripts/qwen38/zig/target/v127.sh` is the
-  stage that does it.
+  The rungs were built into images and measured on spark6 on 2026-11-12 (`scripts/qwen38/zig/target/v127.sh`; the
+  table is in `README.md`); the patch text then gained only test, recipe-note and changelog repairs from
+  `patches/1.2.6`, which no image contains.
 
 ## Repairs `overlay.py` makes, by the old patch that needed them
 
@@ -37,5 +38,7 @@
   step does not compile, `cuda_ple_cache.zig`'s anonymous `std.posix.mmap`, which is Linux-only code (the same site is
   in `patches/1.2.6`). The Linux run of this step could not be repeated: the WSL volume went read-only. The Windows
   and Linux results for `patches/1.2.6` agree on every other test.
-- Not yet run: the aarch64 type-check of each prefix, any image build, any measurement.
+- Each of the 11 prefixes 1, 3 to 11 and 13 built on spark6 (image `up127` for v1.2.7 alone and `v1` to `v13`) and booted
+  with the window self-check at 1,176 of 2,080 and golden 6/6 identical to stock's; decode and cold prompt time in
+  `README.md`.
 - `scripts/check-patch-packages.sh`: `RECORD.md`, `SHA256SUMS` and the hashes.
