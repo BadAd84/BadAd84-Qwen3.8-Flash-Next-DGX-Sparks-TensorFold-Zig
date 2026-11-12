@@ -62,3 +62,26 @@ same on this box, so the two are comparable.
 Every cell's golden is 6/6 identical to v1.2.6 stock's and its boot log reads "window self-check: 1176 of 2080".
 Where the remaining time is, and what has been measured against it, is in `docs/CATCHUP-1.2.6.md`: the round's
 read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to take next.
+
+## 0014: the drafter's BF16 linears in MXFP8 (2026-11-12)
+
+`TF_FLASHNEXT_MTP_MXFP8=1` re-codes the drafter's BF16 linears to MXFP8 as they load. The FP4 checkpoint quantizes
+the backbone and leaves the drafter alone: `mtp.*` holds 181.1 MB of BF16 (`q_proj` 62.9, `o_proj` 31.5,
+`fc_embedding` and `fc_hidden` 13.1 each, its four hyper-connection matrices 6.55 each, the shared expert 3.28
+each), and every draft pass walks it. Default off; unset, the loader is untouched.
+
+One binary (image `v16`), the switch off and on, one fresh boot a cell, bf16 KV, 131,072 tokens, aggregate tok/s
+prose / code (`scripts/qwen38/zig/target/mtpchain.sh`, spark6 `~/work/target/mtp.log`):
+
+| arm | C=1 | C=2 | C=4 | C=6 | rounds prose/code |
+|---|---|---|---|---|---|
+| off | 60.9 / 80.7 | 86.3 / 119.0 | 111.5 / 164.2 | 144.3 / 201.6 | 146 / 89 |
+| on | 63.2 / 86.8 | 87.2 / 125.4 | 112.6 / 171.5 | 144.6 / 218.1 | 144 / 86 |
+| off again | 60.6 / 79.7 | | 111.3 / 164.2 | | 146 / 89 |
+| on again | 62.7 / 86.7 | | 112.9 / 170.5 | | 144 / 86 |
+
+That is +3.8% prose and +7.6% code at one stream, +1.0% and +5.4% at two, +1.0% and +4.4% at four, +0.2% and
+8.2% at six, with the repeats holding. It is exact the way patch 0007 is exact: a draft is a proposal the verify
+forward checks, so all ten decode reply hashes match the off arm's at C=1 and C=4, golden is 6/6 and the boot log
+reads "window self-check: 1176 of 2080"; the rounds a 512-token reply takes move (146 / 89 to 144 / 86), which is
+the drafter changing its proposals, not the model changing its tokens.

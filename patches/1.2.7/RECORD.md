@@ -42,3 +42,8 @@
   with the window self-check at 1,176 of 2,080 and golden 6/6 identical to stock's; decode and cold prompt time in
   `README.md`.
 - `scripts/check-patch-packages.sh`: `RECORD.md`, `SHA256SUMS` and the hashes.
+- **0014 (added 2026-11-12):** written here, not re-seated: the drafter's BF16 linears re-coded to MXFP8 at load
+  (`TF_FLASHNEXT_MTP_MXFP8`, default off). Its encoder and host test are the load-time MXFP8 coder of the rejected
+  `TF_FLASHNEXT_HC_MXFP8` experiment (`work/ladder/rungs/gm21.patch`), re-pointed from the read-out matrices at the
+  drafter's projections; the hook is one flag in `cuda_projection.zig` set only while `cuda_mtp.zig` loads. Built as
+  image `v16` on spark6 and measured in `README.md`; `v16k` carries the round and kernel logs.
