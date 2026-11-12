@@ -1,25 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Mon, 9 Nov 2026 09:54:53 +0000
-Subject: [PATCH 16/28] flashnext: the prompt tile runs two stages and two
- blocks an SM under TF_FLASHNEXT_PROMPT_GEMM2=1
-
-The same tile and arithmetic with two pipeline stages instead of three and two blocks an SM
-instead of one: one block output stores and pipeline fill overlap the other block K loop. The
-per-K accumulation order and every block output are unchanged, so the bits are the 3-stage tile
-bits; the two-stage stage bytes let both blocks share an SM on sm_120 and sm_121.
----
- CHANGELOG.md                               |  2 ++
- zig/kernels/cuda/qmmf.cu                   | 11 +++++++----
- zig/src/cuda/qmmf.zig                      | 23 ++++++++++++++++++----
- zig/src/families/flashnext/cuda_knobs.zig  | 10 ++++++++++
- zig/src/families/flashnext/cuda_prompt.zig |  1 +
- zig/src/platform/environment.zig           |  1 +
- zig/src/platform/environment_test.zig      |  1 +
- 7 files changed, 41 insertions(+), 8 deletions(-)
-
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index d4164037e..a914eb490 100644
+index d4164037..a914eb49 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -83,6 +83,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -32,7 +12,7 @@ index d4164037e..a914eb490 100644
  - Tests: `zig build bench-stream-scan` streams a 32k-token thinking reply (30,000 reasoning tokens, prose, then a Qwen XML, GLM, DSML or Kimi call) through the chat, Messages and Responses routes one or two tokens a chunk, and prints each chunk's request-thread time at 1k to 30k reply tokens, each whole-text step's time and the request arena; under `test-server-cpu` a 300-token reply checks that each route's streamed reasoning, prose and call arguments equal the reply's (#2642).
  
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index 1a4aac801..f58c28b1f 100644
+index 1a4aac80..f58c28b1 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -369,8 +369,8 @@ __device__ __forceinline__ void prompt_mx_body(
@@ -57,8 +37,68 @@ index 1a4aac801..f58c28b1f 100644
 +// The same tile and arithmetic with two stages and two blocks an SM (TF_FLASHNEXT_PROMPT_GEMM2=1), at the same bits.
 +TF_PROMPT_MX(tf_qmmf_prompt_mx2_bf16, 128, 128, 2, 4, 2, false, 2)
 +TF_PROMPT_MX(tf_qmmf_prompt_mx2_f32, 128, 128, 2, 4, 2, true, 2)
+diff --git a/zig/src/core/contract/qmmf_prompt_records.zig b/zig/src/core/contract/qmmf_prompt_records.zig
+index 16096a3b..94326a1d 100644
+--- a/zig/src/core/contract/qmmf_prompt_records.zig
++++ b/zig/src/core/contract/qmmf_prompt_records.zig
+@@ -1,4 +1,4 @@
+-//! BF16 K64 and unfused K32 prompt receipts from nvcc 13.0 on sm_12x; later compilers remain pending.
++//! BF16 K64, unfused K32 and MXFP8 prompt receipts from nvcc 13.0 on sm_12x; later compilers remain pending.
+ const std = @import("std");
+ const registry = @import("registry.zig");
+ const limits = @import("limits.zig");
+@@ -37,7 +37,22 @@ fn k32(comptime wide: bool) registry.CudaRecord {
+     }, .usage = usage(120), .later_pending = true };
+ }
+ 
+-pub const records = [_]registry.CudaRecord{ record(false, false), record(false, true), record(true, false), record(true, true), k32(false), k32(true) };
++fn mxRecord(comptime name: []const u8, comptime symbol: []const u8, comptime dynamic: u32, comptime regs: u32) registry.CudaRecord {
++    return .{ .launch = .{
++        .name = name,
++        .symbol = symbol,
++        .image = "qmmf",
++        .threads = 256,
++        .dynamic = dynamic,
++        .opt_in = true,
++        .min_sm = 120,
++    }, .usage = usage(regs), .later_pending = true };
++}
++
++pub const records = [_]registry.CudaRecord{
++    record(false, false),                                                             record(false, true),                                                             record(true, false),                                                                         record(true, true),                                                                         k32(false), k32(true),
++    mxRecord("qmmf MXFP8 prompt 128x128 bf16", "tf_qmmf_prompt_mx_bf16", 74496, 175), mxRecord("qmmf MXFP8 prompt 128x128 fp32", "tf_qmmf_prompt_mx_f32", 74496, 175), mxRecord("qmmf MXFP8 prompt 128x128 two-stage bf16", "tf_qmmf_prompt_mx2_bf16", 49664, 128), mxRecord("qmmf MXFP8 prompt 128x128 two-stage fp32", "tf_qmmf_prompt_mx2_f32", 49664, 128),
++};
+ 
+ test "qmmf prompt launch records hold nvcc 13.0's usage on sm_12x, later releases pending" {
+     try std.testing.expectEqual(@as(usize, 0), try registry.checkCuda(std.testing.allocator, records[0..4], true));
+@@ -52,7 +67,7 @@ test "qmmf prompt launch records hold nvcc 13.0's usage on sm_12x, later release
+ }
+ 
+ test "qmmf prompt K32 records hold nvcc 13.0 usage and keep later compilers pending" {
+-    for (records[4..]) |r| {
++    for (records[4..6]) |r| {
+         try std.testing.expectEqual(@as(u32, 256), r.launch.threads);
+         try std.testing.expectEqual(@as(u32, 49152), r.launch.dynamic);
+         try std.testing.expect(r.launch.opt_in and !r.geometry_pending);
+@@ -68,3 +83,16 @@ test "qmmf prompt K32 records hold nvcc 13.0 usage and keep later compilers pend
+             try std.testing.expectEqual(registry.none, registry.usageFor(r, release));
+     }
+ }
++
++test "qmmf MXFP8 prompt records hold nvcc 13.0 usage on sm_12x, later releases pending" {
++    for (records[6..]) |r| {
++        try std.testing.expectEqual(@as(u32, 256), r.launch.threads);
++        try std.testing.expect(r.launch.opt_in and !r.geometry_pending);
++        try std.testing.expect(registry.usageFor(r, .{ .major = 13, .minor = 0 })[4].regs > 0);
++        for ([_]limits.Nvcc{ .{ .major = 13, .minor = 2 }, .{ .major = 13, .minor = 3 } }) |rel|
++            try std.testing.expectEqual(registry.none, registry.usageFor(r, rel));
++    }
++    try std.testing.expectEqual(@as(u32, 74496), records[6].launch.dynamic);
++    try std.testing.expectEqual(@as(u32, 49664), records[8].launch.dynamic);
++    try std.testing.expectEqual(@as(usize, 0), try registry.checkCuda(std.testing.allocator, records[6..], true));
++}
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 4e920db81..85069b878 100644
+index 4e920db8..85069b87 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
 @@ -137,13 +137,18 @@ pub const reduce_symbols = [2][:0]const u8{
@@ -124,10 +164,10 @@ index 4e920db81..85069b878 100644
 +    try std.testing.expectEqual(@as(u32, 49664), prompt_mx2_shared);
 +}
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index c67916aa8..4ae79e2e5 100644
+index c67916aa..70858f61 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -51,3 +51,13 @@ pub fn chunkSync() sys.environment.Error!bool {
+@@ -51,3 +51,8 @@ pub fn chunkSync() sys.environment.Error!bool {
  pub fn mx128MinN() sys.environment.Error!usize {
      return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
  }
@@ -136,13 +176,8 @@ index c67916aa8..4ae79e2e5 100644
 +pub fn promptGemm2() sys.environment.Error!bool {
 +    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
 +}
-+
-+/// TF_FLASHNEXT_PROMPT_GEMM2=1: the relaxed prompt tile runs two stages and two blocks an SM, same arithmetic and bits.
-+pub fn promptGemm2() sys.environment.Error!bool {
-+    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
-+}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index d6723ca24..26e0a845d 100644
+index 5b782363..e2a86eb1 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -148,6 +148,7 @@ pub const Engine = struct {
@@ -154,7 +189,7 @@ index d6723ca24..26e0a845d 100644
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 65f38824f..8095f0615 100644
+index 65f38824..8095f061 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -57,6 +57,7 @@ pub const rules = [_]Rule{
@@ -166,7 +201,7 @@ index 65f38824f..8095f0615 100644
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index e5d089349..dd6d140d9 100644
+index e5d08934..dd6d140d 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -111,6 +111,7 @@ const valid = [_]Case{

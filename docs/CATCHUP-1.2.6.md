@@ -434,6 +434,15 @@ can differ from stock's, the same trade production's `fast-fp8` copy makes. Its 
 code within an eighth of its weight, no saturation) runs in the family's suite and was proven to fail on a planted
 defect before it was trusted.
 
+### The series as it now stands in `patches/1.2.6`
+
+The 32 old patches are replaced by 13, one lever each, cut from the rung trees with the repairs in place
+(`mkladder.sh`, `mkpackage.sh`): rows, copy re-sync, kv8, n-gram row cache, prompt chunk, GEMM2, draft head 4-bit,
+fused prompt read-out, q12, round cost, vision, gather-direct, check-log. The tree compiles after every one, the
+series replays onto pristine to the last rung's exact tree, `apply.sh --check` passes on spark6, the reverts gate has
+27 reviewed findings and none open, and the package gate now covers the directory (`RECORD.md`, `SHA256SUMS`). The
+old integration tail is gone. `patches/1.2.6/README.md` carries each lever's switch and what is measured for it.
+
 ### The n-gram lever with its fill path merged right
 
 Same accepted rung, old (`r0021`) against repaired (`g21`), then the three readers on the repaired image:

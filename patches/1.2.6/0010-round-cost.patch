@@ -1,44 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Mon, 9 Nov 2026 10:49:34 +0000
-Subject: [PATCH 25/28] flashnext: a shared round prices itself from the
- environment, and a draft row prices apart
-
-Nothing is timed at load on the Flash Next CUDA backend, so a shared round is unpriced:
-every draft the head's confidence rule lets through is verified. TF_FLASHNEXT_ROUND_MS
-names the forward ms by rows (an "a+b" line, or a comma list from rows 1 that the core
-interpolates between and extends past), so windows.allocate trims a round's drafts to the
-rows that pay and observeOverhead measures each round's time past the forward as its
-overhead. TF_FLASHNEXT_DRAFT_ROW_MS prices a draft row apart from the streams' rows (a
-stream's further rows share its experts and cost less): the forward prices as the table at
-the streams plus the draft row's ms for every further row, and the depth rule's
-observeOverhead prices the round the same way. Unset, rounds stay unpriced as before and
-no reply changes. Both settings have rows in platform/environment.zig: the round-ms table
-is a .text setting whose reader owns the grammar (the validator refuses control
-characters), the draft row's ms a real read through the table. The two shared-round tests
-depth.zig carried move to depth_rounds_test.zig at the lean file cap. (#9999)
----
- CHANGELOG.md                                  | 20 ++---
- zig/src/core/lanes/allocate.zig               | 46 +++++++++-
- zig/src/core/lanes/config.zig                 |  2 +
- zig/src/core/lanes/depth.zig                  | 65 +++-----------
- zig/src/core/lanes/depth_constants.zig        |  1 +
- zig/src/core/lanes/depth_rounds_test.zig      | 84 +++++++++++++++++++
- zig/src/core/lanes/draft_row_test.zig         | 58 +++++++++++++
- zig/src/core/lanes/lanes.zig                  |  2 +
- zig/src/core/lanes/windows.zig                |  3 +-
- zig/src/families/flashnext/cuda_lanes.zig     |  3 +
- .../families/flashnext/cuda_round_costs.zig   | 84 +++++++++++++++++++
- zig/src/platform/environment.zig              | 17 +++-
- zig/src/platform/environment_test.zig         |  6 +-
- zig/tests/cuda/main.zig                       | 12 ++-
- 14 files changed, 326 insertions(+), 77 deletions(-)
- create mode 100644 zig/src/core/lanes/depth_rounds_test.zig
- create mode 100644 zig/src/core/lanes/draft_row_test.zig
- create mode 100644 zig/src/families/flashnext/cuda_round_costs.zig
-
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index f62746da0..656a1705d 100644
+index 59e7dc6b..656a1705 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -6,12 +6,14 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -60,16 +21,16 @@ index f62746da0..656a1705d 100644
  
  - Prompt cache: long conversations survive 8 to 16 agents sending follow-ups at once. Redundant states are evicted before each conversation's newest one, admission never evicts a state a queued request resumes, concurrent keeps reserve their room, and the default budget scales with the room left after streams on Metal and unified-memory CUDA (discrete CUDA hosts keep 8 GiB, Flash Next's batch host 16 GiB). On Qwen3.8-27B with DFlash2 at 16 agents, a follow-up's median first token drops from 546 s to 15.9 s on an M3 Ultra and from 105 s to 25.8 s on a GB10, with every reply unchanged (#2699).
  
-@@ -84,7 +86,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -84,8 +86,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Tests: `zig build sessions-writes` drives the real DeepSeek-V4.1 session store and NVMe index with synthetic agent, chat and mixed loads, no model or GPU, and reports the bytes an enabled tier (`TF_DSV41_SESSION_DISK`) writes and reads back; a nightly Linux test checks its accounting against real files (#2660).
  
--25: @both
-+- Server: Responses grows each output item in one buffer, and Kimi chat advances its native stream parser through new tokens, so a long reply retains memory in proportion to its length while every reply and streamed event stays the same (#2642).
+-- Flash Next on CUDA: the relaxed 128 x 128 prompt tile also runs as a two-stage, two-blocks-an-SM variant (`TF_FLASHNEXT_PROMPT_GEMM2=1`) with the same arithmetic and bits: one block's output stores and pipeline fill overlap the other block's K loop (#9999).
+-
+ - Server: Responses grows each output item in one buffer, and Kimi chat advances its native stream parser through new tokens, so a long reply retains memory in proportion to its length while every reply and streamed event stays the same (#2642).
  - Tests: `zig build bench-stream-scan` streams a 32k-token thinking reply (30,000 reasoning tokens, prose, then a Qwen XML, GLM, DSML or Kimi call) through the chat, Messages and Responses routes one or two tokens a chunk, and prints each chunk's request-thread time at 1k to 30k reply tokens, each whole-text step's time and the request arena; under `test-server-cpu` a 300-token reply checks that each route's streamed reasoning, prose and call arguments equal the reply's (#2642).
  
- - Drama 3 on CUDA opens again: since 1.2.5 every open stopped with "unregistered strict environment parser", because `TF_DRAMA_PREFILL_ROWS` and `TF_DRAMA_REFERENCE_CACHE` had no rows in the environment table. Both now have rows, with their old forms and bounds, and the build refuses a CUDA setting read through the table without one (#2658).
-@@ -93,12 +95,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -95,12 +95,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - HIP: the load-time lane cost table times a shared bucket of two or more windows with a distinct token a row, as shared rounds draft, instead of one repeated token; lone windows, one-row buckets, the head step and one-stream servers are timed as before, and only the drafted width can change, never a token (#2652, part of #2605). Thanks to @AbrahamCete.
  
@@ -82,7 +43,7 @@ index f62746da0..656a1705d 100644
  - Tool calls: a reply's call ids are an HMAC-SHA-256 of the request (its body without `stream` and `stream_options`, the choice and the call's index) under the server's key instead of chance, so a request replayed to the same server gets the same ids, a stream names its calls as its whole reply and the next turn's background prefill do, and a Responses `fc_` item id follows its call; without the key an id reveals nothing about the request, and byte-identical requests under one key share ids. The key is random per server process unless `TENSORFOLD_TOOL_ID_KEY_FILE` names an owner-only file of at least 32 bytes, which keeps ids across restarts and machines sharing it, and a missing, unreadable, linked, shared, short or oversized file stops the start by name; the `call_` and 24 hex digit form and the ids a client sends back are unchanged (#2653).
  
  - Qwen3.8-27B on Metal: after a sampled or grammar-masked verify, only the drafter's taps and head row are waited for; the target's keep follows on the same queue and is settled before the next verify, so the drafter starts sooner, with every token unchanged. One stream sampled with DFlash2 on an M3 Ultra: chat 75.3 to 77.0 tok/s, code 106.8 to 109.8 (#2646). Thanks to @mrv777.
-@@ -123,8 +119,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -125,8 +119,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - GLM on CUDA: an empty or whitespace-only value of a setting its start checks (`TF_GLM_MM`, `TF_GLM_PROMPT_TAIL`, `TF_GLM_L2PF` and every other name `Settings.read` reads) now means unset, as `docs/environment.md` says of every variable, instead of stopping the start; `TF_GLM_ROCE_MULTI=1` with a blank `TF_TP_MASTER` or `TF_TP_KERNEL_IMAGE` is refused by name, at TP=2 too, as an unset one already was (#2636, follows #2487, refs #2591). Thanks to @Bizuayeu.
  
@@ -92,7 +53,7 @@ index f62746da0..656a1705d 100644
  
  - Flash Next on CUDA: a verify window's and a shared pass's graph keys now hash every buffer of a stream's tables (states, conv windows, caches, the n-gram tail and the page table), not its first state and cache alone, so a layer whose buffers move alone gets a new key; nothing changes on today's placement, where every state moves together (#2577, part of #2444). Thanks to @jschmied.
 diff --git a/zig/src/core/lanes/allocate.zig b/zig/src/core/lanes/allocate.zig
-index 3fea08998..45120ce3d 100644
+index 3fea0899..45120ce3 100644
 --- a/zig/src/core/lanes/allocate.zig
 +++ b/zig/src/core/lanes/allocate.zig
 @@ -22,6 +22,9 @@ pub const HeadCost = struct {
@@ -177,7 +138,7 @@ index 3fea08998..45120ce3d 100644
      const gpa = std.testing.allocator;
      var t = try extendCosts(gpa, &.{ .{ .width = 4, .ms = 8.0 }, .{ .width = 2, .ms = 4.0 } }, 6);
 diff --git a/zig/src/core/lanes/config.zig b/zig/src/core/lanes/config.zig
-index e208c64f3..af9505d94 100644
+index e208c64f..af9505d9 100644
 --- a/zig/src/core/lanes/config.zig
 +++ b/zig/src/core/lanes/config.zig
 @@ -36,6 +36,7 @@ pub const Model = struct {
@@ -197,7 +158,7 @@ index e208c64f3..af9505d94 100644
                  .grant_slack = if (m.draft_slack > 0) m.draft_slack else (Constants{}).grant_slack,
                  .short_slack = if (m.draft_slack > 0) m.draft_slack else (Constants{}).short_slack,
 diff --git a/zig/src/core/lanes/depth.zig b/zig/src/core/lanes/depth.zig
-index 751dd9b47..857544bdd 100644
+index 751dd9b4..857544bd 100644
 --- a/zig/src/core/lanes/depth.zig
 +++ b/zig/src/core/lanes/depth.zig
 @@ -399,9 +399,18 @@ pub const Rule = struct {
@@ -282,7 +243,7 @@ index 751dd9b47..857544bdd 100644
      const empty: Table = .{};
      const Yes = struct {
 diff --git a/zig/src/core/lanes/depth_constants.zig b/zig/src/core/lanes/depth_constants.zig
-index 5f8ad836f..ea05f3e4b 100644
+index 5f8ad836..ea05f3e4 100644
 --- a/zig/src/core/lanes/depth_constants.zig
 +++ b/zig/src/core/lanes/depth_constants.zig
 @@ -4,6 +4,7 @@ pub const Constants = struct {
@@ -295,7 +256,7 @@ index 5f8ad836f..ea05f3e4b 100644
      plain_margin: f64 = 1.05, // a drafted depth must beat plain rounds' tokens a ms by this much
 diff --git a/zig/src/core/lanes/depth_rounds_test.zig b/zig/src/core/lanes/depth_rounds_test.zig
 new file mode 100644
-index 000000000..1b018dda4
+index 00000000..1b018dda
 --- /dev/null
 +++ b/zig/src/core/lanes/depth_rounds_test.zig
 @@ -0,0 +1,84 @@
@@ -385,7 +346,7 @@ index 000000000..1b018dda4
 +}
 diff --git a/zig/src/core/lanes/draft_row_test.zig b/zig/src/core/lanes/draft_row_test.zig
 new file mode 100644
-index 000000000..4159fc004
+index 00000000..4159fc00
 --- /dev/null
 +++ b/zig/src/core/lanes/draft_row_test.zig
 @@ -0,0 +1,58 @@
@@ -448,7 +409,7 @@ index 000000000..4159fc004
 +    try t.expect(dear_total <= rows_total);
 +}
 diff --git a/zig/src/core/lanes/lanes.zig b/zig/src/core/lanes/lanes.zig
-index 4f413fb62..d0c00ed18 100644
+index 4f413fb6..d0c00ed1 100644
 --- a/zig/src/core/lanes/lanes.zig
 +++ b/zig/src/core/lanes/lanes.zig
 @@ -79,6 +79,8 @@ test {
@@ -461,7 +422,7 @@ index 4f413fb62..d0c00ed18 100644
      _ = @import("lone_costs_test.zig");
      _ = @import("lone_backoff_test.zig");
 diff --git a/zig/src/core/lanes/windows.zig b/zig/src/core/lanes/windows.zig
-index 2f5bd7ab2..7b0592a4d 100644
+index 2f5bd7ab..7b0592a4 100644
 --- a/zig/src/core/lanes/windows.zig
 +++ b/zig/src/core/lanes/windows.zig
 @@ -283,7 +283,8 @@ pub fn allocate(e: *Engine, plans: []Plan) !void {
@@ -475,7 +436,7 @@ index 2f5bd7ab2..7b0592a4d 100644
      if (trial) |count| {
          counts[0] = count;
 diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
-index 4d2205c4a..7514bd5cd 100644
+index 5840b168..ded77e85 100644
 --- a/zig/src/families/flashnext/cuda_lanes.zig
 +++ b/zig/src/families/flashnext/cuda_lanes.zig
 @@ -8,6 +8,7 @@ const mtp = @import("cuda_mtp.zig");
@@ -497,7 +458,7 @@ index 4d2205c4a..7514bd5cd 100644
                  };
 diff --git a/zig/src/families/flashnext/cuda_round_costs.zig b/zig/src/families/flashnext/cuda_round_costs.zig
 new file mode 100644
-index 000000000..af3403f2b
+index 00000000..af3403f2
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_round_costs.zig
 @@ -0,0 +1,84 @@
@@ -586,7 +547,7 @@ index 000000000..af3403f2b
 +    try std.testing.expectEqual(@as(f64, 0), draftRowMs()); // a split of a table that is not there
 +}
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 56ae27971..8b307e765 100644
+index 56ae2797..8b307e76 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -4,7 +4,7 @@ const sys = @import("sys.zig");
@@ -642,7 +603,7 @@ index 56ae27971..8b307e765 100644
  pub fn checkScope(scope: Scope, environment: anytype) Error!void {
      for (rules) |r| if (r.scope == scope and !masked(r, environment)) {
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index 8aeccca4b..d9f67e406 100644
+index 8aeccca4..d9f67e40 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -17,7 +17,7 @@ const Env = struct {
@@ -665,40 +626,3 @@ index 8aeccca4b..d9f67e406 100644
      .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "pread", .n = 1 },
-diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
-index fea44c607..f06a2663a 100644
---- a/zig/tests/cuda/main.zig
-+++ b/zig/tests/cuda/main.zig
-@@ -106,7 +106,9 @@ const nvfp4_b32_tests = @import("nvfp4_b32_tests.zig");
- const lane_half_tests = @import("lane_half_tests.zig");
- const flashnext_dense_hc_tests = @import("flashnext_dense_hc_tests.zig");
- const flashnext_hc_tests = @import("flashnext_hc_tests.zig");
--22: @both
-+const flashnext_attn_tests = @import("flashnext_attn_tests.zig");
-+const flashnext_kv8_tests = @import("flashnext_kv8_tests.zig");
-+const flashnext_hc_fuse_tests = @import("flashnext_hc_fuse_tests.zig");
- const ggml_tests = @import("ggml_tests.zig");
- const paged_tests = @import("paged_tests.zig");
- const glm_loader_gate = @import("glm_loader_gate.zig");
-@@ -152,7 +154,9 @@ const usage =
-     \\  lane-half                 lane half tiles (MXFP8, BF16): bytes equal to the 64-column tile, FP64, cold-weight time
-     \\  flashnext-dense-hc        dense connection weights and FP32 normalization against FP64
-     \\  flashnext-hc              Flash Next's own hyper-connection and n-gram glue against float64 (synthetic rows)
--23: @both
-+    \\  flashnext-attn            Flash Next's own attention glue, pooling and block scores against float64 (synthetic)
-+    \\  flashnext-kv8             Flash Next's --kv-cache fp8 write against its format model and its reads against the bf16 kernels (synthetic)
-+    \\  hc-fuse                   the fused native hyper-connection read-out against the five-launch chain: bytes, then times
-     \\  flashnext-gdn-heads [BASELINE]  DeltaNet full/half bytes, optionally against a frozen flashnext_batch.fatbin
-     \\  flashnext-tp-heads MODEL  each rank's cut in-projections and attention heads equal the whole layer's bytes
-     \\  flashnext-pages           the attention glue's caches through a page table: paged == contiguous, float64, controls
-@@ -391,7 +395,9 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
-     if (std.mem.eql(u8, cmd, "lane-half")) return lane_half_tests.run(gpu);
-     if (std.mem.eql(u8, cmd, "flashnext-dense-hc")) return flashnext_dense_hc_tests.run(gpu);
-     if (std.mem.eql(u8, cmd, "flashnext-hc")) return flashnext_hc_tests.run(gpu);
--24: @both
-+    if (std.mem.eql(u8, cmd, "flashnext-attn")) return flashnext_attn_tests.run(gpu);
-+    if (std.mem.eql(u8, cmd, "flashnext-kv8")) return flashnext_kv8_tests.run(gpu);
-+    if (std.mem.eql(u8, cmd, "hc-fuse")) return flashnext_hc_fuse_tests.run(gpu);
-     if (std.mem.eql(u8, cmd, "flashnext-gdn-heads")) {
-         if (rest.len > 1) return error.GdnHeadsArguments;
-         const heads = @import("flashnext_gdn_heads_tests.zig");

@@ -5,8 +5,9 @@
 # golden, one decode pass (prose then code) and the boot self-check. Output: bench/pe-<name>/c<N>/.
 set -u
 cd ~/work/target || exit 1
-# a hold file parks the arms: a run borrowing the box between a stage's parts sets HOLD and calls with HOLD_FILE=none
-while [ -f "${HOLD_FILE:-HOLD}" ]; do sleep 20; done
+# hold files park the arms: a run borrowing the box between a stage's parts sets HOLD (or HOLD2, for a second
+# borrower behind the first) and calls its own arms with HOLD_FILE=none
+while [ "${HOLD_FILE:-}" != none ] && { [ -f HOLD ] || [ -f HOLD2 ]; }; do sleep 20; done
 IMG=${IMG:-tensorfold-qwen38:stack126}
 gpu() { nvidia-smi --query-gpu=temperature.gpu,clocks.sm --format=csv,noheader 2>/dev/null | tr -d ' '; }
 for spec in "$@"; do

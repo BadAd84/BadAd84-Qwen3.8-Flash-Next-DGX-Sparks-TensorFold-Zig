@@ -1,53 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Sat, 7 Nov 2026 14:33:29 +0000
-Subject: [PATCH 06/28] lanes: copy re-sync past an edit, and the lone copy
- ramp in shared rounds
-
-A copy window that misses in the middle of an edit loses its source: the next proposal
-needs a fresh suffix match, which one changed word inside a copied span denies for
-several rounds. With TENSORFOLD_COPY_RESYNC=1 a proposer whose window missed after
-landing at least resync_min_kept rows keeps the source position past the rejected draft
-and proposes from there without waiting for a match. At the miss the token the target
-wrote tells a deletion (the source's next token) from a substitution (past the replaced
-token); later the last two tokens written are matched in the source within resync_span
-of the miss, or the last one within resync_near. A resync that lands nothing spends a
-try (resync_tries) and stays outside the silence rule, and a miss is dropped once the
-target has written resync_wait tokens past it. With resyncs on, a request's proposer
-takes max(min_match, enter_match) so a match the round loop would drop cannot hide a
-resync. TENSORFOLD_COPY_RESYNC_PROMPT_ONLY=0 lets a reply repeating its own lines
-resync too; by default only a copy whose source lies in the prompt arms one.
-
-TENSORFOLD_COPY_SHARED=1 lets a stream in a shared round take the lone stream's copy
-ramp when its last copy came out of the prompt. Without it such a stream copies
-first_copy rows whatever its ramp reached, which is what a lone stream's widening rule
-left unused for shared rounds. TENSORFOLD_COPY_MISS=keep holds the width after a round
-that kept only part of a copied window, and TENSORFOLD_COPY_RAMP=jump goes straight to
-max_copy after one that kept it whole.
-
-Every setting is unset by default and leaves the engine's own widening rule, so a
-default boot behaves as before; a value that names no variant refuses the start rather
-than falling back in silence. The widening rule itself moves from the engine's commit
-path into windows.rampCopy, which that path calls, and is unchanged for a lone stream
-under the defaults.
-
-Tests: the proposer's resync over a substitution, a deletion and an insertion, its
-bounded give-up, the arming rules, and that resync off leaves proposals and the silence
-rule as they were; the shared-round ramp taking effect only under copy_shared and only
-for a copy out of the prompt; the copy policy's defaults in Config.
----
- zig/src/core/lane_host.zig            |   2 +
- zig/src/core/lane_stream.zig          |   7 +-
- zig/src/core/lanes/config.zig         |  13 ++
- zig/src/core/lanes/engine.zig         |   5 +-
- zig/src/core/lanes/proposer.zig       | 205 ++++++++++++++++++++++++--
- zig/src/core/lanes/stream.zig         |   2 +
- zig/src/core/lanes/windows.zig        |  67 ++++++++-
- zig/src/native/cuda_startup_phase.zig |  27 ++++
- 8 files changed, 308 insertions(+), 20 deletions(-)
-
 diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
-index c7868df92..ae4bfac41 100644
+index c7868df9..ae4bfac4 100644
 --- a/zig/src/core/lane_host.zig
 +++ b/zig/src/core/lane_host.zig
 @@ -38,6 +38,8 @@ pub const LaneHost = struct {
@@ -60,7 +12,7 @@ index c7868df92..ae4bfac41 100644
      proposers: ?Proposers = null,
      mutex: std.Io.Mutex = .init,
 diff --git a/zig/src/core/lane_stream.zig b/zig/src/core/lane_stream.zig
-index 1bb925b1a..0fd5850f2 100644
+index 1bb925b1..0fd5850f 100644
 --- a/zig/src/core/lane_stream.zig
 +++ b/zig/src/core/lane_stream.zig
 @@ -33,7 +33,12 @@ pub fn open(h: *LaneHost, job: *Job) bool {
@@ -78,7 +30,7 @@ index 1bb925b1a..0fd5850f2 100644
      job.stream = lanes.Stream.init(h.gpa, .{
          .id = "request",
 diff --git a/zig/src/core/lanes/config.zig b/zig/src/core/lanes/config.zig
-index a9af579d5..e208c64f3 100644
+index a9af579d..e208c64f 100644
 --- a/zig/src/core/lanes/config.zig
 +++ b/zig/src/core/lanes/config.zig
 @@ -108,8 +108,17 @@ pub const Config = struct {
@@ -111,7 +63,7 @@ index a9af579d5..e208c64f3 100644
  
  test "shared cost consumer: lone measured windows stay out of shared MTP prices" {
 diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
-index 018ae4a72..43035aafb 100644
+index 018ae4a7..43035aaf 100644
 --- a/zig/src/core/lanes/engine.zig
 +++ b/zig/src/core/lanes/engine.zig
 @@ -353,10 +353,7 @@ pub const Engine = struct {
@@ -127,7 +79,7 @@ index 018ae4a72..43035aafb 100644
                      if (p.lanes) |l| if (s.odds != null) s.observeLanes(l, path);
                      const ds = try accept.depths(a, parents);
 diff --git a/zig/src/core/lanes/proposer.zig b/zig/src/core/lanes/proposer.zig
-index 127dbe450..3cf52b55d 100644
+index 127dbe45..3cf52b55 100644
 --- a/zig/src/core/lanes/proposer.zig
 +++ b/zig/src/core/lanes/proposer.zig
 @@ -59,6 +59,20 @@ pub const Params = struct {
@@ -397,7 +349,7 @@ index 127dbe450..3cf52b55d 100644
      const gpa = std.testing.allocator;
      var s = try SuffixLookup.init(gpa, .{ .ngram = 3, .min_match = 4 });
 diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
-index baff3bd31..caac987a0 100644
+index baff3bd3..caac987a 100644
 --- a/zig/src/core/lanes/stream.zig
 +++ b/zig/src/core/lanes/stream.zig
 @@ -246,6 +246,7 @@ pub const Stream = struct {
@@ -417,7 +369,7 @@ index baff3bd31..caac987a0 100644
      }
  
 diff --git a/zig/src/core/lanes/windows.zig b/zig/src/core/lanes/windows.zig
-index 47c9c82f5..2f5bd7ab2 100644
+index 47c9c82f..2f5bd7ab 100644
 --- a/zig/src/core/lanes/windows.zig
 +++ b/zig/src/core/lanes/windows.zig
 @@ -202,7 +202,8 @@ fn headTrunk(e: *Engine, s: *Stream, p: Plan, levels: usize) !?fill.Trunk {
@@ -509,7 +461,7 @@ index 47c9c82f5..2f5bd7ab2 100644
  pub fn nodeChances(e: *Engine, s: *Stream, n: usize) ![]const f64 {
      const a = e.arena.allocator();
 diff --git a/zig/src/native/cuda_startup_phase.zig b/zig/src/native/cuda_startup_phase.zig
-index 42b3626d8..fb4fabf7c 100644
+index 42b3626d..fb4fabf7 100644
 --- a/zig/src/native/cuda_startup_phase.zig
 +++ b/zig/src/native/cuda_startup_phase.zig
 @@ -6,8 +6,34 @@ const lanes = @import("lanes");

@@ -1,21 +1,3 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <--show-origin>
-Date: Wed, 11 Nov 2026 17:03:25 +0000
-Subject: [PATCH 29/29] flashnext: the n-gram row cache can read through the
- page cache
-
-TF_FLASHNEXT_GATHER_DIRECT=0 opens the row cache through the page cache instead of O_DIRECT, so the parked
-readers and the cache stay without the alignment and copy cost. The row cache on the plain reader measured 2 to
-7 percent faster at the target settings, so this variant is the one to measure before the read-ahead path is
-retuned or retired.
----
- zig/src/core/direct_io.zig                    | 7 +++++++
- zig/src/families/flashnext/cuda_knobs.zig     | 5 +++++
- zig/src/families/flashnext/cuda_ple_cache.zig | 3 ++-
- zig/src/platform/environment.zig              | 1 +
- zig/src/platform/environment_test.zig         | 2 ++
- 5 files changed, 17 insertions(+), 1 deletion(-)
-
 diff --git a/zig/src/core/direct_io.zig b/zig/src/core/direct_io.zig
 index d61c9cdc..bebb0037 100644
 --- a/zig/src/core/direct_io.zig
@@ -35,7 +17,7 @@ index d61c9cdc..bebb0037 100644
      pub fn read(f: File, buf: Buffer, offset: u64, len: usize) ![]u8 {
          var ignored: u8 = 0;
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index b5701c6d..10303742 100644
+index f08f8e85..134a8e5f 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -7,6 +7,11 @@ pub fn gatherRead() sys.environment.Error!bool {

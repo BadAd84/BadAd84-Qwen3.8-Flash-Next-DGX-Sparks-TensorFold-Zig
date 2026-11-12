@@ -1,61 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Sat, 7 Nov 2026 18:12:31 +0000
-Subject: [PATCH 24/28] flashnext: the hyper-connection read-outs from a
- lossless 12-bit copy of their weights
-
-A decode window's read-out spends most of its time reading weights: each layer's
-attention and MLP hyper-connection hold a BF16 down [320 + 4 inject, 10240] and up
-[10240, 320] matrix, and a token's round walks every one of them, about 1.27 GB of
-weights for 97 read-outs. The lane tile that reads them (qmmf.cu's BF16 mode) stages
-8,192 bytes a 64-column tile and 64-input group.
-
-TF_FLASHNEXT_HC_Q12=1 keeps a second copy of those matrices in 12 bits and reads the
-copy at decode widths. Per (row, 64 inputs) the copy holds the top exponent; per weight
-its sign and mantissa byte and a 4-bit offset below that exponent; a weight further
-below than the offset can say escapes to a per-block list of exact bits, which on this
-checkpoint is a small fraction of the weights. The copy is lossless by construction:
-the decode rebuilds the BF16 word, so the tile's operands, its mma chain, its K slices
-and its epilogue are the ones the BF16 weights give, and the result is the same bytes.
-The blocks are the packed BF16 tile's own blocks (one n8 tile of one 64-input group,
-the 32 lanes' 16 weights each), so a block decodes straight into the operand pair the
-mma reads.
-
-qmmf.cu gains a Q12 mode whose only difference from BF16 is where the operands come
-from: no weights are staged in shared memory, each lane reads its block's 24 bytes from
-global memory and decodes them. The instances are the decode row tiles (16 and 32 rows
-at 64 columns, and the 16-row half tile), so a prompt pass keeps the BF16 weights and
-its bytes without a second path. qmmf_q12.zig owns the format, its host packer and the
-launcher; the packer is covered by a host test that reads every weight of a copy back
-and compares it to the word the BF16 tile would have read, over every BF16 bit pattern,
-over rows past the matrix (a tile's zero padding), and over exponents far enough apart
-to escape.
-
-The setting is strict: 1 or 0, any other value refuses the start. With the copies on,
-the engine proves them on the GPU before it serves: it packs a read-out's own shape
-with two exponent spreads and compares the 12-bit tiles against the BF16 tiles at 1, 5,
-16, 17 and 32 rows for both output kinds, and refuses to start if a byte differs.
-
-The copies cost device memory beside the BF16 rows, which prefill still reads, and the
-boot line reports what they hold.
----
- zig/kernels/cuda/qmmf.cu                      |  19 +-
- zig/kernels/cuda/qmmf_body.cuh                |  10 +-
- zig/kernels/cuda/qmmf_q12.cuh                 | 106 +++++++
- zig/src/cuda/qmmf_q12.zig                     | 291 ++++++++++++++++++
- zig/src/cuda/root.zig                         |   2 +
- zig/src/families/flashnext/cuda_batch_hc.zig  |   4 +-
- .../families/flashnext/cuda_batch_kernels.zig |  10 +
- zig/src/families/flashnext/cuda_hc_q12.zig    | 105 +++++++
- zig/src/families/flashnext/cuda_prompt.zig    |   5 +
- zig/src/families/flashnext/cuda_prompt_wt.zig |  15 +-
- 10 files changed, 559 insertions(+), 8 deletions(-)
- create mode 100644 zig/kernels/cuda/qmmf_q12.cuh
- create mode 100644 zig/src/cuda/qmmf_q12.zig
- create mode 100644 zig/src/families/flashnext/cuda_hc_q12.zig
-
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index f58c28b1f..f851651a3 100644
+index f58c28b1..f851651a 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -7,12 +7,13 @@
@@ -104,7 +48,7 @@ index f58c28b1f..f851651a3 100644
  template __global__ void reduce_kernel<false>(const float* __restrict__, void* __restrict__, long long, int, float);
  
 diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
-index 716ddc517..634b6c08d 100644
+index 716ddc51..634b6c08 100644
 --- a/zig/kernels/cuda/qmmf_body.cuh
 +++ b/zig/kernels/cuda/qmmf_body.cuh
 @@ -117,6 +117,9 @@
@@ -147,7 +91,7 @@ index 716ddc517..634b6c08d 100644
                      else mma(d[i][j], a[i], b0, b1);
 diff --git a/zig/kernels/cuda/qmmf_q12.cuh b/zig/kernels/cuda/qmmf_q12.cuh
 new file mode 100644
-index 000000000..818e2aec0
+index 00000000..818e2aec
 --- /dev/null
 +++ b/zig/kernels/cuda/qmmf_q12.cuh
 @@ -0,0 +1,106 @@
@@ -259,7 +203,7 @@ index 000000000..818e2aec0
 +}  // namespace tf_qmmf_q12
 diff --git a/zig/src/cuda/qmmf_q12.zig b/zig/src/cuda/qmmf_q12.zig
 new file mode 100644
-index 000000000..769f47ee7
+index 00000000..769f47ee
 --- /dev/null
 +++ b/zig/src/cuda/qmmf_q12.zig
 @@ -0,0 +1,291 @@
@@ -555,7 +499,7 @@ index 000000000..769f47ee7
 +    try testing.expectEqual(@as(u8, 2), slot[8].j);
 +}
 diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
-index b6476817f..fceaa7ca6 100644
+index b6476817..fceaa7ca 100644
 --- a/zig/src/cuda/root.zig
 +++ b/zig/src/cuda/root.zig
 @@ -36,6 +36,7 @@ pub const aot = @import("aot.zig");
@@ -575,7 +519,7 @@ index b6476817f..fceaa7ca6 100644
      _ = @import("fp8.zig");
      _ = @import("mxfp8.zig");
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 303cc0174..5e52a1afd 100644
+index 303cc017..5e52a1af 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -104,9 +104,9 @@ pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
@@ -591,7 +535,7 @@ index 303cc0174..5e52a1afd 100644
      try pass.tri.hcDenseMix(s.hc_up, norm, s.mixed + r0 * dims * 2, s.xsm + r0 * (dims / 32) * 4, n, dims, streams);
  }
 diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
-index 548a10b6c..176bc29c9 100644
+index 548a10b6..176bc29c 100644
 --- a/zig/src/families/flashnext/cuda_batch_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
 @@ -67,6 +67,8 @@ pub const Kernels = struct {
@@ -627,7 +571,7 @@ index 548a10b6c..176bc29c9 100644
          const v = std.c.getenv("TF_FLASHNEXT_PROFILE") orelse return false;
 diff --git a/zig/src/families/flashnext/cuda_hc_q12.zig b/zig/src/families/flashnext/cuda_hc_q12.zig
 new file mode 100644
-index 000000000..50d7befd8
+index 00000000..50d7befd
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_hc_q12.zig
 @@ -0,0 +1,105 @@
@@ -737,7 +681,7 @@ index 000000000..50d7befd8
 +    }
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 26e0a845d..5f113bfa7 100644
+index e2a86eb1..f4ea0459 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -12,6 +12,7 @@ const pocket = @import("cuda_pocket.zig");
@@ -748,7 +692,7 @@ index 26e0a845d..5f113bfa7 100644
  const layers_n = weights.layers_n;
  const linear_n = weights.linear_n;
  const attn_n = weights.attn_n;
-@@ -221,6 +222,10 @@ pub const Engine = struct {
+@@ -222,6 +223,10 @@ pub const Engine = struct {
          e.ngram = try ple.Ngram.init(gpa, io, e.model_dir);
          errdefer e.ngram.deinit();
          e.batch_k = try batch.Kernels.load(driver);
@@ -760,7 +704,7 @@ index 26e0a845d..5f113bfa7 100644
          e.scores = null;
          e.chunk = chunk;
 diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
-index 423194ba6..f1314ffea 100644
+index 423194ba..f1314ffe 100644
 --- a/zig/src/families/flashnext/cuda_prompt_wt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
 @@ -349,11 +349,16 @@ pub const HcW = struct {

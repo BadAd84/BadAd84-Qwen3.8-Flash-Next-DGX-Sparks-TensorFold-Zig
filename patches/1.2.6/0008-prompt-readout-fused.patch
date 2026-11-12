@@ -1,99 +1,60 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Mon, 9 Nov 2026 10:11:41 +0000
-Subject: [PATCH 20/28] flashnext: prompt passes native read-out runs as two
- fused kernels and the shared output reads in place
-
-A prompt pass native hyper-connection read-out (TF_FLASHNEXT_PROMPT_HC2=1, from TF_FLASHNEXT_HC2_MIN
-rows) runs on the hcn kernels in flashnext_hcf.cu: the norm formed in the down tile shared memory and
-the up rows mixed in the up kernel epilogue, every output byte the five-launch chain (tests/cuda
-hc-fuse). The MoE write-back reads the shared expert fp32 output in place
-(TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1) instead of a copy of it in y last slot, and a prompt chunk MTP
-head pass takes at most TF_FLASHNEXT_HEAD_PIECE rows (256, the decode rounds piece).
----
- CHANGELOG.md                                  |   4 +-
- zig/kernels/cuda/flashnext_hc.cu              |  16 +
- zig/kernels/cuda/flashnext_hcf.cu             | 514 ++++++++++++++++++
- zig/src/families/flashnext/cuda_batch.zig     |  41 +-
- zig/src/families/flashnext/cuda_batch_hc.zig  |  15 +-
- .../families/flashnext/cuda_batch_side.zig    |   4 +-
- zig/src/families/flashnext/cuda_glue.zig      |  10 +-
- zig/src/families/flashnext/cuda_knobs.zig     |  37 +-
- zig/src/families/flashnext/cuda_mtp_ops.zig   |  16 +-
- .../families/flashnext/cuda_tile_kernels.zig  |  30 +-
- zig/src/families/flashnext/cuda_tiles.zig     |  72 ++-
- zig/src/platform/environment.zig              |   7 +-
- zig/src/platform/environment_test.zig         |   9 +-
- zig/tests/cuda/flashnext_hc_fuse_tests.zig    | 307 +++++++++++
- zig/tests/cuda/main.zig                       |   9 +-
- 15 files changed, 1056 insertions(+), 35 deletions(-)
- create mode 100644 zig/tests/cuda/flashnext_hc_fuse_tests.zig
-
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 59e7dc6b1..f62746da0 100644
---- a/CHANGELOG.md
-+++ b/CHANGELOG.md
-@@ -84,9 +84,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
- 
- - Tests: `zig build sessions-writes` drives the real DeepSeek-V4.1 session store and NVMe index with synthetic agent, chat and mixed loads, no model or GPU, and reports the bytes an enabled tier (`TF_DSV41_SESSION_DISK`) writes and reads back; a nightly Linux test checks its accounting against real files (#2660).
- 
--- Flash Next on CUDA: the relaxed 128 x 128 prompt tile also runs as a two-stage, two-blocks-an-SM variant (`TF_FLASHNEXT_PROMPT_GEMM2=1`) with the same arithmetic and bits: one block's output stores and pipeline fill overlap the other block's K loop (#9999).
--
--- Server: Responses grows each output item in one buffer, and Kimi chat advances its native stream parser through new tokens, so a long reply retains memory in proportion to its length while every reply and streamed event stays the same (#2642).
-+25: @both
- - Tests: `zig build bench-stream-scan` streams a 32k-token thinking reply (30,000 reasoning tokens, prose, then a Qwen XML, GLM, DSML or Kimi call) through the chat, Messages and Responses routes one or two tokens a chunk, and prints each chunk's request-thread time at 1k to 30k reply tokens, each whole-text step's time and the request arena; under `test-server-cpu` a 300-token reply checks that each route's streamed reasoning, prose and call arguments equal the reply's (#2642).
- 
- - Drama 3 on CUDA opens again: since 1.2.5 every open stopped with "unregistered strict environment parser", because `TF_DRAMA_PREFILL_ROWS` and `TF_DRAMA_REFERENCE_CACHE` had no rows in the environment table. Both now have rows, with their old forms and bounds, and the build refuses a CUDA setting read through the table without one (#2658).
+diff --git a/zig/build/cuda_kernels.zig b/zig/build/cuda_kernels.zig
+index 3efe2c86..54a0e504 100644
+--- a/zig/build/cuda_kernels.zig
++++ b/zig/build/cuda_kernels.zig
+@@ -82,6 +82,7 @@ pub const kernels = [_]Kernel{
+     .{ .name = "qmm_prefill", .flags = &.{"-O3"} },
+     .{ .name = "flashnext_fact", .flags = &.{"-O3"} }, // ours: prompt rows on qmm.cu's factored arithmetic
+     .{ .name = "flashnext_hcf", .flags = glue }, // ours: the hyper-connection read-out's prompt tiles, fn_hc's bits
++    .{ .name = "flashnext_hcn", .flags = glue }, // ours: the prompt read-out's fused norm-in-tile and up+mix kernels
+     .{ .name = "flashnext_fexp", .flags = &.{"-O3"} }, // ours: prompt pairs' experts on expert_rows' factored arithmetic
+     .{ .name = "w4a8_prefill", .flags = &.{"-O3"} }, // ours: prompt matmuls, int8 activations on MLX affine 4-bit weights
+     .{ .name = "experts", .flags = &.{"-O3"} }, // cuda/experts.py, tensorfold_experts_v7
 diff --git a/zig/kernels/cuda/flashnext_hc.cu b/zig/kernels/cuda/flashnext_hc.cu
-index 928e6fdc4..a8cb34f63 100644
+index 928e6fdc..6b009b5b 100644
 --- a/zig/kernels/cuda/flashnext_hc.cu
 +++ b/zig/kernels/cuda/flashnext_hc.cu
-@@ -78,6 +78,15 @@ __device__ __forceinline__ void hc_writeback(const __nv_bfloat16* H, __nv_bfloat
+@@ -78,6 +78,10 @@ __device__ __forceinline__ void hc_writeback(const __nv_bfloat16* H, __nv_bfloat
              acc = __fmaf_rn(Y[at * D + d], WTS[at], acc);
          }
          branch = rbf(acc);
-+    } else if constexpr (MODE == 3) {
-+        // MODE 2 with the last slot's fp32 row read from BR (the shared expert's output, never copied into Y)
++    } else if constexpr (MODE == 3) {  // MODE 2, the last slot's fp32 row read from BR (the shared expert's output)
 +        float acc = 0.0f;
-+        for (int k = 0; k <= TOPK; ++k) {
-+            const long long at = static_cast<long long>(r) * SLOTS + k;
-+            const float yv = k == TOPK ? BR[static_cast<long long>(r) * D + d] : Y[at * D + d];
-+            acc = __fmaf_rn(yv, WTS[at], acc);
-+        }
++        for (int k = 0; k <= TOPK; ++k) acc = __fmaf_rn(k == TOPK ? BR[(long long)r * D + d] : Y[((long long)r * SLOTS + k) * D + d], WTS[(long long)r * SLOTS + k], acc);
 +        branch = rbf(acc);
      }
      const int warp = threadIdx.x >> 5;
      for (int s = 0; s < S; ++s) {
-@@ -108,6 +117,13 @@ extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_moe(const __nv
+@@ -108,6 +112,11 @@ extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_moe(const __nv
      hc_writeback<2>(H, HOUT, PSS, nullptr, INJ, Y, WTS, 0, D, S, TOPK, SLOTS, 1);
  }
  
 +extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_moe_sh(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS,
-+                                                                         const __nv_bfloat16* INJ, const float* Y,
-+                                                                         const float* WTS, const float* SHARED, int D, int S, int TOPK,
-+                                                                         int SLOTS) {
++    const __nv_bfloat16* INJ, const float* Y, const float* WTS, const float* SHARED, int D, int S, int TOPK, int SLOTS) {
 +    hc_writeback<3>(H, HOUT, PSS, SHARED, INJ, Y, WTS, 0, D, S, TOPK, SLOTS, 1);
 +}
 +
  extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_slices(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS,
                                                                           const float* BR, const __nv_bfloat16* INJ,
                                                                           long long RS, int D, int S, int WORLD) {
-diff --git a/zig/kernels/cuda/flashnext_hcf.cu b/zig/kernels/cuda/flashnext_hcf.cu
-index d4a81add4..c23954b16 100644
---- a/zig/kernels/cuda/flashnext_hcf.cu
-+++ b/zig/kernels/cuda/flashnext_hcf.cu
-@@ -245,3 +245,517 @@ template __global__ void hcf::hcf_kernel<64, 128, 2, 4, 3, 2, false, false, true
-     const float* __restrict__, const uint4* __restrict__, const __nv_bfloat16* __restrict__,
-     const __nv_bfloat16* __restrict__, void* __restrict__, int, int, int, int, int, int, const float* __restrict__,
-     const float* __restrict__, float, int, int, int);
+diff --git a/zig/kernels/cuda/flashnext_hcn.cu b/zig/kernels/cuda/flashnext_hcn.cu
+new file mode 100644
+index 00000000..d6afdfc5
+--- /dev/null
++++ b/zig/kernels/cuda/flashnext_hcn.cu
+@@ -0,0 +1,522 @@
++// The native (bf16) hyper-connection read-out on prompt tiles: fn_hc_normalize2 folded into the two projections.
++#include "common/qmm_frag.cuh"
++#include "common/glue_math.cuh"
++// The native (bf16) hyper-connection read-out on prompt tiles: fn_hc_normalize2 folded into the two projections.
 +
-+// ---- the native (bf16) hyper-connection read-out on prompt tiles: fn_hc_normalize2 folded into the two projections ----
-+//
-+// The exact chain is fn_hc_normalize2 -> qmmf down (f32, K slices folded in order) -> fn_hc_reduce_act -> qmmf up (bf16) ->
-+// fn_hc_dense_mix2. These two kernels run the SAME mma chains (one m16n8k16 per k16 step from a zero accumulator, the
-+// shape-driven K slices added in slice order) and the same rounding points, but read the streams `h` directly: the normed
-+// rows are formed in shared memory (down) or in the epilogue (up) and never travel through memory, and the up rows are mixed
-+// in the epilogue. Every output is byte for byte the exact chain's (tests/cuda/flashnext_hc_fuse_tests.zig).
++// The exact chain is fn_hc_normalize2, the qmmf down (f32, K slices folded in order), fn_hc_reduce_act,
++
++// the qmmf up (bf16) and fn_hc_dense_mix2; these two kernels run the same mma chains and the same rounding points
++
++// but read the streams directly: the normed rows form in shared memory (down) or in the epilogue (up) and never
++
++// travel through memory, and the up rows mix in the epilogue. Every output byte is the chain's (hc-fuse test).
 +namespace hcn {
 +using namespace qmm_frag;
 +using tf_glue::bf;
@@ -107,7 +68,7 @@ index d4a81add4..c23954b16 100644
 +    return __fdiv_rn(1.0f, __fsqrt_rn(__fadd_rn(__fdiv_rn(total, static_cast<float>(D)), eps)));
 +}
 +
-+// ---- down: [rows, K] normed streams x [N <= 336, K] bf16 weights -> fp32 [rows, N], 16 MT rows by 168 columns a CTA ----
++// down: [rows, K] normed streams x [N <= 336, K] bf16 weights -> fp32 [rows, N]; 16 MT rows, 168 columns a CTA
 +constexpr int DN_THREADS = 224;  // 7 warps, three n8 tiles each
 +// (two column tiles: columns [0, 160) and [160, 336); the warps hold 21 n8 tiles)
 +constexpr int DN_SPLIT = 20;     // n8 tiles of the first column tile (five groups of 32 columns)
@@ -258,10 +219,13 @@ index d4a81add4..c23954b16 100644
 +        }
 +}
 +
-+// ---- down, second form: the next group's norm is formed in shared memory while the current group's mma run ----
-+// Three row buffers rotate: the one the mma read, the one being normed (raw bytes landed a group ago), the one the next
-+// group's copy fills. One barrier a group; the norm's work is spread between the four k16 steps so the tensor pipe and the
-+// ALUs run together. The arithmetic of every output is down_body's.
++// down, second form: the next group's norm is formed in shared memory while the current group's mma run.
++
++// Three row buffers rotate: the one the mma read, the one being normed, the one the next group's copy fills.
++
++// One barrier a group; the norm's work is spread between the four k16 steps so the tensor pipe and the ALUs run
++
++// together. The arithmetic of every output is down_body's.
 +template <int MT, bool XFORM>
 +__device__ __forceinline__ void down_body2(const __nv_bfloat16* __restrict__ H, const float* __restrict__ PSS,
 +                                           const float* __restrict__ SCALE, const uint2* __restrict__ W,
@@ -405,7 +369,7 @@ index d4a81add4..c23954b16 100644
 +        }
 +}
 +
-+// The tensor pipe's ceiling for this instruction: independent m16n8k16 chains, nothing else (a benchmark, not an engine kernel).
++// The tensor pipe's ceiling for this instruction: independent m16n8k16 chains (a benchmark, not an engine kernel).
 +__device__ __forceinline__ void peak_body(float* __restrict__ OUT, int iters) {
 +    uint32_t a[4], b0, b1;
 +    const uint32_t t = threadIdx.x * 2654435761u;
@@ -426,7 +390,8 @@ index d4a81add4..c23954b16 100644
 +    if (s == 123.456f) OUT[threadIdx.x] = s;
 +}
 +
-+// ---- up + mix: act [rows, K] x [4 D, K] bf16 weights, rounded to bf16, gated onto the normed streams, mixed in order ----
++// up + mix: act [rows, K] x [4 D, K] bf16 weights, rounded to bf16, gated onto the normed streams, mixed in order.
++
 +// A CTA: 16 MT rows by 32 dimensions of all four streams (8 warps, two to a stream, two n8 tiles each).
 +template <int MT, int KG>
 +struct UpShape {
@@ -600,41 +565,39 @@ index d4a81add4..c23954b16 100644
 +    }
 +HCN_UP_DBG(fn_hcn_up3_k5_gemm, 3, 5, 1)
 +HCN_UP_DBG(fn_hcn_up3_k5_epi, 3, 5, 2)
+diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
+index 2333ad8f..6f3c0e15 100644
+--- a/zig/src/cuda/kernels.zig
++++ b/zig/src/cuda/kernels.zig
+@@ -29,6 +29,7 @@ pub const qmm: []const u8 = if (available) &Blob("fatbin_qmm").bytes else &.{};
+ pub const qmm_prefill: []const u8 = if (available) &Blob("fatbin_qmm_prefill").bytes else &.{};
+ pub const flashnext_fact: []const u8 = if (available) &Blob("fatbin_flashnext_fact").bytes else &.{};
+ pub const flashnext_hcf: []const u8 = if (available) &Blob("fatbin_flashnext_hcf").bytes else &.{};
++pub const flashnext_hcn: []const u8 = if (available) &Blob("fatbin_flashnext_hcn").bytes else &.{};
+ pub const flashnext_fexp: []const u8 = if (available) &Blob("fatbin_flashnext_fexp").bytes else &.{};
+ pub const w4a8_prefill: []const u8 = if (available) &Blob("fatbin_w4a8_prefill").bytes else &.{};
+ pub const experts: []const u8 = if (available) &Blob("fatbin_experts").bytes else &.{};
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 0d0e0670c..84c4c22e8 100644
+index 0d0e0670..5d1628df 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
-@@ -14,7 +14,7 @@ const hc = @import("cuda_batch_hc.zig");
- const gdn_lanes = @import("cuda_batch_gdn_lanes.zig");
- const batch_lanes = @import("cuda_batch_lanes.zig");
- const tiles = @import("cuda_tiles.zig");
--const tk = @import("cuda_tile_kernels.zig");
-+const knobs = @import("cuda_knobs.zig");
- const moe_native = @import("cuda_moe_native.zig");
- const zs = @import("cuda_zero_slice.zig");
- const ops = @import("cuda_batch_ops.zig");
-@@ -119,6 +119,8 @@ pub fn Pass(comptime Tri: type) type {
+@@ -119,6 +119,7 @@ pub fn Pass(comptime Tri: type) type {
          prepared: bool = false,
          /// The pending write-back's branch sits in fp32 in moe_f32 (something added to it, or it is kept).
          pending_f32: bool = false,
-+        /// The pending MoE write-back reads the shared expert's output from s.shared_out (never scattered into y's last slot).
-+        shared_direct: bool = false,
++        shared_direct: bool = false, // the pending MoE write-back reads the shared expert's output in place (mode 3)
          /// This layer's out projection leaves part's other slices alone; its writeback adds the zero slice once.
          zero_slices: bool = false,
          /// stageWindow queued the pass's uploads (ids, positions, n-gram rows): it launches kernels alone (graphs).
-@@ -183,6 +185,11 @@ pub fn Pass(comptime Tri: type) type {
+@@ -183,6 +184,7 @@ pub fn Pass(comptime Tri: type) type {
              }
              const y = s.y + r0 * slots * dims * 4;
              const wts = s.wts + r0 * slots * 4;
-+            if (self.shared_direct) {
-+                self.shared_direct = false;
-+                try self.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 3, 10, 11, 1);
-+                return;
-+            }
++            if (self.shared_direct) return hc.writebackSharedDirect(self, r0, n);
              try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, 10, 11, 1);
          }
  
-@@ -201,6 +208,7 @@ pub fn Pass(comptime Tri: type) type {
+@@ -201,6 +203,7 @@ pub fn Pass(comptime Tri: type) type {
              const act = s.act + r0 * low * 2;
              const xs_act = s.xs_act + r0 * (low / 32) * 4;
              if (hc_w.down.native != null) {
@@ -642,69 +605,48 @@ index 0d0e0670c..84c4c22e8 100644
                  try self.tri.hcNormalize(h, pss, hc_w.scale.ptr, norm, eps, n, dims, streams);
                  return hc.readoutNative(self, hc_w, r0, n);
              }
-@@ -456,8 +464,15 @@ pub fn Pass(comptime Tri: type) type {
-             try self.copy(keep.moe_ids, s.picks, pairs * 4);
+@@ -457,7 +460,8 @@ pub fn Pass(comptime Tri: type) type {
              try self.copy(keep.moe_wts, s.wts, pairs * 4);
              const e = experts_n + 1;
--            const plan: cuda.grouped.Plan = .{ .members = s.members, .items = s.items, .counts = s.counts, .rank = s.rank, .hist = s.hist };
+             const plan: cuda.grouped.Plan = .{ .members = s.members, .items = s.items, .counts = s.counts, .rank = s.rank, .hist = s.hist };
 -            if (lw.native_experts) |*native| return moe_native.run(self, native, n, pairs, plan);
-+            if (lw.native_experts) |*native| {
-+                if (self.hooks.prompt and (knobs.sharedDirect() catch false) and (self.hooks.logits == .none or self.hooks.streams != 0) and
-+                    self.hooks.moe_add == null and self.m.pocket == null and keep.moe_branch == 0 and native.world == 1)
-+                {
-+                    self.shared_direct = true;
-+                }
-+                return moe_native.run(self, native, n, pairs, plan);
-+            }
++            if (lw.native_experts) |*native| return hc.moeRunPromptAware(self, native, n, pairs, plan, keep);
 +
              if (n >= 64) {
                  // prompt rows on 64-pair factored tiles, expert_rows' bits
                  try self.k.router.route(self.stream, s.picks, pairs, e, tk.fexp_tile, plan);
-@@ -509,9 +524,9 @@ pub fn Pass(comptime Tri: type) type {
-                 try batch_lanes.checkLanes(self.lanes, n);
-             } else if (pos0 + n > self.seq.cap) return error.UnexpectedTensor;
-             self.rows = n;
--            self.pos0 = pos0;
+@@ -512,6 +516,7 @@ pub fn Pass(comptime Tri: type) type {
+             self.pos0 = pos0;
              self.pending = null;
              self.pending_f32 = false;
 +            self.shared_direct = false;
              // the gather writes the scratch's pinned rows, so the last pass's uploads must have read them first
              if (!self.prepared and !self.staged) try s.ready();
              const emb = s.hostEmb(n);
-@@ -541,8 +556,13 @@ pub fn Pass(comptime Tri: type) type {
+@@ -541,8 +546,8 @@ pub fn Pass(comptime Tri: type) type {
                      try self.pleBlock(lw, ids);
                  }
                  if (hc.fuses(self, lw.attn_hc, n, keep.attn_hc)) {
 -                    try hc.writebackNorm(self, lw.attn_hc, 0, n);
 -                    try hc.readoutNative(self, lw.attn_hc, 0, n);
-+                    if (hc.promptFused(self, lw.attn_hc, n)) {
-+                        try self.writeback(0, n);
-+                        try tiles.readoutFused(self.tri, self.k, self.stream, self.s, lw.attn_hc, 0, n);
-+                    } else {
-+                        try hc.writebackNorm(self, lw.attn_hc, 0, n);
-+                        try hc.readoutNative(self, lw.attn_hc, 0, n);
-+                    }
++                    try hc.writeback(self, lw.attn_hc, n);
++                    try hc.readout(self, lw.attn_hc, n);
                  } else {
                      try self.writeback(0, n);
                      try self.readoutKeep(lw.attn_hc, 0, n, keep.attn_hc);
-@@ -557,8 +577,13 @@ pub fn Pass(comptime Tri: type) type {
+@@ -557,8 +562,8 @@ pub fn Pass(comptime Tri: type) type {
                  const sl = zs.slices(self.zero_slices, s.cap, n, self.out_slices);
                  self.zero_slices = false;
                  if (hc.fuses(self, lw.mlp_hc, n, keep.mlp_hc)) {
 -                    try self.tri.hcWritebackNorm(s.h, s.h, s.pss, s.part, s.inj, s.dummy, s.dummy, lw.mlp_hc.scale.ptr, s.norm, eps, sl.stride, n, dims, streams, 4, 1, 1, sl.count);
 -                    try hc.readoutNative(self, lw.mlp_hc, 0, n);
-+                    if (hc.promptFused(self, lw.mlp_hc, n)) {
-+                        try self.tri.hcWriteback(s.h, s.h, s.pss, s.part, "*fp32", s.inj, s.dummy, "*bf16", s.dummy, "*bf16", sl.stride, n, dims, streams, 4, 1, 1, sl.count);
-+                        try tiles.readoutFused(self.tri, self.k, self.stream, self.s, lw.mlp_hc, 0, n);
-+                    } else {
-+                        try self.tri.hcWritebackNorm(s.h, s.h, s.pss, s.part, s.inj, s.dummy, s.dummy, lw.mlp_hc.scale.ptr, s.norm, eps, sl.stride, n, dims, streams, 4, 1, 1, sl.count);
-+                        try hc.readoutNative(self, lw.mlp_hc, 0, n);
-+                    }
++                    try hc.mlpWriteback(self, lw.mlp_hc, n, sl);
++                    try hc.readout(self, lw.mlp_hc, n);
                  } else {
                      try self.tri.hcWriteback(s.h, s.h, s.pss, s.part, "*fp32", s.inj, s.dummy, "*bf16", s.dummy, "*bf16", sl.stride, n, dims, streams, 4, 1, 1, sl.count);
                      try self.readoutKeep(lw.mlp_hc, 0, n, keep.mlp_hc);
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 16648ae06..8de1930cb 100644
+index 16648ae0..303cc017 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -2,7 +2,8 @@
@@ -717,22 +659,59 @@ index 16648ae06..8de1930cb 100644
  const dims = wt.dims;
  const streams = wt.streams;
  const wide = wt.wide;
-@@ -22,6 +23,14 @@ pub fn fuses(pass: anytype, hc_w: wt.HcW, n: usize, keep: parts.HcKeep) bool {
+@@ -22,6 +23,51 @@ pub fn fuses(pass: anytype, hc_w: wt.HcW, n: usize, keep: parts.HcKeep) bool {
      return n >= 64 and hc_w.down.native != null and std.meta.eql(keep, parts.HcKeep{}) and dims == 2560 and
          streams == 4 and pass.tri.writebackOwned() and pass.k.forms.hc_fuse;
  }
-+/// Whether the prompt rows take the fused native read-out (tiles.readoutFused): the knob, prompt rows, enough rows,
-+/// the weights it is written for. A malformed setting reads as off: the chain it replaces is the stock path.
++/// Whether the prompt rows take the fused native read-out; a malformed setting reads as off.
 +pub fn promptFused(pass: anytype, hc_w: wt.HcW, n: usize) bool {
 +    const on2 = knobs.promptHc2() catch return false;
 +    if (!on2 or !pass.hooks.prompt) return false;
 +    const min = knobs.hc2MinRows() catch return false;
 +    return n >= min and tiles.nativeFused(hc_w);
 +}
++
++/// The fused path's write-back: the plain write-back on prompt-fused rows, else the writeback+normalize launch.
++pub fn writeback(pass: anytype, hc_w: wt.HcW, n: usize) !void {
++    if (promptFused(pass, hc_w, n)) return pass.writeback(0, n);
++    return writebackNorm(pass, hc_w, 0, n);
++}
++
++/// The mlp out-projection's write-back: the prompt-fused rows take the plain mode-4 write-back, else the norm launch.
++pub fn mlpWriteback(pass: anytype, hc_w: wt.HcW, n: usize, sl: anytype) !void {
++    const s = pass.s;
++    if (promptFused(pass, hc_w, n)) return pass.tri.hcWriteback(s.h, s.h, s.pss, s.part, "*fp32", s.inj, s.dummy, "*bf16", s.dummy, "*bf16", sl.stride, n, dims, streams, 4, 1, 1, sl.count);
++    return pass.tri.hcWritebackNorm(s.h, s.h, s.pss, s.part, s.inj, s.dummy, s.dummy, hc_w.scale.ptr, s.norm, eps, sl.stride, n, dims, streams, 4, 1, 1, sl.count);
++}
++
++/// The layer's read-out on the fused path: the prompt rows' fused tiles when they take them, else the chain.
++pub fn readout(pass: anytype, hc_w: wt.HcW, n: usize) !void {
++    if (promptFused(pass, hc_w, n)) return tiles.readoutFused(pass.tri, pass.k, pass.stream, pass.s, hc_w, 0, n);
++    return readoutNative(pass, hc_w, 0, n);
++}
++
++/// The pending MoE write-back reading the shared expert's fp32 output in place: mode 3, no copy into y's slot.
++pub fn writebackSharedDirect(pass: anytype, r0: usize, n: usize) !void {
++    const s = pass.s;
++    pass.shared_direct = false;
++    const h = s.h + r0 * wide * 2;
++    const pss = s.pss + r0 * pss_n * 4;
++    const inj = s.inj + r0 * streams * 2;
++    const y = s.y + r0 * slots * dims * 4;
++    const wts = s.wts + r0 * slots * 4;
++    return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", pass.rows * dims, n, dims, streams, 3, 10, 11, 1);
++}
++
++/// moe_native.run after taking the prompt rows' shared-direct decision: the write-back reads the output in place.
++pub fn moeRunPromptAware(pass: anytype, native: anytype, n: usize, pairs: usize, plan: anytype, keep: anytype) !void {
++    if (pass.hooks.prompt and (knobs.sharedDirect() catch false) and (pass.hooks.logits == .none or pass.hooks.streams != 0) and
++        pass.hooks.moe_add == null and pass.m.pocket == null and keep.moe_branch == 0 and native.world == 1) pass.shared_direct = true;
++    return @import("cuda_moe_native.zig").run(pass, native, n, pairs, plan);
++}
  
  /// The pass's pending writeback with hc_w's normalize in the same launch: the normed rows readoutNative reads.
  pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
-@@ -41,6 +50,10 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+@@ -41,6 +87,10 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
      }
      const y = s.y + r0 * slots * dims * 4;
      const wts = s.wts + r0 * slots * 4;
@@ -744,7 +723,7 @@ index 16648ae06..8de1930cb 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
-index 2973b7d88..c77c8a11d 100644
+index 2973b7d8..c77c8a11 100644
 --- a/zig/src/families/flashnext/cuda_batch_side.zig
 +++ b/zig/src/families/flashnext/cuda_batch_side.zig
 @@ -48,10 +48,12 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
@@ -762,28 +741,26 @@ index 2973b7d88..c77c8a11d 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
-index 9204f786e..04ad040b6 100644
+index 2e37c246..adca444d 100644
 --- a/zig/src/families/flashnext/cuda_glue.zig
 +++ b/zig/src/families/flashnext/cuda_glue.zig
-@@ -34,7 +34,7 @@ pub const Pg = extern struct { pt: u64 = 0, ps: i64 = 0, ptok: c_int = 0 };
+@@ -34,6 +34,7 @@ pub const Pg = extern struct { pt: u64 = 0, ps: i64 = 0, ptok: c_int = 0 };
  const Fns = struct {
      wb0: cuda.Function,
      wb_moe: cuda.Function,
--    wb_slices: cuda.Function,
 +    wb_moe_sh: cuda.Function,
+     wb_slices: cuda.Function,
      // each writeback with fn_hc_normalize in one block a row (2560 columns, 4 streams): the same bits
      wbn0: cuda.Function,
-     wbn_moe: cuda.Function,
-@@ -135,7 +135,7 @@ pub const Glue = struct {
+@@ -135,6 +136,7 @@ pub const Glue = struct {
          g.f = .{
              .wb0 = try g.hc.function("fn_hc_writeback0"),
              .wb_moe = try g.hc.function("fn_hc_writeback_moe"),
--            .wb_slices = try g.hc.function("fn_hc_writeback_slices"),
 +            .wb_moe_sh = try g.hc.function("fn_hc_writeback_moe_sh"),
+             .wb_slices = try g.hc.function("fn_hc_writeback_slices"),
              .wbn0 = try g.hc.function("fn_hc_writeback_norm0"),
              .wbn_moe = try g.hc.function("fn_hc_writeback_norm_moe"),
-             .wbn_slices = try g.hc.function("fn_hc_writeback_norm_slices"),
-@@ -542,6 +542,12 @@ pub const Glue = struct {
+@@ -542,6 +544,12 @@ pub const Glue = struct {
                  ints(&a, &.{ dims, streams, topk, slots });
                  try go(g.f.wb_moe, s, grid, 256, 0, &a);
              },
@@ -797,23 +774,14 @@ index 9204f786e..04ad040b6 100644
                  ptrs(&a, &.{ h, hout, pss, branch, inj });
                  a.add(@as(i64, @intCast(rs)));
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index 4ae79e2e5..071333733 100644
+index 70858f61..f08f8e85 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -47,14 +47,41 @@ pub fn chunkSync() sys.environment.Error!bool {
-     return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_SYNC", false);
- }
- 
--/// TF_FLASHNEXT_PROMPT_MX128=N: the narrowest MXFP8 projection taking the relaxed tile; default 0: the exact kernels.
-+/// TF_FLASHNEXT_PROMPT_MX128: the narrowest MXFP8 projection taking the relaxed 128 x 128 prompt tile; 0: none.
- pub fn mx128MinN() sys.environment.Error!usize {
--    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
-+    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 1024);
+@@ -52,7 +52,34 @@ pub fn mx128MinN() sys.environment.Error!usize {
+     return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
  }
  
 -/// TF_FLASHNEXT_PROMPT_GEMM2=1: the MX128 prompt tile runs with two pipeline stages and two blocks an SM, same bits.
--pub fn promptGemm2() sys.environment.Error!bool {
--    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
 +/// TF_FLASHNEXT_PROMPT_HC2=1: the native hyper-connection read-out of prompt passes (TF_FLASHNEXT_HC2_MIN rows or
 +/// more) runs on two fused kernels (flashnext_hcf.cu's hcn: the norm formed in the down tile and in the up epilogue,
 +/// the up rows mixed in place) instead of the five-launch chain; every byte of its outputs is the chain's.
@@ -821,8 +789,7 @@ index 4ae79e2e5..071333733 100644
 +    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_HC2", false);
 +}
 +
-+/// TF_FLASHNEXT_HC2_MIN: the fewest rows of a prompt pass that take the fused read-out (768; its CTAs need rows to
-+/// fill the GPU).
++/// TF_FLASHNEXT_HC2_MIN: the fewest rows of a prompt pass that take the fused read-out (default 768).
 +pub fn hc2MinRows() sys.environment.Error!usize {
 +    return sys.environment.read(usize, "TF_FLASHNEXT_HC2_MIN", 768);
 +}
@@ -832,23 +799,22 @@ index 4ae79e2e5..071333733 100644
 +    return sys.environment.read(usize, name, 0);
 +}
 +
-+/// TF_FLASHNEXT_HEAD_PIECE: the rows a prompt chunk's MTP head pass takes at most (256, the decode rounds' piece).
-+/// From 1024 rows the head's experts take the shared-memory row tiles (the decode kernel's bits) and read each
-+/// weight once.
++/// TF_FLASHNEXT_HEAD_PIECE: the rows a prompt chunk MTP head pass takes at most (256, the decode piece).
 +pub fn headPiece() sys.environment.Error!usize {
 +    return sys.environment.read(usize, "TF_FLASHNEXT_HEAD_PIECE", 256);
 +}
 +
-+/// TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1: a prompt pass's MoE write-back reads the shared expert's fp32 output in
-+/// place instead of a copy of it in y's last slot (the same value in the same fused-multiply-add order; one launch
-+/// and a copy of the rows less).
++/// TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1: the MoE write-back reads the shared expert fp32 output in place.
 +pub fn sharedDirect() sys.environment.Error!bool {
 +    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", false);
++}
++
++/// TF_FLASHNEXT_PROMPT_GEMM2=1: the relaxed prompt tile runs two stages and two blocks an SM, same arithmetic and bits.
+ pub fn promptGemm2() sys.environment.Error!bool {
+     return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
  }
- 
- /// TF_FLASHNEXT_PROMPT_GEMM2=1: the relaxed prompt tile runs two stages and two blocks an SM, same arithmetic and bits.
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index cec2ecc40..745dc3687 100644
+index aa337a29..61fed852 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -42,7 +42,7 @@ const max_rows = mtp.max_rows;
@@ -860,17 +826,16 @@ index cec2ecc40..745dc3687 100644
  /// Streams one batched head pass drafts for at most.
  pub const max_lanes: usize = 16;
  const Head = mtp.Head;
-@@ -108,8 +108,7 @@ pub fn Ops(comptime Tri: type) type {
+@@ -108,7 +108,7 @@ pub fn Ops(comptime Tri: type) type {
              const last = stop == ids.len;
              try o.forwardMain(seq, ids[at..stop], .{ .logits = if (last) .last else .none, .streams = d.streams.ptr, .prompt = true, .marks = marks });
              const head_to = @min(stop, ids.len - 1);
 -            if (head_to > at) try o.forwardHead(d, ids[at + 1 .. head_to + 1], d.streams.ptr, false);
--            if (last) d.prompt_last = d.streams.ptr + (stop - 1 - at) * wide * 2;
 +            if (head_to > at) try o.forwardHeadPieces(d, ids[at + 1 .. head_to + 1], d.streams.ptr, false, knobs.headPiece() catch piece_rows);
+             if (last) d.prompt_last = d.streams.ptr + (stop - 1 - at) * wide * 2;
          }
  
-         /// The whole prompt a chunk of the engine's rows at a time, from an empty head cache.
-@@ -125,14 +124,21 @@ pub fn Ops(comptime Tri: type) type {
+@@ -125,14 +125,21 @@ pub fn Ops(comptime Tri: type) type {
  
          /// The head over `next.len` rows of streams `rows`: cache at d.len, last row in d.out, scores in d.dlogits.
          pub fn forwardHead(o: Self, d: *Draft, next: []const u32, rows: u64, scores: bool) !void {
@@ -881,7 +846,7 @@ index cec2ecc40..745dc3687 100644
 +        pub fn forwardHeadPieces(o: Self, d: *Draft, next: []const u32, rows: u64, scores: bool, piece_req: usize) !void {
              const e = o.e;
 +            // never past half the engine's chunk: the pass's scratch is the chunk's and must not grow for the head
-+            const piece_max = @min(piece_req, @max(piece_rows, e.chunk / 2));
++            const piece_max = @min(if (piece_req == 0) piece_rows else piece_req, @max(piece_rows, e.chunk / 2));
              const tri = o.tri;
              const h = o.h;
              if (next.len == 0) return;
@@ -894,11 +859,23 @@ index cec2ecc40..745dc3687 100644
              // the engine's block scores (the passes share one stream), for rows past 2,048 keys of the head's cache
              const score_rows = try e.reserveScores(d.cap, piece);
              var p: batch.Pass(Tri) = .{
+diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
+index bd83147c..5ca6529f 100644
+--- a/zig/src/families/flashnext/cuda_split_lane_test.zig
++++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
+@@ -264,6 +264,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
+     for (&r.k.native_lane.shared_down) |*f| f.* = .{ .d = &r.d, .handle = @ptrFromInt(strided_id) };
+     const Self = struct {
+         k: *parts.Kernels,
++        shared_direct: bool = false,
+         s: *parts.Scratch,
+         m: parts.Model,
+         stream: cuda.Stream,
 diff --git a/zig/src/families/flashnext/cuda_tile_kernels.zig b/zig/src/families/flashnext/cuda_tile_kernels.zig
-index edb68ce92..b242d7588 100644
+index edb68ce9..83a3d10a 100644
 --- a/zig/src/families/flashnext/cuda_tile_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_tile_kernels.zig
-@@ -15,6 +15,20 @@ pub const fexp_smem: u32 = 41472;
+@@ -15,14 +15,36 @@ pub const fexp_smem: u32 = 41472;
  pub const fexp_tile: usize = 64;
  pub const cubin_fact_fold: [:0]const u8 = "_ZN4fact11fact_kernelILi64ELi128ELi2ELi4ELi3ELi2ELb0ELi2ELb1ELb1ELb1EEEvPK13__nv_bfloat16PKfPKjS3_S3_PvPfiiiiiii";
  pub const fact_smem: u32 = 3 * (2 * 64 * 64 + 2 * 128 * 16 + 2 * 2 * 128 * 2 + 2 * 64 * 4);
@@ -908,6 +885,8 @@ index edb68ce92..b242d7588 100644
 +pub const hcn_dv2_names = [_][:0]const u8{ "fn_hcn_dv2_2", "fn_hcn_dv2_3", "fn_hcn_dv2_4", "fn_hcn_dv2_4_nx" };
 +pub const hcn_dv2_mt = [_]usize{ 2, 3, 4, 4 };
 +pub const hcn_up_names = [_][:0]const u8{ "fn_hcn_up2_k5", "fn_hcn_up3_k5", "fn_hcn_up4_k5" };
++/// The mt=3 up+mix split into its two halves, for the hc-fuse bench.
++pub const hcn_updbg_names = [_][:0]const u8{ "fn_hcn_up3_k5_gemm", "fn_hcn_up3_k5_epi" };
 +pub const hcn_up_mt = [_]usize{ 2, 3, 4 };
 +/// hcn::DnShape's and hcn::UpShape's SMEM (K = 320).
 +pub fn hcnDownSmem(mt: usize) u32 {
@@ -919,42 +898,61 @@ index edb68ce92..b242d7588 100644
  
  pub const TileKernels = struct {
      fact_mod: cuda.Module,
-@@ -23,8 +37,10 @@ pub const TileKernels = struct {
+     fact: cuda.Function,
+     fact_fold: cuda.Function,
      hcf_mod: cuda.Module,
++    hcn_mod: cuda.Module,
      hcf_down: cuda.Function,
      hcf_up: cuda.Function,
 +    hcn_down: [hcn_down_names.len]cuda.Function,
 +    hcn_dv2: [hcn_dv2_names.len]cuda.Function,
 +    hcn_up: [hcn_up_names.len]cuda.Function,
++    hcn_updbg: [hcn_updbg_names.len]cuda.Function,
++    hcn_peak: cuda.Function,
      fexp_mod: cuda.Module,
--    fexp_up: cuda.Function,
+     fexp_up: cuda.Function,
      fexp_down: cuda.Function,
- 
-     pub fn load(d: *const cuda.Driver) !TileKernels {
-@@ -47,6 +63,18 @@ pub const TileKernels = struct {
+@@ -43,15 +65,35 @@ pub const TileKernels = struct {
+         try k.fexp_down.allowDynamicShared(fexp_smem);
+         k.hcf_mod = try cuda.Module.load(d, cuda.kernels.flashnext_hcf);
+         errdefer k.hcf_mod.unload();
++        k.hcn_mod = try cuda.Module.load(d, cuda.kernels.flashnext_hcn);
++        errdefer k.hcn_mod.unload();
+         k.hcf_down = try k.hcf_mod.function(cubin_hcf_down);
          try k.hcf_down.allowDynamicShared(hcf_down_smem);
          k.hcf_up = try k.hcf_mod.function(cubin_hcf_up);
          try k.hcf_up.allowDynamicShared(hcf_up_smem);
 +        for (&k.hcn_down, hcn_down_names, hcn_down_mt) |*f, name, mt| {
-+            f.* = try k.hcf_mod.function(name);
++            f.* = try k.hcn_mod.function(name);
 +            try f.allowDynamicShared(hcnDownSmem(mt));
 +        }
 +        for (&k.hcn_dv2, hcn_dv2_names, hcn_dv2_mt) |*f, name, mt| {
-+            f.* = try k.hcf_mod.function(name);
++            f.* = try k.hcn_mod.function(name);
 +            try f.allowDynamicShared(hcnDownSmem(mt));
 +        }
 +        for (&k.hcn_up, hcn_up_names, hcn_up_mt) |*f, name, mt| {
-+            f.* = try k.hcf_mod.function(name);
++            f.* = try k.hcn_mod.function(name);
 +            try f.allowDynamicShared(hcnUpSmem(mt));
 +        }
++        for (&k.hcn_updbg, hcn_updbg_names) |*f, name| {
++            f.* = try k.hcn_mod.function(name);
++            try f.allowDynamicShared(hcnUpSmem(3));
++        }
++        k.hcn_peak = try k.hcn_mod.function("fn_hcn_peak");
          return k;
      }
  
+     pub fn unload(k: *TileKernels) void {
+         k.hcf_mod.unload();
++        k.hcn_mod.unload();
+         k.fexp_mod.unload();
+         k.fact_mod.unload();
+     }
 diff --git a/zig/src/families/flashnext/cuda_tiles.zig b/zig/src/families/flashnext/cuda_tiles.zig
-index 3fb186683..b89aad0cb 100644
+index 3fb18668..951869bd 100644
 --- a/zig/src/families/flashnext/cuda_tiles.zig
 +++ b/zig/src/families/flashnext/cuda_tiles.zig
-@@ -1,10 +1,11 @@
+@@ -1,9 +1,12 @@
  //! Prompt rows on tiles keeping #952's bits: the dense matmul (qmm.cu's arithmetic), the read-out and the experts.
 +const std = @import("std");
  const cuda = @import("cuda");
@@ -962,16 +960,16 @@ index 3fb186683..b89aad0cb 100644
  const parts = @import("cuda_batch_state.zig");
  const tk = @import("cuda_tile_kernels.zig");
  
--const dims = wt.dims;
 +const knobs = @import("cuda_knobs.zig");
++
+ const dims = wt.dims;
  const streams = wt.streams;
  const wide = wt.wide;
- const low = wt.low;
-@@ -89,6 +90,75 @@ pub fn readout(tri: anytype, k: *const Kernels, stream: cuda.Stream, s: *Scratch
+@@ -89,6 +92,73 @@ pub fn readout(tri: anytype, k: *const Kernels, stream: cuda.Stream, s: *Scratch
      try tri.hcMixH(s.proj, h, rinv, hc_w.scale.ptr, s.mixed + r0 * dims * 2, s.xsm + r0 * (dims / 32) * 4, n, dims, streams);
  }
  
-+/// Whether the fused native read-out (readoutFused) takes these weights: bf16 lane views of the shapes it is written for.
++/// Whether the fused native read-out (readoutFused) takes these weights: bf16 views of its shapes.
 +pub fn nativeFused(hc_w: HcW) bool {
 +    const down = hc_w.down.native orelse return false;
 +    const up = hc_w.up.native orelse return false;
@@ -986,8 +984,7 @@ index 3fb186683..b89aad0cb 100644
 +    return 0;
 +}
 +
-+/// The down tile's rows (16 * mt) for `n` rows: its CTAs (two column tiles a row tile) run one a SM, so take the tile whose
-+/// waves cost least (waves x mt), the taller tile on a tie. TF_FLASHNEXT_HC2_DN fixes it.
++/// The down tile rows (16 * mt) for n rows: least waves over the 48 SMs; TF_FLASHNEXT_HC2_DN overrides it.
 +fn pickDown(n: usize) usize {
 +    const sms = 48;
 +    const want = knobs.hc2Tile("TF_FLASHNEXT_HC2_DN") catch 0;
@@ -1004,8 +1001,7 @@ index 3fb186683..b89aad0cb 100644
 +    return best;
 +}
 +
-+/// Rows [r0, r0 + n)'s native read-out in three launches (nativeFused weights): the down projection over the streams normed in
-+/// shared memory, fn_hc_reduce_act, the up projection with its mix: the five-launch chain's bytes, no normed rows in memory.
++/// Rows [r0, r0 + n) native read-out in three launches: the five-launch chain bytes, no normed rows in memory.
 +pub fn readoutFused(tri: anytype, k: *const Kernels, stream: cuda.Stream, s: *Scratch, hc_w: HcW, r0: usize, n: usize) !void {
 +    const down = hc_w.down.native.?;
 +    const up = hc_w.up.native.?;
@@ -1044,32 +1040,30 @@ index 3fb186683..b89aad0cb 100644
  pub fn experts(stream: cuda.Stream, f: cuda.Function, wn: usize, x: u64, x_stride: usize, slot_n: usize, w: u64, kg: usize, nb: usize, plan: cuda.grouped.Plan, out: u64, n: usize, items: usize) !void {
      var a = cuda.experts.Affine4Experts.argsOf(x, x_stride, slot_n, w, kg, nb, plan, out, n);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 8095f0615..a3ea0961c 100644
+index 8095f061..56ae2797 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
-@@ -59,7 +59,12 @@ pub const rules = [_]Rule{
+@@ -59,6 +59,12 @@ pub const rules = [_]Rule{
      .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (default 0: the exact kernels; N or more takes the relaxed prompt tile)" },
      .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
--    .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
 +    .{ .name = "TF_FLASHNEXT_PROMPT_HC2", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
 +    .{ .name = "TF_FLASHNEXT_HC2_MIN", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (768 keeps the default)" },
 +    .{ .name = "TF_FLASHNEXT_HC2_DN", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row-tile count (0 keeps the default tile)" },
 +    .{ .name = "TF_FLASHNEXT_HC2_UP", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row-tile count (0 keeps the default tile)" },
 +    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (0 keeps the decode rounds' piece)" },
 +    .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
      .{ .name = "TF_DRAMA_PREFILL_ROWS", .scope = .drama3, .kind = .u32, .trim = " ", .forms = "whole prompt rows a chunk, 1 through 1024 (checked when a Drama 3 checkpoint opens)" },
-     .{ .name = "TF_DRAMA_REFERENCE_CACHE", .scope = .drama3, .kind = .u32, .trim = " ", .forms = "kept reference states, 0 (off) through 16 (checked when a Drama 3 checkpoint opens)" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index dd6d140d9..2aef567b8 100644
+index dd6d140d..8aeccca4 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -78,7 +78,14 @@ const valid = [_]Case{
+@@ -78,6 +78,14 @@ const valid = [_]Case{
      .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "1", .n = 1 },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
--    .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
 +    .{ .name = "TF_FLASHNEXT_PROMPT_HC2", .raw = "1", .n = 1 },
 +    .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .raw = "1", .n = 1 },
 +    .{ .name = "TF_FLASHNEXT_HC2_MIN", .raw = "768", .n = 768 },
@@ -1078,17 +1072,16 @@ index dd6d140d9..2aef567b8 100644
 +    .{ .name = "TF_FLASHNEXT_HC2_UP", .raw = "48", .n = 48 },
 +    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .raw = "1024", .n = 1024 },
 +    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .raw = "0", .n = 0 },
+     .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
      .{ .name = "TF_DRAMA_PREFILL_ROWS", .raw = " 128 ", .n = 128 },
      .{ .name = "TF_DRAMA_REFERENCE_CACHE", .raw = "0", .n = 0 },
-     .{ .name = "TF_GEMMA4_CHUNK_SOLO", .raw = "2048", .n = 2048 },
 diff --git a/zig/tests/cuda/flashnext_hc_fuse_tests.zig b/zig/tests/cuda/flashnext_hc_fuse_tests.zig
 new file mode 100644
-index 000000000..ec17483e9
+index 00000000..1794770d
 --- /dev/null
 +++ b/zig/tests/cuda/flashnext_hc_fuse_tests.zig
-@@ -0,0 +1,307 @@
-+//! The native read-out's fused kernels (flashnext_hcf.cu, hcn) against the five-launch chain they replace: every output byte,
-+//! at several row counts, then the launch times of both chains at a prompt chunk's rows.
+@@ -0,0 +1,306 @@
++//! The fused native read-out kernels (hcn) against the five-launch chain: every output byte, then the launch times.
 +const std = @import("std");
 +const cuda = @import("cuda");
 +const flash = @import("flashnext");
@@ -1395,36 +1388,30 @@ index 000000000..ec17483e9
 +    r.report("hc-fuse");
 +}
 diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
-index 4a4044dfd..fea44c607 100644
+index 4a4044df..f06a2663 100644
 --- a/zig/tests/cuda/main.zig
 +++ b/zig/tests/cuda/main.zig
-@@ -106,8 +106,7 @@ const nvfp4_b32_tests = @import("nvfp4_b32_tests.zig");
- const lane_half_tests = @import("lane_half_tests.zig");
- const flashnext_dense_hc_tests = @import("flashnext_dense_hc_tests.zig");
+@@ -108,6 +108,7 @@ const flashnext_dense_hc_tests = @import("flashnext_dense_hc_tests.zig");
  const flashnext_hc_tests = @import("flashnext_hc_tests.zig");
--const flashnext_attn_tests = @import("flashnext_attn_tests.zig");
--const flashnext_kv8_tests = @import("flashnext_kv8_tests.zig");
-+22: @both
+ const flashnext_attn_tests = @import("flashnext_attn_tests.zig");
+ const flashnext_kv8_tests = @import("flashnext_kv8_tests.zig");
++const flashnext_hc_fuse_tests = @import("flashnext_hc_fuse_tests.zig");
  const ggml_tests = @import("ggml_tests.zig");
  const paged_tests = @import("paged_tests.zig");
  const glm_loader_gate = @import("glm_loader_gate.zig");
-@@ -153,8 +152,7 @@ const usage =
-     \\  lane-half                 lane half tiles (MXFP8, BF16): bytes equal to the 64-column tile, FP64, cold-weight time
-     \\  flashnext-dense-hc        dense connection weights and FP32 normalization against FP64
+@@ -155,6 +156,7 @@ const usage =
      \\  flashnext-hc              Flash Next's own hyper-connection and n-gram glue against float64 (synthetic rows)
--    \\  flashnext-attn            Flash Next's own attention glue, pooling and block scores against float64 (synthetic)
--    \\  flashnext-kv8             Flash Next's --kv-cache fp8 write against its format model and its reads against the bf16 kernels (synthetic)
-+23: @both
+     \\  flashnext-attn            Flash Next's own attention glue, pooling and block scores against float64 (synthetic)
+     \\  flashnext-kv8             Flash Next's --kv-cache fp8 write against its format model and its reads against the bf16 kernels (synthetic)
++    \\  hc-fuse                   the fused native hyper-connection read-out against the five-launch chain: bytes, then times
      \\  flashnext-gdn-heads [BASELINE]  DeltaNet full/half bytes, optionally against a frozen flashnext_batch.fatbin
      \\  flashnext-tp-heads MODEL  each rank's cut in-projections and attention heads equal the whole layer's bytes
      \\  flashnext-pages           the attention glue's caches through a page table: paged == contiguous, float64, controls
-@@ -393,8 +391,7 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
-     if (std.mem.eql(u8, cmd, "lane-half")) return lane_half_tests.run(gpu);
-     if (std.mem.eql(u8, cmd, "flashnext-dense-hc")) return flashnext_dense_hc_tests.run(gpu);
+@@ -395,6 +397,7 @@ fn run(gpu: check.Gpu, cmd: []const u8, rest: []const [:0]const u8) !void {
      if (std.mem.eql(u8, cmd, "flashnext-hc")) return flashnext_hc_tests.run(gpu);
--    if (std.mem.eql(u8, cmd, "flashnext-attn")) return flashnext_attn_tests.run(gpu);
--    if (std.mem.eql(u8, cmd, "flashnext-kv8")) return flashnext_kv8_tests.run(gpu);
-+24: @both
+     if (std.mem.eql(u8, cmd, "flashnext-attn")) return flashnext_attn_tests.run(gpu);
+     if (std.mem.eql(u8, cmd, "flashnext-kv8")) return flashnext_kv8_tests.run(gpu);
++    if (std.mem.eql(u8, cmd, "hc-fuse")) return flashnext_hc_fuse_tests.run(gpu);
      if (std.mem.eql(u8, cmd, "flashnext-gdn-heads")) {
          if (rest.len > 1) return error.GdnHeadsArguments;
          const heads = @import("flashnext_gdn_heads_tests.zig");

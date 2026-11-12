@@ -1,39 +1,5 @@
-From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
-From: Adam Hillson <598804+BadAd84@users.noreply.github.com>
-Date: Mon, 9 Nov 2026 09:04:07 +0000
-Subject: [PATCH 12/28] Flash Next: the NVFP4 n-gram table through a row cache,
- read ahead of the gather, and an evened prompt tail
-
-Adapts MiaAI-Lab recipe patch 0013 onto 1.2.4: TF_FLASHNEXT_GATHER_READ=pread reads an NVFP4 table's rows into a
-direct-mapped cache by up to TF_FLASHNEXT_GATHER_THREADS parked readers (O_DIRECT where the file system allows it,
-so the page cache is left to the weights), TF_FLASHNEXT_DRAFT_AHEAD=1 asks for a drafted token's rows while the
-head drafts the next one, TF_FLASHNEXT_WARM_AHEAD=1 asks for the next prompt chunk's rows while the chunk before
-it runs, and TF_FLASHNEXT_PREFILL_TAIL evens out a short last prompt chunk (two chunks of about equal rows, each
-past the prompt expert tiles' 1,024). The rows are the mapping's bytes, so the dequantized rows and every
-reply are unchanged. (#9999)
----
- CHANGELOG.md                                  |   4 +
- docs/recipes/flash-next-cuda.md               |   9 +
- zig/src/families/flashnext/cuda_chunk.zig     |  42 ++
- zig/src/families/flashnext/cuda_knobs.zig     |  27 ++
- zig/src/families/flashnext/cuda_lanes.zig     |  11 +-
- .../families/flashnext/cuda_lanes_draft.zig   |  20 +-
- zig/src/families/flashnext/cuda_mtp_ops.zig   |  13 +-
- zig/src/families/flashnext/cuda_ple.zig       |  19 +-
- zig/src/families/flashnext/cuda_ple_cache.zig | 447 ++++++++++++++++++
- .../flashnext/cuda_ple_cache_test.zig         | 207 ++++++++
- .../flashnext/cuda_ple_nvfp4_test.zig         |   2 +-
- zig/src/families/flashnext/cuda_prompt.zig    |   4 +-
- zig/src/platform/environment.zig              |   5 +
- zig/src/platform/environment_test.zig         |   9 +
- zig/tests/cuda/flashnext_mtp_parity_tests.zig |   4 +-
- 15 files changed, 807 insertions(+), 16 deletions(-)
- create mode 100644 zig/src/families/flashnext/cuda_knobs.zig
- create mode 100644 zig/src/families/flashnext/cuda_ple_cache.zig
- create mode 100644 zig/src/families/flashnext/cuda_ple_cache_test.zig
-
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 287108a20..d94e1cae8 100644
+index 287108a2..20af52a8 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -8,6 +8,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -47,8 +13,16 @@ index 287108a20..d94e1cae8 100644
  - Prompt cache: long conversations survive 8 to 16 agents sending follow-ups at once. Redundant states are evicted before each conversation's newest one, admission never evicts a state a queued request resumes, concurrent keeps reserve their room, and the default budget scales with the room left after streams on Metal and unified-memory CUDA (discrete CUDA hosts keep 8 GiB, Flash Next's batch host 16 GiB). On Qwen3.8-27B with DFlash2 at 16 agents, a follow-up's median first token drops from 546 s to 15.9 s on an M3 Ultra and from 105 s to 25.8 s on a GB10, with every reply unchanged (#2699).
  
  - Evidence index: reads saved native capabilities, including unknown and XPU chip labels; advertised facts stay unqualified, and invalid supplied input stops with a bounded error (#2708).
+@@ -93,6 +97,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+   one rank, our own glue, not with `--slide`, a captured set, the KV pages or `--learn-conversations`. The indexer's keys,
+   pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
+   kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
++- Flash Next: a shared pass gathers every stream's n-gram rows in one pool call (TF_FLASHNEXT_GATHER_EARLY=1, at most 64 lanes), can lock the tables' scale arrays in memory at load (TF_FLASHNEXT_GATHER_LOCK_SCALES=1, NVFP4), and TF_FLASHNEXT_GATHER_LOG=1 prints what the pass launched ahead and waited; every gathered row is the per-stream call's (#9999).
+ - Tool calls: a reply's call ids are an HMAC-SHA-256 of the request (its body without `stream` and `stream_options`, the choice and the call's index) under the server's key instead of chance, so a request replayed to the same server gets the same ids, a stream names its calls as its whole reply and the next turn's background prefill do, and a Responses `fc_` item id follows its call; without the key an id reveals nothing about the request, and byte-identical requests under one key share ids. The key is random per server process unless `TENSORFOLD_TOOL_ID_KEY_FILE` names an owner-only file of at least 32 bytes, which keeps ids across restarts and machines sharing it, and a missing, unreadable, linked, shared, short or oversized file stops the start by name; the `call_` and 24 hex digit form and the ids a client sends back are unchanged (#2653).
+ 
+ - Qwen3.8-27B on Metal: after a sampled or grammar-masked verify, only the drafter's taps and head row are waited for; the target's keep follows on the same queue and is settled before the next verify, so the drafter starts sooner, with every token unchanged. One stream sampled with DFlash2 on an M3 Ultra: chat 75.3 to 77.0 tok/s, code 106.8 to 109.8 (#2646). Thanks to @mrv777.
 diff --git a/docs/recipes/flash-next-cuda.md b/docs/recipes/flash-next-cuda.md
-index 4e400e5c5..aadff9e0c 100644
+index 4e400e5c..aadff9e0 100644
 --- a/docs/recipes/flash-next-cuda.md
 +++ b/docs/recipes/flash-next-cuda.md
 @@ -62,6 +62,15 @@ On Linux these rows use positional reads by default; `TF_FLASHNEXT_PLE_IO=mmap`
@@ -67,8 +41,90 @@ index 4e400e5c5..aadff9e0c 100644
  These I/O choices need cold-storage and served-token A/B gates before a performance claim.
  
  Raw completion prompts of at least 16 tokens gain a kept end mark after they have been served once, when the
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index c0f25e72..43ecb27c 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -93,6 +93,7 @@ pub const scoreBytes = parts.scoreBytes;
+ pub const Lane = parts.Lane;
+ pub const Model = parts.Model;
+ const Gather = parts.Gather;
++const gather_log = @import("cuda_batch_gather_log.zig");
+ 
+ pub fn Pass(comptime Tri: type) type {
+     return struct {
+@@ -528,8 +529,7 @@ pub fn Pass(comptime Tri: type) type {
+             for (self.m.layers, 0..) |*lw, layer| {
+                 const keep: LayerKeep = if (self.hooks.keep) |kp| kp.layers[layer] else .{};
+                 if (layer == ple_layer) {
+-                    if (thread) |th| th.join();
+-                    thread = null;
++                    thread = try gather_log.join(thread, &gather, self.io, t0, n);
+                     if (gather.failed) |err| return err;
+                     if (Kernels.profile()) std.debug.print("batch: {d} rows' n-gram rows gathered on the host in {d:.1} ms\n", .{ n, @as(f64, @floatFromInt(gather.ns)) / 1e6 });
+                     if (!self.staged) {
+diff --git a/zig/src/families/flashnext/cuda_batch_gather_log.zig b/zig/src/families/flashnext/cuda_batch_gather_log.zig
+new file mode 100644
+index 00000000..b806a38e
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_batch_gather_log.zig
+@@ -0,0 +1,34 @@
++//! TF_FLASHNEXT_GATHER_LOG=1: what a shared pass waits for the n-gram gather at the PLE layer.
++
++const std = @import("std");
++const knobs = @import("cuda_knobs.zig");
++const batch_state = @import("cuda_batch_state.zig");
++
++var passes: u64 = 0;
++var wait_ns: u64 = 0;
++var gather_ns: u64 = 0;
++var ahead_ns: u64 = 0;
++var rows: u64 = 0;
++
++/// Joins the shared pass's gather thread, recording what the pass launched ahead and waited; 100 passes a line.
++pub fn join(thread: ?std.Thread, gather: *const batch_state.Gather, io: std.Io, t0: i96, n: usize) !?std.Thread {
++    const log_gather = thread != null and gather.lanes.len > 0 and try knobs.gatherLog();
++    const t_join = if (log_gather) std.Io.Clock.awake.now(io).toNanoseconds() else 0;
++    if (thread) |th| th.join();
++    if (!log_gather) return null;
++    const t_done = std.Io.Clock.awake.now(io).toNanoseconds();
++    passes += 1;
++    wait_ns += @intCast(t_done - t_join);
++    gather_ns += @intCast(gather.ns);
++    ahead_ns += @intCast(t_join - t0);
++    rows += n;
++    if (passes % 100 == 0) {
++        const f = @as(f64, 1e6) * 100.0;
++        std.debug.print("gather: {d} shared passes, per pass: {d:.1} rows, gather {d:.2} ms, launched ahead {d:.2} ms, join wait {d:.2} ms\n", .{ passes, @as(f64, @floatFromInt(rows)) / 100.0, @as(f64, @floatFromInt(gather_ns)) / f, @as(f64, @floatFromInt(ahead_ns)) / f, @as(f64, @floatFromInt(wait_ns)) / f });
++        wait_ns = 0;
++        gather_ns = 0;
++        ahead_ns = 0;
++        rows = 0;
++    }
++    return null;
++}
+diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
+index 3c06ccc5..439ac8c2 100644
+--- a/zig/src/families/flashnext/cuda_batch_state.zig
++++ b/zig/src/families/flashnext/cuda_batch_state.zig
+@@ -5,6 +5,7 @@ const cuda = @import("cuda");
+ const gdn = @import("cuda_gdn.zig");
+ const ple = @import("cuda_ple.zig");
+ const wt = @import("cuda_prompt_wt.zig");
++const gather_lanes = @import("cuda_ple_gather_lanes.zig");
+ const tk = @import("cuda_tile_kernels.zig");
+ const load = @import("cuda_prompt_load.zig");
+ const shared = @import("cuda_batch_side.zig");
+@@ -577,6 +578,7 @@ pub const Gather = struct {
+             };
+             return;
+         }
++        if (gather_lanes.early(g)) return;
+         var row0: usize = 0;
+         for (g.lanes) |l| {
+             g.ngram.rows(l.seq.history[0..], g.ids[row0..][0..l.rows], g.emb[row0 * dims ..][0 .. l.rows * dims], g.xs[row0 * (dims / 32) ..][0 .. l.rows * (dims / 32)]) catch |err| {
 diff --git a/zig/src/families/flashnext/cuda_chunk.zig b/zig/src/families/flashnext/cuda_chunk.zig
-index 07c2c4ba6..710592628 100644
+index 07c2c4ba..71059262 100644
 --- a/zig/src/families/flashnext/cuda_chunk.zig
 +++ b/zig/src/families/flashnext/cuda_chunk.zig
 @@ -2,6 +2,7 @@
@@ -133,11 +189,12 @@ index 07c2c4ba6..710592628 100644
 +}
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
 new file mode 100644
-index 000000000..364a0612a
+index 00000000..d43fb985
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -0,0 +1,27 @@
-+//! Row-cache reader and prompt-shape switches (platform-validated environment); the defaults keep the plain reader.
+@@ -0,0 +1,43 @@
++//! Flash Next's n-gram, row-cache and prompt-shape switches (platform-validated environment); the defaults keep
++//! the plain paths.
 +const sys = @import("sys");
 +
 +/// TF_FLASHNEXT_GATHER_READ=pread: the table's rows through a row cache and parked readers; 0 keeps the plain reader.
@@ -164,8 +221,23 @@ index 000000000..364a0612a
 +pub fn prefillTail() sys.environment.Error!usize {
 +    return sys.environment.read(usize, "TF_FLASHNEXT_PREFILL_TAIL", 0);
 +}
++
++/// TF_FLASHNEXT_GATHER_EARLY=1: every stream's n-gram rows gathered in one pool call, not one call a stream.
++pub fn gatherEarly() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_EARLY", false);
++}
++
++/// TF_FLASHNEXT_GATHER_LOG=1: log the gather's and the PLE join's waits of shared passes, 100 passes a line.
++pub fn gatherLog() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_LOG", false);
++}
++
++/// TF_FLASHNEXT_GATHER_LOCK_SCALES=1: lock the n-gram tables' scale arrays in memory at load (lockScales).
++pub fn gatherLockScales() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_LOCK_SCALES", false);
++}
 diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
-index d8d0c3489..4d2205c4a 100644
+index 660a909b..5840b168 100644
 --- a/zig/src/families/flashnext/cuda_lanes.zig
 +++ b/zig/src/families/flashnext/cuda_lanes.zig
 @@ -7,6 +7,7 @@ const weights = @import("cuda_prompt_wt.zig");
@@ -207,7 +279,7 @@ index d8d0c3489..4d2205c4a 100644
              }
          }
 diff --git a/zig/src/families/flashnext/cuda_lanes_draft.zig b/zig/src/families/flashnext/cuda_lanes_draft.zig
-index 73ca22719..7af461010 100644
+index 73ca2271..7af46101 100644
 --- a/zig/src/families/flashnext/cuda_lanes_draft.zig
 +++ b/zig/src/families/flashnext/cuda_lanes_draft.zig
 @@ -4,6 +4,18 @@ const lanes = @import("lanes");
@@ -259,7 +331,7 @@ index 73ca22719..7af461010 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index e9db189f5..cec2ecc40 100644
+index 566c177d..aa337a29 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -12,6 +12,7 @@ const plan = @import("cuda_mtp_plan.zig");
@@ -333,10 +405,10 @@ index e9db189f5..cec2ecc40 100644
              }
              _ = n_l;
 diff --git a/zig/src/families/flashnext/cuda_ple.zig b/zig/src/families/flashnext/cuda_ple.zig
-index b1a8921ae..1d321ead3 100644
+index b1a8921a..c539a275 100644
 --- a/zig/src/families/flashnext/cuda_ple.zig
 +++ b/zig/src/families/flashnext/cuda_ple.zig
-@@ -6,7 +6,8 @@ const core = @import("core");
+@@ -6,16 +6,18 @@ const core = @import("core");
  const embed = @import("cuda_embed.zig");
  const hc = @import("cuda_hc.zig");
  const ple_pool = @import("cuda_ple_pool.zig");
@@ -344,9 +416,21 @@ index b1a8921ae..1d321ead3 100644
 +const ple_cache = @import("cuda_ple_cache.zig");
 +const knobs = @import("cuda_knobs.zig");
  const ple_fp8 = @import("cuda_ple_fp8.zig");
- 
+-
++const ple_reader = @import("cuda_ple_reader.zig");
++const gather_lanes = @import("cuda_ple_gather_lanes.zig");
  const golden: u64 = 0x9E3779B97F4A7C15;
-@@ -350,8 +351,9 @@ pub const Ngram = struct {
+ const mix1: u64 = 0xBF58476D1CE4E5B9;
+ const mix2: u64 = 0x94D049BB133111EB;
+ const prime_step: u64 = 10007;
+ pub const max_n: usize = 8;
+ pub const max_heads: usize = 64;
+-const max_shards: usize = 128;
++pub const max_shards: usize = 128;
+ pub const layer: usize = 1;
+ 
+ const Tensor = core.safetensors.Tensor;
+@@ -350,8 +352,9 @@ pub const Ngram = struct {
      read_mode: ple_reader.Mode = .mmap,
      warm_ahead: bool = false,
      pool: ?*ple_pool.Pool = null, // the gather's parked workers (null: every row on the caller's thread)
@@ -357,23 +441,24 @@ index b1a8921ae..1d321ead3 100644
      pub fn init(gpa: std.mem.Allocator, io: std.Io, model_dir: []const u8) !Ngram {
          const cfg = try readSpec(gpa, io, model_dir);
          var g: Ngram = .{ .gpa = gpa, .hash = try Hash.init(.{
-@@ -424,12 +426,13 @@ pub const Ngram = struct {
+@@ -424,12 +427,16 @@ pub const Ngram = struct {
              }
          }
          g.pool = try ple_pool.Pool.create(gpa, io);
 +        if (g.format == .nvfp4 and knobs.gatherRead() catch false) g.openCache(io) catch |err| std.debug.print("warning: flashnext: n-gram rows stay on the plain reader (the row cache is unavailable: {t})\n", .{err});
++        try gather_lanes.maybeLockScales(&g, io);
          return g;
      }
  
      pub fn deinit(g: *Ngram) void {
--        g.waitWarm();
--        if (g.pool) |p| p.destroy();
+         g.waitWarm();
 +        if (g.ahead_thread) |th| th.join();
+         if (g.pool) |p| p.destroy();
 +        if (g.cache) |c| c.destroy();
          for (g.files.items) |*o| o.close(g.gpa);
          g.files.deinit(g.gpa);
      }
-@@ -474,6 +477,11 @@ pub const Ngram = struct {
+@@ -474,6 +481,11 @@ pub const Ngram = struct {
          return bytes.len;
      }
  
@@ -385,16 +470,44 @@ index b1a8921ae..1d321ead3 100644
      /// Rows [lo, hi) of a chunk's token-major row ids `ids`, each dequantized into its head's slice of `out`.
      pub fn fill(g: *const Ngram, ids: []const i64, out: []u16, lo: usize, hi: usize) !void {
          const dh = g.hash.dh;
-@@ -482,7 +490,7 @@ pub const Ngram = struct {
+@@ -482,7 +494,9 @@ pub const Ngram = struct {
              const row = out[i * dh ..][0..dh];
              switch (g.format) {
                  .mlx => try embed.dequant(g.w[loc.shard], g.s[loc.shard], g.b[loc.shard], dh, loc.local, row),
 -                .nvfp4, .fp8 => if (g.read_mode == .pread)
-+                .nvfp4, .fp8 => if (!try ple_cache.row(g, ids[i], loc, row))
++                .nvfp4, .fp8 => if (try ple_cache.row(g, ids[i], loc, row)) {
++                    // the row cache filled it
++                } else if (g.read_mode == .pread)
                      try g.readers[loc.shard].read(g.gpa, loc.local, row)
                  else if (g.format == .fp8)
                      try g.tables8[loc.shard].gather(&.{loc.local}, row)
-@@ -584,4 +592,5 @@ test {
+@@ -493,16 +507,23 @@ pub const Ngram = struct {
+     }
+ 
+     /// One call's rows split into `parts` equal ranges, part i filling [i * per, (i + 1) * per).
+-    const Split = struct {
++    pub const Split = struct {
+         g: *const Ngram,
+         ids: []const i64,
+         out: []u16,
+         per: usize,
+ 
+-        fn part(ctx: *const anyopaque, i: usize) anyerror!void {
++        pub fn part(ctx: *const anyopaque, i: usize) anyerror!void {
+             const s: *const Split = @ptrCast(@alignCast(ctx));
+             const lo = @min(s.ids.len, i * s.per);
++            const t0 = if (gather_lanes.Stat.on) gather_lanes.Stat.now() else 0;
+             try s.g.fill(s.ids, s.out, lo, @min(s.ids.len, lo + s.per));
++            if (gather_lanes.Stat.on) {
++                const d = gather_lanes.Stat.now() - t0;
++                _ = gather_lanes.Stat.part_sum.fetchAdd(d, .monotonic);
++                var m = gather_lanes.Stat.part_max.load(.monotonic);
++                while (d > m) m = gather_lanes.Stat.part_max.cmpxchgWeak(m, d, .monotonic, .monotonic) orelse break;
++            }
+         }
+     };
+ 
+@@ -584,4 +605,5 @@ test {
      _ = ple_reader;
      _ = ple_fp8;
      _ = @import("cuda_ple_ahead.zig");
@@ -402,18 +515,15 @@ index b1a8921ae..1d321ead3 100644
  }
 diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
 new file mode 100644
-index 000000000..b2f9bfd5c
+index 00000000..ca70d12d
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_ple_cache.zig
-@@ -0,0 +1,447 @@
+@@ -0,0 +1,444 @@
 +//! The n-gram table's rows through a direct-mapped cache, the rows of later passes asked for ahead.
 +const std = @import("std");
 +const core = @import("core");
 +const ple = @import("cuda_ple.zig");
 +const knobs = @import("cuda_knobs.zig");
-+const direct_io = core.direct_io;
-+const std = @import("std");
-+const core = @import("core");
 +const direct_io = core.direct_io;
 +
 +/// Bytes of a row's codes and scales a cache slot holds (dh / 2 + dh / 16 of a 160-wide head: 90).
@@ -749,7 +859,7 @@ index 000000000..b2f9bfd5c
 +        if (scales_at < base or scales_at + t.scales.len > base + g.files.items[fi].file.map.memory.len) return error.UnexpectedTensor;
 +        shards[s] = .{ .file = @intCast(fi), .codes_at = at - base, .scales_at = scales_at - base };
 +    }
-+    return create(g.gpa, io, paths[0..g.files.items.len], shards[0..g.hash.shards], g.hash.starts[0 .. g.hash.shards + 1], dh / 2, dh / 16, try cacheSlots(), try workers());
++    return Reader.create(g.gpa, io, paths[0..g.files.items.len], shards[0..g.hash.shards], g.hash.starts[0 .. g.hash.shards + 1], dh / 2, dh / 16, try cacheSlots(), try workers());
 +}
 +
 +fn cacheSlots() !usize {
@@ -855,7 +965,7 @@ index 000000000..b2f9bfd5c
 +};
 diff --git a/zig/src/families/flashnext/cuda_ple_cache_test.zig b/zig/src/families/flashnext/cuda_ple_cache_test.zig
 new file mode 100644
-index 000000000..8dd185e61
+index 00000000..8dd185e6
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_ple_cache_test.zig
 @@ -0,0 +1,207 @@
@@ -1066,8 +1176,167 @@ index 000000000..8dd185e61
 +    try gather(&g, &hist, &fresh2, small[0 .. 90 * w], xs);
 +    std.debug.print("pread, 90 rows read ahead: {d:.2} ms\n", .{ms(io, t0)});
 +}
+diff --git a/zig/src/families/flashnext/cuda_ple_gather_lanes.zig b/zig/src/families/flashnext/cuda_ple_gather_lanes.zig
+new file mode 100644
+index 00000000..bf2ab502
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_ple_gather_lanes.zig
+@@ -0,0 +1,153 @@
++//! The shared pass's n-gram gather: every lane's rows in one pool call, and the tables' scales locked at load.
++
++const std = @import("std");
++const ple = @import("cuda_ple.zig");
++const ple_pool = @import("cuda_ple_pool.zig");
++const wt = @import("cuda_prompt_wt.zig");
++const batch_state = @import("cuda_batch_state.zig");
++const knobs = @import("cuda_knobs.zig");
++const sys = @import("sys");
++
++const dims = wt.dims;
++const max_n = ple.max_n;
++
++/// TF_FLASHNEXT_GATHER_LOG=1: where the time of a shared gather goes.
++pub const Stat = struct {
++    pub var on: bool = false;
++    var calls: u64 = 0;
++    var prep_ns: u64 = 0;
++    var run_ns: u64 = 0;
++    var post_ns: u64 = 0;
++    var parts_n: u64 = 0;
++    var items_n: u64 = 0;
++    pub var part_sum = std.atomic.Value(u64).init(0);
++    pub var part_max = std.atomic.Value(u64).init(0);
++    var max_sum: u64 = 0;
++    var run_sum_parts: u64 = 0;
++    pub fn now() u64 {
++        var t: sys.c.timespec = undefined;
++        _ = sys.c.clock_gettime(sys.c.CLOCK.MONOTONIC, &t);
++        return @as(u64, @intCast(t.sec)) * 1_000_000_000 + @as(u64, @intCast(t.nsec));
++    }
++};
++
++/// One stream's rows in a shared gather: its history (moved past the rows), tokens, and its slices of out and xs.
++pub const Part = struct { history: []i64, tokens: []const u32, out: []u16, xs: []f32 };
++
++/// A shared pass's lanes gathered in one pool call (TF_FLASHNEXT_GATHER_EARLY=1, 64 lanes at most); sets failed.
++pub fn early(g: *batch_state.Gather) bool {
++    if (!(knobs.gatherEarly() catch false) or g.lanes.len > 64) return false;
++    var parts: [64]Part = undefined;
++    var at: usize = 0;
++    // each stream's ids come from its own history, so every row's bits are the per-stream call's
++    for (g.lanes, 0..) |l, k| {
++        parts[k] = .{ .history = l.seq.history[0..], .tokens = g.ids[at..][0..l.rows], .out = g.emb[at * dims ..][0 .. l.rows * dims], .xs = g.xs[at * (dims / 32) ..][0 .. l.rows * (dims / 32)] };
++        at += l.rows;
++    }
++    rowsMany(g.ngram, parts[0..g.lanes.len]) catch |err| {
++        g.failed = err;
++    };
++    return true;
++}
++
++/// TF_FLASHNEXT_GATHER_LOCK_SCALES=1 (NVFP4): mlock the tables' scale arrays, so a row faults one page, not two.
++pub fn maybeLockScales(g: *ple.Ngram, io: std.Io) !void {
++    if (try knobs.gatherLockScales() and g.format == .nvfp4) lockScales(g, io);
++}
++
++fn lockScales(g: *ple.Ngram, io: std.Io) void {
++    if (@import("builtin").os.tag != .linux) return;
++    var total: usize = 0;
++    var failed = false;
++    const t0 = std.Io.Clock.awake.now(io).toNanoseconds();
++    for (g.tables[0..g.hash.shards]) |t| {
++        const addr = @intFromPtr(t.scales.ptr);
++        const lo = addr & ~@as(usize, 4095);
++        const len = (addr + t.scales.len + 4095 - lo) & ~@as(usize, 4095);
++        const rc = std.os.linux.syscall2(.mlock, lo, len);
++        if (std.os.linux.errno(rc) != .SUCCESS) failed = true else total += len;
++    }
++    std.debug.print("info: flashnext: n-gram scale arrays locked in memory: {d:.2} GiB in {d:.1} s{s}\n", .{ @as(f64, @floatFromInt(total)) / (1 << 30), @as(f64, @floatFromInt(std.Io.Clock.awake.now(io).toNanoseconds() - t0)) / 1e9, if (failed) " (some mlock calls failed)" else "" });
++}
++
++/// `Ngram.rows` over several streams' rows in one pool call; the rows lie one after another in the caller's buffers.
++pub fn rowsMany(g: *const ple.Ngram, parts: []const Part) !void {
++    const heads = g.hash.heads;
++    const w = g.width();
++    var total: usize = 0;
++    for (parts) |q| {
++        if (q.history.len != g.hash.n - 1 or q.out.len != q.tokens.len * w or q.xs.len != q.out.len / 32) return error.UnexpectedTensor;
++        total += q.tokens.len;
++    }
++    const items = total * heads;
++    const ids = try g.gpa.alloc(i64, items);
++    defer g.gpa.free(ids);
++    Stat.on = knobs.gatherLog() catch false;
++    const ts0 = if (Stat.on) Stat.now() else 0;
++    var hists: [64][max_n]i64 = undefined;
++    if (parts.len > hists.len) return error.UnexpectedTensor;
++    var at: usize = 0;
++    for (parts, 0..) |q, k| {
++        const hist = &hists[k];
++        @memcpy(hist[0..q.history.len], q.history);
++        for (q.tokens) |token| {
++            try ple.lastIds(g.hash, hist[0..q.history.len], @intCast(token), ids[at * heads ..][0..heads]);
++            for (0..q.history.len - 1) |i| hist[i] = hist[i + 1];
++            hist[q.history.len - 1] = token;
++            at += 1;
++        }
++    }
++    // the parts' outputs are consecutive in the caller's buffer (row0 on): one fill covers them all
++    var out = parts[0].out;
++    out.len = total * w;
++    for (parts[1..], 0..) |q, k| if (q.out.ptr != parts[k].out.ptr + parts[k].out.len) return error.UnexpectedTensor;
++    const n_threads = @min(ple_pool.max_parts, items / 4);
++    const ts1 = if (Stat.on) Stat.now() else 0;
++    if (Stat.on) {
++        Stat.part_sum.store(0, .monotonic);
++        Stat.part_max.store(0, .monotonic);
++    }
++    if (g.format != .mlx and items > 1) {
++        try @import("cuda_ple_gather.zig").run(g, ids, out);
++    } else if (n_threads <= 1 or g.pool == null) {
++        try g.fill(ids, out, 0, items);
++    } else {
++        const split: ple.Ngram.Split = .{ .g = g, .ids = ids, .out = out, .per = (items + n_threads - 1) / n_threads };
++        try g.pool.?.run(n_threads, .{ .ctx = &split, .run = ple.Ngram.Split.part });
++    }
++    const ts2 = if (Stat.on) Stat.now() else 0;
++    defer if (Stat.on) {
++        Stat.calls += 1;
++        Stat.prep_ns += ts1 - ts0;
++        Stat.run_ns += ts2 - ts1;
++        Stat.post_ns += Stat.now() - ts2;
++        Stat.parts_n += n_threads;
++        Stat.items_n += items;
++        Stat.max_sum += Stat.part_max.load(.monotonic);
++        Stat.run_sum_parts += Stat.part_sum.load(.monotonic);
++        if (Stat.calls % 100 == 0) {
++            const f = 100.0 * 1e6;
++            std.debug.print("gather detail: per call prep {d:.2} ms, pool run {d:.2} ms (slowest part {d:.2} ms, sum of parts {d:.2} ms), post {d:.2} ms; {d:.0} parts, {d:.0} items\n", .{ @as(f64, @floatFromInt(Stat.prep_ns)) / f, @as(f64, @floatFromInt(Stat.run_ns)) / f, @as(f64, @floatFromInt(Stat.max_sum)) / f, @as(f64, @floatFromInt(Stat.run_sum_parts)) / f, @as(f64, @floatFromInt(Stat.post_ns)) / f, @as(f64, @floatFromInt(Stat.parts_n)) / 100.0, @as(f64, @floatFromInt(Stat.items_n)) / 100.0 });
++            Stat.prep_ns = 0;
++            Stat.run_ns = 0;
++            Stat.post_ns = 0;
++            Stat.parts_n = 0;
++            Stat.items_n = 0;
++            Stat.max_sum = 0;
++            Stat.run_sum_parts = 0;
++        }
++    };
++    for (parts) |q| {
++        for (0..q.tokens.len) |t| {
++            const row = q.out[t * w ..][0..w];
++            if (g.format == .mlx and g.scale != 1) {
++                for (row) |*v| {
++                    const f: f32 = @bitCast(@as(u32, v.*) << 16);
++                    v.* = ple.toBf16(f * g.scale);
++                }
++            }
++            ple.sumGroups(row, q.xs[t * (w / 32) ..][0 .. w / 32]);
++        }
++    }
++    for (parts, 0..) |q, k| @memcpy(q.history, hists[k][0..q.history.len]);
++}
 diff --git a/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig b/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
-index 92efda971..15b0d239a 100644
+index 92efda97..15b0d239 100644
 --- a/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
 +++ b/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
 @@ -6,7 +6,7 @@ const a = std.testing.allocator;
@@ -1080,7 +1349,7 @@ index 92efda971..15b0d239a 100644
          \\{"text_config":{"num_hidden_layers":2,"hidden_size":32,"vocab_size":100,"ple_layer_ids":[2],
          \\ "ngram_size":2,"heads_per_ngram":2,"ngram_vocab_size_base":13,"make_ngram_vocab_size_divisible_by":2,
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 9ec9f8c82..a2a9fe0fe 100644
+index 8ae94fb4..c132f3a6 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -3,6 +3,7 @@ const std = @import("std");
@@ -1091,7 +1360,7 @@ index 9ec9f8c82..a2a9fe0fe 100644
  const weights = @import("cuda_prompt_wt.zig");
  const load = @import("cuda_prompt_load.zig");
  pub const batch = @import("cuda_batch.zig");
-@@ -410,7 +411,8 @@ pub const Engine = struct {
+@@ -411,7 +412,8 @@ pub const Engine = struct {
          while (at < ids.len) {
              const n = @min(s.cap, ids.len - at);
              const last = at + n == ids.len;
@@ -1102,10 +1371,10 @@ index 9ec9f8c82..a2a9fe0fe 100644
              p.hooks.streams = if (hooks.streams != 0) hooks.streams + at * wide * 2 else 0;
              try p.chunk(ids[at..][0..n], seq.fed + at, if (last and hooks.logits != .none and hooks.host_logits) seq.logits else null);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 0493e501b..0121ac856 100644
+index 0493e501..d7bdb86a 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
-@@ -47,6 +47,11 @@ pub const rules = [_]Rule{
+@@ -47,6 +47,14 @@ pub const rules = [_]Rule{
      .{ .name = "TF_DRAFT_NODES", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size node count (capped by the drafter's window)" },
      .{ .name = "TF_QMMF_HALF_BELOW", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size block count (0 disables half tiles)" },
      .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .scope = .cuda, .kind = .flag, .forms = "0 or 1 (0 skips the boot copy-window self-check)" },
@@ -1114,14 +1383,17 @@ index 0493e501b..0121ac856 100644
 +    .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to one slot)" },
 +    .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
 +    .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (0 keeps the plain last chunk)" },
++    .{ .name = "TF_FLASHNEXT_GATHER_EARLY", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOG", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index 1148f748d..1c4b731b5 100644
+index 1148f748..ad37bf59 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -61,6 +61,15 @@ const valid = [_]Case{
+@@ -61,7 +61,22 @@ const valid = [_]Case{
      .{ .name = "TF_DRAFT_NODES", .raw = "0", .n = 0 },
      .{ .name = "TF_DRAFT_NODES", .raw = "64", .n = 64 },
      .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
@@ -1135,10 +1407,17 @@ index 1148f748d..1c4b731b5 100644
 +    .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .raw = "0", .n = 0 },
 +    .{ .name = "TF_FLASHNEXT_PREFILL_TAIL", .raw = "512", .n = 512 },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_GATHER_EARLY", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_GATHER_EARLY", .raw = "1", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOG", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOG", .raw = "1", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "1", .n = 1 },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
      .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
+     .{ .name = "TF_DRAMA_PREFILL_ROWS", .raw = " 128 ", .n = 128 },
 diff --git a/zig/tests/cuda/flashnext_mtp_parity_tests.zig b/zig/tests/cuda/flashnext_mtp_parity_tests.zig
-index 7566754b4..a5536ea8d 100644
+index 7566754b..a5536ea8 100644
 --- a/zig/tests/cuda/flashnext_mtp_parity_tests.zig
 +++ b/zig/tests/cuda/flashnext_mtp_parity_tests.zig
 @@ -114,7 +114,7 @@ fn shape(gpu: check.Gpu, e: *prompt.Engine, ops: mtp.Ops(flash.Tri), stream: *cu

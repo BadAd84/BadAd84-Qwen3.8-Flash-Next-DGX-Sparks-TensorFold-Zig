@@ -1,4 +1,3 @@
 # Patch packages written before the rule (2026-11-11). Skipped by the gate, listed by --strict, brought up to
 # the rule the next time each is touched.
-patches/1.2.6
 upstream/tensorfold-pr-48row/patches
