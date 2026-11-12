@@ -89,3 +89,29 @@ That is +3.8% prose and +7.6% code at one stream, +1.0% and +5.4% at two, +1.0% 
 (ten at one and four streams, sixteen at two, six and eight), golden is 6/6 and the boot log reads "window
 self-check: 1176 of 2080"; the rounds a 512-token reply takes move (146 / 89 to 144 / 86), which is the drafter
 changing its proposals, not the model changing its tokens.
+
+## Against the production target, at its settings (2026-11-12)
+
+`target127.sh` and `target127b.sh`, spark6: NVFP4 checkpoint, `KV_DTYPE=fp8`, a 262,144-token window, one fresh boot a
+cell, one decode pass of 512-token replies; aggregate tok/s prose / code. Golden 6/6 identical to stock's in every
+cell, window self-check 1,176 of 2,080. Production's figures are `production/SPEED-TARGET.md` on the `production`
+branch.
+
+| streams | accepted stack (0001-0007) | all 13 | production | accepted stack against production |
+|---:|---|---|---|---|
+| 1 | 61.8 / 81.7 (repeat 61.4 / 80.4) | 61.7 / 81.6 | 70.9 / 113.0 | -13% / -28% |
+| 2 | 87.6 / 120.8 (86.8 / 120.3) | 87.1 / 120.7 | 103.3 / 173.7 | -15% / -30% |
+| 4 | 113.4 / 166.7 (112.6 / 166.3) | 112.7 / 166.3 | 162.3 / 254.0 | -30% / -34% |
+| 6 | 146.2 / 205.3 (131,072 window) | | 202.2 / 311.8 | -28% / -34% |
+| 8 | 163.3 / 233.3 (131,072 window) | | 237.1 / 370.5 | -31% / -37% |
+
+- **6 and 8 streams do not start at a 262,144 window.** The engine refuses them by name: 6 streams need 30.23 GiB of
+  stream memory and 8 need 40.31 GiB against a 27.26 GiB budget (5 streams fit: 133.9 / 187.4). Production serves 8 at
+  262,144 with `TF_FLASHNEXT_SEQ_POOL=8` (and `WARM_POOL=8`), a shared sequence pool this series does not carry. Those
+  two cells ran at a 131,072 window, which does not change the decode work of a 512-token reply but is not the same
+  setting; the capacity itself is a gap against production, apart from speed.
+- Decode speed at fp8 KV and 262,144 is the same as bf16 and 131,072 (61.8 / 81.7 against 60.5 / 80.0 at one stream).
+- The gap widens with streams (-13% at one prose stream, -31% at eight): the cost production saves a round grows with
+  the rows verified, which points at per-row work (experts, dense projections and glue at 5 to 8 rows a stream), not at
+  a fixed cost such as the drafter's weights alone.
+
