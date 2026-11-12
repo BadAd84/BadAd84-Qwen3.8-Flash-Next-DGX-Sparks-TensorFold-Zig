@@ -293,6 +293,28 @@ Two tools came out of this stretch and are in `AGENTS.md`: the tree's own
 (every rung is now compiled there before the box builds it), and `mkladder.sh` cuts the whole ladder, the additive
 series and the gate report in one command.
 
+### The later levers seated on the accepted rung, without the read-out group
+
+q12 (old 0026), cost (0027), vision (0028-0029) and the reader knob with the check log (0031-0032) apply on the
+accepted rung without the read-out group, bar two changelog and test-registry hunks of 0027 that only repaired
+0022's residue. One image a step, each against the one before:
+
+| image | C1 prose | C1 code | C4 prose | C4 code | golden | self-check |
+|---|---|---|---|---|---|---|
+| accepted (`r0021`) | 61.3 | 81.3 | 113.0 | 166.5 | 6/6 | 1,176 of 2,080 |
+| + q12 | 61.3 | 80.6 | 112.8 | 166.5 | 6/6 | 1,176 of 2,080 |
+| + cost | 61.2 | 80.9 | 112.7 | 166.0 | 6/6 | 1,176 of 2,080 |
+| + vision | 61.1 | 80.8 | 112.8 | 165.9 | 6/6 | 1,176 of 2,080 |
+| + 0031-0032 | 61.2 | 80.7 | 112.6 | 166.3 | 6/6 | 1,176 of 2,080 |
+| the same without q12 | 61.2 | 80.9 | 112.8 | 166.1 | 6/6 | 1,176 of 2,080 |
+| accepted, repeated at the end | 61.4 | 81.0 | 112.8 | 166.0 | 6/6 | 1,176 of 2,080 |
+| read-out group as ported, minus its head path (`r0025x`) | 63.4 | 76.2 | 115.0 | 168.7 | **4/6** | **0 of 2,080** |
+
+None of the four moves decode by more than 0.9% in either direction at either level, which is inside two repeats of
+the same image (81.3 against 81.0). They are exact and they are not decode levers: cost only acts when
+`TF_FLASHNEXT_ROUND_MS` prices rounds, vision only with images, 0031-0032 are a reader switch and a log. The last
+row is the stale-position defect measured: 4 of 6 replies, the same 4 of 6 the old full stack gave.
+
 ### The accepted rung proven with its own switches (image `r0021`, same binary every arm)
 
 | arm | C1 prose | C1 code | C4 prose | C4 code |
