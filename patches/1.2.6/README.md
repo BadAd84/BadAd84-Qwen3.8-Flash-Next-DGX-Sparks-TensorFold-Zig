@@ -18,10 +18,10 @@ recipe. "Decode" is 512-token prose and code replies at one and four streams. A 
 
 | patch | lever | switch (recipe default) | measured so far (2026-11-12) |
 |---|---|---|---|
-| 0001 | copy windows up to 64 rows, with the boot self-check that serves the largest row-exact window (48) | none | exact; decode flat (-0.3%); copy workload not yet run |
-| 0002 | copy re-sync past an edit, copy ramp and miss rules | lane core config | exact; decode flat; copy workload not yet run |
-| 0003 | `--kv-cache fp8` for Flash Next | `KV_DTYPE` | exact at bf16; decode flat at bf16; fp8 capacity not yet run on this series |
-| 0004 | n-gram row cache, draft-ahead, one gather a shared pass | `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1` (all on) | exact; decode level with the base's own readers (61.6 / 81.3 against 62.1 / 81.9); cold 32k prompt 14.1 s against 14.3 |
+| 0001 | copy windows up to 64 rows, with the boot self-check that serves the largest row-exact window (48) | none | exact; decode flat (-0.3%); **copy workload +26% / +12%** (375.0 to 472.7 and 228.6 to 255.9 tok/s on a verbatim copy and a one-word rewrite of a ~1,800-token text, replies identical) |
+| 0002 | copy re-sync past an edit, copy ramp and miss rules | lane core config | exact; decode flat; copy workload 472.7 to 470.8 and 255.9 to 255.0 with it (no gain beyond 0001 on these two texts) |
+| 0003 | `--kv-cache fp8` for Flash Next | `KV_DTYPE` | exact at bf16; decode flat at bf16; `KV_DTYPE=fp8` on the full series costs no speed (60.7 / 80.4 and 111.3 / 163.9 at 131,072; 60.3 / 80.2 and 111.6 / 163.7 at 262,144, against bf16's 60.5 / 80.1 and 111.3 / 163.9); copy workload flat (471.1) |
+| 0004 | n-gram row cache, draft-ahead, one gather a shared pass | `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1` (all on) | exact; decode level with the base's own readers (61.6 / 81.3 against 62.1 / 81.9); cold 32k prompt 14.1 s against 14.3. On the full series: with `DRAFT_AHEAD=0` 57.3 / 76.8 against 60.5 / 80.1 at one stream (draft-ahead is worth about 5%); `GATHER_EARLY=0` and all three off are level with on (60.8 / 80.3 and 60.9 / 80.4, noise about 1%); copy workload 462.0 against 472.7 (-2%) with the cache on and 470.1 with it off, 252.1 against 255.9 on the rewrite |
 | 0005 | prompt passes drain less, 3072-row chunks, the relaxed MX128 prompt tile | `PROMPT_MX128` (0: off) | exact with the tile off; cold prompt unchanged with it off; 32k 13.42 s against 14.14 (-5.1%) with `=1024`, replies not yet compared |
 | 0006 | the MX128 tile in two stages, two blocks an SM | `PROMPT_GEMM2=1` (on, acts only with MX128) | 32k 13.4 s against 13.8 without it, under MX128 |
 | 0007 | the draft head's rows 4-bit by default | `DRAFT_HEAD` (`affine4`; `bf16` restores) | **exact; +14.0% prose, +9.9% code at one stream, +6.1% / +7.5% at four** (same binary, switch on and off, repeated) |

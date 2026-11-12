@@ -39,5 +39,6 @@ patches. Aggregate tok/s, prose / code; every cell's golden is 6/6 identical to 
   stock), the read-out fusion (0008) is the whole prompt gain (14.24 to 13.74 s at 32k, -3.5%), and every other patch
   is flat.
 - No patch is retired: v1.2.7 absorbed none of them (each lever's gain survives without a counterpart in the base).
-- Not yet run on v1.2.7: the copy workload, fp8 KV at 262,144, the stock `DRAFT_HEAD` arm, the 2, 6 and 8 stream cells.
+- Not yet run on v1.2.7: the copy workload, fp8 KV at 262,144, the stock `DRAFT_HEAD` arm, the 2, 6 and 8 stream cells
+  (all measured on v1.2.6 in `patches/1.2.6/README.md`, where the series gives the same results).
 - Cell-to-cell noise is about 1% (the stock arm run twice: 54.2 and 53.4 at one stream).
