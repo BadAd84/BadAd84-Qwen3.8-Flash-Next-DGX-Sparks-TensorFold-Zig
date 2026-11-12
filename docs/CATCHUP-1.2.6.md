@@ -906,6 +906,48 @@ two launches fill 50 and 200. And it is NOT exact at decode row counts: the repl
 same bits either way" holds at the prompt row counts it was measured on and not at a five-row window. The floor
 stays at 64 and the patch is not in the series; the comment should be read as a claim about prompt passes.
 
+## Where production's round goes: our side measured, production's binary refuses the instrument (2026-11-12)
+
+Method, both stacks the same: the recipe's own `start.sh` with the server run under the image's own
+`nsys profile --trace=cuda --cuda-graph-trace=node --sample=none --backtrace=none`, `/out` mounted, nsys as the
+container entrypoint, **`--cap-add=SYS_ADMIN`** (without it CUPTI records nothing: that, not a driver setting, is
+what made the first four attempts empty), one stream, the harness's 512-token prose and code prompts, then
+`docker stop -t 90` and `nsys stats --report cuda_gpu_kern_sum`. Scripts: `scripts/qwen38/zig/target/` and spark6
+`~/work/target/nsysround*.sh`; reports and tables under `~/work/target/nsys/`.
+
+Ours (image `v13`, 34.74 s of GPU kernel time over the run, `oursd.nsys-rep`, 75 kernel rows):
+
+| family | s | share |
+|---|---|---|
+| routed experts (`nvfp4_expert_waves`, `nvfp4_expert_kernel`) | 9.463 | 27.2% |
+| dense mixer projections (`qmmf<MXFP8,...>`) | 8.834 | 25.4% |
+| BF16 lane: hyper-connection read-outs and the drafter (`qmmf<BF16,...>`) | 6.918 | 19.9% |
+| prompt tiles (`tf_nvfp4_fact_swiglu`, `fact_down_f32`) | 5.716 | 16.5% |
+| router and other glue | 1.132 | 3.3% |
+| attention and DeltaNet | 1.053 | 3.0% |
+| hyper-connection glue (`fn_hc_*`) | 0.844 | 2.4% |
+| int4 head | 0.673 | 1.9% |
+
+Per-row work is 52.6% of it (experts plus dense projections), which is why the gap widens with streams.
+
+**The production binary does not yield a kernel table to nsys on this box, and the failure is specific to it.**
+Six configurations: `-t cuda`; `--trace=cuda --cuda-graph-trace=node`; the same with nsys as the container
+entrypoint; the same with `--cap-add=SYS_ADMIN`; the same again with `TF_FLASHNEXT_MULTI_GRAPHS=0
+TF_FLASHNEXT_SOLO_MAX=0`; and once more with `TF_FLASHNEXT_GRAPH_FAIL=1`, which forces every graph instantiate to
+fail so the engine launches eagerly. Every one writes a 50 to 65 MB report that holds CUDA **API** records and no
+kernel activity: `cuda_api_sum` on `prode.nsys-rep` lists 830,071 `cuLaunchKernel` calls, 70,826
+`cuStreamSynchronize` (76.2% of API time) and 288 `cuGraphInstantiateWithFlags`, while `cuda_gpu_kern_sum` answers
+`does not contain CUDA kernel data`. The two images are identical where it would matter (`CUDA_VERSION=13.3.1.008`,
+`libcupti.so.2026.2.1`, the same `LD_LIBRARY_PATH` and driver), neither engine calls the profiler API, and the same
+flags on the same host record 75 kernel rows for our image in the same hour. The production image's shipped binary
+also has no dev CLI to profile as a short-lived process (`usage: tensorfold-native capabilities --json | serve
+MODEL [flags]`), so the serve is the only shape available.
+
+So the family split above is ours, and production's is not measured. What is measured of production, from its own
+boot log and this campaign's arms, is the shape of its advantage: the drafter in 8-bit and its head in 4-bit, the
+read-outs from 12-bit copies with the up projection fused into the mix and the reduce fused with the activation,
+and a 64-row window. Patch 0014 has since taken the first of those.
+
 ## The two checkpoints carry the same bytes a round (2026-11-12)
 
 `scripts/qwen38/zig/target/ckpt_layer.py` lists one layer's tensors from the safetensors headers of both checkpoints
