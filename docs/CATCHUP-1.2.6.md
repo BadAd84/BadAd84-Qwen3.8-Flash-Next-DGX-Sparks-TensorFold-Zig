@@ -905,3 +905,17 @@ kernel's shape predicts: the fused form is one block a row, so five rows fill fi
 two launches fill 50 and 200. And it is NOT exact at decode row counts: the replies differ, so the file's "the
 same bits either way" holds at the prompt row counts it was measured on and not at a five-row window. The floor
 stays at 64 and the patch is not in the series; the comment should be read as a claim about prompt passes.
+
+## The two checkpoints carry the same bytes a round (2026-11-12)
+
+`scripts/qwen38/zig/target/ckpt_layer.py` lists one layer's tensors from the safetensors headers of both checkpoints
+(spark6 HF cache; no tensor data read), `ckpt_bytes2.py` sums them by group. Production serves
+`azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound`, we serve `nvidia/Qwen3.8-Flash-Next-FP4-Local`. Layer 1:
+`in_proj_qkv` is FP8 `[10240, 2560]`, 26.2 MB, in the INT4 checkpoint and 26.2 MB MXFP8 in ours; `in_proj_z` and
+`out_proj` 15.7 MB each in both; the shared expert's three projections 3.28 MB each in both; routed experts 63.6 GB
+against 64.4 GB, both 4-bit. So the dense and expert bytes a round are the same, and the round-time gap is not a
+different quantisation of the mixers: the drafter's BF16 weights (181 MB) account for about 6 to 7 ms of the 19, and
+the rest is kernel and glue work in production's tree (the production kernel table, being measured, will say which).
+The INT4 checkpoint also stores a BF16 and an FP8 copy of each hyper-connection matrix; production's launcher does not
+set `TF_FLASHNEXT_INT4AR_FAST`, so it reads the BF16 ones (as ours do).
+
