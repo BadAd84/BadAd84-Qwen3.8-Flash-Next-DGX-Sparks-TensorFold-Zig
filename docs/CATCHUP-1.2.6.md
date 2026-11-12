@@ -219,6 +219,42 @@ No knob improves on the upstream recipe's own defaults; the only movements are l
 off. The accepted environment for stock is therefore the recipe default, unchanged, and stage 3 adds our rungs on
 exactly that.
 
+### Stage 3: our levers, one rung at a time on stock
+
+Every rung compiles (rung trees from `mkrung.sh`; the old series compiled at four points only). Each rung is measured
+against the rung before it, golden against stock's golden, self-check from the boot log.
+
+| rung (old patches) | C1 prose | C1 code | C4 prose | C4 code | vs previous, code C1 / C4 | vs stock, code C1 / C4 | golden | self-check |
+|---|---|---|---|---|---|---|---|---|
+| stock | 54.6 | 74.6 | 107.1 | 156.0 | - | - | 6/6 | - |
+| rows (0001-0005) | 54.6 | 74.4 | 106.4 | 155.5 | -0.3% / -0.3% | -0.3% / -0.3% | 6/6 | 1,176 of 2,080, 48 rows |
+| kv8 (0006-0012 + 0012b) | 54.2 | 74.4 | 106.4 | 155.0 | 0.0% / -0.3% | -0.3% / -0.6% | 6/6 | 1,176 of 2,080, 48 rows |
+| n-gram (0013-0015) | 53.7 | 73.4 | 106.4 | 154.9 | -1.3% / -0.1% | -1.6% / -0.7% | 6/6 | 1,176 of 2,080, 48 rows |
+| prompt chunk (0016-0017) | 53.7 | 73.3 | 106.2 | 154.8 | -0.1% / -0.1% | -1.7% / -0.8% | 6/6 | 1,176 of 2,080, 48 rows |
+| GEMM2 (0018-0019) | 53.4 | 73.6 | 106.5 | 154.9 | +0.4% / +0.1% | -1.3% / -0.7% | 6/6 | 1,176 of 2,080, 48 rows |
+| **draft head 4-bit (0020-0021)** | **61.3** | **81.2** | **112.4** | **166.4** | **+10.3% / +7.4%** | **+8.8% / +6.7%** | 6/6 | 1,176 of 2,080, 48 rows |
+| read-out fusion (0022-0025) | faults | | | | | | - | 0 of 2,080 |
+| q12, cost, vision, 0031-0032 | fault (built on the rung above) | | | | | | | |
+| stock, repeated at the end | 54.1 | 74.1 | 106.5 | 155.0 | | -0.7% / -0.6% | 6/6 | - |
+
+What the stated order showed that subtraction could not:
+
+- **One lever carries the gain so far: the 4-bit draft head, +10.3% code at one stream and +7.4% at four, +12.3% on
+  prose, replies 6/6 identical to stock.** It is the lever the old tail patch was deleting.
+- **Rows, kv8, prompt chunk and GEMM2 are flat on this workload** (within 0.4%), at bf16 and 131,072 tokens on
+  512-token prose and code replies. kv8 is a capacity lever and is not expected to move decode; the rows lever serves
+  48-row windows correctly but these replies have little to copy. They are not proven losses, and they are not proven
+  gains.
+- **The n-gram rung costs 1.3% at one stream** with the recipe's default (`GATHER_READ=pread`), consistent with the
+  earlier finding that the pread row cache loses to the plain reader.
+- **The read-out fusion rung is broken**: its first request faults with `CUDA_ERROR_ILLEGAL_ADDRESS` and its
+  self-check reads 0 of 2,080, with every one of its knobs (`PROMPT_HC2`, `HEAD_PIECE`, `PROMPT_SHARED_DIRECT`) on or
+  off. Both defects enter with 0022-0025 and nowhere else. The old full stack "served" only because the tail had
+  deleted that lever's head-pieces code along with everything else in the file.
+
+The accepted stack is therefore the rung through 0021. The read-out group is being bisected one patch at a time on top
+of it.
+
 ## Knob sweep on the new engine (step one: tune what already exists)
 
 The new tree carries 68 `TF_FLASHNEXT_*` knobs that production's launcher never sets. Swept at the target's settings,
