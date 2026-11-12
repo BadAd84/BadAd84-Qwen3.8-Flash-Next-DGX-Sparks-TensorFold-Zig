@@ -1,0 +1,368 @@
+diff --git a/zig/src/cuda/kernel_log.zig b/zig/src/cuda/kernel_log.zig
+new file mode 100644
+index 00000000..0bf8f84d
+--- /dev/null
++++ b/zig/src/cuda/kernel_log.zig
+@@ -0,0 +1,79 @@
++//! TF_CUDA_KERNEL_LOG=1 with TF_FLASHNEXT_WINDOW_GRAPH=0: every launch waited for, its wall time booked to its kernel.
++const std = @import("std");
++const platform = @import("sys");
++const abi = @import("abi.zig");
++const Driver = @import("driver.zig").Driver;
++const Function = @import("module.zig").Function;
++const Stream = @import("stream.zig").Stream;
++
++const max = 512;
++const shown_most = 48;
++var known = false;
++var enabled = false;
++var driver: ?*const Driver = null;
++var handles: [max]abi.Function = @splat(null);
++var ns: [max]u64 = @splat(0);
++var calls: [max]u64 = @splat(0);
++var used: usize = 0;
++
++/// On only with the graphs off: a launch being captured into a graph cannot be waited for.
++pub fn on() bool {
++    if (!known) {
++        known = true;
++        const log = platform.getenv("TF_CUDA_KERNEL_LOG") orelse "";
++        const graphs = platform.getenv("TF_FLASHNEXT_WINDOW_GRAPH") orelse "";
++        enabled = std.mem.eql(u8, log, "1") and std.mem.eql(u8, graphs, "0");
++    }
++    return enabled;
++}
++
++pub fn now() u64 {
++    var ts: platform.c.timespec = undefined;
++    if (platform.c.clock_gettime(platform.c.CLOCK.MONOTONIC, &ts) != 0) return 0;
++    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
++}
++
++/// The launch queued since `t0` is waited for and its time booked to its kernel.
++pub fn booked(f: Function, stream: Stream, t0: u64) void {
++    _ = f.d.api.cuStreamSynchronize(stream.handle);
++    const dt = now() - t0;
++    driver = f.d;
++    var i: usize = 0;
++    while (i < used and handles[i] != f.handle) i += 1;
++    if (i == used) {
++        if (used == max) return;
++        handles[i] = f.handle;
++        used += 1;
++    }
++    ns[i] += dt;
++    calls[i] += 1;
++}
++
++/// The kernels by time over `rounds` rounds, the largest first; the table then starts over.
++pub fn dump(rounds: f64) void {
++    if (!on() or used == 0 or rounds <= 0) return;
++    const d = driver orelse return;
++    var order: [max]usize = undefined;
++    for (order[0..used], 0..) |*o, i| o.* = i;
++    var total: u64 = 0;
++    var launches: u64 = 0;
++    for (ns[0..used], calls[0..used]) |v, c| {
++        total += v;
++        launches += c;
++    }
++    std.debug.print("kernel log: {d:.2} ms and {d:.1} launches a round in {d} kernels over {d:.0} rounds\n", .{ @as(f64, @floatFromInt(total)) / 1e6 / rounds, @as(f64, @floatFromInt(launches)) / rounds, used, rounds });
++    var shown: usize = 0;
++    while (shown < @min(used, shown_most)) : (shown += 1) {
++        var best = shown;
++        for (order[shown..used], shown..) |o, j| {
++            if (ns[o] > ns[order[best]]) best = j;
++        }
++        std.mem.swap(usize, &order[shown], &order[best]);
++        const i = order[shown];
++        const t: f64 = @floatFromInt(ns[i]);
++        const c: f64 = @floatFromInt(calls[i]);
++        std.debug.print("kernel log: {d:.3} ms {d:.1} launches {d:.1} us each {s}\n", .{ t / 1e6 / rounds, c / rounds, t / 1e3 / c, d.functionName(handles[i]) });
++    }
++    ns = @splat(0);
++    calls = @splat(0);
++}
+diff --git a/zig/src/cuda/launch.zig b/zig/src/cuda/launch.zig
+index f280a0de..709f8f0a 100644
+--- a/zig/src/cuda/launch.zig
++++ b/zig/src/cuda/launch.zig
+@@ -6,6 +6,7 @@ const Function = @import("module.zig").Function;
+ const Stream = @import("stream.zig").Stream;
+ const driver = @import("driver.zig");
+ const Error = driver.Error;
++const kernel_log = @import("kernel_log.zig");
+ 
+ pub const Dim3 = abi.Dim3;
+ 
+@@ -82,8 +83,16 @@ pub const Config = struct {
+     }
+ };
+ 
+-/// cuLaunchKernel for plain launches, cuLaunchKernelEx when a cluster, PDL or cooperative attribute is set.
++/// `launchQueued`, and with TF_CUDA_KERNEL_LOG on the launch waited for and booked to its kernel.
+ pub fn launch(f: Function, cfg: Config, stream: Stream, args: *Args) Error!void {
++    const log = kernel_log.on();
++    const t0 = if (log) kernel_log.now() else 0;
++    try launchQueued(f, cfg, stream, args);
++    if (log) kernel_log.booked(f, stream, t0);
++}
++
++/// cuLaunchKernel for plain launches, cuLaunchKernelEx when a cluster, PDL or cooperative attribute is set.
++fn launchQueued(f: Function, cfg: Config, stream: Stream, args: *Args) Error!void {
+     try cfg.validate();
+     const d = f.d;
+     const g = cfg.grid;
+diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
+index b6476817..f5628443 100644
+--- a/zig/src/cuda/root.zig
++++ b/zig/src/cuda/root.zig
+@@ -24,6 +24,7 @@ pub const Event = @import("stream.zig").Event;
+ pub const Module = @import("module.zig").Module;
+ pub const Function = @import("module.zig").Function;
+ pub const launch = @import("launch.zig");
++pub const kernel_log = @import("kernel_log.zig");
+ pub const Args = launch.Args;
+ pub const Config = launch.Config;
+ pub const Dim3 = launch.Dim3;
+diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
+index 5840b168..2a8ed372 100644
+--- a/zig/src/families/flashnext/cuda_lanes.zig
++++ b/zig/src/families/flashnext/cuda_lanes.zig
+@@ -8,6 +8,7 @@ const mtp = @import("cuda_mtp.zig");
+ const mtp_ops = @import("cuda_mtp_ops.zig");
+ const lanes_draft = @import("cuda_lanes_draft.zig");
+ const ple_cache = @import("cuda_ple_cache.zig");
++const round_log = @import("cuda_round_log.zig");
+ const snap = @import("cuda_snap.zig");
+ const ranks = @import("cuda_rank_engine.zig");
+ const Glue = @import("cuda_glue.zig").Glue;
+@@ -461,6 +462,8 @@ pub fn Namespace(comptime Tri: type) type {
+         /// A drafting stream's window in one batched pass; streams without drafts share rounds, each row its own bits.
+         fn verifyFn(ptr: *anyopaque, windows: []const be.Window, out: []be.Verified) anyerror!void {
+             const self = of(ptr);
++            const t_log = round_log.start(self.engine.io, .verify);
++            defer round_log.stop(self.engine.io, self.engine.driver, self.stream, .verify, t_log, round_log.rows(windows));
+             const seqs = try self.gpa.alloc(*prompt.Seq, windows.len);
+             defer self.gpa.free(seqs);
+             const ids = try self.gpa.alloc(u32, windows.len);
+@@ -507,6 +510,8 @@ pub fn Namespace(comptime Tri: type) type {
+         /// Each window keeps its first rows (a chain's prefix): the DeltaNet states replayed over them alone.
+         fn keepFn(ptr: *anyopaque, windows: []const be.Window, paths: []const []const u32) anyerror!void {
+             const self = of(ptr);
++            const t_log = round_log.start(self.engine.io, .keep);
++            defer round_log.stop(self.engine.io, self.engine.driver, self.stream, .keep, t_log, round_log.kept(paths));
+             for (windows, paths) |w, path| {
+                 if (path.len == 0 or path.len > w.rows()) return error.CannotRewind;
+                 for (path, 0..) |r, i| if (r != i) return error.CannotRewind;
+@@ -518,6 +523,8 @@ pub fn Namespace(comptime Tri: type) type {
+         /// The head absorbs the kept rows and chains the next window's drafts (Python decode.draft).
+         fn draftFn(ptr: *anyopaque, requests: []const be.DraftRequest) anyerror!void {
+             const self = of(ptr);
++            const t_log = round_log.start(self.engine.io, .draft);
++            defer round_log.stop(self.engine.io, self.engine.driver, self.stream, .draft, t_log, requests.len);
+             if (self.head == null) return error.NoDraftHead;
+             defer lanes_draft.depthLog(self, requests);
+             const rule = lanes_draft.rule(self, requests.len);
+diff --git a/zig/src/families/flashnext/cuda_lanes_verify.zig b/zig/src/families/flashnext/cuda_lanes_verify.zig
+index e6f2554f..acb61d95 100644
+--- a/zig/src/families/flashnext/cuda_lanes_verify.zig
++++ b/zig/src/families/flashnext/cuda_lanes_verify.zig
+@@ -2,6 +2,7 @@
+ const lanes = @import("lanes");
+ const prompt = @import("cuda_prompt.zig");
+ const mtp = @import("cuda_mtp.zig");
++const round_log = @import("cuda_round_log.zig");
+ const be = lanes.backend;
+ 
+ /// Windows a shared pass takes at most (a round's streams).
+@@ -25,12 +26,16 @@ pub fn windows(self: anytype, wins: []const be.Window, out: []be.Verified, draft
+             idss[n] = row_ids[drafted[at + n]][0..w.rows()];
+             rows += w.rows();
+         }
++        const t_forward = round_log.start(self.engine.io, .forward);
+         if (n == 1 or cap <= 1) {
+             for (seqs[0..n], ds[0..n], idss[0..n]) |q, d, ids| try self.ops().verify(q, d, ids);
+         } else if (self.ranks) |r| {
+             try r.verifyMany(@TypeOf(self.tri()), self.tri(), seqs[0..n], ds[0..n], idss[0..n], self.logits.ptr);
+         } else try self.ops().verifyMany(seqs[0..n], ds[0..n], idss[0..n], self.logits.ptr);
++        round_log.stop(self.engine.io, self.engine.driver, self.stream, .forward, t_forward, rows);
++        const t_draws = round_log.start(self.engine.io, .draws);
+         for (drafted[at..][0..n], ds[0..n]) |wi, d| try self.ops().draws(d, wins[wi].stream.sampling, wins[wi].masks, out[wi].sampled[0..wins[wi].rows()]);
++        round_log.stop(self.engine.io, self.engine.driver, self.stream, .draws, t_draws, rows);
+         at += n;
+     }
+ }
+diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
+index aa337a29..ed2fcbd6 100644
+--- a/zig/src/families/flashnext/cuda_mtp_ops.zig
++++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
+@@ -13,6 +13,7 @@ const roll = @import("cuda_mtp_roll.zig");
+ const pieces = @import("cuda_mtp_pieces.zig");
+ const draw = @import("cuda_mtp_draw.zig");
+ const ple_cache = @import("cuda_ple_cache.zig");
++const round_log = @import("cuda_round_log.zig");
+ 
+ /// One group of lanes in the batched head's pass: the lanes' drafts, their rows and whether the head scores.
+ const Group = struct {
+@@ -191,12 +192,16 @@ pub fn Ops(comptime Tri: type) type {
+         /// Python decode.draft: absorb the kept rows, then chain up to `count` drafts under mtp.Stop, the first kept.
+         pub fn draft(o: Self, d: *Draft, next: []const u32, rows: u64, position: u64, count: usize, sm: ?Sampling, confidence: f64, out: *Chain, ahead: ?*ple_cache.Ahead) !void {
+             out.n = 0;
++            const t_absorb = round_log.start(o.e.io, .absorb);
+             try o.absorb(d, next, rows, count > 0);
++            round_log.stop(o.e.io, o.e.driver, o.stream(), .absorb, t_absorb, next.len);
+             if (ahead) |a| a.flush();
+             var stop: mtp.Stop = .{ .c = confidence };
+             var j: usize = 0;
+             while (j < @min(count, max_chain)) : (j += 1) {
++                const t_pick = round_log.start(o.e.io, .pick);
+                 const got = try o.pick(d, position + j, sm);
++                round_log.stop(o.e.io, o.e.driver, o.stream(), .pick, t_pick, 1);
+                 const t = stop.take(j, got.prob);
+                 if (!t.propose) break;
+                 out.tokens[out.n] = got.token;
+@@ -205,7 +210,9 @@ pub fn Ops(comptime Tri: type) type {
+                 if (ahead) |a| a.push(0, got.token);
+                 if (!t.more) break;
+                 if (j + 1 < count) {
++                    const t_chain = round_log.start(o.e.io, .chain);
+                     try o.forwardHead(d, &.{got.token}, d.out.ptr, true);
++                    round_log.stop(o.e.io, o.e.driver, o.stream(), .chain, t_chain, 1);
+                     if (ahead) |a| a.flush();
+                     d.drafted += 1;
+                 }
+diff --git a/zig/src/families/flashnext/cuda_prompt_windows.zig b/zig/src/families/flashnext/cuda_prompt_windows.zig
+index 601bfbd4..943610e8 100644
+--- a/zig/src/families/flashnext/cuda_prompt_windows.zig
++++ b/zig/src/families/flashnext/cuda_prompt_windows.zig
+@@ -8,14 +8,19 @@ const vocab = @import("cuda_prompt_wt.zig").vocab;
+ const window_graph = @import("cuda_window_graph.zig");
+ const Engine = prompt.Engine;
+ const Seq = prompt.Seq;
++const round_log = @import("cuda_round_log.zig");
+ 
+ /// A drafted window on one GPU as a graph (one chunk, scores left on the device, no media or adds); true once run.
+ pub fn forwardGraph(e: *Engine, comptime Tri: type, p: *batch.Pass(Tri), seq: *Seq, ids: []const u32, hooks: batch.Hooks) !bool {
+     if (!window_graph.enabled() or hooks.logits != .all or hooks.host_logits or hooks.moe_add != null) return false;
+     if (ids.len > @import("cuda_mtp.zig").max_rows or ids.len > p.s.cap or e.collective != null or seq.media != null or p.m.pocket != null) return false;
+     const key = window_graph.Key.init(seq, seq.fed, ids.len, p.s, p.seq.scores, @intFromPtr(p.m.layers.ptr), hooks);
++    const t_stage = round_log.start(e.io, .stage);
+     try window_graph.stageWindow(p, ids, seq.fed);
++    round_log.host(e.io, .stage, t_stage, ids.len);
++    const t_graph = round_log.start(e.io, .graph);
+     try e.graphs.window.run(e.gpa, e.stream.*, key, window_graph.Chunk(batch.Pass(Tri)){ .p = p, .ids = ids, .pos0 = seq.fed });
++    round_log.stop(e.io, e.driver, e.stream.*, .graph, t_graph, ids.len);
+     seq.fed += ids.len;
+     return true;
+ }
+diff --git a/zig/src/families/flashnext/cuda_round_log.zig b/zig/src/families/flashnext/cuda_round_log.zig
+new file mode 100644
+index 00000000..eed33e28
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_round_log.zig
+@@ -0,0 +1,104 @@
++//! TF_FLASHNEXT_ROUND_LOG=1: the wall time of a round's backend calls and their parts, each drained, every 64 rounds.
++const std = @import("std");
++const cuda = @import("cuda");
++
++/// The backend's three calls a round (verify, keep, draft), the parts of verify and draft timed inside them, and a
++/// graph window's two halves: the host's staging (the n-gram gather and the uploads it queues) and the graph.
++pub const Slot = enum { verify, forward, draws, keep, draft, absorb, pick, chain, stage, graph };
++const n_slots = @as(usize, @backingInt(Slot.graph)) + 1;
++const every = 64;
++/// A wait between two calls longer than this is a request's boundary, not the round loop's host work.
++const idle_ms: f64 = 50;
++
++var known = false;
++var enabled = false;
++var ms: [n_slots]f64 = @splat(0);
++var calls: [n_slots]u64 = @splat(0);
++var units: [n_slots]u64 = @splat(0);
++var between_ms: f64 = 0;
++var last_end: f64 = 0;
++
++pub fn on() bool {
++    if (!known) {
++        known = true;
++        if (std.c.getenv("TF_FLASHNEXT_ROUND_LOG")) |v| enabled = std.mem.eql(u8, std.mem.span(v), "1");
++    }
++    return enabled;
++}
++
++fn nowMs(io: std.Io) f64 {
++    return @as(f64, @floatFromInt(std.Io.Clock.awake.now(io).toNanoseconds())) / 1e6;
++}
++
++fn top(slot: Slot) bool {
++    return slot == .verify or slot == .keep or slot == .draft;
++}
++
++/// The clock in ms when the log is on (else 0); a backend call also books the host's wait since the last call ended.
++pub fn start(io: std.Io, slot: Slot) f64 {
++    if (!on()) return 0;
++    const t = nowMs(io);
++    if (top(slot) and last_end > 0 and t - last_end < idle_ms) between_ms += t - last_end;
++    return t;
++}
++
++/// `slot` takes the time since `t0` (its start) once the stream has drained; `n` counts its rows or tokens.
++pub fn stop(io: std.Io, driver: *const cuda.Driver, stream: cuda.Stream, slot: Slot, t0: f64, n: usize) void {
++    if (!on()) return;
++    cuda.completion.drain(driver, stream, "flashnext: the round log's drain failed");
++    const t = nowMs(io);
++    const i = @backingInt(slot);
++    ms[i] += t - t0;
++    calls[i] += 1;
++    units[i] += n;
++    if (top(slot)) last_end = t;
++    if (slot == .draft and calls[@backingInt(Slot.verify)] >= every) print();
++}
++
++/// `slot` takes the host's time since `t0` as it stands: nothing is waited for.
++pub fn host(io: std.Io, slot: Slot, t0: f64, n: usize) void {
++    if (!on()) return;
++    const i = @backingInt(slot);
++    ms[i] += nowMs(io) - t0;
++    calls[i] += 1;
++    units[i] += n;
++}
++
++/// The rows of a verify call's windows.
++pub fn rows(windows: anytype) usize {
++    var n: usize = 0;
++    for (windows) |w| n += w.rows();
++    return n;
++}
++
++/// The rows a keep call's paths keep.
++pub fn kept(paths: anytype) usize {
++    var n: usize = 0;
++    for (paths) |p| n += p.len;
++    return n;
++}
++
++fn per(slot: Slot, rounds: f64) f64 {
++    return ms[@backingInt(slot)] / rounds;
++}
++
++fn count(slot: Slot, rounds: f64) f64 {
++    return @as(f64, @floatFromInt(units[@backingInt(slot)])) / rounds;
++}
++
++fn print() void {
++    const rounds: f64 = @floatFromInt(calls[@backingInt(Slot.verify)]);
++    std.debug.print("round log: {d:.0} rounds, {d:.2} rows verified and {d:.2} kept a round; ms a round: verify {d:.2} (forward {d:.2}: staging {d:.2}, graph {d:.2}; draws {d:.2}), keep {d:.2}, draft {d:.2} (absorb {d:.2} over {d:.2} rows, picks {d:.2} for {d:.2}, chain {d:.2} for {d:.2} passes), between calls {d:.2}\n", .{
++        rounds,                count(.verify, rounds), count(.keep, rounds),
++        per(.verify, rounds),  per(.forward, rounds),  per(.stage, rounds),
++        per(.graph, rounds),   per(.draws, rounds),    per(.keep, rounds),
++        per(.draft, rounds),   per(.absorb, rounds),   count(.absorb, rounds),
++        per(.pick, rounds),    count(.pick, rounds),   per(.chain, rounds),
++        count(.chain, rounds), between_ms / rounds,
++    });
++    cuda.kernel_log.dump(rounds);
++    ms = @splat(0);
++    calls = @splat(0);
++    units = @splat(0);
++    between_ms = 0;
++}
