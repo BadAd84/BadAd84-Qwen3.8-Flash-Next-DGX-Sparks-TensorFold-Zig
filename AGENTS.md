@@ -128,7 +128,8 @@ from upstream `main` at `000b534a2`: `CONTRIBUTING.md`, `AGENTS.md`, the README'
 `docs/atc/SKILL.md`, `docs/pr/SKILL.md`, `docs/recipes/SKILL.md`, `.github/pull_request_template.md` and
 `tools/pr_check.py`. Those files are the rules and they move: fetch upstream and read them at its tip before each
 contribution (`git fetch https://github.com/ashhart/TensorFold.git main`), and when they change, change this
-section in all three repos.
+section in all three repos. The order of work is also in `.omp/RULES.md`, which omp carries on every request and
+gives to subagents; they do not get this file, so hand them this section when upstream work is delegated.
 
 **The order of work. Nothing is edited for upstream before step 3 returns a claim.**
 
