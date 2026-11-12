@@ -121,6 +121,120 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   --filter type=container --filter event=destroy` gives the timeline, the lane's own script output
   gives the confession.
 
+## Contributing upstream (`ashhart/TensorFold`)
+
+The same text is in the three serve repos (GLM Zig, Qwen3.8 Flash Next, DeepSeek-V4.1). It was written 2026-11-12
+from upstream `main` at `000b534a2`: `CONTRIBUTING.md`, `AGENTS.md`, the README's "Contributing with agents",
+`docs/atc/SKILL.md`, `docs/pr/SKILL.md`, `docs/recipes/SKILL.md`, `.github/pull_request_template.md` and
+`tools/pr_check.py`. Those files are the rules and they move: fetch upstream and read them at its tip before each
+contribution (`git fetch https://github.com/ashhart/TensorFold.git main`), and when they change, change this
+section in all three repos.
+
+**The order of work. Nothing is edited for upstream before step 3 returns a claim.**
+
+1. **An issue first, always.** Upstream requires one before a new model family, backend or arithmetic change, "so
+   we can agree on its gate" (a gate we proposed is not an agreed one). We open or find one for every change,
+   because the ATC claim, the public session and the pull request's `Issue:` line all hang off an issue number.
+   Blank issues are off: use the template that fits (`bug`, `feature`, `performance`, `proposal`). Look at the
+   [agent radar](https://tensorfold.dev/atc) and `atc board --json` before choosing or opening one.
+2. **Check it:** `atc check ISSUE --json`. Read `complete` first: `false`, or advice `incomplete`, means stop and
+   resolve the missing coverage. Then by advice: `free` goes to step 3; `yours` means continue (`atc status --json`,
+   `atc renew ISSUE`); `proposeInstead` means someone holds it, so offer to `pair`, `split` or `review` and wait for
+   `accepted`; `takenOutside` or `notOpen` means do not start. A `duplicateAttempts` entry means others already have
+   open pull requests for it: never add a competing one.
+3. **Claim it:** `atc claim ISSUE --json`, and start only when it returns `claimed`. A successful new claim starts
+   an anonymous public session on the radar and returns its `session` number: keep that number, do not start a
+   second session, and check that `publication` is `public` (`unavailable` means the public update failed). For
+   work already ours, `atc start ISSUE --json`. A draft pull request of ours that says `Fixes #ISSUE` also counts as
+   the claim. The limit is 25 claims a user.
+4. **While working:** `atc pulse ISSUE SESSION working --json` before each five-minute check-in expires
+   (`reviewing` or `blocked` when that is the truth), and only while an agent is really working: never pulse for an
+   idle one. `atc who FILE --json` after editing a file others may touch.
+5. **When work stops:** `atc land ISSUE SESSION --json`; `atc release ISSUE --json` when we give the issue up.
+6. **Before the pull request, and again after every push:** rebase on current `main` first, then
+   `atc overlap --json` last. Every `"conflicts"` entry is resolved (coordinate, narrow or rebase) and the result,
+   its time and its base go in the description. A conflict whose only shared file is `CHANGELOG.md` is the ordinary
+   case; say so.
+
+**What a pull request is.**
+
+- One behaviour, cut from upstream `main` (its only branch), on a branch of the plain fork `BadAd84/TensorFold`. If
+  the one-sentence description needs "and", split it; stack dependents as drafts and say what each sits on.
+- From these repos a lever goes up as its patch re-seated on upstream's tip, alone. Review and diff it against
+  upstream `main`, never the fork's `main`, and quote that sha.
+- Anything new defaults off, and a switch arrives with the code that reads it and a measured benefit. A new setting
+  is read through `platform/environment.zig` (a rule in its table, then `read(T, name, default)`); a new `getenv`
+  is a lean finding.
+- Upstream takes no lossy weight or cache format and no mode that changes output tokens, even opt-in. Drafts are
+  never turned off on an advertised path.
+- Code is written for TensorFold, not copied from another engine; anything from elsewhere names its source and
+  licence in the pull request.
+- The template is filled on the pushed head, every line: a line that does not apply says "n/a" and why, and only
+  the sections the template says to delete are deleted. `Fixes #N` only when it completes the issue, else
+  `Refs #N`. An optimisation added, finished or dropped updates that family's cell in
+  `docs/optimization-ledger.md`. Zig changes carry a bullet under `## Unreleased` in `CHANGELOG.md` naming the pull
+  request (`tools/pr_check.py --pr NUMBER` looks for it).
+
+**Checks on the head, as upstream's CI runs them.**
+
+- `python3 tools/pr_check.py --base origin/main --pr NUMBER`: new lean and source-length findings are errors.
+- Lean, base against head with the same checker, both counts reported and 0 new: the commands are in
+  `docs/pr/SKILL.md` step 5 (a worktree at the merge base, the head's `lean_check.py` copied into it, then
+  `lean_new.py`). One checker run twice from one tree always reads 0 new: the two file counts must differ. Source
+  files stay at or below 600 lines; comments and docstrings are single lines of at most 120 columns and carry no
+  measurements, history, reviewer or pull request references.
+- `zig build test test-golden` (`test-cuda-host` is a subset, not a substitute), `zig fmt --check build.zig zig`,
+  `git diff --check`. Each new test is shown failing before the change and passing after, and is reached by the
+  step that was run.
+- A new or changed GPU kernel registers with the kernel contract (`docs/kernel-contract.md`) with a planted control
+  that fails as planted, and the pull request posts each backend's `SUMMARY` line and exit status.
+- Read the head's CI: fix what we introduced, label the rest inherited, flaky or infrastructure. Check runs for a
+  fork pull request live in the base repo.
+
+**Receipts, for a change that can reach inference.**
+
+- Main against our branch on the same machine, checkpoint and settings, posted before asking for a run on
+  upstream's machines; token hashes equal on the default path. A loss is fixed or shown to be noise first.
+- Exactness contracts at the same checkpoint and settings: drafted equals `"draft": false`, a resumed prompt equals
+  a fresh one, concurrent equals solo, cancellation and reset leave the next request valid
+  (`tools/bench_concurrent.py ... --levels 1,4 --alone --serial`).
+- Decode before and after with `tools/bench_openai.py`; prompt speed cold with `tools/bench_cache.py --require-cold`
+  and `--prompt-cache-gib 0`, at 2k, 8k, 32k and 64k where admitted. Alternate the arms when the difference is a
+  few percent. No slower than main at one stream and at the widest admitted; with `--drafter` no slower than
+  without it.
+- Name the commit, Zig and toolchain, GPU, OS, RAM class, checkpoint revision and request parameters; attach the raw
+  results. Platforms are named by chip or target, run and not run: unrun is not passed.
+- A changed reduction order needs an independent FP64 reference for each affected projection class, worst
+  per-column difference reported, prompt and decode separately.
+
+**Identity, privacy and the branch.**
+
+- Author and committer are the owner's public identity (`BadAd84`, the GitHub noreply address), commits signed.
+  Check every outgoing commit: `git log --format='%an %ae | %cn %ce' origin/main..HEAD`. No AI co-author or
+  "Generated with" line: a pull request whose commits carry one lands as new commits and shows as closed.
+- No private email, machine name, internal host, local path, key or confidential data in the diff, the commits or
+  a receipt. Read the whole outgoing tree and history before pushing.
+- Never force-push a branch under review, not to follow `main` and not to fix CI: add a commit. Maintainers rebase
+  at landing.
+
+**What needs the owner (fleet rule, `~/.omp/agent/RULES.md` section 14).** Upstream's own text says creating an
+issue, sending a pull request and uploading results need the human's authorisation. Here: issue text, pull request
+titles and bodies, and every comment go through the style pipeline and are posted only after the owner has approved
+the exact text. A request from the owner to work on an issue covers the ATC claim, pulses, landing and release for
+it (ATC posts only the typed command). `--github-name` is used only if the owner says so; sessions are anonymous
+otherwise.
+
+**Mechanics on this workstation (each cost a round trip).**
+
+- ATC needs Node 22.16 or later, git 2.38 or later and an authenticated `gh` (`BadAd84`): it runs on the laptop, not
+  on a Spark. Install or upgrade to the version upstream's README names (0.9.4 on 2026-11-12):
+  `npm install -g github:ashhart/ATC`; `atc doctor --json` on a new setup. Always pass `--json`.
+- It needs a FULL clone of upstream: a blobless one reports `workingTreeUnavailable` and every conflict as
+  `unknown`. WSL bash cannot start `npx.cmd`: run ATC from a `.cmd` file through `cmd.exe /c`.
+- Push to the fork over SSH (the HTTPS token lacks the `workflow` scope), and keep Actions disabled in the fork.
+- The skills hold the step-by-step: `contribute-pr-to-tensorfold-main`, `run-atc-overlap-for-tensorfold-prs`,
+  `tensorfold-upstream-pr-gate`, `gate-public-pr-text-on-owner-approval`.
+
 ## Gate
 - `scripts/check-patch-packages.sh` - every package dir that carries `.patch` files (walked to depth 3 under the
   roots in `scripts/patch-packages.list`) has `RECORD.md` and `SHA256SUMS`, and the hashes match. Packages written
