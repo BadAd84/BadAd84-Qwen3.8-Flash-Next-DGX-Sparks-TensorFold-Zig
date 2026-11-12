@@ -10,9 +10,11 @@ back). Three shapes are reported, per patch in filename order:
   restore   a line an EARLIER patch of the series removed is added again (a default flipped back)
   delete    a code line of the BASE is removed outright: no added line of the same change resembles it
 
-Every finding must be listed in the allow file (default SERIES_DIR/REVERTS.allow) as
-`NNNN|path|the stripped line|why it is right`; anything else fails. Blank lines, comment-only lines and files that
-are not Zig, CUDA, C or Python source are not examined.
+Every finding must be listed in the allow file (default SERIES_DIR/REVERTS.allow), one a line, tab-separated:
+patch number, path, the stripped line, why it is right (Zig lines hold `|`, so the separator is a tab); anything
+else fails. An allow line that matches no finding fails too: the file never outlives what it excuses. `--raw` prints
+the open findings in that form with the reason left empty. Blank lines, comment-only lines and files that are not
+Zig, CUDA, C, Python or shell source are not examined.
 """
 from __future__ import annotations
 
@@ -79,8 +81,11 @@ def main() -> int:
     allowed: set[tuple[str, str, str]] = set()
     if os.path.exists(allow_path):
         for raw in open(allow_path, encoding="utf-8"):
-            parts = raw.rstrip("\n").split("|")
+            parts = raw.rstrip("\r\n").split("\t")
             if len(parts) >= 4 and not raw.startswith("#"):
+                if not parts[3].strip():
+                    print(f"{allow_path}: no reason given for {parts[0]} {parts[1]}: {parts[2][:80]}")
+                    return 1
                 allowed.add((parts[0], parts[1], parts[2]))
     added_by: dict[tuple[str, str], str] = {}
     removed_by: dict[tuple[str, str], str] = {}
@@ -125,10 +130,17 @@ def main() -> int:
                     removed_by[(path, s)] = num
                     added_by.pop((path, s), None)
     open_ = [f for f in findings if (f[0], f[1], f[2]) not in allowed]
+    stale = sorted(allowed - {(f[0], f[1], f[2]) for f in findings})
+    if "--raw" in sys.argv:
+        for num, path, s, _kind, _why in open_:
+            print(f"{num}\t{path}\t{s}\t")
+        return 1 if open_ else 0
     for num, path, s, kind, why in open_:
         print(f"{num} {kind:8s} {path}: {s[:150]}   [{why}]")
-    print(f"check-patch-reverts: {len(patches)} patches, {len(findings)} findings, {len(findings) - len(open_)} allowed, {len(open_)} open")
-    return 1 if open_ else 0
+    for num, path, s in stale:
+        print(f"{num} stale    {path}: {s[:150]}   [allowed, but the series no longer does it]")
+    print(f"check-patch-reverts: {len(patches)} patches, {len(findings)} findings, {len(findings) - len(open_)} allowed, {len(open_)} open, {len(stale)} stale")
+    return 1 if open_ or stale else 0
 
 
 if __name__ == "__main__":

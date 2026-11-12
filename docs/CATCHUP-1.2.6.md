@@ -357,9 +357,9 @@ milliseconds a round:
 | keep (rollback) | 0.01 | 0.01 | 0.02 |
 | draft: absorb pass | 1.6 | 1.6 | 2.7 |
 | draft: chain passes (3.5 / 5.1 a round) | 5.4 | 7.6 | 14.0 |
-| draft: picks | 0.24 | 0.29 | 0.38 |
+| draft: picks | 0.23 | 0.29 | 0.38 |
 | host between calls | 0.02 | 0.02 | 0.01 |
-| **round** | **57.2** | **64.4** | 74.2 |
+| **round** | **57.2** | **64.3** | 74.2 |
 
 - **The verify forward is 87% of a prose round and 85% of a code round, and all of it is the GPU**: 48 to 53 ms for
   a window of 5 to 7 rows. The host is not in it: 1.3 ms of staging, 0.02 ms between calls, 0.2 ms of draws.
@@ -370,8 +370,64 @@ milliseconds a round:
   kernel execution, not launch overhead. The earlier "29% from the graph" came from the invalid sweep.
 - At four streams a shared verify of 13.7 rows takes 82.5 ms and the batched draft 9.4.
 
-Production's whole round is 38.5 ms on prose and 49.5 on code. Ours is 57.2 and 64.4, and 48 to 53 of that is one
-thing. The per-kernel table of that window is the next measurement (`kprof2.sh`).
+Production's whole round is 38.5 ms on prose and 49.5 on code. Ours is 57.2 and 64.3, and 48 to 53 of that is one
+thing.
+
+### The kernels of a round, and the bytes they walk
+
+`TF_FLASHNEXT_KERNEL_LOG=1` with the graphs off waits for every launch and books its time to its kernel
+(`kprof2.sh`, image `gk21b`). One stream, prose, 64 steady rounds: 62.6 ms a round in 1,586 launches, 2.45 ms of it
+inside the launch calls. Largest first, with what each one is (`qmmf_kernel<MODE, rows, columns, ...>`: MODE 4 is
+BF16, 2 is MXFP8):
+
+| ms a round | launches | us each | kernel | what it reads |
+|---|---|---|---|---|
+| 10.67 | 115.9 | 92.0 | `qmmf<BF16,16,64>` bf16 out | hyper-connection UP, [10240, 320] BF16, 6.55 MB |
+| 9.05 | 48.0 | 188.6 | `qmmf<MXFP8,16,64>` | the mixer's widest projection (`in_proj_qkv` 26.2 MB, `q_proj` 31.5 MB) |
+| 8.04 | 26.3 | 306.1 | `nvfp4_expert_waves<2,2,4>` | routed experts |
+| 5.82 | 48.0 | 121.3 | `nvfp4_expert_waves<1,0,4>` | routed experts |
+| 4.73 | 110.5 | 42.8 | `qmmf<BF16,16,32>` f32 out, clustered | hyper-connection DOWN, [324, 10240] BF16, 6.64 MB |
+| 4.05 | 48.0 | 84.4 | `qmmf<MXFP8,16,64>` clustered | the mixer's out projection, 15.7 MB |
+| 3.54 | 21.8 | 162.6 | `nvfp4_expert_kernel<2,2,4>` | routed experts |
+| 2.32 | 4.5 | 516.4 | `qmm_kernel<32,16,64>` | the draft head's rows |
+| 1.76 | 96.0 | 18.4 | `qmmf<MXFP8,16,32>` | small mixer projections |
+| 12.6 | about 1,070 | 5 to 30 | everything else | glue: write-backs, norms, mixes, routing, DeltaNet, attention |
+
+By group: the dense projections 32.8 ms (52%), the experts 18.1 ms (29%), the glue 11.7 ms (19%). The round is
+weight reading. `ckpt_bytes.py` reads the checkpoint's headers and gives what a round has to walk:
+
+| part | checkpoint | read every round | kernel ms a round | effective rate |
+|---|---|---|---|---|
+| mixers (`in_proj_qkv`, `in_proj_z`, `out_proj`, `q_proj`, `o_proj`) | 3.04 GB, MXFP8 (1 byte a weight) | all of it | 15.7 | 194 GB/s |
+| hyper-connections (97 read-outs, down and up) | 1.32 GB, **BF16 (2 bytes a weight)** | all of it | 15.4 | 86 GB/s |
+| of them, UP [10240, 320] | 0.66 GB | | 10.67 | **62 GB/s** |
+| of them, DOWN [324, 10240] | 0.66 GB | | 4.73 | 139 GB/s |
+| routed experts (512 a layer, 10 a token, 2.6 MB each) | 65.8 GB, 4-bit | the experts the rows pick | 18.1 | |
+
+Two things stand out, and neither is a missing knob.
+
+1. **The hyper-connections are a quarter of the round and the checkpoint stores them in BF16.** Production's
+   checkpoint (`azampatti/...INT4-AutoRound`) carries a `fast-fp8` copy of exactly these matrices, 3.28 MB each in
+   E4M3 where NVIDIA's FP4 checkpoint has 6.55 MB in BF16, and production's loader takes that copy when it is there
+   (`cuda_weights.zig`, "the fast-fp8 variant: down and up on block FP8"). The mixers are 8-bit in both checkpoints
+   and the experts 4-bit in both. So of the 18.7 ms (prose) and 14.8 ms (code) between our round and production's,
+   the read-outs' bytes are the one difference of format: half the bytes of a 15.4 ms part.
+2. **The UP read-out reads at a third of the mixers' rate.** Same lane kernel, 160 blocks of 64 output columns over a
+   K of only 320: 92 us for 6.55 MB, against 189 us for a 26 to 31 MB mixer projection.
+
+The 12-bit lossless copy of these matrices (old 0026, `TF_FLASHNEXT_HC_Q12`) aimed at the same bytes and measured
+flat on 1.2.4; it is off by default, so the ladder's q12 row above only shows that carrying it costs nothing.
+
+### A lever for the first of those: the read-outs in MXFP8 (`TF_FLASHNEXT_HC_MXFP8`)
+
+`cuda_hc_mxfp8.zig`, on the repaired accepted rung (image `gm21`): at load, each hyper-connection matrix is
+re-coded from BF16 to MXFP8, the format the checkpoint's own mixers use (E4M3 codes, one power-of-two scale a row's
+32 inputs, chosen so the group's largest weight lands at 448 or under and no code saturates), and uploaded through
+the engine's existing MXFP8 projection, so the read-outs run on the kernels the mixers already run on. Default off;
+off, the loader is untouched. **It is not exact**: E4M3 keeps three mantissa bits where BF16 keeps seven, so replies
+can differ from stock's, the same trade production's `fast-fp8` copy makes. Its host test (the scale rule, every
+code within an eighth of its weight, no saturation) runs in the family's suite and was proven to fail on a planted
+defect before it was trusted.
 
 ### The n-gram lever with its fill path merged right
 

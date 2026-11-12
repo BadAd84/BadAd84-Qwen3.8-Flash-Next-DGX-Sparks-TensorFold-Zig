@@ -4,8 +4,8 @@
 # Prints one line an arm with the two medians. Output in bench/pf-<name>/. Stops the serve at the end, no restore.
 set -u
 cd ~/work/target || exit 1
-# a HOLD file parks the arms: a diagnostic run borrows the box between a stage's builds and its timed arms
-while [ -f HOLD ]; do sleep 20; done
+# a hold file parks the arms: a run borrowing the box between a stage's parts sets HOLD and calls with HOLD_FILE=none
+while [ -f "${HOLD_FILE:-HOLD}" ]; do sleep 20; done
 for spec in "$@"; do
   name=${spec%%:*}; rest=${spec#*:}; img=${rest%%:*}; envs=${rest#*:}; [ "$img" = "$rest" ] && envs=""
   out="bench/pf-$name"; mkdir -p "$out"
