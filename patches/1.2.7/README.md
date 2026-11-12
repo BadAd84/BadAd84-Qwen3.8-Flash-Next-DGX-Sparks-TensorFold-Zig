@@ -63,12 +63,12 @@ Every cell's golden is 6/6 identical to v1.2.6 stock's and its boot log reads "w
 Where the remaining time is, and what has been measured against it, is in `docs/CATCHUP-1.2.6.md`: the round's
 read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to take next.
 
-## 0014: the drafter's BF16 linears in MXFP8 (2026-11-12)
+## 0014: the drafter's BF16 linears in MXFP8, on by default (2026-11-12)
 
 `TF_FLASHNEXT_MTP_MXFP8=1` re-codes the drafter's BF16 linears to MXFP8 as they load. The FP4 checkpoint quantizes
 the backbone and leaves the drafter alone: `mtp.*` holds 181.1 MB of BF16 (`q_proj` 62.9, `o_proj` 31.5,
 `fc_embedding` and `fc_hidden` 13.1 each, its four hyper-connection matrices 6.55 each, the shared expert 3.28
-each), and every draft pass walks it. Default off; unset, the loader is untouched.
+each), and every draft pass walks it. It takes the re-coded rows unless `TF_FLASHNEXT_MTP_MXFP8=0`.
 
 One binary (image `v16`), the switch off and on, one fresh boot a cell, bf16 KV, 131,072 tokens, aggregate tok/s
 prose / code (`scripts/qwen38/zig/target/mtpchain.sh`, spark6 `~/work/target/mtp.log`):
@@ -80,8 +80,12 @@ prose / code (`scripts/qwen38/zig/target/mtpchain.sh`, spark6 `~/work/target/mtp
 | off again | 60.6 / 79.7 | | 111.3 / 164.2 | | 146 / 89 |
 | on again | 62.7 / 86.7 | | 112.9 / 170.5 | | 144 / 86 |
 
+Eight streams do not fit at 131,072 with bf16 KV, so that pair ran on fp8 KV: 160.7 / 230.0 off against
+162.5 / 246.2 on. Cold prompts do not move: 8k 3.425 off, 3.442 on, 3.414 off again; 32k 13.768, 13.798, 13.752.
+
 That is +3.8% prose and +7.6% code at one stream, +1.0% and +5.4% at two, +1.0% and +4.4% at four, +0.2% and
-8.2% at six, with the repeats holding. It is exact the way patch 0007 is exact: a draft is a proposal the verify
-forward checks, so all ten decode reply hashes match the off arm's at C=1 and C=4, golden is 6/6 and the boot log
-reads "window self-check: 1176 of 2080"; the rounds a 512-token reply takes move (146 / 89 to 144 / 86), which is
-the drafter changing its proposals, not the model changing its tokens.
++8.2% at six, +1.1% and +7.0% at eight, with the repeats holding and no cell slower. It is exact the way patch
+0007 is exact: a draft is a proposal the verify forward checks, so every decode reply hash matches the off arm's
+(ten at one and four streams, sixteen at two, six and eight), golden is 6/6 and the boot log reads "window
+self-check: 1176 of 2080"; the rounds a 512-token reply takes move (146 / 89 to 144 / 86), which is the drafter
+changing its proposals, not the model changing its tokens.
