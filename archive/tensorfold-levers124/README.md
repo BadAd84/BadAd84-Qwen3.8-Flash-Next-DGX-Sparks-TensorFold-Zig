@@ -26,3 +26,9 @@ In any clone that has upstream TensorFold's history:
 
 `python verify_bundle.py levers124.bundle <a TensorFold clone> REFS.txt` restores every ref into a throwaway clone
 and compares the shas (59 refs, 0 mismatches, connectivity ok on 2026-11-12).
+`python deep_check.py levers124.bundle <a full TensorFold clone>` walks every object of the restored refs, blobs
+included (59 refs, 90,134 objects, 0 missing on 2026-11-12; the fork's working clone was a blobless partial clone,
+so this is the check that the bundle did not inherit a hole).
+
+The production engine source is also a branch of this repository now: `production` (the tree the serving image was
+built from, one boot-fix commit past `27b6700cb`).

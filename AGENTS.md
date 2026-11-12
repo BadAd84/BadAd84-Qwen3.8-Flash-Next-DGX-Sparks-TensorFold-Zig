@@ -3,6 +3,17 @@
 The Qwen3.8 Flash Next serve on spark4 as a development project: our layers on the MiaAI-Lab recipe, their tests and
 benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is glm5.3-flash-dev.
 
+## Branches (owner 2026-11-12)
+- **`production`** - the recipe the serve on spark6 runs today and the target to match or beat: the engine source its
+  image was built from (TensorFold at `5c3e3e29`, the zmerge8 stack with the 64K boot fix; the build tar compared
+  file for file) and, under `production/`, the image build, the launcher with its whole environment, the FP8 drafter
+  overlay tool and the measured target. Frozen: production hotfixes only. Its history is unrelated to `main`'s, so
+  read it in its own worktree (`git worktree add work/prod production`), never by switching this checkout.
+- **`main`** - the in-flight work on the modern TensorFold engine: our levers as patches on an upstream release, the
+  harnesses, the measurements. It follows upstream: on each release the series is re-seated
+  (`scripts/qwen38/zig/target/reseat.py`) and every lever re-tested. When `main` matches or beats
+  `production/SPEED-TARGET.md` at 1, 2, 4, 6 and 8 streams, production is retired and replaced from here.
+
 ## Layout
 - `scripts/qwen38/` - the serve's files, AUTHORED here and COPIED to spark4 (`~/qwen-start.sh`, `~/qwen-ots/` for the
   image build, `~/work/` for the harnesses); the repo copy is the source. `scripts/qwen38/README.md` is the SSOT for
