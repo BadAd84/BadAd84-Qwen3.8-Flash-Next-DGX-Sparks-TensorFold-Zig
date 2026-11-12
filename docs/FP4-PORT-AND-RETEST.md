@@ -1,5 +1,9 @@
 # FP4 port and re-test (started 2026-10-25)
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 Everything needed to continue the upstream work after the 2026-10-25 PR 34 re-test: what is known,
 which of our patches are at risk on the FP4 default, and the working measurement procedure.
 

@@ -1,5 +1,9 @@
 # levers124 - the campaign levers stacked on 1.2.4 (267c5af6a), as toggleable patches
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 Generated 2026-11-09 from the `levers124-stack` branch on spark6 (`~/work/lanes/stack124/tf`, fresh clone
 of Gitea `ots/tensorfold-levers124`). The stack branch cherry-picks each lever's code commits onto
 `267c5af6a` (Release 1.2.4) in the campaign's value order; these .patch files are that stack squashed to

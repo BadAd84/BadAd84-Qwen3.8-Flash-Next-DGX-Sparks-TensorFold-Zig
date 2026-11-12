@@ -1,5 +1,9 @@
 # Overlap: what upstream v1.2.6 already carries of our levers
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 Upstream moved twice after the base the port campaign was built on. v1.2.5 is `8be9c408c` (2026-11-08) and
 v1.2.6 is `6e9af9302` (2026-11-10, the current release). Relative to v1.2.4 (`267c5af6a`, the campaign's
 base) that is 654 commits and 1,644 files (+402,645 / -5,539). The modern branch is now `1.2.6` in

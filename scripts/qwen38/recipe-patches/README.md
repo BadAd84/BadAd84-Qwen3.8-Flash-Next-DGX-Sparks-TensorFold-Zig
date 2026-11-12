@@ -1,5 +1,9 @@
 # recipe-patches - the two levers measured on upstream 1.2.4, as recipe patches
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 Exported from the verified branches on Gitea `ots/tensorfold-levers124` (the branches are the source of truth;
 regenerate with `git diff <base>.. <head>` rather than editing these):
 

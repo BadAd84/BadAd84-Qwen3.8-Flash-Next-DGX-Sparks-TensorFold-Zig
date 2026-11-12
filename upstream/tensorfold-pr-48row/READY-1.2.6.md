@@ -1,5 +1,9 @@
 # Rows PR, rebased to 1.2.6
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 The branch this PR will be posted from is `rows126` in `ots/tensorfold-levers124`, cut from upstream v1.2.6
 (`6e9af9302`), 5 commits, tip `d1ad3fc2d`. The same change as a patch series is in `patches/` here and applies
 with `git apply` in filename order to a pristine checkout of `6e9af9302`.

@@ -1,5 +1,9 @@
 # Parity campaign: upstream 1.2.4 to our 1.0.0-stack level, then upstream everything
 
+> RETIRED REFERENCE: the Gitea repository `ots/tensorfold-levers124` named in this file no longer exists. Every ref it held is in
+> `archive/tensorfold-levers124/levers124.bundle` (`REFS.txt` lists them; `README.md` there says how to restore one). The
+> production engine source is the branch `production` of this repository.
+
 SUPERSEDED BASE (2026-11-10): upstream released v1.2.5 and v1.2.6 (654 commits, 1,644 files past 1.2.4), so
 the campaign's base is now `1.2.6` (`6e9af9302`) in `ots/tensorfold-levers124`, and `main` there is the
 current production stack. Which levers upstream already carries, and which still apply, is
