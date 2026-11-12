@@ -948,6 +948,37 @@ boot log and this campaign's arms, is the shape of its advantage: the drafter in
 read-outs from 12-bit copies with the up projection fused into the mix and the reduce fused with the activation,
 and a 64-row window. Patch 0014 has since taken the first of those.
 
+## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
+
+Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
+`WARM_POOL`); our series refuses 6 and 8. The equivalent in v1.2.7 is `TF_FLASHNEXT_KV_PAGES=n`: every stream
+beside the first takes n-position attention pages from one pool (`cuda_kv_lanes.zig`). Measured on image `v16`
+(the shipped 14 patches), bf16 KV, a 131,072-token window, one fresh boot a cell, spark6
+`~/work/target/pool2.log`:
+
+| arm | boot | aggregate tok/s prose / code | golden | self-check |
+|---|---|---|---|---|
+| 8 streams, no pages | refused: "--parallel 8 needs 33.51 GiB for its streams at a 131072-token window, and the CUDA memory budget leaves 27.30 GiB: serve --parallel 6" | - | - | - |
+| 8 streams, `KV_PAGES=4096` | boots | 163.9 / 234.6 | 6/6 | 1176 of 2080 |
+| 6 streams, `KV_PAGES=4096` | boots | 147.3 / 205.3 | 6/6 | 1176 of 2080 |
+| 1 stream, `KV_PAGES=4096` | boots | 61.7 / 81.9 | 6/6 | 1176 of 2080 |
+
+The boot line names the pool: "KV page groups: one page 120.25 MiB, 4096 rows of the full group; 30.06 KiB a
+token, 4096 rows a page, 0 B padding (0.0 %)". So the mechanism works and it is exact. It is not free: at one
+stream the same binary runs 63.2 / 86.8 without pages against 61.7 / 81.9 with them, which is -2.4% prose and
+-5.6% code and makes it a lever to switch on for capacity, not a default.
+
+At the production window it does not run at all. fp8 KV and the pages are mutually exclusive by one line,
+`cuda_lanes_load.zig:35`, `if (page_tokens > 0 and o.kv8) return error.Fp8KvUnsupported;`, and the arms show
+what that costs: 6 streams at fp8 and 262,144 are refused for "30.23 GiB for its streams ... budget leaves 27.25
+GiB", 4 streams serve 113.2 / 166.5, and every `KV_PAGES` arm at fp8 exits at once with the Fp8KvUnsupported
+message. The guard is not arbitrary: the page geometry in `cuda_pages.zig` is written in bf16 rows
+(`layerBytes` is `tokens * (2 * kv_row + index_row) + tokens / ratio * index_row`), so lifting it means giving
+the page layout the fp8 geometry our patch 0003 writes (1,056 bytes a position a layer instead of 2,048) and
+teaching the fp8 attention kernels to read through the page table. That, not a port of the old
+`0038-seq-pool` commit, is the work the 262,144-token target needs; the old patch text is kept at
+`work/0038-seq-pool-fp4port.patch` for its design.
+
 ## The two checkpoints carry the same bytes a round (2026-11-12)
 
 `scripts/qwen38/zig/target/ckpt_layer.py` lists one layer's tensors from the safetensors headers of both checkpoints
