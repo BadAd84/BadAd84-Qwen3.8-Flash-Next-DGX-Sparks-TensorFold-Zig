@@ -759,3 +759,109 @@ recipe refuses it, so `docker logs` will be the container that was already runni
 | `TF_FLASHNEXT_WINDOW` | cli/flashnext_cuda.zig cuda_engine.zig cuda_native.zig  |
 | `TF_FLASHNEXT_YARN` | cli/flashnext_cuda.zig cuda_native.zig cuda_rope.zig  |
 | `TF_FLASHNEXT_YARN_RAMP_POSITIONS` | cuda_rope.zig  |
+
+## What production does to the decode read-outs, and the levers that follow from it (2026-11-12)
+
+The round's kernel table above says the decode round is 62.58 ms in 1,586 launches, and that one kernel, the
+hyper-connection UP read-out, is 10.67 ms of it in 115.9 launches of 92.0 us, reading 6.55 MB of BF16 weights each
+time at 71 GB/s where every other dense kernel in the table reads at 139 to 186. That row, and the 4.73 ms DOWN
+read-out beside it, are what production's own launcher and boot log aim at.
+
+**Production's boot log, not inference** (a production-stack server log kept on spark6,
+`~/work/q25/out/serverlog-ttft-p3B-20261023-022614.log`, and `production/qwen6-start-prod.sh` on the `production`
+branch):
+
+```
+info: hc q12: decode read-outs from 12-bit copies: 192 matrices, 1266.2 -> 970.8 MB, 95876 escapes
+info: decode read-outs: up projection and mix in one pass (_hc_up_mix BM 32)
+info: decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel, checked against the kernel set at load)
+info: copy windows: a lone stream verifies up to 64 rows (TF_FLASHNEXT_WINDOW; the MTP chain 16)
+```
+
+So production's decode read-out is: the down and up matrices read from a lossless 12-bit copy (`TF_FLASHNEXT_HC_Q12=1`
+in its launcher, 1,266 MB of BF16 rows down to 971 MB), the reduce and the activation in one kernel, and the up
+projection fused with the stream mix. It does not use the checkpoint's `fast-fp8` copies: that path needs
+`TF_FLASHNEXT_INT4AR_FAST`, which the production launcher never sets, so the earlier reading of the gap as "their
+read-outs are fp8 bytes and ours are bf16" is wrong. Their read-outs are the same BF16 numbers as ours, stored in
+12 bits and walked by fewer, wider kernels.
+
+### The ranked list, by the kernel row each lever aims at
+
+| rank | lever | what it changes | kernel rows it aims at (ms a round) | exact? | ours |
+|---|---|---|---|---|---|
+| 1 | the UP read-out's CTA shape | 160 blocks of 64 output columns at 71 GB/s is the one dense kernel far off the roofline; 128-column blocks halve the block count | UP read-out 10.67 | yes, the BF16 lane's m16n8k16 chain and rounding do not depend on BM or BN | patch 0014, `TF_FLASHNEXT_DECODE_WIDE` |
+| 2 | `TF_FLASHNEXT_HC_Q12=1` | the read-out matrices from a lossless 12-bit copy: 1,266 MB of BF16 rows become 971 MB, 23% fewer bytes a round | UP 10.67 + DOWN 4.73 | yes, lossless (production's own hc-check) | patch 0009 carries it, default off, never measured on |
+| 3 | `TF_FLASHNEXT_UPMIX_DECODE` | the up projection and the stream mix in one kernel (`_hc_up_mix` BM 32) instead of a matmul and `fn_hc_dense_mix8` | dense mix 0.735, and the up rows' write and read-back | yes, production's glue-check compares the mixed bytes at 2 to 16 rows | not ported; v1.2.7 fuses only the quantised path (`_qmm_upmix`), not the BF16 native one |
+| 4 | the write-back's normalize at decode | v1.2.7 fuses the write-back with the read-out's normalize from 64 rows up (`cuda_batch_hc.fuses`), so a decode window of 5 rows runs both | normalize 0.760 | yes, "the same bits either way" is the kernel's own contract | one constant; the fused kernel is one block a row, so 5 rows fill 5 of 48 SMs |
+| 5 | `TF_FLASHNEXT_EXPERT_SHAPE` | small expert gate/up launches on one warp a block (`nvfp4_nt`), measured 1.12x at TP=1 in production's own kernel test | expert waves 8.035 + 5.820 + 3.536 | yes, "same bits" | no such kernel in v1.2.7; a port of a .cu kernel and its plan |
+| 6 | `TF_FLASHNEXT_WINDOW=64` | production verifies up to 64 rows a window where our 0001 lever stops at 48 | none directly; more tokens a round | yes | measured inert on 1.2.6 while the self-check fails ("The last two code-only questions") |
+
+Everything else in the production-only knob table above is one of: a tensor-parallel lever with nothing to do at
+TP=1 (`L2PF`, `ROCE`, `GLUE_SPLIT`, `COMM_PRIORITY`, `EXPERT_SMS_FREE`, `OVERLAP`, `OVERCOMMIT`), an INT4-AutoRound
+checkpoint path our NVFP4 checkpoint has no weights for (`INT4AR_FAST`, `FP8_LD`, `FP8_FUSED_SPLIT`,
+`FP8_PROMPT_TILES`, `INT4_PROMPT_*`, `INT4_TILE`, `HEAD_ROW_TILES`, `MTP_FP8`, `MTP_Q4`), a lever we already carry
+under another name (`DRAFT_INT4` is patch 0007's 4-bit draft head, `GLUE_FUSE` and `WB_NORM` are the prompt
+read-out group of patch 0008, `REDUCE_ACT` is `fn_hc_reduce_act` in the base, `COPY_*` is patch 0002,
+`NGRAM_*` is patch 0004, `SHARED_COST_LEVELS` and `COST_RETIME` are patch 0010), a prompt-path lever outside the
+decode round, or a diagnostic (`BURST_LOG`, `GRAPH_LOG`, `PASS_TIMES`, `COUNT_EXPERTS`, `PREFILL_DIGEST`,
+`POISON_PADS`, `TEST_COUNT`, `TEST_SWITCH`).
+
+### Rank 1 measured and rejected: the wide tile moves the launches and costs 6% (patch text kept out of the series)
+
+`TF_FLASHNEXT_DECODE_WIDE=N` (our patch text, `work/0014-decode-wide-tile.patch`) lets a BF16 native projection of
+N rows or more take the 128-column tile the prompt passes already use, with `TF_FLASHNEXT_DECODE_WIDE_K32=0` for
+that tile's K64 instance. Image `v14` is v1.2.7 plus the 13 levers plus that patch; every arm below is the same
+binary with the switch off and on, one fresh boot a cell, bf16 KV, 131,072 tokens, `HOST=127.0.0.1`
+(`scripts/qwen38/zig/target/widetile.sh`, spark6 `~/work/target/widetile.log`, cells under `bench/pe-wt*/`):
+
+| arm | C=1 | C=2 | C=4 | C=6 | rounds prose/code | self-check |
+|---|---|---|---|---|---|---|
+| off | 60.8 / 80.4 | 86.5 / 119.2 | 111.7 / 165.0 | 144.7 / 202.3 | 146 / 89 | 1176 of 2080 |
+| on | 60.5 / 79.9 | 86.0 / 119.0 | 111.2 / 164.8 | 143.9 / 201.3 | 146 / 89 | 1176 of 2080 |
+| off again | 60.7 / 80.1 | | 111.7 / 164.4 | | 146 / 89 | 1176 of 2080 |
+
+It is exact and it is not a win: every decode reply hash matches the off arm's (10 of 10 at C=1 and C=4, 16 of 16
+at C=2 and C=6), the rounds a 512-token reply takes are the same, golden is 6/6, and the serve is 0.3 to 0.6%
+slower everywhere. The kernel log says why (image `v14k`, the same tree with the round and kernel logs,
+`~/work/target/wtprof.log`, one stream, prose, graphs off):
+
+| arm | the BF16 read-out launches | round |
+|---|---|---|
+| off | 115.9 a round, 93.2 us each, 10.805 ms (`qmmf_kernel<BF16,16,64,...>`) | 63.75 ms |
+| on | 115.9 a round, 99.2 us each, 11.500 ms (`qmmf_prompt_k32_kernel`) | 64.32 ms |
+
+The launches did move to the 128-column tile, and every other row of the table is unchanged to within 0.1 ms, so
+the lever does exactly what it says and the shape is simply not where the time is. The round log agrees: the verify
+forward is 50.49 ms off and 51.40 on at 4.75 rows, 55.95 and 55.91 at 6.86. The patch is not in `patches/1.2.7`.
+
+### Why it could not have won: the 71 GB/s read-out was an average over two different kernels
+
+The kernel table books time by kernel, and every BF16 lane call of 64-column blocks lands on one symbol. The
+half-tile arm (`TF_FLASHNEXT_HALF_BELOW=161`, image `gmh21`) splits that bucket, because only launches of fewer
+than 161 column blocks take the half tile. One stream, the code prompt, against the same arm of the baseline image
+`gk21b`:
+
+| arm | `qmmf<BF16,16,32>` | `qmmf<BF16,16,64>` | both |
+|---|---|---|---|
+| baseline | - | 122.5 launches, 93.1 us, 11.402 ms | 11.402 ms |
+| half tile | 115.3 launches, 36.9 us, 4.255 ms | 7.1 launches, 998.2 us, 7.112 ms | 11.367 ms |
+
+So the hyper-connection read-outs are 115 launches of about 37 us, which is 6.55 MB at 177 GB/s, the same rate as
+everything else dense in the table: there is no headroom in them at all, and the "71 GB/s" of the earlier table was
+115 read-outs at the roofline averaged with about 7 launches of something else at a millisecond each. Those seven
+are the hidden row: 7 launches of about 1 ms is 6 to 7 ms of a 63 ms round, and they scale with the draft passes,
+not with the layers.
+
+They are the MTP layer's own BF16 weights. The NVFP4 checkpoint quantises the backbone but leaves the drafter's
+linears in BF16: reading the headers of `nvidia/Qwen3.8-Flash-Next-FP4-Local`, the `mtp.*` tensors hold **181.1 MB
+of BF16** (`self_attn.q_proj` 62.9 MB, `self_attn.o_proj` 31.5, `fc_embedding` and `fc_hidden` 13.1 each, the
+drafter's own four hyper-connection matrices 6.55 each, the shared expert 3.28 each) beside 1,258 MB of 4-bit
+expert words. Every draft pass walks them. That is what production's `TF_FLASHNEXT_MTP_FP8` overlay replaces (its
+boot log names the file: `overlay /root/.cache/huggingface/ots-mtp-fp8/mtp-fp8.safetensors`), and what
+`TF_FLASHNEXT_MTP_Q4` does in the engine; our patch 0007 already did the same thing to the drafter's head alone and
+that one change is worth 11.6% prose and 8.1% code at one stream.
+
+**So the next lever, and the largest one left, is the drafter's linears in 8 or 4 bits.** It is exact in the sense
+this campaign uses, the same sense patch 0007 is exact: a draft is only a proposal, the verify forward decides every
+token, and a reply's text is unchanged while the rounds it takes move. Ranked against it, the read-out levers above
+(q12's 23% of 1,266 MB, the fused up and mix, the write-back's normalize) are all smaller.

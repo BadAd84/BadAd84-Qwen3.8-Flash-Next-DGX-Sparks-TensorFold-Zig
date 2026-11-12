@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # patcheval.sh ARM [ARM...] - evaluate our ported levers one at a time on the v1.2.6 stack.
 # Each ARM is name:ENV where ENV is a space-separated knob string (an empty ENV is the baseline).
-# Per arm: a fresh boot a cell at C=1 and C=4 with the target's settings (nvfp4, fp8 KV, 262,144 tokens),
-# golden, one decode pass (prose then code) and the boot self-check. Output: bench/pe-<name>/c<N>/.
+# Per arm: a fresh boot a cell at each of STREAMS (default C=1 and C=4) with the target's settings (nvfp4, fp8 KV,
+# 262,144 tokens), golden, one decode pass (prose then code) and the boot self-check. Output: bench/pe-<name>/c<N>/.
 set -u
 cd ~/work/target || exit 1
 # hold files park the arms: a run borrowing the box between a stage's parts sets HOLD (or HOLD2, for a second
@@ -13,7 +13,7 @@ gpu() { nvidia-smi --query-gpu=temperature.gpu,clocks.sm --format=csv,noheader 2
 for spec in "$@"; do
   name=${spec%%:*}; envs=${spec#*:}
   [ "$name" = "$spec" ] && envs=""
-  for C in 1 4; do
+  for C in ${STREAMS:-1 4}; do
     out="bench/pe-$name/c$C"; mkdir -p "$out"
     ( cd ~/work/lanes/rpr/recipe && env $envs PREPARE=0 IMAGE="$IMG" CHECKPOINT=nvfp4 VISION=0 \
         TENSORFOLD_CUDA_KERNELS=native KV_DTYPE="${KV_DTYPE:-fp8}" PARALLEL="$C" CONTEXT="${CONTEXT:-262144}" HOST=127.0.0.1 \
