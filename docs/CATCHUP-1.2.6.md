@@ -255,6 +255,33 @@ What the stated order showed that subtraction could not:
 The accepted stack is therefore the rung through 0021. The read-out group is being bisected one patch at a time on top
 of it.
 
+### The accepted rung proven with its own switches (image `r0021`, same binary every arm)
+
+| arm | C1 prose | C1 code | C4 prose | C4 code |
+|---|---|---|---|---|
+| defaults (draft head 4-bit, `GATHER_READ=pread`) | 61.2 | 81.2 | 113.4 | 167.0 |
+| defaults, repeated | 61.1 | 81.0 | 112.7 | 166.0 |
+| defaults, repeated at the end | 61.3 | 80.7 | 112.7 | 165.9 |
+| `DRAFT_HEAD=bf16` | 53.7 | 73.6 | 106.3 | 155.1 |
+| `DRAFT_HEAD=bf16`, repeated | 53.7 | 73.8 | 106.4 | 154.3 |
+| `GATHER_READ=0` (plain reader) | 62.1 | 81.5 | 112.9 | 166.3 |
+| plain reader + `ATTN_LANES=1 DECODE_GRAPH=1 SPLIT_DENSE=0 CHUNK=1024` | 62.1 | 81.9 | 114.3 | 168.2 |
+
+Replies 6/6 identical to stock in every arm.
+
+- The draft head switch alone moves the same binary from 53.7 / 73.7 to 61.2 / 81.0 at one stream (+14.0% prose,
+  +9.9% code) and from 106.4 / 154.7 to 112.9 / 166.3 at four (+6.1% / +7.5%), both directions repeated.
+- The plain n-gram reader is +1.5% prose and +0.6% code at one stream and flat at four against the pread default:
+  small, the same sign as every earlier reading, kept as the setting.
+- The four upstream knobs stacked on top add +0.5% code at one stream and +1.2% / +1.1% at four. Each was inside
+  noise alone in stage 2; together they are at the edge of it, so they are carried as a candidate and re-measured
+  ABBA before they are called a gain.
+
+The lever itself is a default flip: `TF_FLASHNEXT_DRAFT_HEAD` exists in the pristine engine with `bf16` as its
+default, and our patch (40 lines, 3 files) only makes `affine4` the default. So the gain belongs to step two, an
+environment setting on stock, and `stage2b.sh` measures it there together with the upstream knobs the first pass
+left out.
+
 ## Knob sweep on the new engine (step one: tune what already exists)
 
 The new tree carries 68 `TF_FLASHNEXT_*` knobs that production's launcher never sets. Swept at the target's settings,
