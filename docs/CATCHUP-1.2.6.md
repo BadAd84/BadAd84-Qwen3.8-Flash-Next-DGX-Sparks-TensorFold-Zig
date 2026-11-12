@@ -948,6 +948,29 @@ boot log and this campaign's arms, is the shape of its advantage: the drafter in
 read-outs from 12-bit copies with the up projection fused into the mix and the reduce fused with the activation,
 and a 64-row window. Patch 0014 has since taken the first of those.
 
+### The bisect: it is the production binary and its captured kernel set, not the environment or the capture
+
+Five more arms, each a fresh boot on spark6, the same wrapper (`--cap-add=SYS_ADMIN`, nsys as the container
+entrypoint, `--trace=cuda --cuda-graph-trace=node`), one stream, 512-token prose and code
+(`~/work/target/envbisect.log`, `nsysdur.log`, `nsysdur2.log`):
+
+| arm | kernel rows | note |
+|---|---|---|
+| ours `v16`, our environment | 75 to 81 | the family table above |
+| ours `v16`, **production's full environment** (its 44 `TF_FLASHNEXT_*` and `TENSORFOLD_*` settings, bar the INT4 MTP overlay) | **81** | so no setting of production's hides the kernels |
+| production, graphs forced eager (`TF_FLASHNEXT_GRAPH_FAIL=1`) | 0 | API records present |
+| production, timed window (`--delay=100 --duration=120 --stop-on-exit=true`) | 0 | and no CUDA trace at all: a delayed start misses the context, so injection must happen at launch |
+| production, `--cuda-event-trace=false --cuda-memory-usage=false` | 0 | the serve ran at 64.5 prose / 113.3 code, so the decode did happen inside the capture |
+
+What that leaves is the binary itself together with its kernel source: production loads a captured Triton set from
+its cache mount, ours runs kernels embedded in the binary (`tf.kernels: embedded` on our image). Neither image can
+run the other's path, so that last variable cannot be split with the images on the box, and the nsys route stops
+here rather than growing into a build.
+
+One side-finding worth keeping from the same arms: production's environment on **our** binary is not free. Image
+`v16` at one stream runs 63.2 / 86.8 on our settings and 57.6 / 78.8 under production's (rounds 144 / 86 against
+135 / 88), so their knob set is tuned for their engine and costs ours about 9%.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
