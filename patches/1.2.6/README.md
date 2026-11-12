@@ -25,16 +25,20 @@ recipe. "Decode" is 512-token prose and code replies at one and four streams. A 
 | 0005 | prompt passes drain less, 3072-row chunks, the relaxed MX128 prompt tile | `PROMPT_MX128` (0: off) | exact with the tile off; cold prompt unchanged with it off; 32k 13.42 s against 14.14 (-5.1%) with `=1024`, replies not yet compared |
 | 0006 | the MX128 tile in two stages, two blocks an SM | `PROMPT_GEMM2=1` (on, acts only with MX128) | 32k 13.4 s against 13.8 without it, under MX128 |
 | 0007 | the draft head's rows 4-bit by default | `DRAFT_HEAD` (`affine4`; `bf16` restores) | **exact; +14.0% prose, +9.9% code at one stream, +6.1% / +7.5% at four** (same binary, switch on and off, repeated) |
-| 0008 | prompt passes' hyper-connection read-out as fused kernels, the shared expert read in place, wider head pieces | `PROMPT_HC2=1`, `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536` (all on) | repaired (see `RECORD.md`); **cold 32k prompt 13.58 s against 14.14 (-3.9%)**: fused read-out -2.3%, shared expert in place -3.1%, head piece none; decode and golden arms queued |
-| 0009 | hyper-connection read-outs from a lossless 12-bit copy | `HC_Q12` (off) | exact off; never run switched on with 1.2.6; flat on 1.2.4 |
-| 0010 | a shared round priced from the environment | `ROUND_MS`, `DRAFT_ROW_MS` (unset) | exact unset; never run priced |
-| 0011 | vision tower linears decoded at load, image rows up to 16,384 | none | exact on text; not a speed lever |
+| 0008 | prompt passes' hyper-connection read-out as fused kernels, the shared expert read in place, wider head pieces | `PROMPT_HC2=1`, `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536` (all on) | repaired (see `RECORD.md`); **exact, golden 6/6 and 1,176 of 2,080 at one and four streams; decode flat (61.6 / 81.4 on against 61.5 / 81.3 off); cold 32k prompt 13.58 s against 14.14 (-3.9%)**: fused read-out -2.3%, shared expert in place -3.1%, head piece none |
+| 0009 | hyper-connection read-outs from a lossless 12-bit copy | `HC_Q12` (off) | exact; decode flat with the rung (61.7 / 81.9); the switch itself has not been run on |
+| 0010 | a shared round priced from the environment | `ROUND_MS`, `DRAFT_ROW_MS` (unset) | exact; decode flat (61.7 / 81.8); never run priced |
+| 0011 | vision tower linears decoded at load, image rows up to 16,384 | none | exact; decode flat (61.7 / 82.0); not a speed lever |
 | 0012 | the row cache can read through the page cache | `GATHER_DIRECT` (1) | switch only |
 | 0013 | the window self-check can log its first differing row | `CHECK_LOG` (off) | log only |
 
-The accepted stack for speed today is 0001 to 0007: 61.6 / 81.3 tok/s at one stream and 112.8 / 167.4 at four,
-against stock's 54.4 / 74.3 and 106.8 / 155.9. Patch 0007 is a default flip of a knob the base already has, so the
-same gain is expected from `TF_FLASHNEXT_DRAFT_HEAD=affine4` on an unpatched binary; that arm is queued.
+The accepted stack for speed today is 0001 to 0007: 61.9 / 81.7 tok/s at one stream and 113.0 / 166.1 at four,
+against stock's 54.4 / 74.3 and 106.8 / 155.9. Patch 0007 is a default flip of a knob the base already has, and the
+same gain shows on an unpatched binary with `TF_FLASHNEXT_DRAFT_HEAD=affine4` (stock 54.2 / 74.3, with the switch
+61.7 / 82.0 at one stream; replies identical): the 4-bit draft head is an environment setting on stock, and this
+series makes it the default. The other stock knobs tried on the unpatched binary (`DRAFTS_GREEDY`, `PLE_IO=mmap`,
+`TABLE_WARM`, `SHARED_DRAFTS`, `KEEP_INPASS`, `LANE_PARTS`, `PROMPT_BF16`, `GPU_TOPK`, `READOUT_ROWS`, `FACT_ROWS`)
+move nothing or lose; `BATCH_HEADS=0` loses 17 to 28% at four streams, so the default stays.
 
 Not in this series: `TF_FLASHNEXT_HC_MXFP8` (the hyper-connection matrices re-coded to MXFP8 at load,
 `work/ladder/rungs/gm21.patch`): +3.5% prose and +6.5% code at one stream, +3.1% / +5.3% at four, golden 6/6, but

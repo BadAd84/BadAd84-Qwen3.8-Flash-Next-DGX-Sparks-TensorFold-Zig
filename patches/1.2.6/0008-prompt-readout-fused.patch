@@ -1,5 +1,5 @@
 diff --git a/zig/build/cuda_kernels.zig b/zig/build/cuda_kernels.zig
-index 3efe2c86..54a0e504 100644
+index 3efe2c86d4042824732e68c4d4fd2e29e03cc2ba..54a0e504498913caac2ce28093d6c21502f75811 100644
 --- a/zig/build/cuda_kernels.zig
 +++ b/zig/build/cuda_kernels.zig
 @@ -82,6 +82,7 @@ pub const kernels = [_]Kernel{
@@ -11,7 +11,7 @@ index 3efe2c86..54a0e504 100644
      .{ .name = "w4a8_prefill", .flags = &.{"-O3"} }, // ours: prompt matmuls, int8 activations on MLX affine 4-bit weights
      .{ .name = "experts", .flags = &.{"-O3"} }, // cuda/experts.py, tensorfold_experts_v7
 diff --git a/zig/kernels/cuda/flashnext_hc.cu b/zig/kernels/cuda/flashnext_hc.cu
-index 928e6fdc..6b009b5b 100644
+index 928e6fdc4a60770e09896a067dea86868d2d2c7e..6b009b5bbe4c06331e1baf2bd1c2232f52480a13 100644
 --- a/zig/kernels/cuda/flashnext_hc.cu
 +++ b/zig/kernels/cuda/flashnext_hc.cu
 @@ -78,6 +78,10 @@ __device__ __forceinline__ void hc_writeback(const __nv_bfloat16* H, __nv_bfloat
@@ -39,7 +39,7 @@ index 928e6fdc..6b009b5b 100644
                                                                           long long RS, int D, int S, int WORLD) {
 diff --git a/zig/kernels/cuda/flashnext_hcn.cu b/zig/kernels/cuda/flashnext_hcn.cu
 new file mode 100644
-index 00000000..d6afdfc5
+index 0000000000000000000000000000000000000000..d6afdfc5b6869e85a86032c575815330b95242bb
 --- /dev/null
 +++ b/zig/kernels/cuda/flashnext_hcn.cu
 @@ -0,0 +1,522 @@
@@ -566,7 +566,7 @@ index 00000000..d6afdfc5
 +HCN_UP_DBG(fn_hcn_up3_k5_gemm, 3, 5, 1)
 +HCN_UP_DBG(fn_hcn_up3_k5_epi, 3, 5, 2)
 diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
-index 2333ad8f..6f3c0e15 100644
+index 2333ad8fb217aa43032a46038de11f1d48e0b03b..6f3c0e1560aeb8d07f7f00eee3a319ba6473317e 100644
 --- a/zig/src/cuda/kernels.zig
 +++ b/zig/src/cuda/kernels.zig
 @@ -29,6 +29,7 @@ pub const qmm: []const u8 = if (available) &Blob("fatbin_qmm").bytes else &.{};
@@ -578,7 +578,7 @@ index 2333ad8f..6f3c0e15 100644
  pub const w4a8_prefill: []const u8 = if (available) &Blob("fatbin_w4a8_prefill").bytes else &.{};
  pub const experts: []const u8 = if (available) &Blob("fatbin_experts").bytes else &.{};
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 0d0e0670..5d1628df 100644
+index 0d0e0670cc1770a574fc5e689095a373850747c2..5d1628dfc4fed9dfc7cae47c6d3ad39fc7c57885 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -119,6 +119,7 @@ pub fn Pass(comptime Tri: type) type {
@@ -646,7 +646,7 @@ index 0d0e0670..5d1628df 100644
                      try self.tri.hcWriteback(s.h, s.h, s.pss, s.part, "*fp32", s.inj, s.dummy, "*bf16", s.dummy, "*bf16", sl.stride, n, dims, streams, 4, 1, 1, sl.count);
                      try self.readoutKeep(lw.mlp_hc, 0, n, keep.mlp_hc);
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 16648ae0..303cc017 100644
+index 16648ae0638998e58474080d089015d4fe0c7b7e..303cc0174c9a5cece4f3a6897ec9af037dac758b 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -2,7 +2,8 @@
@@ -723,7 +723,7 @@ index 16648ae0..303cc017 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
-index 2973b7d8..c77c8a11 100644
+index 2973b7d88bd9fc92240bb073d027ff703d30c9b5..c77c8a11d7599235b9bc71c79b5c0a1a2f04fa18 100644
 --- a/zig/src/families/flashnext/cuda_batch_side.zig
 +++ b/zig/src/families/flashnext/cuda_batch_side.zig
 @@ -48,10 +48,12 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
@@ -741,7 +741,7 @@ index 2973b7d8..c77c8a11 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
-index 2e37c246..adca444d 100644
+index 2e37c2460536717b69c1d963bd9c3e9d7c67de7e..adca444dae5b1417cb34c5569297ae624e08294c 100644
 --- a/zig/src/families/flashnext/cuda_glue.zig
 +++ b/zig/src/families/flashnext/cuda_glue.zig
 @@ -34,6 +34,7 @@ pub const Pg = extern struct { pt: u64 = 0, ps: i64 = 0, ptok: c_int = 0 };
@@ -774,7 +774,7 @@ index 2e37c246..adca444d 100644
                  ptrs(&a, &.{ h, hout, pss, branch, inj });
                  a.add(@as(i64, @intCast(rs)));
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index 70858f61..f08f8e85 100644
+index 70858f6123bfe4246d8e98f855643e46e0b63745..f08f8e85ba05867b35c846a844dee6deba8abc4d 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -52,7 +52,34 @@ pub fn mx128MinN() sys.environment.Error!usize {
@@ -814,7 +814,7 @@ index 70858f61..f08f8e85 100644
      return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
  }
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index aa337a29..61fed852 100644
+index aa337a2965ee394e017c72614e4943d3a8517ecc..61fed85298e0671ac6d9c9593b26fff080bc70e8 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -42,7 +42,7 @@ const max_rows = mtp.max_rows;
@@ -860,7 +860,7 @@ index aa337a29..61fed852 100644
              const score_rows = try e.reserveScores(d.cap, piece);
              var p: batch.Pass(Tri) = .{
 diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
-index bd83147c..5ca6529f 100644
+index bd83147cc2c755b7677c747610a66a71fbbcb084..5ca6529f3686c9babe87cde0a128017355d89834 100644
 --- a/zig/src/families/flashnext/cuda_split_lane_test.zig
 +++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
 @@ -264,6 +264,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
@@ -872,7 +872,7 @@ index bd83147c..5ca6529f 100644
          m: parts.Model,
          stream: cuda.Stream,
 diff --git a/zig/src/families/flashnext/cuda_tile_kernels.zig b/zig/src/families/flashnext/cuda_tile_kernels.zig
-index edb68ce9..83a3d10a 100644
+index edb68ce9210b7714bab27f1d5e6949d2ad69c8fa..83a3d10a4dfe81790944fa31005ae0f0e4830e64 100644
 --- a/zig/src/families/flashnext/cuda_tile_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_tile_kernels.zig
 @@ -15,14 +15,36 @@ pub const fexp_smem: u32 = 41472;
@@ -949,7 +949,7 @@ index edb68ce9..83a3d10a 100644
          k.fact_mod.unload();
      }
 diff --git a/zig/src/families/flashnext/cuda_tiles.zig b/zig/src/families/flashnext/cuda_tiles.zig
-index 3fb18668..951869bd 100644
+index 3fb1866832502c9d484ddca0eab72abd5df80545..951869bd9a0b010755c0dd40ef25dd4786bea82b 100644
 --- a/zig/src/families/flashnext/cuda_tiles.zig
 +++ b/zig/src/families/flashnext/cuda_tiles.zig
 @@ -1,9 +1,12 @@
@@ -1040,7 +1040,7 @@ index 3fb18668..951869bd 100644
  pub fn experts(stream: cuda.Stream, f: cuda.Function, wn: usize, x: u64, x_stride: usize, slot_n: usize, w: u64, kg: usize, nb: usize, plan: cuda.grouped.Plan, out: u64, n: usize, items: usize) !void {
      var a = cuda.experts.Affine4Experts.argsOf(x, x_stride, slot_n, w, kg, nb, plan, out, n);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 8095f061..56ae2797 100644
+index 8095f0615af6234436ff875c3c2e931395c4efb4..56ae27971c2fbdc42dfb1821e6cb5dd9cf378234 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -59,6 +59,12 @@ pub const rules = [_]Rule{
@@ -1057,10 +1057,10 @@ index 8095f061..56ae2797 100644
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
      .{ .name = "TF_DRAMA_PREFILL_ROWS", .scope = .drama3, .kind = .u32, .trim = " ", .forms = "whole prompt rows a chunk, 1 through 1024 (checked when a Drama 3 checkpoint opens)" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index dd6d140d..8aeccca4 100644
+index 881691a08d2b8be1bb78de5cc83d4825f02d10ae..3ccbe6abd471187b8704830fa0d8e9674de6912a 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -78,6 +78,14 @@ const valid = [_]Case{
+@@ -80,6 +80,14 @@ const valid = [_]Case{
      .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .raw = "1", .n = 1 },
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
@@ -1077,7 +1077,7 @@ index dd6d140d..8aeccca4 100644
      .{ .name = "TF_DRAMA_REFERENCE_CACHE", .raw = "0", .n = 0 },
 diff --git a/zig/tests/cuda/flashnext_hc_fuse_tests.zig b/zig/tests/cuda/flashnext_hc_fuse_tests.zig
 new file mode 100644
-index 00000000..1794770d
+index 0000000000000000000000000000000000000000..1794770dac80f6282b92f72404d2420498af87ab
 --- /dev/null
 +++ b/zig/tests/cuda/flashnext_hc_fuse_tests.zig
 @@ -0,0 +1,306 @@
@@ -1388,7 +1388,7 @@ index 00000000..1794770d
 +    r.report("hc-fuse");
 +}
 diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
-index 4a4044df..f06a2663 100644
+index 4a4044dfd3a3c8ea6a2691bfde1ae558f39ba7b1..f06a2663a28be57a874bc7f8b265d628fd7c32a6 100644
 --- a/zig/tests/cuda/main.zig
 +++ b/zig/tests/cuda/main.zig
 @@ -108,6 +108,7 @@ const flashnext_dense_hc_tests = @import("flashnext_dense_hc_tests.zig");

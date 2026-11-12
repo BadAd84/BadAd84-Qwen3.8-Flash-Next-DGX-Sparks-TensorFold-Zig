@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index d4164037..a914eb49 100644
+index 3eec8e2f3105318edddf31fed5ce740d17b85e3b..38a6df647b0bdc7fda9bac219a0561560d4f5b7a 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -83,6 +83,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -12,7 +12,7 @@ index d4164037..a914eb49 100644
  - Tests: `zig build bench-stream-scan` streams a 32k-token thinking reply (30,000 reasoning tokens, prose, then a Qwen XML, GLM, DSML or Kimi call) through the chat, Messages and Responses routes one or two tokens a chunk, and prints each chunk's request-thread time at 1k to 30k reply tokens, each whole-text step's time and the request arena; under `test-server-cpu` a 300-token reply checks that each route's streamed reasoning, prose and call arguments equal the reply's (#2642).
  
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index 1a4aac80..f58c28b1 100644
+index 1a4aac801dfb40f7fa963498f786f29b2f8882dc..f58c28b1f58267ae0fe74aea39e2047125eeaa33 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -369,8 +369,8 @@ __device__ __forceinline__ void prompt_mx_body(
@@ -38,7 +38,7 @@ index 1a4aac80..f58c28b1 100644
 +TF_PROMPT_MX(tf_qmmf_prompt_mx2_bf16, 128, 128, 2, 4, 2, false, 2)
 +TF_PROMPT_MX(tf_qmmf_prompt_mx2_f32, 128, 128, 2, 4, 2, true, 2)
 diff --git a/zig/src/core/contract/qmmf_prompt_records.zig b/zig/src/core/contract/qmmf_prompt_records.zig
-index 16096a3b..94326a1d 100644
+index 16096a3b67a747ea4bedc0fbb1e5fadcb687255f..94326a1d740cd18c872e603dfca987f1c6eb7b30 100644
 --- a/zig/src/core/contract/qmmf_prompt_records.zig
 +++ b/zig/src/core/contract/qmmf_prompt_records.zig
 @@ -1,4 +1,4 @@
@@ -98,7 +98,7 @@ index 16096a3b..94326a1d 100644
 +    try std.testing.expectEqual(@as(usize, 0), try registry.checkCuda(std.testing.allocator, records[6..], true));
 +}
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 4e920db8..85069b87 100644
+index 4e920db81d03338af529bdf1e6bff58fc0cbec82..85069b878e4460fea89616412b7c43b669e52ea5 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
 @@ -137,13 +137,18 @@ pub const reduce_symbols = [2][:0]const u8{
@@ -164,7 +164,7 @@ index 4e920db8..85069b87 100644
 +    try std.testing.expectEqual(@as(u32, 49664), prompt_mx2_shared);
 +}
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index c67916aa..70858f61 100644
+index c67916aa853ff5a38d1d37e1ad26486fe97f3a3a..70858f6123bfe4246d8e98f855643e46e0b63745 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -51,3 +51,8 @@ pub fn chunkSync() sys.environment.Error!bool {
@@ -177,7 +177,7 @@ index c67916aa..70858f61 100644
 +    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 5b782363..e2a86eb1 100644
+index 5b782363599431d231c8e8790e0d7f489cf1fbc4..e2a86eb18b6677dd52016c50596bca160f413921 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -148,6 +148,7 @@ pub const Engine = struct {
@@ -189,7 +189,7 @@ index 5b782363..e2a86eb1 100644
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 65f38824..8095f061 100644
+index 65f38824fb361a5f6f2b9a0d7329cabf4e0aaab2..8095f0615af6234436ff875c3c2e931395c4efb4 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -57,6 +57,7 @@ pub const rules = [_]Rule{
@@ -201,10 +201,10 @@ index 65f38824..8095f061 100644
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index e5d08934..dd6d140d 100644
+index bc02a72ccab4c1aebd7d65f0ded5e068d9a53acc..881691a08d2b8be1bb78de5cc83d4825f02d10ae 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -111,6 +111,7 @@ const valid = [_]Case{
+@@ -113,6 +113,7 @@ const valid = [_]Case{
      .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .raw = "1", .n = 1 },
      .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "1024", .n = 1024 },

@@ -1,5 +1,5 @@
 diff --git a/zig/src/core/lane_host.zig b/zig/src/core/lane_host.zig
-index c7868df9..ae4bfac4 100644
+index c7868df92c73ef87da92e8e579221974dbcc3092..ae4bfac41f6f065297800ed8440a7404bbcfb094 100644
 --- a/zig/src/core/lane_host.zig
 +++ b/zig/src/core/lane_host.zig
 @@ -38,6 +38,8 @@ pub const LaneHost = struct {
@@ -12,7 +12,7 @@ index c7868df9..ae4bfac4 100644
      proposers: ?Proposers = null,
      mutex: std.Io.Mutex = .init,
 diff --git a/zig/src/core/lane_stream.zig b/zig/src/core/lane_stream.zig
-index 1bb925b1..0fd5850f 100644
+index 1bb925b1afea791a50f6db7a61d26099ad20797d..0fd5850f24ff8f10033de5250ae9ffc326727c05 100644
 --- a/zig/src/core/lane_stream.zig
 +++ b/zig/src/core/lane_stream.zig
 @@ -33,7 +33,12 @@ pub fn open(h: *LaneHost, job: *Job) bool {
@@ -30,7 +30,7 @@ index 1bb925b1..0fd5850f 100644
      job.stream = lanes.Stream.init(h.gpa, .{
          .id = "request",
 diff --git a/zig/src/core/lanes/config.zig b/zig/src/core/lanes/config.zig
-index a9af579d..e208c64f 100644
+index a9af579d588e94f0302acce28c3924208934b763..e208c64f38f7771745a5a12de5598094ffda5b14 100644
 --- a/zig/src/core/lanes/config.zig
 +++ b/zig/src/core/lanes/config.zig
 @@ -108,8 +108,17 @@ pub const Config = struct {
@@ -63,7 +63,7 @@ index a9af579d..e208c64f 100644
  
  test "shared cost consumer: lone measured windows stay out of shared MTP prices" {
 diff --git a/zig/src/core/lanes/engine.zig b/zig/src/core/lanes/engine.zig
-index 018ae4a7..43035aaf 100644
+index 018ae4a72ebcde583ef11ce9d3f5625a4a96bb5e..43035aafbd6331b05b6a3487f84ee163f4f43f9c 100644
 --- a/zig/src/core/lanes/engine.zig
 +++ b/zig/src/core/lanes/engine.zig
 @@ -353,10 +353,7 @@ pub const Engine = struct {
@@ -79,7 +79,7 @@ index 018ae4a7..43035aaf 100644
                      if (p.lanes) |l| if (s.odds != null) s.observeLanes(l, path);
                      const ds = try accept.depths(a, parents);
 diff --git a/zig/src/core/lanes/proposer.zig b/zig/src/core/lanes/proposer.zig
-index 127dbe45..3cf52b55 100644
+index 127dbe450e1b3fa396db796fc8aa95beeee92148..3cf52b55dfbe14a4f9375fad7cac3eadbc0c72c1 100644
 --- a/zig/src/core/lanes/proposer.zig
 +++ b/zig/src/core/lanes/proposer.zig
 @@ -59,6 +59,20 @@ pub const Params = struct {
@@ -349,7 +349,7 @@ index 127dbe45..3cf52b55 100644
      const gpa = std.testing.allocator;
      var s = try SuffixLookup.init(gpa, .{ .ngram = 3, .min_match = 4 });
 diff --git a/zig/src/core/lanes/stream.zig b/zig/src/core/lanes/stream.zig
-index baff3bd3..caac987a 100644
+index baff3bd3100bbf287db9cb071c4d84da32ec0888..caac987a0ce54b82027bf08d773b6db51fa5bb15 100644
 --- a/zig/src/core/lanes/stream.zig
 +++ b/zig/src/core/lanes/stream.zig
 @@ -246,6 +246,7 @@ pub const Stream = struct {
@@ -369,7 +369,7 @@ index baff3bd3..caac987a 100644
      }
  
 diff --git a/zig/src/core/lanes/windows.zig b/zig/src/core/lanes/windows.zig
-index 47c9c82f..2f5bd7ab 100644
+index 47c9c82f51d6de398663549317caea2b8df284b1..2f5bd7ab25c4c33e34546e82c60e9690d48f1968 100644
 --- a/zig/src/core/lanes/windows.zig
 +++ b/zig/src/core/lanes/windows.zig
 @@ -202,7 +202,8 @@ fn headTrunk(e: *Engine, s: *Stream, p: Plan, levels: usize) !?fill.Trunk {
@@ -461,7 +461,7 @@ index 47c9c82f..2f5bd7ab 100644
  pub fn nodeChances(e: *Engine, s: *Stream, n: usize) ![]const f64 {
      const a = e.arena.allocator();
 diff --git a/zig/src/native/cuda_startup_phase.zig b/zig/src/native/cuda_startup_phase.zig
-index 42b3626d..fb4fabf7 100644
+index 42b3626d88207c4b32a2af44e37176bee4f8d52f..fb4fabf7cb431e6d6b31deb1a1974ac22b6c8804 100644
 --- a/zig/src/native/cuda_startup_phase.zig
 +++ b/zig/src/native/cuda_startup_phase.zig
 @@ -6,8 +6,34 @@ const lanes = @import("lanes");

@@ -12,7 +12,10 @@ REPO=/c/Users/Adam/Gitea/Qwen3.8-Flash-Next-DGX-Sparks-TensorFold-Zig
 OLD_REV=6b4cb3b
 P=$REPO/work/old32/patches/1.2.6
 if [ ! -f "$P/0030-flashnext-the-1.2.6-integration-tail-draft-tile-knobs.patch" ]; then
-  mkdir -p "$REPO/work/old32" && git -C "$(cygpath -m "$REPO")" archive "$OLD_REV" patches/1.2.6 | tar -x -C "$REPO/work/old32" || { echo "rung $K: cannot extract the old series from $OLD_REV"; exit 2; }
+  # tar here can be Windows tar, which does not take a /c/ path: extract from inside the directory. The two -c
+  # settings keep git archive from writing every line with CRLF on Windows, which no patch survives.
+  mkdir -p "$REPO/work/old32" && ( cd "$REPO/work/old32" && git -C "$(cygpath -m "$REPO")" -c core.autocrlf=false -c core.eol=lf archive "$OLD_REV" patches/1.2.6 | tar -x ) || { echo "rung $K: cannot extract the old series from $OLD_REV"; exit 2; }
+  [ -f "$P/0030-flashnext-the-1.2.6-integration-tail-draft-tile-knobs.patch" ] || { echo "rung $K: the old series is not in $P"; exit 2; }
 fi
 T=/c/Users/Adam/Gitea/tf-lc
 cd "$T" || exit 1

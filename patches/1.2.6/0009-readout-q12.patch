@@ -1,5 +1,5 @@
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index f58c28b1..f851651a 100644
+index f58c28b1f58267ae0fe74aea39e2047125eeaa33..f851651a30b3789307f360d49a882ca2118b4828 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -7,12 +7,13 @@
@@ -48,7 +48,7 @@ index f58c28b1..f851651a 100644
  template __global__ void reduce_kernel<false>(const float* __restrict__, void* __restrict__, long long, int, float);
  
 diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
-index 716ddc51..634b6c08 100644
+index 716ddc5178cc3dc11bf8ef0dbb474bbf7820fdbc..634b6c08d8a236de8c5d5a1d6b63dad12b8a4aaa 100644
 --- a/zig/kernels/cuda/qmmf_body.cuh
 +++ b/zig/kernels/cuda/qmmf_body.cuh
 @@ -117,6 +117,9 @@
@@ -91,7 +91,7 @@ index 716ddc51..634b6c08 100644
                      else mma(d[i][j], a[i], b0, b1);
 diff --git a/zig/kernels/cuda/qmmf_q12.cuh b/zig/kernels/cuda/qmmf_q12.cuh
 new file mode 100644
-index 00000000..818e2aec
+index 0000000000000000000000000000000000000000..818e2aec0f184e1ae1c7de217b755bcb3967c551
 --- /dev/null
 +++ b/zig/kernels/cuda/qmmf_q12.cuh
 @@ -0,0 +1,106 @@
@@ -203,7 +203,7 @@ index 00000000..818e2aec
 +}  // namespace tf_qmmf_q12
 diff --git a/zig/src/cuda/qmmf_q12.zig b/zig/src/cuda/qmmf_q12.zig
 new file mode 100644
-index 00000000..769f47ee
+index 0000000000000000000000000000000000000000..769f47ee78a60d69dc2ce8cb8668ec8c6f377df0
 --- /dev/null
 +++ b/zig/src/cuda/qmmf_q12.zig
 @@ -0,0 +1,291 @@
@@ -499,7 +499,7 @@ index 00000000..769f47ee
 +    try testing.expectEqual(@as(u8, 2), slot[8].j);
 +}
 diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
-index b6476817..fceaa7ca 100644
+index b6476817f2b73ad60dd0a6c9e1b5f986c248dff7..fceaa7ca681438a8393ad5b26c386e8d03e06f2b 100644
 --- a/zig/src/cuda/root.zig
 +++ b/zig/src/cuda/root.zig
 @@ -36,6 +36,7 @@ pub const aot = @import("aot.zig");
@@ -519,7 +519,7 @@ index b6476817..fceaa7ca 100644
      _ = @import("fp8.zig");
      _ = @import("mxfp8.zig");
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 303cc017..5e52a1af 100644
+index 303cc0174c9a5cece4f3a6897ec9af037dac758b..5e52a1afd73bd8e01fa2f6404d9f2683ededa8cb 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -104,9 +104,9 @@ pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
@@ -535,7 +535,7 @@ index 303cc017..5e52a1af 100644
      try pass.tri.hcDenseMix(s.hc_up, norm, s.mixed + r0 * dims * 2, s.xsm + r0 * (dims / 32) * 4, n, dims, streams);
  }
 diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
-index 548a10b6..176bc29c 100644
+index 548a10b6cccf0f9b64a7910386a6165660c5e1fd..176bc29c98ac3eaf3037e109193343c01511600c 100644
 --- a/zig/src/families/flashnext/cuda_batch_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
 @@ -67,6 +67,8 @@ pub const Kernels = struct {
@@ -571,7 +571,7 @@ index 548a10b6..176bc29c 100644
          const v = std.c.getenv("TF_FLASHNEXT_PROFILE") orelse return false;
 diff --git a/zig/src/families/flashnext/cuda_hc_q12.zig b/zig/src/families/flashnext/cuda_hc_q12.zig
 new file mode 100644
-index 00000000..50d7befd
+index 0000000000000000000000000000000000000000..50d7befd80c87e7f4b23e432e58ef16b96b79af4
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_hc_q12.zig
 @@ -0,0 +1,105 @@
@@ -681,7 +681,7 @@ index 00000000..50d7befd
 +    }
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index e2a86eb1..f4ea0459 100644
+index e2a86eb18b6677dd52016c50596bca160f413921..f4ea04598f2c4d67ca27c9bcec88eb908b147cb5 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -12,6 +12,7 @@ const pocket = @import("cuda_pocket.zig");
@@ -704,7 +704,7 @@ index e2a86eb1..f4ea0459 100644
          e.scores = null;
          e.chunk = chunk;
 diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
-index 423194ba..f1314ffe 100644
+index 423194ba607eb41fec72809a1d0c90d7e308310b..f1314ffea4fa045f85a03ddd802660ec0e174733 100644
 --- a/zig/src/families/flashnext/cuda_prompt_wt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
 @@ -349,11 +349,16 @@ pub const HcW = struct {

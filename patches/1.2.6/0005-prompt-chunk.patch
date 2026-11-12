@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 20af52a8..d4164037 100644
+index 2042bac0cdc8dc7f1a87e019b35aeb7c8a720d6d..3eec8e2f3105318edddf31fed5ce740d17b85e3b 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -122,6 +122,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -123,6 +123,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - GLM on CUDA: an empty or whitespace-only value of a setting its start checks (`TF_GLM_MM`, `TF_GLM_PROMPT_TAIL`, `TF_GLM_L2PF` and every other name `Settings.read` reads) now means unset, as `docs/environment.md` says of every variable, instead of stopping the start; `TF_GLM_ROCE_MULTI=1` with a blank `TF_TP_MASTER` or `TF_TP_KERNEL_IMAGE` is refused by name, at TP=2 too, as an unset one already was (#2636, follows #2487, refs #2591). Thanks to @Bizuayeu.
  
@@ -12,7 +12,7 @@ index 20af52a8..d4164037 100644
  
  - Flash Next on CUDA: a verify window's and a shared pass's graph keys now hash every buffer of a stream's tables (states, conv windows, caches, the n-gram tail and the page table), not its first state and cache alone, so a layer whose buffers move alone gets a new key; nothing changes on today's placement, where every state moves together (#2577, part of #2444). Thanks to @jschmied.
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index 4460b833..1a4aac80 100644
+index 4460b8338bc05745c46622c2d97f0764cbe279b8..1a4aac801dfb40f7fa963498f786f29b2f8882dc 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -243,4 +243,141 @@ BF16_K32(true)
@@ -158,7 +158,7 @@ index 4460b833..1a4aac80 100644
 +TF_PROMPT_MX(tf_qmmf_prompt_mx_bf16, 128, 128, 2, 4, 3, false)
 +TF_PROMPT_MX(tf_qmmf_prompt_mx_f32, 128, 128, 2, 4, 3, true)
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 559f8db0..4e920db8 100644
+index 559f8db0998de5d711b289fe65aa5e4d9a4e59c9..4e920db81d03338af529bdf1e6bff58fc0cbec82 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
 @@ -137,9 +137,13 @@ pub const reduce_symbols = [2][:0]const u8{
@@ -226,7 +226,7 @@ index 559f8db0..4e920db8 100644
  
      /// The actual prompt selection: loaded tiles, the pinned slice plan, and blocks over half the SMs.
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 43ecb27c..0d0e0670 100644
+index 43ecb27c5d985b35b6c0281ae54a903a3ac1d249..0d0e0670cc1770a574fc5e689095a373850747c2 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -131,7 +131,7 @@ pub fn Pass(comptime Tri: type) type {
@@ -251,7 +251,7 @@ index 43ecb27c..0d0e0670 100644
      try std.testing.expect(Scratch.bytes(4096, .{ .lane_reduce = false }) < Scratch.bytes(4096, .{}));
  }
 diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
-index 439ac8c2..ec3e9034 100644
+index 439ac8c25b82be5efbb1f97d68ff23a4df549de3..ec3e9034d3c4901d958954bb675bf7f94c0a86c1 100644
 --- a/zig/src/families/flashnext/cuda_batch_state.zig
 +++ b/zig/src/families/flashnext/cuda_batch_state.zig
 @@ -54,7 +54,7 @@ pub const attn_lanes: usize = 32;
@@ -264,7 +264,7 @@ index 439ac8c2..ec3e9034 100644
  pub const max_chunk: usize = 16384;
  const ratio = wt.index_ratio;
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index d43fb985..c67916aa 100644
+index d43fb985771cb52a5daaf39768ef36a7d6fa428a..c67916aa853ff5a38d1d37e1ad26486fe97f3a3a 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -1,5 +1,5 @@
@@ -290,7 +290,7 @@ index d43fb985..c67916aa 100644
 +    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index c132f3a6..5b782363 100644
+index c132f3a68b5e4f27c7aee0654f3accbeb81ef22b..5b782363599431d231c8e8790e0d7f489cf1fbc4 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -11,6 +11,7 @@ const fb = @import("cuda_fn_back.zig");
@@ -321,7 +321,7 @@ index c132f3a6..5b782363 100644
      }
      /// A stream's window in a shared pass and the pass over several (cuda_prompt_windows.zig).
 diff --git a/zig/src/families/flashnext/cuda_tiles.zig b/zig/src/families/flashnext/cuda_tiles.zig
-index b62e0e79..3fb18668 100644
+index b62e0e79fd9d4a3aafebd845f64a6c4238ba9a18..3fb1866832502c9d484ddca0eab72abd5df80545 100644
 --- a/zig/src/families/flashnext/cuda_tiles.zig
 +++ b/zig/src/families/flashnext/cuda_tiles.zig
 @@ -31,15 +31,15 @@ fn sweepOf(m: usize, bm: usize, k: usize) usize {
@@ -345,7 +345,7 @@ index b62e0e79..3fb18668 100644
          try stream.d.check(stream.d.api.cuMemsetD8Async(part + bytes, 0, bytes, stream.handle), "cuMemsetD8Async");
          return 2;
 diff --git a/zig/src/native/cuda_startup_test.zig b/zig/src/native/cuda_startup_test.zig
-index 1a7d265a..a9630daa 100644
+index 1a7d265a8104fcb070e577b511d292d61bbe0af7..a9630daaef9e1829ee9382878b0a755b2ade1125 100644
 --- a/zig/src/native/cuda_startup_test.zig
 +++ b/zig/src/native/cuda_startup_test.zig
 @@ -50,7 +50,7 @@ fn check(value: ?[:0]const u8, comptime rows: u32) !void {
@@ -358,7 +358,7 @@ index 1a7d265a..a9630daa 100644
  
  test "CUDA startup: Flash Next chunk 4096 reports the stored pass" {
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index d7bdb86a..65f38824 100644
+index d7bdb86aa7867340ecced27c4bacdaa5ba09e2a8..65f38824fb361a5f6f2b9a0d7329cabf4e0aaab2 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -55,6 +55,8 @@ pub const rules = [_]Rule{
@@ -371,10 +371,10 @@ index d7bdb86a..65f38824 100644
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index ad37bf59..e5d08934 100644
+index cf2f54856c092bfb93c739ad2439a55e247ba214..bc02a72ccab4c1aebd7d65f0ded5e068d9a53acc 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -108,6 +108,9 @@ const valid = [_]Case{
+@@ -110,6 +110,9 @@ const valid = [_]Case{
      .{ .name = "TF_SLIDE_FIT_GIB", .raw = "4", .n = 4 },
      .{ .name = "TF_SLIDE_POCKET_DUMP", .raw = "/tmp/pocket rows", .n = 0 },
      .{ .name = "TF_SLIDE_FORGET_FAIL", .raw = " 0 ", .n = 0 },

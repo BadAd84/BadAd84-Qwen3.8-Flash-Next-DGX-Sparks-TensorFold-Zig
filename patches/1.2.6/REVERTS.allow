@@ -12,6 +12,7 @@
 0003	zig/src/families/flashnext/cuda_lanes_load.zig	} else if (o.drafts and o.tp == 2) stream_bytes += mtp.Draft.bytes(window, 1, own.engine.chunk, own.engine.heads);	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
 0003	zig/src/families/flashnext/cuda_lanes_load.zig	if (o.vision) |v| stream_bytes += @as(usize, v.image_tokens) * @import("cuda_prompt_wt.zig").dims * 2 + 16 * o.context;	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
 0003	zig/src/families/flashnext/cuda_media.zig	const f = if (pg.pt != 0) v.prep_paged else v.prep;	the paged-or-plain choice moved into View.attn, in front of attnWith
+0003	zig/src/families/flashnext/cuda_snap.zig	pub fn order(at: usize, head: bool, h: Heads) struct { p: [11]Piece, len: usize } {	the same function with the named return type Order, which orderFor returns too
 0004	zig/src/families/flashnext/cuda_batch.zig	thread = null;	gather_log.join joins the thread and returns null
 0005	zig/src/families/flashnext/cuda_tiles.zig	try k.nativeMatmul(stream, x, w.k, m, native, out, native_part, .bf16);	kept as the else branch of the prompt-tile choice on the same line
 0005	zig/src/families/flashnext/cuda_tiles.zig	try k.nativeMatmul(stream, x, w.k, m, native, part, native_part, .f32);	kept as the else branch of the prompt-tile choice on the same line

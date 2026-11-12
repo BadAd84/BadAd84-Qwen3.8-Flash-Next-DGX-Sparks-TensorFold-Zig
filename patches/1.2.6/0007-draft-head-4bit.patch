@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index a914eb49..59e7dc6b 100644
+index 38a6df647b0bdc7fda9bac219a0561560d4f5b7a..ba9c04f6e92325af3a8b50589edcce30fe85c5ed 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -5,6 +5,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -11,7 +11,7 @@ index a914eb49..59e7dc6b 100644
  ## 1.2.6
  
 diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
-index dc53927c..2a3539ee 100644
+index dc53927c352e7ec3eacc13b1063cc89c62e335c8..2a3539eecb2b8722698fb8648f3a5b08fe6735f8 100644
 --- a/zig/src/families/flashnext/cuda_mtp_draft.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
 @@ -375,3 +375,7 @@ test "the saved pieces follow one another at the model's heads, and the spares h
@@ -23,7 +23,7 @@ index dc53927c..2a3539ee 100644
 +    try std.testing.expectEqual(.affine4, @import("cuda_mtp_load.zig").default_mode);
 +}
 diff --git a/zig/src/families/flashnext/cuda_mtp_load.zig b/zig/src/families/flashnext/cuda_mtp_load.zig
-index 37062a69..0a911ba4 100644
+index 37062a694cd8b2fdd5ca7d891de377b10f0a85a6..0a911ba4f055f3edf273b5ec008a8c2ae5ef72ef 100644
 --- a/zig/src/families/flashnext/cuda_mtp_load.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_load.zig
 @@ -6,8 +6,10 @@ const core = @import("core");

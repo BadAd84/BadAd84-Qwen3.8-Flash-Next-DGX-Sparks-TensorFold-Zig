@@ -19,7 +19,8 @@ for spec in "$@"; do
   name=${spec%%:*}; cum=${spec#*:}
   tree=$(snap "$T" "$(cygpath -m "$cum")") || { echo "FAIL applying $cum"; exit 2; }
   n=$((n+1)); f=$(printf '%s/%04d-%s.patch' "$OUT" "$n" "$name")
-  git diff --binary "$prev" "$tree" > "$f"
+  # full blob ids: the abbreviation git picks grows with the repository, and a three-way apply reads them
+  git diff --binary --full-index "$prev" "$tree" > "$f"
   printf '%04d-%s.patch  %s lines  %s files\n' "$n" "$name" "$(wc -l < "$f")" "$(grep -c '^diff --git' "$f")"
   prev=$tree
 done

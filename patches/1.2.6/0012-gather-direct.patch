@@ -1,5 +1,5 @@
 diff --git a/zig/src/core/direct_io.zig b/zig/src/core/direct_io.zig
-index d61c9cdc..bebb0037 100644
+index d61c9cdcd9a52fa6fb6b33674c10b8ab4d9efa1d..bebb00370525b9839728fef80ddaf96cb378b6dd 100644
 --- a/zig/src/core/direct_io.zig
 +++ b/zig/src/core/direct_io.zig
 @@ -40,6 +40,13 @@ pub const File = struct {
@@ -17,7 +17,7 @@ index d61c9cdc..bebb0037 100644
      pub fn read(f: File, buf: Buffer, offset: u64, len: usize) ![]u8 {
          var ignored: u8 = 0;
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index f08f8e85..134a8e5f 100644
+index f08f8e85ba05867b35c846a844dee6deba8abc4d..134a8e5f68c923f4a79d849e7c96c775cc69df39 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -7,6 +7,11 @@ pub fn gatherRead() sys.environment.Error!bool {
@@ -33,7 +33,7 @@ index f08f8e85..134a8e5f 100644
  pub fn gatherThreads() sys.environment.Error!usize {
      return sys.environment.read(usize, "TF_FLASHNEXT_GATHER_THREADS", 128);
 diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
-index ca70d12d..303f9aa4 100644
+index ca70d12dcc481a7c9f02cd7d972cb77636ca3e84..303f9aa4985ad7853d4c22bc083f33785f5094cd 100644
 --- a/zig/src/families/flashnext/cuda_ple_cache.zig
 +++ b/zig/src/families/flashnext/cuda_ple_cache.zig
 @@ -72,8 +72,9 @@ pub const Reader = struct {
@@ -48,7 +48,7 @@ index ca70d12d..303f9aa4 100644
          }
          const own_shards = try gpa.dupe(Shard, shards);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 8b307e76..4eb4a2bb 100644
+index 8b307e765a7b14455b255ba951ce5b37bbbd69cf..4eb4a2bb03d1fceb6eedbf93042b13a30d1af195 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -50,6 +50,7 @@ pub const rules = [_]Rule{
@@ -60,11 +60,11 @@ index 8b307e76..4eb4a2bb 100644
      .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to one slot)" },
      .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index d9f67e40..b6acf8d9 100644
+index c2d65a1b6da5c8283774a463b8243e9f5e711516..59dd845f1d02c0e35dbab4aea3255e25442fe061 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -67,6 +67,8 @@ const valid = [_]Case{
-     .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
+@@ -69,6 +69,8 @@ const valid = [_]Case{
+     .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "1", .n = 1 },
      .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "0", .n = 0 },
      .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "pread", .n = 1 },
 +    .{ .name = "TF_FLASHNEXT_GATHER_DIRECT", .raw = "1", .n = 1 },

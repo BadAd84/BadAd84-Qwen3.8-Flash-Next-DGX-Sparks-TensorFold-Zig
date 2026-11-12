@@ -10,7 +10,8 @@ LADDER="0005:rows 0006:copy-resync 0012:kv8 0015:ngram-row-cache 0017:prompt-chu
 specs=""
 for item in $LADDER; do
   K=${item%%:*}; name=${item#*:}
-  ( set -- "$K"; . "$REPO/scripts/qwen38/zig/target/mkrung.sh" ) | tail -1
+  line=$( ( set -- "$K"; . "$REPO/scripts/qwen38/zig/target/mkrung.sh" ) 2>&1 | tail -1 ); echo "$line"
+  case "$line" in "rung $K: "*" old patches, "*) ;; *) echo "mkladder: rung $K did not build: stop"; return 2 2>/dev/null || exit 2 ;; esac
   ( cd "$T" && git ls-files --others --exclude-standard -z | xargs -0 -r git add -N -- && git diff --binary > "$(cygpath -m "$OUT/rungs/r$K.patch")" && git reset -q )
   specs="$specs $name:$OUT/rungs/r$K.patch"
 done

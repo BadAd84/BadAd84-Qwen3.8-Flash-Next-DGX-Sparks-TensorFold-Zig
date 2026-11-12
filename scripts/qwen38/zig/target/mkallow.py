@@ -17,6 +17,7 @@ RULES = [
     ("kv8", "cuda_glue.zig", "", "the kernel choice and the launch moved into attnChunksOn, shared with the fp8 cache's kernels"),
     ("kv8", "cuda_lanes_load.zig", "", "the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format"),
     ("kv8", "cuda_media.zig", "", "the paged-or-plain choice moved into View.attn, in front of attnWith"),
+    ("kv8", "cuda_snap.zig", "pub fn order(", "the same function with the named return type Order, which orderFor returns too"),
     ("ngram-row-cache", "cuda_batch.zig", "thread = null", "gather_log.join joins the thread and returns null"),
     ("ngram-row-cache", "cuda_ple.zig", "read_mode", "the row cache goes in front; the reader choice is kept as the else branch on the next line"),
     ("prompt-chunk", "cuda_tiles.zig", "nativeMatmul", "kept as the else branch of the prompt-tile choice on the same line"),

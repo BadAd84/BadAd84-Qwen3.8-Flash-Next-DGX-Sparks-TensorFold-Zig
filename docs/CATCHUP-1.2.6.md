@@ -434,6 +434,27 @@ can differ from stock's, the same trade production's `fast-fp8` copy makes. Its 
 code within an eighth of its weight, no saturation) runs in the family's suite and was proven to fail on a planted
 defect before it was trusted.
 
+Measured on one binary (`gm21`, bf16, 131,072, `mx.sh`), aggregate tok/s prose / code:
+
+| streams | off | on | change |
+|---:|---|---|---|
+| 1 | 61.5 / 81.4 | 63.7 / 86.7 | +3.5% / +6.5% |
+| 4 | 113.1 / 166.2 | 116.7 / 175.1 | +3.1% / +5.3% |
+
+Golden 6/6 with it on, but the 512-token replies take a different number of rounds (149 against 146 prose, 91
+against 89 code), so the tokens differ somewhere and the lever is not exact: it ships only on the owner's word and
+is not in the series (`work/ladder/rungs/gm21.patch`). The cold 32k prompt does not move. With it on, the kernel
+log's round is 58.57 ms in 1,573 launches against 62.6 ms in 1,586 with it off (`mxk.sh`, image `gmk21`), and the
+round log's verify forward is 46.4 ms against 49.8 on prose and 53.2 against 54.6 on code.
+
+**Half tiles for the up read-out: no gain, not kept.** The engine already runs a decode projection on its 32-column
+tile when the launch covers fewer than 96 blocks of 64 output columns (`TF_QMMF_HALF_BELOW`, a name the recipe does
+not pass into the container). `TF_FLASHNEXT_HALF_BELOW=N` (image `gmh21`, `halfk.sh`) sets the same threshold
+under a name that reaches it; the up read-out is 10,240 columns, 160 blocks a row, and runs at 71 GB/s where the
+mixers reach 139 to 186. One stream: unset 61.8 / 81.6, N=161 61.5 / 81.8, N=400 61.5 / 81.4; four streams: unset
+113.4 / 166.4, N=161 113.2 / 166.8. The kernel log's round is 62.73 ms at N=161 and 62.98 ms at N=400, against
+62.6 ms unset. The read-out's rate is not a tile-width effect.
+
 ### The series as it now stands in `patches/1.2.6`
 
 The 32 old patches are replaced by 13, one lever each, cut from the rung trees with the repairs in place

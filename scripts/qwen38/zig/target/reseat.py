@@ -113,7 +113,7 @@ def main() -> int:
             git(tree, "add", "--", *others)
         git(tree, "add", "-u")
         now = git(tree, "write-tree").strip()
-        diff = subprocess.run(["git", "diff", "--binary", prev, now], cwd=tree, capture_output=True).stdout
+        diff = subprocess.run(["git", "diff", "--binary", "--full-index", prev, now], cwd=tree, capture_output=True).stdout
         with open(os.path.join(out, name), "wb") as f:
             f.write(diff)
         print(f"{name}: seated ({three} files by three-way{resolved})")

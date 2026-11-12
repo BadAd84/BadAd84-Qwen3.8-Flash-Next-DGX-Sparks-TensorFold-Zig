@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 3370036c..4598debf 100644
+index 3370036cd3484f0e9295facac44030bbb4e4cfb4..4598debfcb311c32fdeb0a9ad6275cbb748aa2ca 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -2,6 +2,10 @@
@@ -14,7 +14,7 @@ index 3370036c..4598debf 100644
  
  - Prompt cache: long conversations survive 8 to 16 agents sending follow-ups at once. Redundant states are evicted before each conversation's newest one, admission never evicts a state a queued request resumes, concurrent keeps reserve their room, and the default budget scales with the room left after streams on Metal and unified-memory CUDA (discrete CUDA hosts keep 8 GiB, Flash Next's batch host 16 GiB). On Qwen3.8-27B with DFlash2 at 16 agents, a follow-up's median first token drops from 546 s to 15.9 s on an M3 Ultra and from 105 s to 25.8 s on a GB10, with every reply unchanged (#2699).
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index bd1b87e6..279f6e32 100644
+index bd1b87e63fba10621062a1dc4d579dcf811bad7c..279f6e32baed678f6df5455d719095101ac9bad9 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -257,8 +257,8 @@ pub fn Pass(comptime Tri: type) type {
@@ -29,7 +29,7 @@ index bd1b87e6..279f6e32 100644
              if (fused and keep.log != 0) return error.UnexpectedTensor;
              if (fused) {
 diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
-index ee6c4ff3..7f364c17 100644
+index ee6c4ff3d0d486610ac27b1832cdec28c771107d..7f364c1796a64766729db62cbb2f0fb3c4020277 100644
 --- a/zig/src/families/flashnext/cuda_lanes.zig
 +++ b/zig/src/families/flashnext/cuda_lanes.zig
 @@ -226,11 +226,11 @@ pub fn Namespace(comptime Tri: type) type {
@@ -56,7 +56,7 @@ index ee6c4ff3..7f364c17 100644
                      row_ids[wi][0] = w.pending;
                      @memcpy(row_ids[wi][1..rows], w.tokens);
 diff --git a/zig/src/families/flashnext/cuda_lanes_load.zig b/zig/src/families/flashnext/cuda_lanes_load.zig
-index d2244eb5..66af6d13 100644
+index d2244eb5d3d5fde08129701d570a599801d0b7ac..66af6d13ff3fb3fe068edbdef1a959ccc0a067f0 100644
 --- a/zig/src/families/flashnext/cuda_lanes_load.zig
 +++ b/zig/src/families/flashnext/cuda_lanes_load.zig
 @@ -88,6 +88,16 @@ pub fn open(comptime F: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const cu
@@ -86,7 +86,7 @@ index d2244eb5..66af6d13 100644
          .stream_bytes = stream_bytes,
          .ctx = own,
 diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
-index 8179a0f6..91bace57 100644
+index 8179a0f6620b51c7b530b217af8bd0220728925a..91bace57f352c341404688a5fd40080b8ce02dc4 100644
 --- a/zig/src/families/flashnext/cuda_mtp.zig
 +++ b/zig/src/families/flashnext/cuda_mtp.zig
 @@ -80,8 +80,15 @@ test "the stop rule: per draft above zero, the running product below it, every d
@@ -117,7 +117,7 @@ index 8179a0f6..91bace57 100644
      try std.testing.expectEqual(@as(usize, 6), default_depth);
      try std.testing.expect(default_depth <= max_chain);
 diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
-index 3cef40b1..60fde540 100644
+index 3cef40b1eef4181871136e4fef8b37cdb56a40de..60fde540d359b8658b9e02b5a55f67107dd7e6c5 100644
 --- a/zig/src/families/flashnext/cuda_mtp_check.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_check.zig
 @@ -163,6 +163,89 @@ pub fn check(comptime Tri: type, gpa: std.mem.Allocator, io: std.Io, driver: *cu
@@ -211,7 +211,7 @@ index 3cef40b1..60fde540 100644
  fn resetSeq(seq: *prompt.Seq, stream: cuda.Stream) !void {
      for (seq.conv) |*b| try b.fill8(0, stream.handle);
 diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
-index 34d045c7..dc53927c 100644
+index 34d045c7c52b798f9c05f29e6b15010dcee7e6fc..dc53927c352e7ec3eacc13b1063cc89c62e335c8 100644
 --- a/zig/src/families/flashnext/cuda_mtp_draft.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
 @@ -348,30 +348,30 @@ test "a draft at 65,536 tokens and 1,536-row chunks: the head's cache whole, sav
@@ -259,7 +259,7 @@ index 34d045c7..dc53927c 100644
 +    try std.testing.expectEqual(@as(usize, 40_570_880), Draft.Layout.of(.half).saved);
  }
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index 8db75e3f..566c177d 100644
+index 8db75e3f27cbe3b62ebf6ec5b99affdfd14d3275..566c177d1865e7c21a563a410d6d396d4555b880 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -352,7 +352,7 @@ pub fn Ops(comptime Tri: type) type {
@@ -281,7 +281,7 @@ index 8db75e3f..566c177d 100644
                  if (!d.layout.heads.eql(seq.heads)) return error.DraftHeads;
              }
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 02263298..0493e501 100644
+index 022632984d587a5042f121299ce706b1090fd90a..0493e501bc4aa6dbb633ea8bc3ad2e1578edaa90 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -46,6 +46,7 @@ pub const rules = [_]Rule{
@@ -292,3 +292,16 @@ index 02263298..0493e501 100644
      .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index 1148f748d0afc31d1fb32f59bf9b8efe227bf939..859c029c44a5c58f41492b1f2f029e6c71ec9e51 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -61,6 +61,8 @@ const valid = [_]Case{
+     .{ .name = "TF_DRAFT_NODES", .raw = "0", .n = 0 },
+     .{ .name = "TF_DRAFT_NODES", .raw = "64", .n = 64 },
+     .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "1", .n = 1 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "0", .n = 0 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
+     .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },

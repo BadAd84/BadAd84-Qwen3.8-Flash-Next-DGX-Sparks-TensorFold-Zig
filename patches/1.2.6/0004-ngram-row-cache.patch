@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 287108a2..20af52a8 100644
+index 0bda9bd4aeed5fd64b0801ab2776760206fd8897..2042bac0cdc8dc7f1a87e019b35aeb7c8a720d6d 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -8,6 +8,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -13,7 +13,7 @@ index 287108a2..20af52a8 100644
  - Prompt cache: long conversations survive 8 to 16 agents sending follow-ups at once. Redundant states are evicted before each conversation's newest one, admission never evicts a state a queued request resumes, concurrent keeps reserve their room, and the default budget scales with the room left after streams on Metal and unified-memory CUDA (discrete CUDA hosts keep 8 GiB, Flash Next's batch host 16 GiB). On Qwen3.8-27B with DFlash2 at 16 agents, a follow-up's median first token drops from 546 s to 15.9 s on an M3 Ultra and from 105 s to 25.8 s on a GB10, with every reply unchanged (#2699).
  
  - Evidence index: reads saved native capabilities, including unknown and XPU chip labels; advertised facts stay unqualified, and invalid supplied input stops with a bounded error (#2708).
-@@ -93,6 +97,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -94,6 +98,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
    one rank, our own glue, not with `--slide`, a captured set, the KV pages or `--learn-conversations`. The indexer's keys,
    pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
    kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
@@ -22,7 +22,7 @@ index 287108a2..20af52a8 100644
  
  - Qwen3.8-27B on Metal: after a sampled or grammar-masked verify, only the drafter's taps and head row are waited for; the target's keep follows on the same queue and is settled before the next verify, so the drafter starts sooner, with every token unchanged. One stream sampled with DFlash2 on an M3 Ultra: chat 75.3 to 77.0 tok/s, code 106.8 to 109.8 (#2646). Thanks to @mrv777.
 diff --git a/docs/recipes/flash-next-cuda.md b/docs/recipes/flash-next-cuda.md
-index 4e400e5c..aadff9e0 100644
+index 36e53b5f73fb97cb73b027d7626683be753c8225..631fa172481bb21818c1f7a222ed171c9d74788a 100644
 --- a/docs/recipes/flash-next-cuda.md
 +++ b/docs/recipes/flash-next-cuda.md
 @@ -62,6 +62,15 @@ On Linux these rows use positional reads by default; `TF_FLASHNEXT_PLE_IO=mmap`
@@ -42,7 +42,7 @@ index 4e400e5c..aadff9e0 100644
  
  Raw completion prompts of at least 16 tokens gain a kept end mark after they have been served once, when the
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index c0f25e72..43ecb27c 100644
+index c0f25e7295e63a4f8479a596f77caff7565b78e8..43ecb27c5d985b35b6c0281ae54a903a3ac1d249 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -93,6 +93,7 @@ pub const scoreBytes = parts.scoreBytes;
@@ -65,7 +65,7 @@ index c0f25e72..43ecb27c 100644
                      if (!self.staged) {
 diff --git a/zig/src/families/flashnext/cuda_batch_gather_log.zig b/zig/src/families/flashnext/cuda_batch_gather_log.zig
 new file mode 100644
-index 00000000..b806a38e
+index 0000000000000000000000000000000000000000..b806a38e5563b6173d35a4dd28f1550bd4c2a66c
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_batch_gather_log.zig
 @@ -0,0 +1,34 @@
@@ -104,7 +104,7 @@ index 00000000..b806a38e
 +    return null;
 +}
 diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
-index 3c06ccc5..439ac8c2 100644
+index 3c06ccc590929cc94dd1387e4915011d3c9cbbdd..439ac8c25b82be5efbb1f97d68ff23a4df549de3 100644
 --- a/zig/src/families/flashnext/cuda_batch_state.zig
 +++ b/zig/src/families/flashnext/cuda_batch_state.zig
 @@ -5,6 +5,7 @@ const cuda = @import("cuda");
@@ -124,7 +124,7 @@ index 3c06ccc5..439ac8c2 100644
          for (g.lanes) |l| {
              g.ngram.rows(l.seq.history[0..], g.ids[row0..][0..l.rows], g.emb[row0 * dims ..][0 .. l.rows * dims], g.xs[row0 * (dims / 32) ..][0 .. l.rows * (dims / 32)]) catch |err| {
 diff --git a/zig/src/families/flashnext/cuda_chunk.zig b/zig/src/families/flashnext/cuda_chunk.zig
-index 07c2c4ba..71059262 100644
+index 07c2c4ba61a83c0a2f98b247354e514d539089bf..7105926289bdd966159a3381df31cab4bcc1c025 100644
 --- a/zig/src/families/flashnext/cuda_chunk.zig
 +++ b/zig/src/families/flashnext/cuda_chunk.zig
 @@ -2,6 +2,7 @@
@@ -189,7 +189,7 @@ index 07c2c4ba..71059262 100644
 +}
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
 new file mode 100644
-index 00000000..d43fb985
+index 0000000000000000000000000000000000000000..d43fb985771cb52a5daaf39768ef36a7d6fa428a
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
 @@ -0,0 +1,43 @@
@@ -237,7 +237,7 @@ index 00000000..d43fb985
 +    return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_LOCK_SCALES", false);
 +}
 diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
-index 660a909b..5840b168 100644
+index 660a909b8e13c4b96dd312a3946bea85ee602f4d..5840b1683f1ce3ab1aed2b5b94b5f5f70d52342b 100644
 --- a/zig/src/families/flashnext/cuda_lanes.zig
 +++ b/zig/src/families/flashnext/cuda_lanes.zig
 @@ -7,6 +7,7 @@ const weights = @import("cuda_prompt_wt.zig");
@@ -279,7 +279,7 @@ index 660a909b..5840b168 100644
              }
          }
 diff --git a/zig/src/families/flashnext/cuda_lanes_draft.zig b/zig/src/families/flashnext/cuda_lanes_draft.zig
-index 73ca2271..7af46101 100644
+index 73ca22719639c58e14f07051baa51735e375f6f6..7af461010db3d15a3c12b0f667cd2026b65d8f1d 100644
 --- a/zig/src/families/flashnext/cuda_lanes_draft.zig
 +++ b/zig/src/families/flashnext/cuda_lanes_draft.zig
 @@ -4,6 +4,18 @@ const lanes = @import("lanes");
@@ -331,7 +331,7 @@ index 73ca2271..7af46101 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index 566c177d..aa337a29 100644
+index 566c177d1865e7c21a563a410d6d396d4555b880..aa337a2965ee394e017c72614e4943d3a8517ecc 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -12,6 +12,7 @@ const plan = @import("cuda_mtp_plan.zig");
@@ -405,7 +405,7 @@ index 566c177d..aa337a29 100644
              }
              _ = n_l;
 diff --git a/zig/src/families/flashnext/cuda_ple.zig b/zig/src/families/flashnext/cuda_ple.zig
-index b1a8921a..c539a275 100644
+index b1a8921aed52ca7e22f656e5e61eda57e0914a39..c539a275304ae9e3e05e78438d86226e187fd823 100644
 --- a/zig/src/families/flashnext/cuda_ple.zig
 +++ b/zig/src/families/flashnext/cuda_ple.zig
 @@ -6,16 +6,18 @@ const core = @import("core");
@@ -515,7 +515,7 @@ index b1a8921a..c539a275 100644
  }
 diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
 new file mode 100644
-index 00000000..ca70d12d
+index 0000000000000000000000000000000000000000..ca70d12dcc481a7c9f02cd7d972cb77636ca3e84
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_ple_cache.zig
 @@ -0,0 +1,444 @@
@@ -965,7 +965,7 @@ index 00000000..ca70d12d
 +};
 diff --git a/zig/src/families/flashnext/cuda_ple_cache_test.zig b/zig/src/families/flashnext/cuda_ple_cache_test.zig
 new file mode 100644
-index 00000000..8dd185e6
+index 0000000000000000000000000000000000000000..6aff9e5b4112b7882fb41e4c39d1b0e3a070e9ac
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_ple_cache_test.zig
 @@ -0,0 +1,207 @@
@@ -993,7 +993,7 @@ index 00000000..8dd185e6
 +    var want_hist = [_]i64{99};
 +    try g.rows(&want_hist, &tokens, &want, &want_xs);
 +
-+    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
 +    const rd = g.cache.?;
 +    var got: [513 * 32]u16 = undefined;
 +    var got_xs: [513]f32 = undefined;
@@ -1017,9 +1017,9 @@ index 00000000..8dd185e6
 +    // ahead: a fresh reader's cache filled by a chunk's read-ahead, then gathered with no read of the gather's own
 +    g.cache = null;
 +    rd.destroy();
-+    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
 +    const rd2 = g.cache.?;
-+    g.aheadChunk(&[_]i64{99}, tokens[0..300]);
++    ple_cache.aheadChunk(&g, &[_]i64{99}, tokens[0..300]);
 +    g.ahead_thread.?.join();
 +    g.ahead_thread = null;
 +    rd2.drain();
@@ -1116,7 +1116,7 @@ index 00000000..8dd185e6
 +    try gather(&g, &hist, tokens[100..190], small, xs);
 +    std.debug.print("mapped, 90 rows: {d:.2} ms\n", .{ms(io, t0)});
 +
-+    try ple_cache.open(&g, io);
++    g.cache = try ple_cache.open(&g, io);
 +    const rd = g.cache.?;
 +    hist = .{ g.hash.eos, g.hash.eos };
 +    t0 = std.Io.Clock.awake.now(io).toNanoseconds();
@@ -1131,7 +1131,7 @@ index 00000000..8dd185e6
 +    // read ahead of the second chunk, then its gather
 +    hist = .{ tokens[n - 2], tokens[n - 1] };
 +    t0 = std.Io.Clock.awake.now(io).toNanoseconds();
-+    g.aheadChunk(&hist, tokens[n..]);
++    ple_cache.aheadChunk(&g, &hist, tokens[n..]);
 +    g.ahead_thread.?.join();
 +    g.ahead_thread = null;
 +    std.debug.print("ahead of {d} rows asked: {d:.1} ms; ", .{ n, ms(io, t0) });
@@ -1178,7 +1178,7 @@ index 00000000..8dd185e6
 +}
 diff --git a/zig/src/families/flashnext/cuda_ple_gather_lanes.zig b/zig/src/families/flashnext/cuda_ple_gather_lanes.zig
 new file mode 100644
-index 00000000..bf2ab502
+index 0000000000000000000000000000000000000000..bf2ab5027e0937841ac9b37673703e41e3f4c5f6
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_ple_gather_lanes.zig
 @@ -0,0 +1,153 @@
@@ -1336,7 +1336,7 @@ index 00000000..bf2ab502
 +    for (parts, 0..) |q, k| @memcpy(q.history, hists[k][0..q.history.len]);
 +}
 diff --git a/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig b/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
-index 92efda97..15b0d239 100644
+index 92efda9719016be508b88b95ccb2d122b967a0f4..15b0d239a1223ba8e202c2492a17dc9176944594 100644
 --- a/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
 +++ b/zig/src/families/flashnext/cuda_ple_nvfp4_test.zig
 @@ -6,7 +6,7 @@ const a = std.testing.allocator;
@@ -1349,7 +1349,7 @@ index 92efda97..15b0d239 100644
          \\{"text_config":{"num_hidden_layers":2,"hidden_size":32,"vocab_size":100,"ple_layer_ids":[2],
          \\ "ngram_size":2,"heads_per_ngram":2,"ngram_vocab_size_base":13,"make_ngram_vocab_size_divisible_by":2,
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 8ae94fb4..c132f3a6 100644
+index 8ae94fb413f7ad4a5266a77928b1640d9d7e07cd..c132f3a68b5e4f27c7aee0654f3accbeb81ef22b 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -3,6 +3,7 @@ const std = @import("std");
@@ -1371,7 +1371,7 @@ index 8ae94fb4..c132f3a6 100644
              p.hooks.streams = if (hooks.streams != 0) hooks.streams + at * wide * 2 else 0;
              try p.chunk(ids[at..][0..n], seq.fed + at, if (last and hooks.logits != .none and hooks.host_logits) seq.logits else null);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 0493e501..d7bdb86a 100644
+index 0493e501bc4aa6dbb633ea8bc3ad2e1578edaa90..d7bdb86aa7867340ecced27c4bacdaa5ba09e2a8 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -47,6 +47,14 @@ pub const rules = [_]Rule{
@@ -1390,13 +1390,13 @@ index 0493e501..d7bdb86a 100644
      .{ .name = "TF_ROCE_GID_INDEX", .scope = .cuda, .kind = .u32, .forms = "a whole GID index from 0 to 2147483647" },
      .{ .name = "TF_GEMMA4_CHUNK_SOLO", .scope = .gemma4, .kind = .size, .forms = "a solo prompt pass's rows, a multiple of 512 up to 4096" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index 1148f748..ad37bf59 100644
+index 859c029c44a5c58f41492b1f2f029e6c71ec9e51..cf2f54856c092bfb93c739ad2439a55e247ba214 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
-@@ -61,7 +61,22 @@ const valid = [_]Case{
-     .{ .name = "TF_DRAFT_NODES", .raw = "0", .n = 0 },
-     .{ .name = "TF_DRAFT_NODES", .raw = "64", .n = 64 },
+@@ -63,7 +63,22 @@ const valid = [_]Case{
      .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "1", .n = 1 },
 +    .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "0", .n = 0 },
 +    .{ .name = "TF_FLASHNEXT_GATHER_READ", .raw = "pread", .n = 1 },
 +    .{ .name = "TF_FLASHNEXT_GATHER_THREADS", .raw = "0", .n = 0 },
@@ -1417,7 +1417,7 @@ index 1148f748..ad37bf59 100644
      .{ .name = "TF_ROCE_GID_INDEX", .raw = "2147483647", .n = 2147483647 },
      .{ .name = "TF_DRAMA_PREFILL_ROWS", .raw = " 128 ", .n = 128 },
 diff --git a/zig/tests/cuda/flashnext_mtp_parity_tests.zig b/zig/tests/cuda/flashnext_mtp_parity_tests.zig
-index 7566754b..a5536ea8 100644
+index 7566754b431bd2e7e1949996688fc2b7e3f7b397..a5536ea8dab5099a329f0ed2456d10bd6c137ffb 100644
 --- a/zig/tests/cuda/flashnext_mtp_parity_tests.zig
 +++ b/zig/tests/cuda/flashnext_mtp_parity_tests.zig
 @@ -114,7 +114,7 @@ fn shape(gpu: check.Gpu, e: *prompt.Engine, ops: mtp.Ops(flash.Tri), stream: *cu
