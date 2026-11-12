@@ -25,6 +25,39 @@ def wr(p: str, s: str) -> None:
 
 done: list[str] = []
 
+
+def sub(path: str, old: str, new: str, what: str) -> None:
+    s = rd(path)
+    eol = "\r\n" if "\r\n" in s else "\n"
+    o, n = old.replace("\n", eol), new.replace("\n", eol)
+    assert s.count(o) == 1, f"{what}: expected text found {s.count(o)} times in {path}"
+    wr(path, s.replace(o, n, 1))
+    done.append(what)
+
+
+# 0013 (the n-gram row cache) replaced Ngram.deinit's two base lines instead of adding to them: the table's warm
+# thread is no longer joined and the gather pool is never destroyed. Its hook in Ngram.fill also replaced the base's
+# reader choice instead of going in front of it: a row the cache had filled was gathered again from the mapping, a
+# row it had not went to the positional reader whatever TF_FLASHNEXT_PLE_IO said.
+if 13 <= K:
+    sub(
+        FN + "cuda_ple.zig",
+        "    pub fn deinit(g: *Ngram) void {\n        if (g.ahead_thread) |th| th.join();\n        if (g.cache) |c| c.destroy();\n",
+        "    pub fn deinit(g: *Ngram) void {\n        g.waitWarm();\n        if (g.ahead_thread) |th| th.join();\n"
+        "        if (g.pool) |p| p.destroy();\n        if (g.cache) |c| c.destroy();\n",
+        "ple: deinit joins the warm thread and destroys the pool again",
+    )
+    sub(
+        FN + "cuda_ple.zig",
+        "                .nvfp4, .fp8 => if (!try ple_cache.row(g, ids[i], loc, row))\n"
+        "                    try g.readers[loc.shard].read(g.gpa, loc.local, row)\n",
+        "                .nvfp4, .fp8 => if (try ple_cache.row(g, ids[i], loc, row)) {\n"
+        "                    // the row cache filled it\n"
+        "                } else if (g.read_mode == .pread)\n"
+        "                    try g.readers[loc.shard].read(g.gpa, loc.local, row)\n",
+        "ple: the row cache goes in front of the base's reader choice",
+    )
+
 # 0018 defines promptGemm2 twice; 0022 deletes one copy. Rungs 18..21 need the single definition.
 if 18 <= K:
     p = FN + "cuda_knobs.zig"
@@ -54,7 +87,7 @@ if 22 <= K:
         'const flashnext_kv8_tests = @import("flashnext_kv8_tests.zig");\n'
         'const flashnext_hc_fuse_tests = @import("flashnext_hc_fuse_tests.zig");\n',
         "23: @both\n": "    \\\\  flashnext-attn            Flash Next's own attention glue, pooling and block scores against float64 (synthetic)\n"
-        "    \\\\  flashnext-kv8             Flash Next's --kv-cache fp8 write against its format model and its reads against the bf16 kernels\n"
+        "    \\\\  flashnext-kv8             Flash Next's --kv-cache fp8 write against its format model and its reads against the bf16 kernels (synthetic)\n"
         "    \\\\  hc-fuse                   the fused native hyper-connection read-out against the five-launch chain: bytes, then times\n",
         "24: @both\n": '    if (std.mem.eql(u8, cmd, "flashnext-attn")) return flashnext_attn_tests.run(gpu);\n'
         '    if (std.mem.eql(u8, cmd, "flashnext-kv8")) return flashnext_kv8_tests.run(gpu);\n'
@@ -92,14 +125,6 @@ if 22 <= K:
 # Pass.chunk no longer stores its position, prefillChunk no longer records the prompt's last row (the first draft
 # then reads address 0), and the relaxed MX128 tile is back on by default (0017 had switched it off).
 if 22 <= K:
-    def sub(path: str, old: str, new: str, what: str) -> None:
-        s = rd(path)
-        eol = "\r\n" if "\r\n" in s else "\n"
-        o, n = old.replace("\n", eol), new.replace("\n", eol)
-        assert s.count(o) == 1, f"{what}: expected text found {s.count(o)} times in {path}"
-        wr(path, s.replace(o, n, 1))
-        done.append(what)
-
     sub(
         FN + "cuda_batch.zig",
         "            self.rows = n;\n            self.pending = null;\n            self.pending_f32 = false;\n            self.shared_direct = false;\n",

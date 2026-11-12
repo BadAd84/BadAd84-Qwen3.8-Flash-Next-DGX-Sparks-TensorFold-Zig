@@ -4,11 +4,12 @@
 # the pristine image, then the winners stacked, bracketed by baselines. bf16, 131,072 tokens.
 set -u
 cd ~/work/target || exit 1
-for i in $(seq 1 900); do [ -f STAGE3C-DONE ] && break; sleep 30; done
+for i in $(seq 1 1800); do [ -f STAGE3C-DONE ] && break; sleep 30; done
 export KV_DTYPE=bf16 CONTEXT=131072 NORESTORE=1
 IMG=tensorfold-qwen38:up126 bash ./patcheval.sh \
   "t2warm:" "t2base:" \
   "t2head4:TF_FLASHNEXT_DRAFT_HEAD=affine4" \
+  "t2pleio:TF_FLASHNEXT_PLE_IO=mmap" \
   "t2greedy12:TF_FLASHNEXT_DRAFTS_GREEDY=12" \
   "t2greedy16:TF_FLASHNEXT_DRAFTS_GREEDY=16" \
   "t2tablewarm:TF_FLASHNEXT_TABLE_WARM=1" \

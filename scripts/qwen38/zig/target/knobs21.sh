@@ -19,7 +19,7 @@ fi
 export NORESTORE=1
 NGOFF="TF_FLASHNEXT_GATHER_READ=0 TF_FLASHNEXT_DRAFT_AHEAD=0 TF_FLASHNEXT_GATHER_EARLY=0"
 bash ./copy_arm.sh "warm:up126:" "stock:up126:" "rows:stack126a:" "resync:r0006:" "kv8:rung2:" "ngram:rung3:" \
-  "ngoff:rung3:$NGOFF" "r21:$IMGTAG:" "r21ngoff:$IMGTAG:$NGOFF" "hc:f0025:" "all:f0032:" "stock2:up126:" > knobs21.copy.log 2>&1
+  "ngoff:rung3:$NGOFF" "acc:$IMGTAG:" "accngoff:$IMGTAG:$NGOFF" "hc:g25:" "all:g32:" "stock2:up126:" > knobs21.copy.log 2>&1
 KV_DTYPE=bf16 CONTEXT=131072 IMG=tensorfold-qwen38:$IMGTAG bash ./patcheval.sh \
   "k1warm:" "k1base:" \
   "k1ahead0:TF_FLASHNEXT_DRAFT_AHEAD=0" \

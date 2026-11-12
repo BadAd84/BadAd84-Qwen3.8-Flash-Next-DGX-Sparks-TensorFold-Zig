@@ -98,8 +98,9 @@ def main() -> int:
             per_file_added.setdefault(path, set()).update(a.strip() for a in add)
             per_file_removed.setdefault(path, set()).update(r.strip() for r in rem)
             todo.append((path, rem, add))
+        # a line the patch adds anywhere (the same file, or the file it moved to) is a move, not a removal
+        moved: set[str] = set().union(*per_file_added.values()) if per_file_added else set()
         for path, rem, add in todo:
-            moved = per_file_added.get(path, set())
             for r in rem:
                 s = r.strip()
                 if not code(r) or s in moved:
