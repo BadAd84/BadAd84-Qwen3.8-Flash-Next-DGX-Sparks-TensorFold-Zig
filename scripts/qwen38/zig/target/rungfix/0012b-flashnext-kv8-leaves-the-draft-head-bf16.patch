@@ -1,0 +1,109 @@
+--- a/zig/src/families/flashnext/cuda_lanes.zig
++++ b/zig/src/families/flashnext/cuda_lanes.zig
+@@ -307,8 +307,8 @@
+                 }
+                 if (drafting and from != .pool and l.part_seq != null) {
+                     l.part_draft = try Parts.take(&self.parts.drafts, self.engine.driver, mtp.Draft.partsBytes(self.head.?.ids.len, self.engine.chunk, self.engine.heads));
+-                    l.draft = try mtp.Draft.initParts(self.engine.kv, self.gpa, self.engine.driver, self.stream, cap, self.head.?.ids.len, self.engine.chunk, self.engine.heads, l.part_draft.?);
+-                } else if (drafting) l.draft = if (from == .pool) try self.kv.pool.?.draft(&l.seq, cap) else try mtp.Draft.initFor(self.engine.kv, self.gpa, self.engine.driver, self.stream, cap, self.head.?.ids.len, self.engine.chunk, self.engine.heads);
++                    l.draft = try mtp.Draft.initParts(self.gpa, self.engine.driver, self.stream, cap, self.head.?.ids.len, self.engine.chunk, self.engine.heads, l.part_draft.?);
++                } else if (drafting) l.draft = if (from == .pool) try self.kv.pool.?.draft(&l.seq, cap) else try mtp.Draft.init(self.gpa, self.engine.driver, self.stream, cap, self.head.?.ids.len, self.engine.chunk, self.engine.heads);
+                 if (s.images.len != 0) {
+                     const v = self.vision orelse return error.VisionNotEnabled;
+                     l.seq.media = try v.state(ids, s.images);
+--- a/zig/src/families/flashnext/cuda_lanes_load.zig
++++ b/zig/src/families/flashnext/cuda_lanes_load.zig
+@@ -160,8 +160,8 @@
+ pub fn streamBytes(kv: prompt.kv_format.Kv, window: usize, page_tokens: usize, head_ids: ?usize, chunk: usize, tp_head: bool, h: @import("cuda_heads.zig").Heads) !usize {
+     var n = if (kv == .bf16) try prompt.seqBytesPaged(window, page_tokens, h) else prompt.seqBytesFor(kv, window, h);
+     if (head_ids) |ids| {
+-        n += mtp.Draft.bytesFor(kv, window, ids, chunk, h);
+-    } else if (tp_head) n += mtp.Draft.bytesFor(kv, window, 1, chunk, h);
++        n += mtp.Draft.bytes(window, ids, chunk, h);
++    } else if (tp_head) n += mtp.Draft.bytes(window, 1, chunk, h);
+     return n;
+ }
+ 
+--- a/zig/src/families/flashnext/cuda_mtp_draft.zig
++++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
+@@ -55,8 +55,6 @@
+     pooled: cuda.DeviceBuffer,
+     /// The cache's pages (a pool lane's: its stream's, the layer after the model's), or contiguous.
+     pg: @import("cuda_glue.zig").Pg = .{},
+-    /// The format of kc and vc (the engine's --kv-cache).
+-    kv: @import("cuda_kv.zig").Kv = .bf16,
+     /// Entries the head's cache holds (Python mtp_len), the last `drafted` of them a chain's.
+     len: usize = 0,
+     drafted: usize = 0,
+@@ -122,13 +120,8 @@
+ 
+     /// Device bytes `init(cap, draft_n, rows, h)` allocates: the head's cache at full KV rows, the rest at `h`.
+     pub fn bytes(cap: usize, draft_n: usize, rows: usize, h: Heads) usize {
+-        return bytesFor(.bf16, cap, draft_n, rows, h);
+-    }
+-
+-    /// bytes with the head's cache in format `format` (--kv-cache): the head's rows as the format's, the rest as ever.
+-    pub fn bytesFor(format: @import("cuda_kv.zig").Kv, cap: usize, draft_n: usize, rows: usize, h: Heads) usize {
+         const l = Layout.of(h);
+-        const head = format.keyRow(head_heads) + format.valueRow(head_heads) + sizes.indexBytes(cap) + sizes.pooledBytes(cap);
++        const head = 2 * sizes.kvBytes(cap, head_heads) + sizes.indexBytes(cap) + sizes.pooledBytes(cap);
+         const log = if (late()) logBytes() else 0;
+         return head + @max(rows, max_rows) * wide * 2 + wide * 2 + max_rows * vocab * 2 + draft_n * 2 + best_bytes + l.saved + linear_n * l.state + log;
+     }
+@@ -164,15 +157,10 @@
+ 
+     /// A head cache of `cap` entries; `rows` the widest prompt chunk whose streams it keeps; `h` the model's heads.
+     pub fn init(gpa: std.mem.Allocator, driver: *cuda.Driver, stream: cuda.Stream, cap: usize, draft_n: usize, rows: usize, h: Heads) !Draft {
+-        return initFor(.bf16, gpa, driver, stream, cap, draft_n, rows, h);
+-    }
+-
+-    /// init with the head's cache in format `format` (--kv-cache).
+-    pub fn initFor(format: @import("cuda_kv.zig").Kv, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: cuda.Stream, cap: usize, draft_n: usize, rows: usize, h: Heads) !Draft {
+-        var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .kv = format, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .host = undefined, .layout = .of(h) };
+-        d.kc = try cuda.DeviceBuffer.alloc(driver, format.keyRow(head_heads));
++        var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .host = undefined, .layout = .of(h) };
++        d.kc = try cuda.DeviceBuffer.alloc(driver, sizes.kvBytes(cap, head_heads));
+         errdefer d.kc.free();
+-        d.vc = try cuda.DeviceBuffer.alloc(driver, format.valueRow(head_heads));
++        d.vc = try cuda.DeviceBuffer.alloc(driver, sizes.kvBytes(cap, head_heads));
+         errdefer d.vc.free();
+         d.ikc = try cuda.DeviceBuffer.alloc(driver, sizes.indexBytes(cap));
+         errdefer d.ikc.free();
+@@ -215,13 +203,13 @@
+     }
+ 
+     /// init's draft whose fixed-size buffers (partsBytes) are zeroed views of `block`; its caches allocated as init's.
+-    pub fn initParts(format: @import("cuda_kv.zig").Kv, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: cuda.Stream, cap: usize, draft_n: usize, rows: usize, h: Heads, block: cuda.DeviceBuffer) !Draft {
++    pub fn initParts(gpa: std.mem.Allocator, driver: *cuda.Driver, stream: cuda.Stream, cap: usize, draft_n: usize, rows: usize, h: Heads, block: cuda.DeviceBuffer) !Draft {
+         const bytes_in = partsBytes(draft_n, rows, h);
+         if (block.len < bytes_in) return error.FlashNextRunTooShort;
+-        var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .kv = format, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .spare = undefined, .host = undefined, .layout = .of(h) };
+-        d.kc = try cuda.DeviceBuffer.alloc(driver, format.keyRow(head_heads));
++        var d: Draft = .{ .gen = @import("cuda_window_graph.zig").nextGen(), .stream = stream, .gpa = gpa, .cap = cap, .rows_cap = @max(rows, max_rows), .kc = undefined, .vc = undefined, .ikc = undefined, .pooled = undefined, .streams = undefined, .out = undefined, .logits = undefined, .dlogits = undefined, .best = undefined, .saved = undefined, .spare = undefined, .host = undefined, .layout = .of(h) };
++        d.kc = try cuda.DeviceBuffer.alloc(driver, sizes.kvBytes(cap, head_heads));
+         errdefer d.kc.free();
+-        d.vc = try cuda.DeviceBuffer.alloc(driver, format.valueRow(head_heads));
++        d.vc = try cuda.DeviceBuffer.alloc(driver, sizes.kvBytes(cap, head_heads));
+         errdefer d.vc.free();
+         d.ikc = try cuda.DeviceBuffer.alloc(driver, sizes.indexBytes(cap));
+         errdefer d.ikc.free();
+--- a/zig/src/families/flashnext/cuda_mtp_ops.zig
++++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
+@@ -57,7 +57,7 @@
+ 
+ /// A lane of the head's grouped pass: its draft's cache and pages at its length, as the lone head's pass reads them.
+ fn headLane(d: *Draft, rows: usize, score_rows: u64) batch.Lane {
+-    return .{ .seq = .{ .media = null, .conv = &.{}, .state = &.{}, .kc = (&d.kc)[0..1], .vc = (&d.vc)[0..1], .ikc = (&d.ikc)[0..1], .pooled = (&d.pooled)[0..1], .pg = d.pg, .kv = d.kv, .tail = d.kc, .history = &d.unused_history, .cap = d.cap, .scores = score_rows }, .pos = d.len, .rows = rows };
++    return .{ .seq = .{ .media = null, .conv = &.{}, .state = &.{}, .kc = (&d.kc)[0..1], .vc = (&d.vc)[0..1], .ikc = (&d.ikc)[0..1], .pooled = (&d.pooled)[0..1], .pg = d.pg, .tail = d.kc, .history = &d.unused_history, .cap = d.cap, .scores = score_rows }, .pos = d.len, .rows = rows };
+ }
+ 
+ fn copyAsync(stream: cuda.Stream, dst: u64, src: u64, n: usize) !void {
+@@ -142,7 +142,7 @@
+                 .k = &e.batch_k,
+                 .s = s,
+                 .m = .{ .table_w = e.table.w.ptr, .table_s = e.table.s.ptr, .table_b = e.table.b.ptr, .table_dense = e.table.dense, .layers = (&h.layer)[0..1], .mixer = h.mixer, .head = h.draft, .ngram = &e.ngram },
+-                .seq = .{ .media = d.media, .conv = &.{}, .state = &.{}, .kc = (&d.kc)[0..1], .vc = (&d.vc)[0..1], .ikc = (&d.ikc)[0..1], .pooled = (&d.pooled)[0..1], .pg = d.pg, .kv = d.kv, .tail = d.kc, .history = &d.unused_history, .cap = d.cap, .scores = score_rows },
++                .seq = .{ .media = d.media, .conv = &.{}, .state = &.{}, .kc = (&d.kc)[0..1], .vc = (&d.vc)[0..1], .ikc = (&d.ikc)[0..1], .pooled = (&d.pooled)[0..1], .pg = d.pg, .tail = d.kc, .history = &d.unused_history, .cap = d.cap, .scores = score_rows },
+                 .hooks = .{ .logits = .none },
+             };
+             var at: usize = 0;
