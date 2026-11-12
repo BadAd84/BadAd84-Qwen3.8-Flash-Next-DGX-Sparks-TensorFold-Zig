@@ -10,9 +10,12 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
 - `patches/1.2.6/` - EVERY change we own on TensorFold v1.2.6 (`6e9af9302`) as numbered `.patch` files applied in
   filename order to a PRISTINE upstream tree. The TensorFold source is never edited in place: the patches are the
   artifact and the build consumes them (`scripts/qwen38/zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf
-  6e9af9302 patches/1.2.6`). `patches/1.2.6/README.md` lists which patch carries which lever. The fork
-  `ots/tensorfold-levers124` holds only `main` (the zmerge8 production stack) and `1.2.6` (upstream untouched); the
-  development branches the series was cut from are tags `archive/*`.
+  6e9af9302 patches/1.2.6`). `patches/1.2.6/README.md` lists which patch carries which lever.
+- `archive/tensorfold-levers124/` - RETIRED 2026-11-12: the old engine fork `ots/tensorfold-levers124`, kept whole as
+  a git bundle (59 refs: the production zmerge8 engine source `27b6700cb`, the `archive/*` development tags, the
+  working clone's branches) with a restore check. This repo is the only home of our Qwen work.
+- The plain TensorFold fork for upstream PRs is GitHub `BadAd84/TensorFold` (branches cut from upstream main, one
+  change each; nothing of this campaign lives there). It has no Gitea twin.
 - `docs/` - the speed campaign and the upstream watchlist.
 - `upstream/` - recipe PR packages; skill `submit-ots-patch-as-miaai-recipe-pr`.
 
