@@ -117,7 +117,9 @@ Current state. Section 4's "stock main does not boot on kindling" and section 5'
   `syncChunk` stages every synchronous upload through an anonymous 64 MiB chunk) is in v1.1.4 and later. The recipe's
   2026-10-30 rewrite re-pinned to **v1.1.4** (`eab8582`) with 17 new patches and retired the whole `db281878` series our
   port targets; our PRs #34-#63 are closed (only #53's fill fix survives, as his 0021). 0050 is therefore
-  `db281878`-only; no upstream submission. The `fp4port` branch is backed up at `ots/tensorfold-fp4port` on Gitea.
+  `db281878`-only; no upstream submission. The `fp4port` branch (59 commits on `db281878d`) is kept whole as a
+  restore-checked bundle in `archive/tensorfold-fp4port/`; the Gitea fork `ots/tensorfold-fp4port` it came from
+  still exists on 2026-11-12.
 - **v1.1.4 facts measured on spark6**: the published image (`tensorfold-qwen38:v1.1.4-eab8582`, digest in the recipe's
   `config.sh`) boots kindling in 131 s with no hang. `CHECKPOINT=int4` is refused by its engine (`UnsupportedCheckpoint`:
   the AutoRound layout); it serves NVIDIA FP4 only, and 6 or 8 streams do not fit at 262,144 tokens (the recipe's own
