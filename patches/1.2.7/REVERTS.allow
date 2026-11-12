@@ -1,0 +1,30 @@
+# Reviewed findings of scripts/check-patch-reverts.py for this series: patch, path, the stripped line, why it is
+# right. Tab-separated. Written by scripts/qwen38/zig/target/mkallow.py; a finding with no reason there stays open.
+0002	zig/src/core/lanes/engine.zig	if (e.alone) {	the lone copy ramp moved into windows.rampCopy, which keeps the e.alone test and the same doubling
+0002	zig/src/core/lanes/engine.zig	s.copy_width = if (own_kept == own) @min(e.cfg.max_copy, 2 * width + 1) else e.cfg.first_copy;	the lone copy ramp moved into windows.rampCopy, which keeps the e.alone test and the same doubling
+0002	zig/src/core/lanes/proposer.zig	const positions = (s.index.get(key) orelse return s.out.items).items;	the suffix lookup is kept inside `if (s.index.get(key)) |list|` so a miss can go on to resyncFrom
+0003	zig/src/families/flashnext/cuda_glue.zig	const f = if (pg.pt != 0) g.f.prep_paged else g.f.prep;	the paged-or-plain choice moved to the caller of attnPrepOn, shared with the fp8 cache's kernels
+0003	zig/src/families/flashnext/cuda_glue.zig	const f = if (ahead) g.f.chunks_ahead else g.f.chunks_one;	the kernel choice and the launch moved into attnChunksOn, shared with the fp8 cache's kernels
+0003	zig/src/families/flashnext/cuda_glue.zig	try go(if (pg.pt != 0) paged else f, s, .{ rows, kv, chunks }, 128, if (ahead) chunkSmem(2) else oneSmem(), &a);	the kernel choice and the launch moved into attnChunksOn, shared with the fp8 cache's kernels
+0003	zig/src/families/flashnext/cuda_lanes_load.zig	var stream_bytes = own_seq_bytes;	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
+0003	zig/src/families/flashnext/cuda_lanes_load.zig	if (own.head) |h| {	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
+0003	zig/src/families/flashnext/cuda_lanes_load.zig	stream_bytes += mtp.Draft.bytes(window, h.ids.len, own.engine.chunk, own.engine.heads);	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
+0003	zig/src/families/flashnext/cuda_lanes_load.zig	} else if (o.drafts and o.tp == 2) stream_bytes += mtp.Draft.bytes(window, 1, own.engine.chunk, own.engine.heads);	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
+0003	zig/src/families/flashnext/cuda_lanes_load.zig	if (o.vision) |v| stream_bytes += @as(usize, v.image_tokens) * @import("cuda_prompt_wt.zig").dims * 2 + 16 * o.context;	the per-stream bytes moved into streamBytes, which prices the same parts by the cache's format
+0003	zig/src/families/flashnext/cuda_media.zig	const f = if (pg.pt != 0) v.prep_paged else v.prep;	the paged-or-plain choice moved into View.attn, in front of attnWith
+0003	zig/src/families/flashnext/cuda_snap.zig	pub fn order(at: usize, head: bool, h: Heads) struct { p: [11]Piece, len: usize } {	the same function with the named return type Order, which orderFor returns too
+0004	zig/src/families/flashnext/cuda_batch.zig	thread = null;	gather_log.join joins the thread and returns null
+0005	zig/src/families/flashnext/cuda_tiles.zig	try k.nativeMatmul(stream, x, w.k, m, native, out, native_part, .bf16);	kept as the else branch of the prompt-tile choice on the same line
+0005	zig/src/families/flashnext/cuda_tiles.zig	try k.nativeMatmul(stream, x, w.k, m, native, part, native_part, .f32);	kept as the else branch of the prompt-tile choice on the same line
+0006	zig/kernels/cuda/qmmf.cu	extern "C" __global__ void __launch_bounds__(WM * WN * 32) NAME(                                                  \	the prompt tile's macro gains its stage and block counts; the two instances are re-declared with them
+0006	zig/kernels/cuda/qmmf.cu	TF_PROMPT_MX(tf_qmmf_prompt_mx_bf16, 128, 128, 2, 4, 3, false)	the prompt tile's macro gains its stage and block counts; the two instances are re-declared with them
+0006	zig/kernels/cuda/qmmf.cu	TF_PROMPT_MX(tf_qmmf_prompt_mx_f32, 128, 128, 2, 4, 3, true)	the prompt tile's macro gains its stage and block counts; the two instances are re-declared with them
+0006	zig/src/core/contract/qmmf_prompt_records.zig	pub const records = [_]registry.CudaRecord{ record(false, false), record(false, true), record(true, false), record(true, true), k32(false), k32(true) };	the record list is extended with the two-stage tile's records
+0006	zig/src/cuda/qmmf.zig	const prompt_mx_shared: u32 = 3 * ((128 * 128 + 128 * group + 128 * 2 + 127) / 128 * 128);	the shared bytes and the launch take the stage count from the knob
+0006	zig/src/cuda/qmmf.zig	try launch_.launch(l.prompt_mx[@backingInt(out)], .{	the shared bytes and the launch take the stage count from the knob
+0006	zig/src/cuda/qmmf.zig	.shared = prompt_mx_shared,	the shared bytes and the launch take the stage count from the knob
+0008	zig/src/families/flashnext/cuda_batch.zig	try self.tri.hcWritebackNorm(s.h, s.h, s.pss, s.part, s.inj, s.dummy, s.dummy, lw.mlp_hc.scale.ptr, s.norm, eps, sl.stride, n, dims, streams, 4, 1, 1, sl.count);	moved into hc.mlpWriteback, which makes the same launch when the rows are not prompt-fused
+0008	zig/src/families/flashnext/cuda_mtp_ops.zig	const pss_n = mtp.pss_n;	the constant had no user left in the file
+0008	zig/src/families/flashnext/cuda_mtp_ops.zig	const want = plan.reserveRows(next.len);	the same value with the piece as a parameter (equal at the decode piece)
+0012	zig/src/families/flashnext/cuda_ple_cache.zig	f.* = try direct_io.File.open(p);	the open goes through the page cache when TF_FLASHNEXT_GATHER_DIRECT=0, direct otherwise
+0013	zig/src/families/flashnext/cuda_mtp_check.zig	if (!std.mem.eql(u16, got, ref[r * vocab ..][0..vocab])) differ += 1;	the count is kept; the first differing row is logged beside it
