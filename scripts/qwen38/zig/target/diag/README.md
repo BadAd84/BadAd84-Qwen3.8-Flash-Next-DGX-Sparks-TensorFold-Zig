@@ -8,9 +8,11 @@ image.
   keep, draft), of the parts inside verify (the forward, split for a graph window into the host's staging and the
   graph, and the draws) and inside draft (the absorb pass, the picks, the chain passes), and the host's wait between
   calls. Each part drains the stream when it ends, so the served tok/s under the log is not a speed result.
-- `TF_CUDA_KERNEL_LOG=1` with `TF_FLASHNEXT_WINDOW_GRAPH=0`: every launch is waited for and its time booked to its
-  kernel; the table (largest first) prints with each round log line. It needs the graphs off because a launch being
-  captured into a graph cannot be waited for.
+- `TF_FLASHNEXT_KERNEL_LOG=1` with `TF_FLASHNEXT_WINDOW_GRAPH=0`: every launch is waited for and its time booked to
+  its kernel, the launch call's own part kept apart; the table (largest first) prints with each round log line. It
+  needs the graphs off because a launch being captured into a graph cannot be waited for. The name starts with
+  `TF_FLASHNEXT_` because the recipe forwards only `TENSORFOLD_*` and `TF_FLASHNEXT_*` into the container: under
+  its first name, `TF_CUDA_KERNEL_LOG`, the switch never reached the engine and the run printed nothing.
 
-`kprof.sh` builds the image and runs the three boots (as served, graphs off, graphs off with the kernel log);
+`kprof.sh` runs the round log as served and with the graphs off, `kprof2.sh` the kernel table;
 `profile_round.sh` runs any image that carries the patch.

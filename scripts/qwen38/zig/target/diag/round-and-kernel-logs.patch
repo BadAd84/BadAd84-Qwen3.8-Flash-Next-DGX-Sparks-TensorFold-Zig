@@ -1,10 +1,10 @@
 diff --git a/zig/src/cuda/kernel_log.zig b/zig/src/cuda/kernel_log.zig
 new file mode 100644
-index 00000000..0bf8f84d
+index 00000000..8301d437
 --- /dev/null
 +++ b/zig/src/cuda/kernel_log.zig
-@@ -0,0 +1,79 @@
-+//! TF_CUDA_KERNEL_LOG=1 with TF_FLASHNEXT_WINDOW_GRAPH=0: every launch waited for, its wall time booked to its kernel.
+@@ -0,0 +1,85 @@
++//! TF_FLASHNEXT_KERNEL_LOG=1 with TF_FLASHNEXT_WINDOW_GRAPH=0: every launch waited for, its time booked to its kernel.
 +const std = @import("std");
 +const platform = @import("sys");
 +const abi = @import("abi.zig");
@@ -19,6 +19,7 @@ index 00000000..0bf8f84d
 +var driver: ?*const Driver = null;
 +var handles: [max]abi.Function = @splat(null);
 +var ns: [max]u64 = @splat(0);
++var call_ns: [max]u64 = @splat(0);
 +var calls: [max]u64 = @splat(0);
 +var used: usize = 0;
 +
@@ -26,7 +27,7 @@ index 00000000..0bf8f84d
 +pub fn on() bool {
 +    if (!known) {
 +        known = true;
-+        const log = platform.getenv("TF_CUDA_KERNEL_LOG") orelse "";
++        const log = platform.getenv("TF_FLASHNEXT_KERNEL_LOG") orelse "";
 +        const graphs = platform.getenv("TF_FLASHNEXT_WINDOW_GRAPH") orelse "";
 +        enabled = std.mem.eql(u8, log, "1") and std.mem.eql(u8, graphs, "0");
 +    }
@@ -39,8 +40,9 @@ index 00000000..0bf8f84d
 +    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
 +}
 +
-+/// The launch queued since `t0` is waited for and its time booked to its kernel.
++/// The launch queued since `t0` is waited for and booked to its kernel: the whole time, and the launch call's part.
 +pub fn booked(f: Function, stream: Stream, t0: u64) void {
++    const t_queued = now();
 +    _ = f.d.api.cuStreamSynchronize(stream.handle);
 +    const dt = now() - t0;
 +    driver = f.d;
@@ -52,6 +54,7 @@ index 00000000..0bf8f84d
 +        used += 1;
 +    }
 +    ns[i] += dt;
++    call_ns[i] += t_queued - t0;
 +    calls[i] += 1;
 +}
 +
@@ -62,12 +65,14 @@ index 00000000..0bf8f84d
 +    var order: [max]usize = undefined;
 +    for (order[0..used], 0..) |*o, i| o.* = i;
 +    var total: u64 = 0;
++    var in_calls: u64 = 0;
 +    var launches: u64 = 0;
-+    for (ns[0..used], calls[0..used]) |v, c| {
++    for (ns[0..used], call_ns[0..used], calls[0..used]) |v, q, c| {
 +        total += v;
++        in_calls += q;
 +        launches += c;
 +    }
-+    std.debug.print("kernel log: {d:.2} ms and {d:.1} launches a round in {d} kernels over {d:.0} rounds\n", .{ @as(f64, @floatFromInt(total)) / 1e6 / rounds, @as(f64, @floatFromInt(launches)) / rounds, used, rounds });
++    std.debug.print("kernel log: {d:.2} ms ({d:.2} in the launch calls) and {d:.1} launches a round in {d} kernels over {d:.0} rounds\n", .{ @as(f64, @floatFromInt(total)) / 1e6 / rounds, @as(f64, @floatFromInt(in_calls)) / 1e6 / rounds, @as(f64, @floatFromInt(launches)) / rounds, used, rounds });
 +    var shown: usize = 0;
 +    while (shown < @min(used, shown_most)) : (shown += 1) {
 +        var best = shown;
@@ -81,10 +86,11 @@ index 00000000..0bf8f84d
 +        std.debug.print("kernel log: {d:.3} ms {d:.1} launches {d:.1} us each {s}\n", .{ t / 1e6 / rounds, c / rounds, t / 1e3 / c, d.functionName(handles[i]) });
 +    }
 +    ns = @splat(0);
++    call_ns = @splat(0);
 +    calls = @splat(0);
 +}
 diff --git a/zig/src/cuda/launch.zig b/zig/src/cuda/launch.zig
-index f280a0de..709f8f0a 100644
+index f280a0de..d8757de8 100644
 --- a/zig/src/cuda/launch.zig
 +++ b/zig/src/cuda/launch.zig
 @@ -6,6 +6,7 @@ const Function = @import("module.zig").Function;
@@ -100,7 +106,7 @@ index f280a0de..709f8f0a 100644
  };
  
 -/// cuLaunchKernel for plain launches, cuLaunchKernelEx when a cluster, PDL or cooperative attribute is set.
-+/// `launchQueued`, and with TF_CUDA_KERNEL_LOG on the launch waited for and booked to its kernel.
++/// `launchQueued`, and with TF_FLASHNEXT_KERNEL_LOG on the launch waited for and booked to its kernel.
  pub fn launch(f: Function, cfg: Config, stream: Stream, args: *Args) Error!void {
 +    const log = kernel_log.on();
 +    const t0 = if (log) kernel_log.now() else 0;

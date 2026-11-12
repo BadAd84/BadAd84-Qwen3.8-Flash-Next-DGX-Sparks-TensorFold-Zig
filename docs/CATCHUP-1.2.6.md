@@ -205,7 +205,7 @@ as 54.1 / 74.5 and 106.4 / 155.1.
 | `DECODE_GRAPH=1 SPLIT_DENSE=0` | 54.2 | 74.4 | 106.6 | 155.6 | none |
 | `CHUNK=1024` / `2048` | 54.3 / 54.4 | 74.2 / 74.2 | 106.4 / 106.7 | 155.5 / 155.1 | none |
 | `GREEDY_WIDE=8` | 54.3 | 74.3 | 106.7 | 155.3 | none |
-| `DRAFTS=8` / `4` | 54.4 / 54.1 | 73.9 / 74.1 | 106.4 / 106.6 | 155.7 / 155.8 | none |
+| `DRAFTS=8` / `4` | 54.4 / 54.1 | 73.9 / 74.1 | 106.4 / 106.6 | 155.7 / 155.8 | none, and it could not: this knob sets the chain of SAMPLED streams, the benchmark is greedy (`DRAFTS_GREEDY`, in stage 2b) |
 | `CONFIDENCE=0.70` | 54.2 | 74.5 | 106.7 | 155.0 | none |
 | `CONFIDENCE=0.50` | 51.6 | 74.1 | 106.2 | 154.8 | -5% prose at one stream |
 | `KEEP_LATE=0` | 53.9 | 73.5 | 104.4 | 153.3 | -1.1% / -2.2%: the default (on) is right |
@@ -341,6 +341,57 @@ The lever itself is a default flip: `TF_FLASHNEXT_DRAFT_HEAD` exists in the pris
 default, and our patch (40 lines, 3 files) only makes `affine4` the default. So the gain belongs to step two, an
 environment setting on stock, and `stage2b.sh` measures it there together with the upstream knobs the first pass
 left out.
+
+### Where a round goes (the repaired accepted rung, one stream, round log)
+
+`TF_FLASHNEXT_ROUND_LOG=1` (the diagnostic patch under `scripts/qwen38/zig/target/diag/`), 64 rounds a line,
+milliseconds a round:
+
+| | prose | code | code, bf16 draft head |
+|---|---|---|---|
+| rows verified a round | 4.8 | 6.9 | 7.2 |
+| **verify forward** | **49.8** | **54.6** | 56.9 |
+| of it: staging on the host (n-gram gather, uploads queued) | 1.4 | 1.3 | |
+| of it: the window's graph on the GPU | 48.4 | 53.3 | |
+| draws | 0.17 | 0.16 | 0.17 |
+| keep (rollback) | 0.01 | 0.01 | 0.02 |
+| draft: absorb pass | 1.6 | 1.6 | 2.7 |
+| draft: chain passes (3.5 / 5.1 a round) | 5.4 | 7.6 | 14.0 |
+| draft: picks | 0.24 | 0.29 | 0.38 |
+| host between calls | 0.02 | 0.02 | 0.01 |
+| **round** | **57.2** | **64.4** | 74.2 |
+
+- **The verify forward is 87% of a prose round and 85% of a code round, and all of it is the GPU**: 48 to 53 ms for
+  a window of 5 to 7 rows. The host is not in it: 1.3 ms of staging, 0.02 ms between calls, 0.2 ms of draws.
+- The draft chain is 1.5 ms a pass with the 4-bit head and 2.6 with the bf16 one, which is the whole of that lever's
+  gain (7.6 ms a code round less).
+- With the graphs off (`TF_FLASHNEXT_WINDOW_GRAPH=0`) the forward costs the same (49.2 and 54.4 ms) and the serve
+  measures 61.1 / 81.9 against 60.4 / 81.8: on this rung the window graph buys nothing at one stream, so the time is
+  kernel execution, not launch overhead. The earlier "29% from the graph" came from the invalid sweep.
+- At four streams a shared verify of 13.7 rows takes 82.5 ms and the batched draft 9.4.
+
+Production's whole round is 38.5 ms on prose and 49.5 on code. Ours is 57.2 and 64.4, and 48 to 53 of that is one
+thing. The per-kernel table of that window is the next measurement (`kprof2.sh`).
+
+### The n-gram lever with its fill path merged right
+
+Same accepted rung, old (`r0021`) against repaired (`g21`), then the three readers on the repaired image:
+
+| arm | C1 prose | C1 code | C4 prose | C4 code |
+|---|---|---|---|---|
+| old merge, row cache on (`r0021`) | 61.4 | 81.4 | 109.5 | 165.0 |
+| old merge, repeated | 61.4 | 81.6 | 113.1 | 166.4 |
+| repaired, row cache on (`g21`, the recipe's `GATHER_READ=pread`) | 61.6 | 81.3 | 112.8 | 167.4 |
+| repaired, repeated | 61.7 | 81.6 | 112.8 | 166.6 |
+| repaired, the base's positional reader (`GATHER_READ=0 DRAFT_AHEAD=0`) | 62.1 | 81.9 | 112.9 | 166.7 |
+| the same, repeated | 62.0 | 81.3 | 112.9 | 166.7 |
+| repaired, the base's mapped reader (`... PLE_IO=mmap`) | 62.5 | 82.6 | 113.4 | 166.8 |
+
+All 6/6 against stock, self-check 1,176 of 2,080. The repair is right and it moves nothing: the round log puts the
+whole staging (gather included) at 1.3 ms of a 57 ms round, so no reader can matter at decode. The row cache is
+0.5 to 0.8% behind the base's own positional reader on prose and level on code; the mapped reader reads 1.3% ahead
+on one sample. On decode the n-gram lever earns nothing, and the base already has the positional reader it was
+built to add. Its remaining case is the cold prompt, measured with the other prompt levers.
 
 ## Knob sweep on the new engine (step one: tune what already exists)
 
