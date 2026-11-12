@@ -252,8 +252,46 @@ What the stated order showed that subtraction could not:
   off. Both defects enter with 0022-0025 and nowhere else. The old full stack "served" only because the tail had
   deleted that lever's head-pieces code along with everything else in the file.
 
-The accepted stack is therefore the rung through 0021. The read-out group is being bisected one patch at a time on top
-of it.
+The accepted stack is therefore the rung through 0021.
+
+### Why the read-out rung faulted, and why the old full stack read 0 of 2,080
+
+Old patch 0022 was cut against an older tree. Besides its own feature it carries three reversions of the 1.2.6 base,
+all of which apply cleanly and compile:
+
+| what 0022 took back | file | effect |
+|---|---|---|
+| `self.pos0 = pos0;` in `Pass.chunk` | `cuda_batch.zig` | a chunk runs at the position the last caller left: the window self-check reads 0 of 2,080 |
+| `if (last) d.prompt_last = ...` in `prefillChunk` | `cuda_mtp_ops.zig` | the first draft reads address 0: `CUDA_ERROR_ILLEGAL_ADDRESS` on the first request |
+| `TF_FLASHNEXT_PROMPT_MX128` default back to 1024 | `cuda_knobs.zig` | the relaxed (inexact) prompt tile on by default, which 0017 had switched off |
+
+The old tail (0030) restored the second and the third and never the first. So the old full stack served, with every
+prompt chunk at a stale position, and that is the `0 of 2080` it showed; the head-to-head numbers at the top of
+this document were measured on that stack. `overlay.py` repairs all three at rung 22.
+
+### A gate for this class, and what it found next
+
+`scripts/check-patch-reverts.py` reads a series in order and reports a line an earlier patch added being removed, a
+line an earlier patch removed coming back, and a base code line deleted with nothing resembling it added. On the old
+series it reports 328 findings, the three above among them. On the 13-lever series cut from the rung trees it
+reported 32, and two of those were real, both in old 0013 (the n-gram row cache):
+
+- **`Ngram.fill` was merged wrong, on the path every n-gram row takes.** The base chooses its reader with
+  `if (g.read_mode == .pread) readers.read() else ... tables.gather()`. The patch put its hook in place of that test:
+  `if (!try ple_cache.row(...)) readers.read() else ... tables.gather()`. So a row the row cache had filled was then
+  gathered again from the mapping (the work done twice, and the mapping touched, which the cache exists to avoid),
+  and a row it had not filled went to the positional reader whatever `TF_FLASHNEXT_PLE_IO` said. Every measurement
+  of the n-gram lever so far, the 1.3% loss in the ladder included, is a measurement of that. Upstream 1.2.6 also
+  already has its own positional reader, on by default on Linux, so "pread" as such is no longer ours.
+- `Ngram.deinit` lost `g.waitWarm()` and the destroy of the gather pool (teardown only).
+
+`overlay.py` repairs both at rung 13 (`ple: the row cache goes in front of the base's reader choice`), the series
+replays onto pristine to the last rung's exact tree, and the repaired accepted rung is image `g21`.
+
+Two tools came out of this stretch and are in `AGENTS.md`: the tree's own
+`zig build compile-config-server -Dtarget=aarch64-linux-gnu` type-checks a patched tree on the laptop in minutes
+(every rung is now compiled there before the box builds it), and `mkladder.sh` cuts the whole ladder, the additive
+series and the gate report in one command.
 
 ### The accepted rung proven with its own switches (image `r0021`, same binary every arm)
 
