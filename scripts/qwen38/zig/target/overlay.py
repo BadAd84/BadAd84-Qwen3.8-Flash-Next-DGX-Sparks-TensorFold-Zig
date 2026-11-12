@@ -88,4 +88,46 @@ if 22 <= K:
         wr(p, s.replace("25: @both" + eol, eol.join(gone) + eol, 1))
         done.append(f"CHANGELOG: {len(gone)} lines restored")
 
+# 0022 (the fused read-out) was cut against an older tree and carries three reversions of the 1.2.6 base:
+# Pass.chunk no longer stores its position, prefillChunk no longer records the prompt's last row (the first draft
+# then reads address 0), and the relaxed MX128 tile is back on by default (0017 had switched it off).
+if 22 <= K:
+    def sub(path: str, old: str, new: str, what: str) -> None:
+        s = rd(path)
+        eol = "\r\n" if "\r\n" in s else "\n"
+        o, n = old.replace("\n", eol), new.replace("\n", eol)
+        assert s.count(o) == 1, f"{what}: expected text found {s.count(o)} times in {path}"
+        wr(path, s.replace(o, n, 1))
+        done.append(what)
+
+    sub(
+        FN + "cuda_batch.zig",
+        "            self.rows = n;\n            self.pending = null;\n            self.pending_f32 = false;\n            self.shared_direct = false;\n",
+        "            self.rows = n;\n            self.pos0 = pos0;\n            self.pending = null;\n            self.pending_f32 = false;\n            self.shared_direct = false;\n",
+        "batch: chunk stores its position again",
+    )
+    sub(
+        FN + "cuda_mtp_ops.zig",
+        "d.streams.ptr, false, knobs.headPiece() catch piece_rows);\n        }\n",
+        "d.streams.ptr, false, knobs.headPiece() catch piece_rows);\n"
+        "            if (last) d.prompt_last = d.streams.ptr + (stop - 1 - at) * wide * 2;\n        }\n",
+        "mtp: the prompt's last row recorded again",
+    )
+    sub(
+        FN + "cuda_mtp_ops.zig",
+        "            const piece_max = @min(piece_req, @max(piece_rows, e.chunk / 2));\n",
+        "            const piece_max = @min(if (piece_req == 0) piece_rows else piece_req, @max(piece_rows, e.chunk / 2));\n",
+        "mtp: a head piece of 0 keeps the decode piece",
+    )
+    sub(
+        FN + "cuda_knobs.zig",
+        "/// TF_FLASHNEXT_PROMPT_MX128: the narrowest MXFP8 projection taking the relaxed 128 x 128 prompt tile; 0: none.\n"
+        "pub fn mx128MinN() sys.environment.Error!usize {\n"
+        '    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 1024);\n',
+        "/// TF_FLASHNEXT_PROMPT_MX128=N: the narrowest MXFP8 projection taking the relaxed tile; default 0: the exact kernels.\n"
+        "pub fn mx128MinN() sys.environment.Error!usize {\n"
+        '    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);\n',
+        "knobs: the relaxed MX128 tile off by default again",
+    )
+
 print(f"overlay K={K}: " + ("; ".join(done) if done else "nothing to repair"))
