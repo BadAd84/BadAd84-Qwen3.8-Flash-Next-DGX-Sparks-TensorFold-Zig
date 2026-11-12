@@ -1,41 +1,43 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 2eb6a6b87..885d1a428 100644
+index 2eb6a6b870c1b499710c1e7d6279f0ab8edf517a..21c736aa8da709ee6069bcca45225e6a4f454f7e 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -8,6 +8,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Flash Next on CUDA: the MTP draft head's rows load as 4-bit affine rows by default, like the GLM family's head, with `TF_FLASHNEXT_DRAFT_HEAD=bf16` for the exact rows (#9999).
  
-+- Flash Next on CUDA: the drafter's BF16 linears are re-coded to MXFP8 as they load, with `TF_FLASHNEXT_MTP_MXFP8=0` for the BF16 rows (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move, the same trade the 4-bit draft head makes; the drafter's rows are only proposals, and the backbone's weights are untouched.
++- Flash Next on CUDA: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` re-codes the drafter's BF16 linears to MXFP8 as they load (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes; `bf16`, the default, keeps the checkpoint's rows (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move, the same as for the draft head's 4-bit rows.
 +
  - Flash Next on CUDA: the NVFP4 n-gram table's rows can be read through a direct-mapped row cache by up to 128 parked readers (`TF_FLASHNEXT_GATHER_READ=pread`, `TF_FLASHNEXT_GATHER_THREADS`, `TF_FLASHNEXT_GATHER_CACHE_MIB`, 256 MiB of address space by default, resident only where used) instead of a positional read a row on the gather's thread, with a drafted token's rows asked for while the head drafts the next (`TF_FLASHNEXT_DRAFT_AHEAD=1`) and a prompt chunk's rows asked for while the chunk before it runs (`TF_FLASHNEXT_WARM_AHEAD=1`); the rows are the mapping's bytes, so the dequantized rows and every reply are unchanged. A prompt's last chunk that would fall under `TF_FLASHNEXT_PREFILL_TAIL` rows takes about half of what remains instead, so the final two chunks are of about equal rows and both past the prompt expert tiles' 1,024. Adapts MiaAI-Lab's MIT recipe patch0013 (#9999).
  
  - Flash Next: a shared pass gathers every stream's n-gram rows in one pool call (TF_FLASHNEXT_GATHER_EARLY=1, at most 64 lanes), can lock the tables' scale arrays in memory at load (TF_FLASHNEXT_GATHER_LOCK_SCALES=1, NVFP4), and TF_FLASHNEXT_GATHER_LOG=1 prints what the pass launched ahead and waited; every gathered row is the per-stream call's (#9999).
 diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
-index 96a7368dc..8da81b5af 100644
+index 96a7368dcfcf5ad480a5ecbff48c7ff22adbc247..69afddbf9558a9ece088ab8ba3f83938c0a13097 100644
 --- a/zig/src/families/flashnext/cuda_mtp.zig
 +++ b/zig/src/families/flashnext/cuda_mtp.zig
 @@ -239,6 +239,11 @@ pub const Head = struct {
          errdefer h.norm_e.free();
          h.norm_h = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(nh));
          errdefer h.norm_h.free();
-+        // the drafter's own weights only: TF_FLASHNEXT_MTP_MXFP8 re-codes the BF16 ones as they load
-+        const mx = @import("cuda_mtp_mxfp8.zig").on();
-+        @import("cuda_projection.zig").recode_mxfp8 = mx;
-+        defer @import("cuda_projection.zig").recode_mxfp8 = false;
-+        if (mx) std.log.info("flashnext: the drafter's BF16 linears re-coded to MXFP8 at load (TF_FLASHNEXT_MTP_MXFP8)", .{});
++        // the drafter's own weights only: TF_FLASHNEXT_MTP_WEIGHTS names how the BF16 ones are kept
++        const weights = try @import("cuda_mtp_mxfp8.zig").format();
++        @import("cuda_projection.zig").recode = weights;
++        defer @import("cuda_projection.zig").recode = .bf16;
++        if (weights != .bf16) std.log.info("flashnext: the drafter's BF16 linears kept as {s} (TF_FLASHNEXT_MTP_WEIGHTS)", .{@tagName(weights)});
          h.fc_e = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_embedding");
          errdefer h.fc_e.free();
          h.fc_h = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_hidden");
 diff --git a/zig/src/families/flashnext/cuda_mtp_mxfp8.zig b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
 new file mode 100644
-index 000000000..30dd63ce0
+index 0000000000000000000000000000000000000000..90c0615e008e2bf1911fbb19cc7b28cff01055e9
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
-@@ -0,0 +1,90 @@
-+//! TF_FLASHNEXT_MTP_MXFP8=1: the drafter's BF16 linears re-coded to MXFP8 at load (E4M3 codes and one power-of-two
-+//! scale a row's 32 inputs), so a draft pass walks half their bytes. A draft is a proposal the verify forward
-+//! checks, so a reply's tokens are unchanged and only the rounds it takes move. Off, nothing here runs.
+@@ -0,0 +1,97 @@
++//! TF_FLASHNEXT_MTP_WEIGHTS=mxfp8: the drafter's BF16 linears re-coded to MXFP8 at load (E4M3 codes and one
++//! power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes. A draft is a proposal the verify
++//! forward checks, so a reply's tokens are unchanged and only the rounds it takes move. `bf16` keeps the
++//! checkpoint's rows and nothing here runs. A further encoding is one more `Format` word and one more arm in
++//! `projection.dense`.
 +const std = @import("std");
 +const core = @import("core");
 +const cuda = @import("cuda");
@@ -46,16 +48,21 @@ index 000000000..30dd63ce0
 +/// The scale's inputs (UE8M0 a 32-input group, 127 is 2^0).
 +const group = 32;
 +
-+/// The drafter's linears are re-coded unless TF_FLASHNEXT_MTP_MXFP8=0.
-+pub const default_on = true;
++/// How the drafter's BF16 linears are kept in memory.
++pub const Format = enum { bf16, mxfp8 };
 +
-+pub fn on() bool {
-+    const v = std.c.getenv("TF_FLASHNEXT_MTP_MXFP8") orelse return default_on;
-+    return !std.mem.eql(u8, std.mem.span(v), "0");
++/// What TF_FLASHNEXT_MTP_WEIGHTS selects when it is unset: the checkpoint's own rows.
++pub const default_format: Format = .bf16;
++
++pub fn format() !Format {
++    const word = if (std.c.getenv("TF_FLASHNEXT_MTP_WEIGHTS")) |v| std.mem.span(v) else @tagName(default_format);
++    return std.meta.stringToEnum(Format, word) orelse error.BadMtpWeights;
 +}
 +
-+test "the drafter's linears are re-coded unless the environment turns it off" {
-+    try std.testing.expect(default_on);
++test "the drafter keeps the checkpoint's rows unless the environment names another format" {
++    try std.testing.expectEqual(Format.bf16, default_format);
++    try std.testing.expectEqual(@as(?Format, .mxfp8), std.meta.stringToEnum(Format, "mxfp8"));
++    try std.testing.expectEqual(@as(?Format, null), std.meta.stringToEnum(Format, "affine4"));
 +}
 +
 +fn value(bf16: []const u8, i: usize) f32 {
@@ -124,24 +131,27 @@ index 000000000..30dd63ce0
 +    }
 +}
 diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
-index c0b96adb3..7eb8c42b5 100644
+index c0b96adb3b639500a3f244bd3ec9cd690008e1cc..d16f086fdb25f4ff4e3554823e35d0bf8c5553b4 100644
 --- a/zig/src/families/flashnext/cuda_projection.zig
 +++ b/zig/src/families/flashnext/cuda_projection.zig
 @@ -23,6 +23,9 @@ pub const Projection = struct {
      }
  };
  
-+/// Set while the drafter's weights load (TF_FLASHNEXT_MTP_MXFP8): a BF16 projection is re-coded, not repacked.
-+pub var recode_mxfp8: bool = false;
++/// Set while the drafter's weights load (TF_FLASHNEXT_MTP_WEIGHTS): a BF16 projection is re-coded, not repacked.
++pub var recode: @import("cuda_mtp_mxfp8.zig").Format = .bf16;
 +
  /// Repack the checkpoint's BF16 bits without rounding or widening the resident weight.
  pub fn dense(gpa: std.mem.Allocator, driver: *const cuda.Driver, t: core.safetensors.Tensor) !Projection {
      if (t.rank != 2 or t.dtype != .bf16 or t.dim(0) == 0 or t.dim(1) == 0 or t.dim(1) % 64 != 0)
-@@ -31,6 +34,7 @@ pub fn dense(gpa: std.mem.Allocator, driver: *const cuda.Driver, t: core.safeten
+@@ -31,6 +34,10 @@ pub fn dense(gpa: std.mem.Allocator, driver: *const cuda.Driver, t: core.safeten
      const k = t.dim(1);
      const count = try std.math.mul(usize, n, k);
      if (t.bytes.len != try std.math.mul(usize, count, 2)) return error.UnexpectedTensor;
-+    if (recode_mxfp8) return @import("cuda_mtp_mxfp8.zig").project(gpa, driver, t.bytes, n, k);
++    switch (recode) {
++        .bf16 => {},
++        .mxfp8 => return @import("cuda_mtp_mxfp8.zig").project(gpa, driver, t.bytes, n, k),
++    }
      const input = try gpa.alloc(u16, count);
      defer gpa.free(input);
      for (input, 0..) |*v, i| v.* = std.mem.readInt(u16, t.bytes[i * 2 ..][0..2], .little);

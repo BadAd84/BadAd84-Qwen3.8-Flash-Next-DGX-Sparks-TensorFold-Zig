@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# mtpchain.sh - the drafter's BF16 linears re-coded to MXFP8 at load (patch 0014, TF_FLASHNEXT_MTP_MXFP8) end to
+# mtpchain.sh - the drafter's BF16 linears re-coded to MXFP8 at load (patch 0014, TF_FLASHNEXT_MTP_WEIGHTS) end to
 # end on spark6: wait for the tile chain, build v16 (the 13 levers + 0014) and v16k (the same with the round and
 # kernel logs, the kernel log split by grid width), then the arms on one binary with the switch off and on at 1, 4,
 # 2 and 6 streams, the cold prompts, and the two profiles. Production is restored at the end.
@@ -29,24 +29,24 @@ run() { # name env-string
   export STREAMS="1 4"
   run mtpwarm ""
   run mtpoff ""
-  run mtpon "TF_FLASHNEXT_MTP_MXFP8=1"
+  run mtpon "TF_FLASHNEXT_MTP_WEIGHTS=mxfp8"
   run mtpoff2 ""
-  run mtpon2 "TF_FLASHNEXT_MTP_MXFP8=1"
+  run mtpon2 "TF_FLASHNEXT_MTP_WEIGHTS=mxfp8"
   echo "=== 2 and 6 stream cells $(date -Is)"
   export STREAMS="2 6"
   run mtpoff6 ""
-  run mtpon6 "TF_FLASHNEXT_MTP_MXFP8=1"
+  run mtpon6 "TF_FLASHNEXT_MTP_WEIGHTS=mxfp8"
   echo "=== 8 streams on fp8 KV $(date -Is)"
   export STREAMS="8" KV_DTYPE=fp8
   run mtpoff8 ""
-  run mtpon8 "TF_FLASHNEXT_MTP_MXFP8=1"
+  run mtpon8 "TF_FLASHNEXT_MTP_WEIGHTS=mxfp8"
   export KV_DTYPE=bf16
   echo "=== cold prompts $(date -Is)"
-  bash ./prefill_arm.sh "mtppfoff:v16:" "mtppfon:v16:TF_FLASHNEXT_MTP_MXFP8=1" "mtppfoff2:v16:"
+  bash ./prefill_arm.sh "mtppfoff:v16:" "mtppfon:v16:TF_FLASHNEXT_MTP_WEIGHTS=mxfp8" "mtppfoff2:v16:"
   echo "=== profiles $(date -Is)"
-  bash ./profile_round.sh v16k rungs127/v16k.patch "off:" "on:TF_FLASHNEXT_MTP_MXFP8=1" \
+  bash ./profile_round.sh v16k rungs127/v16k.patch "off:" "on:TF_FLASHNEXT_MTP_WEIGHTS=mxfp8" \
     "koff:TF_FLASHNEXT_WINDOW_GRAPH=0 TF_FLASHNEXT_KERNEL_LOG=1" \
-    "kon:TF_FLASHNEXT_WINDOW_GRAPH=0 TF_FLASHNEXT_KERNEL_LOG=1 TF_FLASHNEXT_MTP_MXFP8=1" >> mtpprof.log 2>&1
+    "kon:TF_FLASHNEXT_WINDOW_GRAPH=0 TF_FLASHNEXT_KERNEL_LOG=1 TF_FLASHNEXT_MTP_WEIGHTS=mxfp8" >> mtpprof.log 2>&1
 ) 9> ~/work/gpu.lock
 ( cd ~/work/lanes/rpr/recipe && ./stop.sh ) > /dev/null 2>&1
 ( env LOCK_HOLDER=0 ~/qwen6-start-prod.sh </dev/null ) 2>&1 | grep -a answered | head -1

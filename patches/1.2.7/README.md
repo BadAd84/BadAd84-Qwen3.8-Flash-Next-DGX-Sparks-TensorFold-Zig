@@ -63,12 +63,16 @@ Every cell's golden is 6/6 identical to v1.2.6 stock's and its boot log reads "w
 Where the remaining time is, and what has been measured against it, is in `docs/CATCHUP-1.2.6.md`: the round's
 read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to take next.
 
-## 0014: the drafter's BF16 linears in MXFP8, on by default (2026-11-12)
+## 0014: the drafter's BF16 linears, selectable format (`TF_FLASHNEXT_MTP_WEIGHTS`) (2026-11-12)
 
-`TF_FLASHNEXT_MTP_MXFP8=1` re-codes the drafter's BF16 linears to MXFP8 as they load. The FP4 checkpoint quantizes
-the backbone and leaves the drafter alone: `mtp.*` holds 181.1 MB of BF16 (`q_proj` 62.9, `o_proj` 31.5,
-`fc_embedding` and `fc_hidden` 13.1 each, its four hyper-connection matrices 6.55 each, the shared expert 3.28
-each), and every draft pass walks it. It takes the re-coded rows unless `TF_FLASHNEXT_MTP_MXFP8=0`.
+`TF_FLASHNEXT_MTP_WEIGHTS` names how the drafter's BF16 linears are kept: `bf16` (the default: the checkpoint's own
+rows, as upstream) or `mxfp8` (re-coded at load to E4M3 codes with a power-of-two scale a row's 32 inputs). An unknown
+word refuses to start. Another encoding is one more `Format` word in `cuda_mtp_mxfp8.zig` and one more arm in
+`projection.dense`. The FP4 checkpoint quantizes the backbone and leaves the drafter alone: `mtp.*` holds 181.1 MB of
+BF16 (`q_proj` 62.9, `o_proj` 31.5, `fc_embedding` and `fc_hidden` 13.1 each, its four hyper-connection matrices 6.55
+each, the shared expert 3.28 each), and every draft pass walks it. The figures below are `mxfp8` against `bf16`
+(measured under the first name of the switch, `TF_FLASHNEXT_MTP_MXFP8=1`, which this text replaced; the code path is
+the same).
 
 One binary (image `v16`), the switch off and on, one fresh boot a cell, bf16 KV, 131,072 tokens, aggregate tok/s
 prose / code (`scripts/qwen38/zig/target/mtpchain.sh`, spark6 `~/work/target/mtp.log`):
