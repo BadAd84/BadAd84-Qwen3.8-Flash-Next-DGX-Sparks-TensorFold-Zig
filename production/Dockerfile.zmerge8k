@@ -1,0 +1,41 @@
+# OTS-201: tensorfold-qwen38:zmerge8-kfix-<sha> = the production zmerge8 image with ONLY the
+# two byte-neutral kindling 64 KiB-page boot fixes (OTS-45) applied, so the zmerge8 arm can
+# boot on spark6's 64k-page kernel (the stock zmerge8 loaders hang there: the native weight
+# upload and the vision tower both take pageable H2D copies from the file-backed safetensors
+# mmap; every zmerge8 measurement before 2026-10-12 23:06 ran on the old 4k kernel).
+#   - native/bin/fatbin rebuilt from the zmerge8 source tree (~/work/lanes/merge8/stack,
+#     clean at 27b6700c c68-shared-cost-levels) + kindling 0002 (upload staging), with the
+#     SAME zig build flags the owner's build.sh used for zmerge8 (no -Dsm, unlike
+#     build-qwen-base-image.sh) so the only native delta is 0002.
+#   - the vision loader gets the one-line .clone() (kindling 0001) via the zkindling
+#     in-place patch (assert count==1) on the image's OWN python (the tree's python is
+#     NOT overlaid: the recipe image's python is its published package).
+# Bytes are identical (OTS-45: one extra host memcpy per uploaded span; the .clone() copies
+# before the transfer). Verified by golden 6/6 + exact.py against zgold-base-kindling.json.
+ARG BASE_IMAGE
+ARG SRCIMG
+FROM ${BASE_IMAGE} AS build
+ARG ZIG_VERSION
+ARG ZIG_SHA256
+RUN curl -fsSL -o /tmp/zig.tar.xz "https://ziglang.org/download/${ZIG_VERSION}/zig-aarch64-linux-${ZIG_VERSION}.tar.xz" && \
+    echo "${ZIG_SHA256}  /tmp/zig.tar.xz" | sha256sum -c - && \
+    mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz
+COPY src.tar /tmp/src.tar
+RUN mkdir /tensorfold && tar -xf /tmp/src.tar -C /tensorfold && rm /tmp/src.tar
+RUN cd /tensorfold && /opt/zig/zig build -Dnvcc=/usr/local/cuda/bin/nvcc -Doptimize=fast \
+      --prefix /opt/tensorfold -j"$(nproc)" fatbins install native && \
+      test -x /opt/tensorfold/native/bin/tensorfold-native
+FROM ${SRCIMG}
+COPY --from=build /opt/tensorfold/native /opt/tensorfold/native
+COPY --from=build /opt/tensorfold/bin /opt/tensorfold/bin
+COPY --from=build /opt/tensorfold/fatbin /opt/tensorfold/fatbin
+RUN python3 - <<PY
+p="/opt/tensorfold/python/tensorfold/vision/qwen_cuda.py"
+s=open(p).read()
+old="                    value = source.get_tensor(names[key])\n"
+new="                    value = source.get_tensor(names[key]).clone()  # kindling 64KiB-page: copy out of the safetensors mmap before H2D\n"
+assert s.count(old)==1, ("vision clone pattern count", s.count(old))
+open(p,"w").write(s.replace(old,new))
+print("patched", p)
+PY
+RUN sed -n "188,192p" /opt/tensorfold/python/tensorfold/vision/qwen_cuda.py
