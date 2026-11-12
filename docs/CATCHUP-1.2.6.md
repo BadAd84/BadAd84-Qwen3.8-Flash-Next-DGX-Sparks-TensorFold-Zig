@@ -886,3 +886,22 @@ that back. The default stays off; the lever stays in patch 0009 for a box where 
 
 Two levers in a row under 1%, so the read-out family is closed. The measured state of the stack against the target
 is in `patches/1.2.7/README.md`, and the next lever is the drafter's BF16 linears named above.
+
+### The glue group, first lever: the fused write-back at a decode window is slower and not exact
+
+`cuda_batch_hc.fuses` takes the write-back that also writes the read-out's normed rows only from 64 rows up, so a
+decode window of 5 runs the write-back and the normalize as two launches (`fn_hc_normalize_cols`, 110.5 launches,
+6.9 us, 0.760 ms a round). Patch text `work/0015-hc-fuse-rows.patch` makes that floor a knob,
+`TF_FLASHNEXT_HC_FUSE_ROWS`, default 64. Image `v18`, one binary, bf16 KV, 131,072, one fresh boot a cell
+(`scripts/qwen38/zig/target/gluechain.sh`, spark6 `~/work/target/glue.log`):
+
+| arm | C=1 | C=4 | rounds prose/code | replies against the warm arm |
+|---|---|---|---|---|
+| floor 64 (default) | 62.9 / 86.8 | 112.8 / 170.7 | 144 / 86 | 10 of 10 identical |
+| floor 1 | 57.9 / 74.1 | | 145 / 105 | 2 of 2 different |
+
+Two findings, and the second matters more than the first. It is 8% slower on prose and 15% on code, which the
+kernel's shape predicts: the fused form is one block a row, so five rows fill five of the box's 48 SMs where the
+two launches fill 50 and 200. And it is NOT exact at decode row counts: the replies differ, so the file's "the
+same bits either way" holds at the prompt row counts it was measured on and not at a five-row window. The floor
+stays at 64 and the patch is not in the series; the comment should be read as a claim about prompt passes.
