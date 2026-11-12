@@ -42,3 +42,23 @@ patches. Aggregate tok/s, prose / code; every cell's golden is 6/6 identical to 
 - Not yet run on v1.2.7: the copy workload, fp8 KV at 262,144, the stock `DRAFT_HEAD` arm, the 2, 6 and 8 stream cells
   (all measured on v1.2.6 in `patches/1.2.6/README.md`, where the series gives the same results).
 - Cell-to-cell noise is about 1% (the stock arm run twice: 54.2 and 53.4 at one stream).
+
+## Against the production serve, at every stream count measured (2026-11-12)
+
+The series' own arms, bf16 KV, a 131,072-token window, one fresh boot a cell, 512-token prose and code replies,
+aggregate tok/s (`scripts/qwen38/zig/target/widetile.sh`, spark6 `~/work/target/widetile.log`, image `v14`, which
+is this series plus a lever that measured flat and did not land). The target is the production serve's own table,
+`production/SPEED-TARGET.md` on the `production` branch, measured at 262,144 tokens; fp8 and bf16 KV decode the
+same on this box, so the two are comparable.
+
+| streams | ours prose / code | production prose / code | gap prose / code |
+|---|---|---|---|
+| 1 | 60.8 / 80.4 | 70.9 / 113.0 | -14% / -29% |
+| 2 | 86.5 / 119.2 | 103.3 / 173.7 | -16% / -31% |
+| 4 | 111.7 / 165.0 | 162.3 / 254.0 | -31% / -35% |
+| 6 | 144.7 / 202.3 | 202.2 / 311.8 | -28% / -35% |
+| 8 | not served: 8 streams at 131,072 with bf16 KV does not fit | 237.1 / 370.5 | |
+
+Every cell's golden is 6/6 identical to v1.2.6 stock's and its boot log reads "window self-check: 1176 of 2080".
+Where the remaining time is, and what has been measured against it, is in `docs/CATCHUP-1.2.6.md`: the round's
+read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to take next.

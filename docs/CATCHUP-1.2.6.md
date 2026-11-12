@@ -865,3 +865,24 @@ that one change is worth 11.6% prose and 8.1% code at one stream.
 this campaign uses, the same sense patch 0007 is exact: a draft is only a proposal, the verify forward decides every
 token, and a reply's text is unchanged while the rounds it takes move. Ranked against it, the read-out levers above
 (q12's 23% of 1,266 MB, the fused up and mix, the write-back's normalize) are all smaller.
+
+### Rank 2 measured and rejected: the 12-bit read-out copies buy nothing here
+
+`TF_FLASHNEXT_HC_Q12=1`, patch 0009's lever and a setting production's launcher carries, on the same binary
+(image `v14`, `scripts/qwen38/zig/target/wt2chain.sh`, spark6 `~/work/target/widetile2.log`):
+
+| arm | C=1 | C=4 | rounds prose/code | self-check |
+|---|---|---|---|---|
+| off | 61.3 / 81.1 | 111.8 / 164.4 | 146 / 89 | 1176 of 2080 |
+| `HC_Q12=1` | 61.1 / 81.3 | 111.7 / 164.0 | 146 / 89 | 1176 of 2080 |
+| `HC_Q12=1` with the wide tile | 61.3 / 80.7 | 112.0 / 164.3 | 146 / 89 | 1176 of 2080 |
+
+It engages and it is lossless: the boot line is "read-outs in 12 bits: 194 matrices, 1.07 GB beside their rows
+(76.2% of them), 99304 escapes", the per-boot check compares the copy's product with the BF16 lane's at 1, 5, 16,
+17 and 32 rows in both output kinds, and all ten decode reply hashes match the off arm's. It is also flat, within
+0.3% everywhere, which is what the corrected attribution predicts: 24% off the bytes of a group that already runs
+at 177 GB/s and holds 9 ms of a 63 ms round cannot be worth more than about 2 ms, and the 12-bit unpacking takes
+that back. The default stays off; the lever stays in patch 0009 for a box where the copies matter.
+
+Two levers in a row under 1%, so the read-out family is closed. The measured state of the stack against the target
+is in `patches/1.2.7/README.md`, and the next lever is the drafter's BF16 linears named above.
