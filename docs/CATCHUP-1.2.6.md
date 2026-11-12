@@ -396,13 +396,17 @@ BF16, 2 is MXFP8):
 By group: the dense projections 32.8 ms (52%), the experts 18.1 ms (29%), the glue 11.7 ms (19%). The round is
 weight reading. `ckpt_bytes.py` reads the checkpoint's headers and gives what a round has to walk:
 
-| part | checkpoint | read every round | kernel ms a round | effective rate |
+| part | checkpoint | read by | one launch | rate of one launch |
 |---|---|---|---|---|
-| mixers (`in_proj_qkv`, `in_proj_z`, `out_proj`, `q_proj`, `o_proj`) | 3.04 GB, MXFP8 (1 byte a weight) | all of it | 15.7 | 194 GB/s |
-| hyper-connections (97 read-outs, down and up) | 1.32 GB, **BF16 (2 bytes a weight)** | all of it | 15.4 | 86 GB/s |
-| of them, UP [10240, 320] | 0.66 GB | | 10.67 | **62 GB/s** |
-| of them, DOWN [324, 10240] | 0.66 GB | | 4.73 | 139 GB/s |
-| routed experts (512 a layer, 10 a token, 2.6 MB each) | 65.8 GB, 4-bit | the experts the rows pick | 18.1 | |
+| mixer, widest projection (`in_proj_qkv` / `q_proj`) | 26.2 / 31.5 MB, MXFP8 (1 byte a weight) | 48 launches a round | 188.6 us | 139 to 167 GB/s |
+| mixer, out projection | 15.7 MB, MXFP8 | 48 launches a round | 84.4 us | 186 GB/s |
+| hyper-connection DOWN [324, 10240] | 6.64 MB, **BF16 (2 bytes a weight)** | 110.5 launches a round | 42.8 us | 155 GB/s |
+| hyper-connection UP [10240, 320] | 6.55 MB, **BF16** | 115.9 launches a round | 92.0 us | **71 GB/s** |
+| routed experts (512 a layer, 10 a token, 2.6 MB each) | 65.8 GB in all, 4-bit | the experts the rows pick | | |
+
+The checkpoint holds 3.04 GB of mixers and 1.32 GB of hyper-connections (97 read-outs, a down and an up each), and a
+verify window walks all of both; the head's draft passes walk the head layer's again, which is why the read-outs
+launch more than 97 times a round.
 
 Two things stand out, and neither is a missing knob.
 
@@ -411,9 +415,10 @@ Two things stand out, and neither is a missing knob.
    E4M3 where NVIDIA's FP4 checkpoint has 6.55 MB in BF16, and production's loader takes that copy when it is there
    (`cuda_weights.zig`, "the fast-fp8 variant: down and up on block FP8"). The mixers are 8-bit in both checkpoints
    and the experts 4-bit in both. So of the 18.7 ms (prose) and 14.8 ms (code) between our round and production's,
-   the read-outs' bytes are the one difference of format: half the bytes of a 15.4 ms part.
-2. **The UP read-out reads at a third of the mixers' rate.** Same lane kernel, 160 blocks of 64 output columns over a
-   K of only 320: 92 us for 6.55 MB, against 189 us for a 26 to 31 MB mixer projection.
+   the read-outs' bytes are the one difference of format: half the bytes of a part that costs 15.4 ms a round
+   (10.67 up, 4.73 down).
+2. **The UP read-out reads at half the rate of everything beside it.** Same lane kernel, 160 blocks of 64 output
+   columns over a K of only 320: 71 GB/s, against 139 to 186 GB/s for the mixers and 155 for its own DOWN.
 
 The 12-bit lossless copy of these matrices (old 0026, `TF_FLASHNEXT_HC_Q12`) aimed at the same bytes and measured
 flat on 1.2.4; it is off by default, so the ladder's q12 row above only shows that carrying it costs nothing.
