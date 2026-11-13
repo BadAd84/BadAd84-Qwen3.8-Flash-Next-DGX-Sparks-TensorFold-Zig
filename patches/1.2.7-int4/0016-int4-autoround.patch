@@ -1,0 +1,1821 @@
+diff --git a/zig/build/cuda_kernels.zig b/zig/build/cuda_kernels.zig
+index 4c8c94b94..0e6c634a8 100644
+--- a/zig/build/cuda_kernels.zig
++++ b/zig/build/cuda_kernels.zig
+@@ -168,6 +168,7 @@ pub const kernels = [_]Kernel{
+     .{ .name = "drama3", .flags = &.{"-O3"} },
+     .{ .name = "drama3_fp8", .flags = &.{"-O3"} },
+     .{ .name = "drama3_codec", .flags = &.{"-O3"} },
++    .{ .name = "fn_int4", .flags = &.{"-O3"} }, // GPTQ int4 g128 routed experts and lm_head (production branch's fn_int4.cu)
+ };
+ 
+ /// torch.utils.cpp_extension's own nvcc flags (torch 2.13): C++20 and which half/bf16 operators the headers define.
+diff --git a/zig/kernels/cuda/fn_int4.cu b/zig/kernels/cuda/fn_int4.cu
+new file mode 100644
+index 000000000..ad6c33793
+--- /dev/null
++++ b/zig/kernels/cuda/fn_int4.cu
+@@ -0,0 +1,499 @@
++// GPTQ int4 (symmetric: zero point 8, fp16 scale per group of GS inputs and output column) W4A16 matmuls for the
++// INT4-AutoRound Flash Next checkpoint: the routed experts (grouped by the experts plan, gate/up with the SwiGLU
++// epilogue, down) and the lm_head (dense rows). Ours (TensorFold Zig engine, no Python counterpart).
++//
++// Weights are exact in bf16 MMAs: a code q (0..15) becomes the bf16 pair (128 + q) - 136 = q - 8. Per group of GS
++// inputs the products of one output column run in one fp32 MMA chain (k32 blocks in order, each block's two k16 steps
++// in order, the k permutation below fixed), then acc = fmaf(group sum, scale, acc) in group order. A row's result
++// therefore depends on its own inputs and the weights only: never on the other rows of the call, the row count, the
++// items the plan cuts, the column tiles a warp takes (NT) or the grid.
++//
++// Packed layout (cuda_int4.zig packs it from the checkpoint's qweight [K/8, N] int32): words uint32
++// [N/8][K/GS][32 lanes][GS/32]: lane l of an n8 tile holds column 8 tile + l/4 and, for each k32 block, the inputs
++// 8 (l%4) .. 8 (l%4) + 7 of the block (GPTQ's word for those 8 inputs) with its nibbles reordered so that nibble i
++// (i < 4) is input 2i and nibble i + 4 input 2i + 1: the pair at shift 4p is inputs (2p, 2p + 1). The k16 step s of
++// the block takes pairs 2s (as b0) and 2s + 1 (as b1), against the lane's activations at the same inputs (a uint4 of
++// 8 bf16 per row: a0/a1 = inputs 4s, 4s + 1, a2/a3 = 4s + 2, 4s + 3). Scales fp16 [N/8][K/GS][8].
++
++#include <cuda_bf16.h>
++#include <cuda_fp16.h>
++#include <stdint.h>
++
++namespace tf_fn_int4 {
++
++constexpr uint32_t LOW = 0x000F000Fu;
++constexpr uint32_t K128 = 0x43004300u;   // the bf16 pair (128, 128)
++constexpr uint32_t K136 = 0x43084308u;   // (136, 136): 128 + the zero point 8
++
++__device__ __forceinline__ uint32_t pair(uint32_t w, int p) {
++  uint32_t v = ((w >> (4 * p)) & LOW) | K128;
++  const uint32_t k = K136;
++  __nv_bfloat162 r = __hsub2(*reinterpret_cast<__nv_bfloat162*>(&v), *reinterpret_cast<const __nv_bfloat162*>(&k));
++  return *reinterpret_cast<uint32_t*>(&r);
++}
++
++__device__ __forceinline__ void mma(float (&d)[4], uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t b0,
++                                    uint32_t b1) {
++  asm("mma.sync.aligned.m16n8k16.row.col.f32.bf16.bf16.f32 {%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, "
++      "{%0, %1, %2, %3};\n"
++      : "+f"(d[0]), "+f"(d[1]), "+f"(d[2]), "+f"(d[3])
++      : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
++}
++
++__device__ __forceinline__ uint4 ld_nc(const uint4* p) {
++  uint4 r;
++  asm volatile("ld.global.nc.L1::no_allocate.v4.u32 {%0, %1, %2, %3}, [%4];\n"
++               : "=r"(r.x), "=r"(r.y), "=r"(r.z), "=r"(r.w)
++               : "l"(p));
++  return r;
++}
++
++__device__ __forceinline__ uint2 ld_nc2(const uint2* p) {
++  uint2 r;
++  asm volatile("ld.global.nc.L1::no_allocate.v2.u32 {%0, %1}, [%2];\n" : "=r"(r.x), "=r"(r.y) : "l"(p));
++  return r;
++}
++
++__device__ __forceinline__ uint32_t comp(const uint4& v, int c) {
++  return c == 0 ? v.x : c == 1 ? v.y : c == 2 ? v.z : v.w;
++}
++
++__device__ __forceinline__ float bf(float x) { return __bfloat162float(__float2bfloat16_rn(x)); }
++
++// experts.cuh's SwiGLU (the NVFP4 experts' epilogue 2): gate and up rounded to bf16, silu rounded, times up.
++__device__ __forceinline__ float swiglu(float g, float u, float limit) {
++  float gv = bf(g), uv = bf(u);
++  if (limit > 0.f) {
++    gv = fminf(gv, limit);
++    uv = fminf(fmaxf(uv, -limit), limit);
++  }
++  return bf(gv / (1.f + expf(-gv))) * uv;
++}
++
++// A lane's words of one n8 tile and group: GS/32 uint32 (uint4 for 128, uint2 for 64).
++template <int GS>
++struct Words {
++  uint32_t v[GS / 32];
++};
++
++template <int GS>
++__device__ __forceinline__ Words<GS> load_words(const uint32_t* p) {
++  Words<GS> w;
++  if constexpr (GS == 128) {
++    const uint4 u = ld_nc(reinterpret_cast<const uint4*>(p));
++    w.v[0] = u.x;
++    w.v[1] = u.y;
++    w.v[2] = u.z;
++    w.v[3] = u.w;
++  } else {
++    static_assert(GS == 64, "groups of 64 or 128 inputs");
++    const uint2 u = ld_nc2(reinterpret_cast<const uint2*>(p));
++    w.v[0] = u.x;
++    w.v[1] = u.y;
++  }
++  return w;
++}
++
++// One stage: a group's weights and scales of every (matrix, n8 tile) and the activations of rows gq and gq + 8 of
++// each of the MT row tiles (16 rows each) a pass takes.
++template <int GS, int NT, int MATS, int MT>
++struct Stage {
++  Words<GS> w[MATS][NT];
++  uint32_t s[MATS][NT];               // half2: the scales of the lane's two columns
++  uint4 xa[MT][GS / 32], xb[MT][GS / 32];  // rows gq, gq + 8: inputs 8 t .. 8 t + 7 of each k32 block
++};
++
++template <int GS, int NT, int MATS, int MT>
++__device__ __forceinline__ void load_stage(Stage<GS, NT, MATS, MT>& st, const uint32_t* const (&w)[MATS],
++                                           const __half* const (&s)[MATS], int KG, int g, int lane, int t,
++                                           const __nv_bfloat16* const (&x0)[MT], const __nv_bfloat16* const (&x1)[MT],
++                                           const bool (&v0)[MT], const bool (&v1)[MT]) {
++#pragma unroll
++  for (int m = 0; m < MATS; ++m)
++#pragma unroll
++    for (int j = 0; j < NT; ++j) {
++      const size_t tg = (size_t)j * KG + g;   // tile j (relative) and group g
++      st.w[m][j] = load_words<GS>(w[m] + (tg * 32 + lane) * (GS / 32));
++      st.s[m][j] = __ldg(reinterpret_cast<const unsigned int*>(s[m] + tg * 8 + 2 * t));
++    }
++  const uint4 zero = make_uint4(0u, 0u, 0u, 0u);
++#pragma unroll
++  for (int r = 0; r < MT; ++r)
++#pragma unroll
++    for (int b = 0; b < GS / 32; ++b) {
++      const int k0 = g * GS + b * 32 + 8 * t;
++      st.xa[r][b] = v0[r] ? __ldg(reinterpret_cast<const uint4*>(x0[r] + k0)) : zero;
++      st.xb[r][b] = v1[r] ? __ldg(reinterpret_cast<const uint4*>(x1[r] + k0)) : zero;
++    }
++}
++
++template <int GS, int NT, int MATS, int MT>
++__device__ __forceinline__ void compute_stage(float (&acc)[MT][MATS][NT][4], const Stage<GS, NT, MATS, MT>& st,
++                                              const bool (&hi)[MT]) {
++#pragma unroll
++  for (int m = 0; m < MATS; ++m)
++#pragma unroll
++    for (int j = 0; j < NT; ++j) {
++      const __half2 h = *reinterpret_cast<const __half2*>(&st.s[m][j]);
++      const float s0 = __low2float(h), s1 = __high2float(h);
++#pragma unroll
++      for (int r = 0; r < MT; ++r) {
++        float d[4] = {0.f, 0.f, 0.f, 0.f};
++#pragma unroll
++        for (int b = 0; b < GS / 32; ++b) {
++          const uint32_t word = st.w[m][j].v[b];
++#pragma unroll
++          for (int s = 0; s < 2; ++s)
++            mma(d, comp(st.xa[r][b], 2 * s), comp(st.xb[r][b], 2 * s), comp(st.xa[r][b], 2 * s + 1),
++                comp(st.xb[r][b], 2 * s + 1), pair(word, 2 * s), pair(word, 2 * s + 1));
++        }
++        float(&a)[4] = acc[r][m][j];
++        a[0] = fmaf(d[0], s0, a[0]);
++        a[1] = fmaf(d[1], s1, a[1]);
++        if (hi[r]) {
++          a[2] = fmaf(d[2], s0, a[2]);
++          a[3] = fmaf(d[3], s1, a[3]);
++        }
++      }
++    }
++}
++
++// EPI 2: SwiGLU of matrices 0 (gate) and 1 (up), bf16; 0: fp32; 3: bf16.
++template <int NT, int MATS, int EPI>
++__device__ __forceinline__ void store(const float (&acc)[MATS][NT][4], void* out, int out_stride, int col0, int pr0,
++                                      int pr1, bool v0, bool v1, float limit) {
++#pragma unroll
++  for (int h = 0; h < 2; ++h) {
++    if (!(h ? v1 : v0)) continue;
++    const size_t row = (size_t)(h ? pr1 : pr0) * out_stride;
++#pragma unroll
++    for (int j = 0; j < NT; ++j) {
++      const int col = col0 + 8 * j;
++      const float a0 = acc[0][j][2 * h], a1 = acc[0][j][2 * h + 1];
++      if constexpr (EPI == 0) {
++        *reinterpret_cast<float2*>(reinterpret_cast<float*>(out) + row + col) = make_float2(a0, a1);
++      } else {
++        float o0 = a0, o1 = a1;
++        if constexpr (EPI == 2) {
++          o0 = swiglu(a0, acc[MATS - 1][j][2 * h], limit);
++          o1 = swiglu(a1, acc[MATS - 1][j][2 * h + 1], limit);
++        }
++        *reinterpret_cast<__nv_bfloat162*>(reinterpret_cast<__nv_bfloat16*>(out) + row + col) =
++            __floats2bfloat162_rn(o0, o1);
++      }
++    }
++  }
++}
++
++// A warp a unit: (item, NT n8 tiles of every matrix). Items (expert, first member, count) from the experts plan, or,
++// with `items` null, the dense rows [16 MT i, 16 MT (i + 1)) of `rows` (the head: one matrix, members the rows
++// themselves). `slots`: a member p reads input row p / slots (gate/up from token rows), 0: row p (down from pair
++// rows). A pass takes MT tiles of 16 rows: the weights a group are loaded once for them (prompt items of up to 64
++// pairs, the head's 32-row items).
++template <int GS, int NT, int MT, int MATS, int EPI, int WARPS>
++__global__ void __launch_bounds__(WARPS * 32)
++    int4_kernel(const __nv_bfloat16* __restrict__ X, int x_stride, int slots, const uint32_t* __restrict__ W,
++                const __half* __restrict__ S, int K, int N, const int* __restrict__ items,
++                const int* __restrict__ counts, const int* __restrict__ members, int rows, void* __restrict__ out,
++                int out_stride, float limit, int skip) {
++  const int lane = threadIdx.x & 31, gq = lane >> 2, t = lane & 3;
++  const int KG = K / GS, NB = N / (8 * NT);
++  // dense items of 16 MT rows (the head of rows > 16 at MT 2: its weights read once for 32 rows)
++  const int n_items = items ? __ldg(counts) : (rows + 16 * MT - 1) / (16 * MT);
++  const int units = n_items * NB;
++  const size_t mat_words = (size_t)N * K / 8, mat_scales = (size_t)N * KG;
++  for (int unit = blockIdx.x * WARPS + (threadIdx.x >> 5); unit < units; unit += gridDim.x * WARPS) {
++    const int it = unit / NB, cb = unit - it * NB;
++    int e = 0, first = 16 * MT * it, cnt = min(16 * MT, rows - 16 * MT * it);
++    if (items) {
++      e = __ldg(items + 3 * it);
++      first = __ldg(items + 3 * it + 1);
++      cnt = __ldg(items + 3 * it + 2);
++      if (e == skip) continue;
++    }
++    const uint32_t* w[MATS];
++    const __half* s[MATS];
++#pragma unroll
++    for (int m = 0; m < MATS; ++m) {
++      const size_t mi = (size_t)e * MATS + m;
++      w[m] = W + mi * mat_words + (size_t)cb * NT * KG * 32 * (GS / 32);
++      s[m] = S + mi * mat_scales + (size_t)cb * NT * KG * 8;
++    }
++    for (int r0 = 0; r0 < cnt; r0 += 16 * MT) {
++      bool v0[MT], v1[MT];
++      int pr0[MT], pr1[MT];
++      const __nv_bfloat16* x0[MT];
++      const __nv_bfloat16* x1[MT];
++#pragma unroll
++      for (int r = 0; r < MT; ++r) {
++        const int a = r0 + 16 * r + gq;
++        v0[r] = a < cnt;
++        v1[r] = a + 8 < cnt;
++        if (items) {
++          pr0[r] = v0[r] ? __ldg(members + first + a) : 0;
++          pr1[r] = v1[r] ? __ldg(members + first + a + 8) : 0;
++        } else {
++          pr0[r] = v0[r] ? first + a : 0;
++          pr1[r] = v1[r] ? first + a + 8 : 0;
++        }
++        const int x0r = slots ? pr0[r] / slots : pr0[r], x1r = slots ? pr1[r] / slots : pr1[r];
++        x0[r] = X + (size_t)x0r * x_stride;
++        x1[r] = X + (size_t)x1r * x_stride;
++      }
++      float acc[MT][MATS][NT][4];
++#pragma unroll
++      for (int r = 0; r < MT; ++r)
++#pragma unroll
++        for (int m = 0; m < MATS; ++m)
++#pragma unroll
++          for (int j = 0; j < NT; ++j) acc[r][m][j][0] = acc[r][m][j][1] = acc[r][m][j][2] = acc[r][m][j][3] = 0.f;
++      constexpr int D = 2;   // stages in flight
++      Stage<GS, NT, MATS, MT> st[D];
++#pragma unroll
++      for (int d = 0; d < D; ++d)
++        if (d < KG) load_stage<GS, NT, MATS, MT>(st[d], w, s, KG, d, lane, t, x0, x1, v0, v1);
++      for (int g0 = 0; g0 < KG; g0 += D) {
++#pragma unroll
++        for (int d = 0; d < D; ++d) {
++          const int g = g0 + d;
++          if (g < KG) {
++            compute_stage<GS, NT, MATS, MT>(acc, st[d], v1);
++            if (g + D < KG) load_stage<GS, NT, MATS, MT>(st[d], w, s, KG, g + D, lane, t, x0, x1, v0, v1);
++          }
++        }
++      }
++#pragma unroll
++      for (int r = 0; r < MT; ++r)
++        store<NT, MATS, EPI>(acc[r], out, out_stride, cb * NT * 8 + 2 * t, pr0[r], pr1[r], v0[r], v1[r], limit);
++    }
++  }
++}
++
++
++// ---- prompt calls: a block a (plan item of up to 64 pairs, column block), weights and rows staged in shared memory --
++//
++// The same per-output arithmetic as int4_kernel (so the same bits, int4-check): per group of GS inputs a fresh fp32
++// MMA chain over the k32 blocks in order and each block's two k16 steps in order, with the same k permutation (a lane
++// holds inputs 8 t .. 8 t + 7 of a block; nibble pair p of its word is inputs 2p, 2p + 1), then
++// acc = fmaf(group sum, scale, acc) in group order. What changes is where the operands come from: a block of WR x WC
++// warps copies one group of the item's rows (gathered by the plan's members, zero past the item's count) and of its
++// column block's packed words and scales into shared memory with cp.async, STAGES groups in flight; each warp then
++// applies every dequantized k16 weight step to RT row tiles of 16 (the int4 decode once for RT MMAs) and every row
++// fragment to WN n8 tiles of each matrix. A row's bits never depend on the other rows (an MMA's rows are independent).
++
++__device__ __forceinline__ void cp_async16(void* smem, const void* gmem, int bytes) {
++  const unsigned s = static_cast<unsigned>(__cvta_generic_to_shared(smem));
++  asm volatile("cp.async.cg.shared.global [%0], [%1], 16, %2;\n" ::"r"(s), "l"(gmem), "r"(bytes));
++}
++__device__ __forceinline__ void cp_async_commit() { asm volatile("cp.async.commit_group;\n" ::); }
++template <int N>
++__device__ __forceinline__ void cp_async_wait() { asm volatile("cp.async.wait_group %0;\n" ::"n"(N)); }
++
++__device__ __forceinline__ uint4 lds128(const unsigned char* p) {
++  return *reinterpret_cast<const uint4*>(p);
++}
++
++// The 16-byte chunk c of shared row r (GS * 2 bytes a row): odd rows' chunks moved by four (a quarter warp's two rows
++// gq, gq + 1 at the same chunks then hit all 32 banks).
++__device__ __forceinline__ int swz(int r, int c) { return c ^ ((r & 1) << 2); }
++
++template <int GS, int MATS, int WR, int WC, int RT, int WN>
++struct PromptShape {
++  static constexpr int THREADS = WR * WC * 32;
++  static constexpr int BR = WR * RT * 16;              // rows a block (an item's pairs)
++  static constexpr int BT = WC * WN;                   // n8 tiles a block of each matrix
++  static constexpr int CH = GS * 2 / 16;               // 16-byte chunks of a row's group
++  static constexpr int WPL = GS / 32;                  // words a lane of a tile's group
++  static constexpr int A_BYTES = BR * GS * 2;
++  static constexpr int W_BYTES = MATS * BT * 32 * WPL * 4;
++  static constexpr int S_BYTES = MATS * BT * 16;
++  static constexpr int STAGE = A_BYTES + W_BYTES + S_BYTES;
++};
++
++template <int GS, int MATS, int EPI, int WR, int WC, int RT, int WN, int STAGES>
++__global__ void __launch_bounds__(WR * WC * 32)
++    int4_prompt_kernel(const __nv_bfloat16* __restrict__ X, int x_stride, int slots, const uint32_t* __restrict__ W,
++                       const __half* __restrict__ S, int K, int N, const int* __restrict__ items,
++                       const int* __restrict__ counts, const int* __restrict__ members, void* __restrict__ out,
++                       int out_stride, float limit, int skip) {
++  using P = PromptShape<GS, MATS, WR, WC, RT, WN>;
++  extern __shared__ __align__(128) unsigned char smem[];
++  __shared__ int src_row[P::BR];
++  __shared__ int out_row[P::BR];
++  const int warp = threadIdx.x >> 5, lane = threadIdx.x & 31, gq = lane >> 2, t = lane & 3;
++  const int wr = warp / WC, wc = warp - wr * WC;
++  const int KG = K / GS, NB = N / (8 * P::BT);
++  const int units = __ldg(counts) * NB;
++  const size_t mat_words = (size_t)N * K / 8, mat_scales = (size_t)N * KG;
++  for (int unit = blockIdx.x; unit < units; unit += gridDim.x) {
++    const int it = unit / NB, cb = unit - it * NB;
++    const int e = __ldg(items + 3 * it), first = __ldg(items + 3 * it + 1), cnt = __ldg(items + 3 * it + 2);
++    if (e == skip) continue;
++    __syncthreads();   // the previous unit's rows and stages are no longer read
++    for (int i = threadIdx.x; i < P::BR; i += P::THREADS) {
++      const bool v = i < cnt;
++      const int p = v ? __ldg(members + first + i) : 0;
++      out_row[i] = p;
++      src_row[i] = v ? (slots ? p / slots : p) : -1;
++    }
++    __syncthreads();
++    const uint32_t* wbase = W + (size_t)e * MATS * mat_words;
++    const __half* sbase = S + (size_t)e * MATS * mat_scales;
++    auto load = [&](int stage, int g) {
++      unsigned char* st = smem + stage * P::STAGE;
++      for (int c = threadIdx.x; c < P::BR * P::CH; c += P::THREADS) {
++        const int r = c / P::CH, ch = c - r * P::CH;
++        const int src = src_row[r];
++        const __nv_bfloat16* gp = src >= 0 ? X + (size_t)src * x_stride + g * GS + ch * 8 : X;
++        cp_async16(st + r * GS * 2 + swz(r, ch) * 16, gp, src >= 0 ? 16 : 0);
++      }
++      constexpr int TCH = 32 * P::WPL * 4 / 16;   // 16-byte chunks of a tile's group
++      for (int c = threadIdx.x; c < MATS * P::BT * TCH; c += P::THREADS) {
++        const int q = c / TCH, w = c - q * TCH;
++        const int m = q / P::BT, j = q - m * P::BT;
++        const uint32_t* gp = wbase + m * mat_words + ((size_t)(cb * P::BT + j) * KG + g) * 32 * P::WPL + w * 4;
++        cp_async16(st + P::A_BYTES + q * TCH * 16 + w * 16, gp, 16);
++      }
++      for (int q = threadIdx.x; q < MATS * P::BT; q += P::THREADS) {
++        const int m = q / P::BT, j = q - m * P::BT;
++        const __half* gp = sbase + m * mat_scales + ((size_t)(cb * P::BT + j) * KG + g) * 8;
++        cp_async16(st + P::A_BYTES + P::W_BYTES + q * 16, gp, 16);
++      }
++    };
++#pragma unroll
++    for (int s = 0; s < STAGES - 1; ++s) {
++      if (s < KG) load(s, s);
++      cp_async_commit();
++    }
++    float acc[RT][MATS][WN][4];
++#pragma unroll
++    for (int r = 0; r < RT; ++r)
++#pragma unroll
++      for (int m = 0; m < MATS; ++m)
++#pragma unroll
++        for (int j = 0; j < WN; ++j) acc[r][m][j][0] = acc[r][m][j][1] = acc[r][m][j][2] = acc[r][m][j][3] = 0.f;
++    // row tiles of this warp holding pairs (warp-uniform)
++    const int row_base = wr * RT * 16;
++    int live = (cnt - row_base + 15) / 16;
++    live = live < 0 ? 0 : (live > RT ? RT : live);
++    for (int g = 0; g < KG; ++g) {
++      cp_async_wait<STAGES - 2>();
++      __syncthreads();
++      if (g + STAGES - 1 < KG) load((g + STAGES - 1) % STAGES, g + STAGES - 1);
++      cp_async_commit();
++      if (live == 0) continue;
++      const unsigned char* st = smem + (g % STAGES) * P::STAGE;
++      const unsigned char* sw = st + P::A_BYTES;
++      const unsigned char* ss = sw + P::W_BYTES;
++      Words<GS> wd[MATS][WN];
++      float s0[MATS][WN], s1[MATS][WN];
++#pragma unroll
++      for (int m = 0; m < MATS; ++m)
++#pragma unroll
++        for (int j = 0; j < WN; ++j) {
++          const int q = m * P::BT + wc * WN + j;
++          const unsigned char* wp = sw + (q * 32 + lane) * P::WPL * 4;
++          if constexpr (GS == 128) {
++            const uint4 u = lds128(wp);
++            wd[m][j].v[0] = u.x;
++            wd[m][j].v[1] = u.y;
++            wd[m][j].v[2] = u.z;
++            wd[m][j].v[3] = u.w;
++          } else {
++            const uint2 u = *reinterpret_cast<const uint2*>(wp);
++            wd[m][j].v[0] = u.x;
++            wd[m][j].v[1] = u.y;
++          }
++          const __half2 h = *reinterpret_cast<const __half2*>(ss + q * 16 + 4 * t);
++          s0[m][j] = __low2float(h);
++          s1[m][j] = __high2float(h);
++        }
++      float d[RT][MATS][WN][4];
++#pragma unroll
++      for (int r = 0; r < RT; ++r)
++#pragma unroll
++        for (int m = 0; m < MATS; ++m)
++#pragma unroll
++          for (int j = 0; j < WN; ++j) d[r][m][j][0] = d[r][m][j][1] = d[r][m][j][2] = d[r][m][j][3] = 0.f;
++#pragma unroll
++      for (int b = 0; b < P::WPL; ++b) {
++        uint4 xa[RT], xb[RT];
++#pragma unroll
++        for (int r = 0; r < RT; ++r) {
++          if (r < live) {
++            const int r0 = row_base + 16 * r + gq, r1 = r0 + 8;
++            xa[r] = lds128(st + r0 * GS * 2 + swz(r0, 4 * b + t) * 16);
++            xb[r] = lds128(st + r1 * GS * 2 + swz(r1, 4 * b + t) * 16);
++          }
++        }
++#pragma unroll
++        for (int s = 0; s < 2; ++s)
++#pragma unroll
++          for (int m = 0; m < MATS; ++m)
++#pragma unroll
++            for (int j = 0; j < WN; ++j) {
++              const uint32_t b0 = pair(wd[m][j].v[b], 2 * s), b1 = pair(wd[m][j].v[b], 2 * s + 1);
++#pragma unroll
++              for (int r = 0; r < RT; ++r)
++                if (r < live)
++                  mma(d[r][m][j], comp(xa[r], 2 * s), comp(xb[r], 2 * s), comp(xa[r], 2 * s + 1),
++                      comp(xb[r], 2 * s + 1), b0, b1);
++            }
++      }
++#pragma unroll
++      for (int r = 0; r < RT; ++r)
++#pragma unroll
++        for (int m = 0; m < MATS; ++m)
++#pragma unroll
++          for (int j = 0; j < WN; ++j) {
++            float(&a)[4] = acc[r][m][j];
++            a[0] = fmaf(d[r][m][j][0], s0[m][j], a[0]);
++            a[1] = fmaf(d[r][m][j][1], s1[m][j], a[1]);
++            a[2] = fmaf(d[r][m][j][2], s0[m][j], a[2]);
++            a[3] = fmaf(d[r][m][j][3], s1[m][j], a[3]);
++          }
++    }
++    cp_async_wait<0>();
++#pragma unroll
++    for (int r = 0; r < RT; ++r) {
++      if (r >= live) continue;
++      const int a0 = row_base + 16 * r + gq, a1 = a0 + 8;
++      store<WN, MATS, EPI>(acc[r], out, out_stride, (cb * P::BT + wc * WN) * 8 + 2 * t, out_row[a0], out_row[a1],
++                           a0 < cnt, a1 < cnt, limit);
++    }
++  }
++}
++
++}  // namespace tf_fn_int4
++
++// gate/up SwiGLU (2 matrices, groups of 128), down fp32 / bf16 (groups of 128 at one GPU, 64 at a TP=2 rank: its
++// half of the 640 inputs cuts a group of 128), the head (bf16); 1, 2 or 4 n8 tiles a warp, 1 or 2 row tiles a pass
++// (the same bits).
++#define TF_INT4(GS, NT, MT, MATS, EPI) template __global__ void tf_fn_int4::int4_kernel<GS, NT, MT, MATS, EPI, 4>( \
++    const __nv_bfloat16*, int, int, const uint32_t*, const __half*, int, int, const int*, const int*, const int*, int, \
++    void*, int, float, int);
++#define TF_INT4_NT(GS, MATS, EPI) TF_INT4(GS, 1, 1, MATS, EPI) TF_INT4(GS, 2, 1, MATS, EPI) TF_INT4(GS, 4, 1, MATS, EPI) \
++    TF_INT4(GS, 1, 2, MATS, EPI) TF_INT4(GS, 2, 2, MATS, EPI) TF_INT4(GS, 4, 2, MATS, EPI)
++TF_INT4_NT(128, 2, 2)
++TF_INT4_NT(128, 1, 0)
++TF_INT4_NT(128, 1, 3)
++TF_INT4_NT(64, 1, 0)
++TF_INT4_NT(64, 1, 3)
++
++// Prompt calls of the routed down (int4_prompt_kernel, 8 warps: 2 row x 4 column, 2 row tiles and 4 n8 tiles a warp,
++// items of up to 64 pairs): fp32 / bf16 out, groups of 64 (a TP=2 rank) in 3 stages, of 128 (one GPU) in 2.
++#define TF_INT4_PROMPT(GS, EPI, ST) template __global__ void tf_fn_int4::int4_prompt_kernel<GS, 1, EPI, 2, 4, 2, 4, ST>( \
++    const __nv_bfloat16*, int, int, const uint32_t*, const __half*, int, int, const int*, const int*, const int*, void*, \
++    int, float, int);
++TF_INT4_PROMPT(64, 0, 3)
++TF_INT4_PROMPT(64, 3, 3)
++TF_INT4_PROMPT(128, 0, 2)
++TF_INT4_PROMPT(128, 3, 2)
++// Prompt calls of the routed gate/up on the same kernel (2 matrices, the SwiGLU epilogue, groups of 128 at one GPU),
++// items of up to 64 pairs: an expert's gate/up words read once an item instead of once a 16-pair item (int4_kernel).
++// 2 x 4 warps, 2 x 4 tiles a warp (64 rows x 128 columns a block), 3 stages (cuda_int4.zig prompt_gu). The same
++// per-output arithmetic as int4_kernel: the same bits (int4-check).
++#define TF_INT4_PROMPT_GU(WR, WC, RT, WN, ST) template __global__ void tf_fn_int4::int4_prompt_kernel<128, 2, 2, WR, WC, \
++    RT, WN, ST>(const __nv_bfloat16*, int, int, const uint32_t*, const __half*, int, int, const int*, const int*, \
++    const int*, void*, int, float, int);
++TF_INT4_PROMPT_GU(2, 4, 2, 4, 3)
+diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
+index 160265714..d40270f55 100644
+--- a/zig/src/cuda/kernels.zig
++++ b/zig/src/cuda/kernels.zig
+@@ -157,6 +157,7 @@ pub const ggml: []const u8 = if (available) &Blob("fatbin_ggml").bytes else &.{}
+ pub const drama3: []const u8 = if (available) &Blob("fatbin_drama3").bytes else &.{};
+ pub const drama3_fp8: []const u8 = if (available) &Blob("fatbin_drama3_fp8").bytes else &.{};
+ pub const drama3_codec: []const u8 = if (available) &Blob("fatbin_drama3_codec").bytes else &.{};
++pub const fn_int4: []const u8 = if (available) &Blob("fatbin_fn_int4").bytes else &.{};
+ pub const drama3_staged_gemv: []const u8 = if (available) &Blob("fatbin_drama3_staged_gemv").bytes else &.{};
+ pub const gdn_train: []const u8 = if (available) &Blob("fatbin_gdn_train").bytes else &.{};
+ pub const train_q4: []const u8 = if (available) &Blob("fatbin_train_q4").bytes else &.{};
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index 6dd7748d7..a14320068 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -131,6 +131,21 @@ pub fn Pass(comptime Tri: type) type {
+ 
+         /// qmm.cu's arithmetic over m rows into out (bf16) or part (fp32 K slices); returns the slices (1 when folded).
+         pub fn lane(self: *Self, x: u64, xs: u64, w: Q4, out: u64, part: u64, m: usize, sk: usize) !usize {
++            // INT4-AutoRound's GPTQ int4 head: fn_int4.cu's dense rows
++            if (w.int4) |m4| {
++                if (sk != 1) return error.UnexpectedTensor;
++                try @import("cuda_int4.zig").dense(&self.k.int4, self.stream, x, w.k, m4, out, false, m);
++                return 1;
++            }
++            if (w.tail) |t| {
++                // block-FP8 rows with zero codes where the BF16 tail goes, then the tail's rows copied into place
++                if (sk != 1) return error.UnexpectedTensor;
++                const used = try tiles.matmul(self.k, self.stream, x, xs, w, out, part, self.s.native_part, m, sk, self.hooks.prompt);
++                if (used != 1) return error.UnexpectedTensor;
++                try self.k.nativeMatmul(self.stream, x, w.k, m, t.native, self.s.tail, self.s.native_part, .bf16);
++                try ops.copyCols(self.k, self.stream, self.s.tail, t.n, out + t.at * 2, w.n, t.n, m);
++                return 1;
++            }
+             if (try zs.lane(self.k, self.stream, self.s, self.zero_slices, x, w, part, m, sk)) |one| return one;
+             return tiles.matmul(self.k, self.stream, x, xs, w, out, part, self.s.native_part, m, sk, self.hooks.prompt);
+         }
+diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
+index 176bc29c9..0bc632511 100644
+--- a/zig/src/families/flashnext/cuda_batch_kernels.zig
++++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
+@@ -72,6 +72,8 @@ pub const Kernels = struct {
+     nvfp4: cuda.experts.Nvfp4Experts,
+     /// Block-FP8 routed experts (the MTP head of NVIDIA's NVFP4 checkpoint; cuda_moe_native.zig).
+     fp8: cuda.experts.Fp8Experts,
++    /// INT4-AutoRound's GPTQ int4 routed experts and lm_head (cuda_int4.zig).
++    int4: @import("cuda_int4.zig").Kernels,
+     expert_tile: ?cuda.experts_tile.Tile = null,
+     /// The DeltaNet kernels for the whole layer's heads and for a rank's half under the head split (gdnSet).
+     gdn: Gdn,
+@@ -123,6 +125,8 @@ pub const Kernels = struct {
+         var sms: c_int = 0;
+         try d.check(d.api.cuDeviceGet(&device, 0), "cuDeviceGet");
+         try d.check(d.api.cuDeviceGetAttribute(&sms, .multiprocessor_count, device), "cuDeviceGetAttribute");
++        k.int4 = try @import("cuda_int4.zig").Kernels.load(d);
++        errdefer k.int4.deinit();
+         k.nvfp4 = try cuda.experts.Nvfp4Experts.load(d, @intCast(sms));
+         errdefer k.nvfp4.unload();
+         k.fp8 = try cuda.experts.Fp8Experts.load(d, @intCast(sms));
+@@ -175,6 +179,7 @@ pub const Kernels = struct {
+ 
+     pub fn deinit(k: *Kernels) void {
+         if (k.expert_tile) |*tile| tile.unload();
++        k.int4.deinit();
+         k.fp8.unload();
+         k.nvfp4.unload();
+         k.native_lane.unload();
+diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
+index c77c8a11d..499e4e242 100644
+--- a/zig/src/families/flashnext/cuda_batch_side.zig
++++ b/zig/src/families/flashnext/cuda_batch_side.zig
+@@ -40,7 +40,7 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
+     const glue = pass.tri.own orelse return error.NativeGlueRequired;
+     try pass.k.nativeMatmul(st, s.mixed, dims, n, native.shared[0].native.?, s.shared_gate, s.native_part, .bf16);
+     try pass.k.nativeMatmul(st, s.mixed, dims, n, native.shared[1].native.?, s.shared_up, s.native_part, .bf16);
+-    try glue.sharedSwiGLU(st, s.shared_gate, s.shared_up, s.shared_act, n, moe_w);
++    try glue.sharedSwiGLU(st, s.shared_gate, s.shared_up, s.shared_act, n, native.shared_width);
+     try down(pass, st, s.shared_act, native, n);
+ }
+ 
+@@ -48,10 +48,11 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
+ pub fn down(pass: anytype, st: cuda.Stream, input: u64, native: anytype, n: usize) !void {
+     const s = pass.s;
+     const w = native.shared[2].native.?;
+-    if (!pass.shared_direct and w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, moe_w, slots * dims))
+-        return pass.k.native_lane.matmulF32Strided(st, input, moe_w, n, w, s.y + (slots - 1) * dims * 4, slots * dims);
++    const sw = native.shared_width;
++    if (!pass.shared_direct and w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, sw, slots * dims))
++        return pass.k.native_lane.matmulF32Strided(st, input, sw, n, w, s.y + (slots - 1) * dims * 4, slots * dims);
+     const glue = pass.tri.own orelse return error.NativeGlueRequired;
+-    try pass.k.nativeMatmul(st, input, moe_w, n, w, s.shared_out, s.native_part, .f32);
++    try pass.k.nativeMatmul(st, input, sw, n, w, s.shared_out, s.native_part, .f32);
+     // with the write-back reading it in place, the rows stay in shared_out and y's slot keeps its zeros
+     if (pass.shared_direct) return;
+     try glue.sharedScatter(st, s.shared_out, s.y, n, dims, slots);
+diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
+index ec3e9034d..30911d6c6 100644
+--- a/zig/src/families/flashnext/cuda_batch_state.zig
++++ b/zig/src/families/flashnext/cuda_batch_state.zig
+@@ -20,6 +20,8 @@ const vocab = wt.vocab;
+ const experts_n = wt.experts_n;
+ const slots = wt.slots;
+ const moe_w = wt.moe_w;
++/// The widest BF16 tail a block-FP8 projection carries: the indexer's q and k rows after attention's q, k, v.
++const tail_n = wt.index_heads * wt.index_dim + wt.index_dim;
+ const tile = wt.tile;
+ const q_heads = wt.q_heads;
+ const kv_heads = wt.kv_heads;
+@@ -301,6 +303,8 @@ pub const Scratch = struct {
+     shared_up: u64 = 0,
+     shared_act: u64 = 0,
+     shared_out: u64 = 0,
++    /// a block-FP8 projection's BF16 tail rows [cap, tail_n] before they are copied into place (cuda_batch.lane)
++    tail: u64 = 0,
+     y: u64 = 0,
+     branch: u64 = 0,
+     /// A layer's MoE output in fp32 [cap, dims] when something adds to it, and the pocket's activations [cap, 128].
+@@ -393,7 +397,7 @@ pub const Scratch = struct {
+         n += att_rows * nch * q_heads * (head_dim + 2) * 4 + cap * out_k * 2 * 2 + cap * (out_k / 32) * 4;
+         n += fused_rows * (idw + 2) * 4 + lanes_bytes;
+         n += cap * (experts_n + 1) * 4 + pairs * 4 * 2 + pairs * 4 + items * 3 * 4 + 8 + pairs * 4 + nblk * (experts_n + 1) * 4 + pairs * 4;
+-        n += cap * moe_w * 6 + cap * dims * 4;
++        n += cap * wt.shared_w * 6 + cap * dims * 4 + cap * tail_n * 2;
+         n += pairs * moe_w * 2 + pairs * dims * 4 + cap * dims * 2;
+         n += cap * dims * 2 + cap * (dims / 32) * 4 + cap * wide * 2 + cap * dims * 2 + 4 * cap * dims * 4;
+         n += cap * wide * 2 * 2 + cap * streams * 4 + vocab * 2 + head_rows * vocab + half * 4 + 4096;
+@@ -465,10 +469,11 @@ pub const Scratch = struct {
+         s.counts = try s.add(gpa, d, 8);
+         s.rank = try s.add(gpa, d, pairs * 4);
+         s.hist = try s.add(gpa, d, nblk * (experts_n + 1) * 4);
+-        s.shared_gate = try s.add(gpa, d, cap * moe_w * 2);
+-        s.shared_up = try s.add(gpa, d, cap * moe_w * 2);
+-        s.shared_act = try s.add(gpa, d, cap * moe_w * 2);
++        s.shared_gate = try s.add(gpa, d, cap * wt.shared_w * 2);
++        s.shared_up = try s.add(gpa, d, cap * wt.shared_w * 2);
++        s.shared_act = try s.add(gpa, d, cap * wt.shared_w * 2);
+         s.shared_out = try s.add(gpa, d, cap * dims * 4);
++        s.tail = try s.add(gpa, d, cap * tail_n * 2);
+         s.moe_act = try s.add(gpa, d, pairs * moe_w * 2);
+         s.y = try s.add(gpa, d, pairs * dims * 4);
+         s.branch = try s.add(gpa, d, cap * dims * 2);
+diff --git a/zig/src/families/flashnext/cuda_config.zig b/zig/src/families/flashnext/cuda_config.zig
+index 1054083b3..318419b0c 100644
+--- a/zig/src/families/flashnext/cuda_config.zig
++++ b/zig/src/families/flashnext/cuda_config.zig
+@@ -19,7 +19,7 @@ const shapes = [_]Want{
+     .{ .name = "num_experts", .value = wt.experts_n },
+     .{ .name = "num_experts_per_tok", .value = wt.slots - 1 },
+     .{ .name = "moe_intermediate_size", .value = wt.moe_w },
+-    .{ .name = "shared_expert_intermediate_size", .value = wt.moe_w },
++    .{ .name = "shared_expert_intermediate_size", .value = wt.shared_w },
+     .{ .name = "hc_count", .value = wt.streams },
+     .{ .name = "hc_lowrank", .value = wt.low },
+     .{ .name = "linear_num_key_heads", .value = gdn.nk },
+@@ -156,6 +156,74 @@ fn declared(entries: std.json.ObjectMap, layer: usize, prefix: []const u8, parts
+     return if (listed == 0) .bf16 else if (listed == parts.len) .mxfp8 else null;
+ }
+ 
++/// The INT4-AutoRound export (quant_method "gptq"): 4-bit symmetric groups of 128 without act order on the routed
++/// experts and the lm_head, its `dynamic` rules leaving the mixers, the shared expert, the router and the embeddings.
++fn gptqMismatch(text: std.json.ObjectMap, quant: std.json.ObjectMap) ?[]const u8 {
++    if (int(quant, "bits") != 4) return "quantization_config.bits";
++    if (int(quant, "group_size") != 128) return "quantization_config.group_size";
++    if (!holds(quant.get("sym") orelse return "quantization_config.sym", .{ .flag = true })) return "quantization_config.sym";
++    if (given(quant, "desc_act")) |v| if (!holds(v, .{ .flag = false })) return "quantization_config.desc_act";
++    const rules = object(quant, "dynamic") orelse return "quantization_config.dynamic";
++    if (!gptqQuantized(rules, "model.language_model.layers.0.mlp.experts.0.gate_proj")) return "quantization_config.routed_experts";
++    if (!gptqQuantized(rules, "model.language_model.layers.47.mlp.experts.511.down_proj")) return "quantization_config.routed_experts";
++    const head_on = if (given(quant, "lm_head")) |v| holds(v, .{ .flag = true }) else false;
++    if (!head_on and !gptqForced(rules, "lm_head")) return "quantization_config.lm_head";
++    for ([_][]const u8{ "model.language_model.layers.0.linear_attn.in_proj_qkv", "model.language_model.layers.3.self_attn.q_proj", "model.language_model.layers.0.mlp.shared_expert.gate_proj", "model.language_model.layers.0.mlp.gate", "model.language_model.embed_tokens", "model.language_model.layers.0.attn_hyper_connection.input_mix_weight_up" }) |m| {
++        if (gptqQuantized(rules, m)) return "quantization_config.dynamic";
++    }
++    return geometry(text);
++}
++
++/// No "-:" rule of `dynamic` matches `module` (Python's re.match, anchored at the start).
++fn gptqQuantized(rules: std.json.ObjectMap, module: []const u8) bool {
++    var it = rules.iterator();
++    while (it.next()) |kv| if (std.mem.startsWith(u8, kv.key_ptr.*, "-:") and regexMatch(kv.key_ptr.*[2..], module)) return false;
++    return true;
++}
++
++/// A "+:" rule of `dynamic` matches `module`.
++fn gptqForced(rules: std.json.ObjectMap, module: []const u8) bool {
++    var it = rules.iterator();
++    while (it.next()) |kv| if (std.mem.startsWith(u8, kv.key_ptr.*, "+:") and regexMatch(kv.key_ptr.*[2..], module)) return true;
++    return false;
++}
++
++/// Python's re.match for the subset GPTQ dynamic rules use: literals, '.', '\x' escapes, '*' and '+' after an atom,
++/// a final '$' (the production branch's cuda_config.regexMatch).
++pub fn regexMatch(pattern: []const u8, text: []const u8) bool {
++    return reAt(pattern, 0, text, 0);
++}
++
++fn reAtom(pattern: []const u8, p: usize) struct { len: usize, lit: ?u8 } {
++    if (pattern[p] == '\\' and p + 1 < pattern.len) return .{ .len = 2, .lit = pattern[p + 1] };
++    if (pattern[p] == '.') return .{ .len = 1, .lit = null };
++    return .{ .len = 1, .lit = pattern[p] };
++}
++
++fn reOne(lit: ?u8, c: u8) bool {
++    return if (lit) |l| l == c else true;
++}
++
++fn reAt(pattern: []const u8, p: usize, text: []const u8, t: usize) bool {
++    if (p == pattern.len) return true;
++    if (pattern[p] == '$' and p + 1 == pattern.len) return t == text.len;
++    const atom = reAtom(pattern, p);
++    const next = p + atom.len;
++    if (next < pattern.len and (pattern[next] == '*' or pattern[next] == '+')) {
++        const least: usize = if (pattern[next] == '+') 1 else 0;
++        var n: usize = 0;
++        while (t + n < text.len and reOne(atom.lit, text[t + n])) n += 1;
++        var k: usize = n + 1;
++        while (k > least) {
++            k -= 1;
++            if (reAt(pattern, next + 1, text, t + k)) return true;
++        }
++        return false;
++    }
++    if (t < text.len and reOne(atom.lit, text[t])) return reAt(pattern, next, text, t + 1);
++    return false;
++}
++
+ /// The neurons a Living Weights pocket adds to each shared expert (living's Keys.pocket).
+ const learned_key = "tensorfold_learned_neurons";
+ 
+@@ -215,7 +283,7 @@ pub fn mode(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !Mode {
+     const text = if (root.get("text_config")) |v| (if (v == .object) v.object else root) else root;
+     const quant = if (root.get("quantization")) |v| (if (v == .object) v.object else null) else null;
+     const selected: Mode = if (quant != null) .affine else .modelopt;
+-    var field = if (selected == .affine) mismatch(text, quant) else if (object(root, "quantization_config")) |q| modeloptMismatch(text, q) else "quantization";
++    var field = if (selected == .affine) mismatch(text, quant) else if (object(root, "quantization_config")) |q| (if (given(q, "quant_method") != null and holds(q.get("quant_method").?, .{ .word = "gptq" })) gptqMismatch(text, q) else modeloptMismatch(text, q)) else "quantization";
+     if (field == null) if (given(root, "tie_word_embeddings")) |v| if (!holds(v, .{ .flag = false })) {
+         field = "tie_word_embeddings";
+     };
+diff --git a/zig/src/families/flashnext/cuda_fp8_experts_load.zig b/zig/src/families/flashnext/cuda_fp8_experts_load.zig
+index 3c79c3e52..9c12222f5 100644
+--- a/zig/src/families/flashnext/cuda_fp8_experts_load.zig
++++ b/zig/src/families/flashnext/cuda_fp8_experts_load.zig
+@@ -69,16 +69,36 @@ pub fn packExpert(a: std.mem.Allocator, store: anytype, prefix: []const u8, i: u
+     const one = try Shape.of(dims, width);
+     if (out.up.len != one.up or out.down.len != one.down or out.up_scale.len != one.up_scale or out.down_scale.len != one.down_scale) return error.UnexpectedTensor;
+     const half = one.up_scale / 2;
+-    const gate = try part(store, prefix, i, "gate_proj", width, dims, out.up_scale[0..half]);
+-    const up = try part(store, prefix, i, "up_proj", width, dims, out.up_scale[half..]);
++    // BF16 experts (INT4-AutoRound's MTP layer) are re-coded into these: drafts only, so any coding keeps the replies
++    const scratch = try a.alloc(u8, 3 * width * dims);
++    defer a.free(scratch);
++    const gate = try part(store, prefix, i, "gate_proj", width, dims, out.up_scale[0..half], scratch[0 .. width * dims]);
++    const up = try part(store, prefix, i, "up_proj", width, dims, out.up_scale[half..], scratch[width * dims .. 2 * width * dims]);
+     try fx.packGateUp(a, out.up, gate, up, width, dims);
+-    fx.packOne(out.down, try part(store, prefix, i, "down_proj", dims, width, out.down_scale), dims, width);
++    fx.packOne(out.down, try part(store, prefix, i, "down_proj", dims, width, out.down_scale, scratch[2 * width * dims ..]), dims, width);
+ }
+ 
+-/// One projection's E4M3 weight [n, k]; its BF16 weight_scale_inv [n/128, k/128] widened (exactly) into `scale`.
+-fn part(store: anytype, prefix: []const u8, i: usize, name: []const u8, n: usize, k: usize, scale: []f32) ![]const u8 {
++/// One projection's E4M3 weight [n, k]; its BF16 weight_scale_inv [n/128, k/128] widened (exactly) into `scale`. A
++/// BF16 weight is coded into `scratch` instead: each 128x128 block at the least power of two that keeps it under 448.
++fn part(store: anytype, prefix: []const u8, i: usize, name: []const u8, n: usize, k: usize, scale: []f32, scratch: []u8) ![]const u8 {
+     var buf: [512]u8 = undefined;
+     const w = try store.get(try std.fmt.bufPrint(&buf, "{s}.experts.{d}.{s}.weight", .{ prefix, i, name }));
++    if (w.dtype == .bf16) {
++        if (!w.is(.bf16, &.{ n, k }) or w.bytes.len != n * k * 2 or scratch.len != n * k or scale.len != (n / blk) * (k / blk)) return error.UnexpectedTensor;
++        for (0..n / blk) |bi| for (0..k / blk) |bj| {
++            var top: f32 = 0;
++            for (0..blk) |r| for (0..blk) |c| {
++                top = @max(top, @abs(bf16At(w.bytes, (bi * blk + r) * k + bj * blk + c)));
++            };
++            const e = exponentFor(top);
++            scale[bi * (k / blk) + bj] = std.math.ldexp(@as(f32, 1.0), e);
++            for (0..blk) |r| for (0..blk) |c| {
++                const at = (bi * blk + r) * k + bj * blk + c;
++                scratch[at] = @import("core").exlr8.codec.e4m3FromF32(std.math.ldexp(bf16At(w.bytes, at), -e));
++            };
++        };
++        return scratch;
++    }
+     if (!w.is(.f8_e4m3, &.{ n, k }) or w.bytes.len != n * k) return error.UnexpectedTensor;
+     const s = try store.get(try std.fmt.bufPrint(&buf, "{s}.experts.{d}.{s}.weight_scale_inv", .{ prefix, i, name }));
+     if (!s.is(.bf16, &.{ n / blk, k / blk }) or s.bytes.len != 2 * scale.len) return error.UnexpectedTensor;
+@@ -89,6 +109,19 @@ fn part(store: anytype, prefix: []const u8, i: usize, name: []const u8, n: usize
+     return w.bytes;
+ }
+ 
++fn bf16At(bytes: []const u8, i: usize) f32 {
++    return @bitCast(@as(u32, std.mem.readInt(u16, bytes[i * 2 ..][0..2], .little)) << 16);
++}
++
++/// The least power of two that brings `top` to 448 or under, as its exponent (0 for an all-zero block).
++fn exponentFor(top: f32) i32 {
++    if (!(top > 0) or !std.math.isFinite(top)) return 0;
++    var e: i32 = @intFromFloat(@ceil(@log2(top / 448.0)));
++    while (std.math.ldexp(top, -e) > 448.0) e += 1;
++    while (e > -126 and std.math.ldexp(top, -(e - 1)) <= 448.0) e -= 1;
++    return std.math.clamp(e, -126, 127);
++}
++
+ test {
+     _ = @import("cuda_fp8_experts_load_test.zig");
+ }
+diff --git a/zig/src/families/flashnext/cuda_int4.zig b/zig/src/families/flashnext/cuda_int4.zig
+new file mode 100644
+index 000000000..429d9fc41
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_int4.zig
+@@ -0,0 +1,505 @@
++//! GPTQ int4 weights of the INT4-AutoRound checkpoint (azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound): the
++//! routed experts and the lm_head, symmetric 4-bit codes with an fp16 scale per 128 inputs and output column
++//! (AutoGPTQ's v1 layout: qweight int32 [K/8, N], eight codes a word low nibble first; qzeros all 7, so every zero
++//! point is 8; no g_idx). zig/kernels/cuda/fn_int4.cu runs them: exact weights in bf16 MMAs, one fp32 MMA chain a
++//! group, groups added with fmaf in order, so a row's bits never depend on the other rows or the plan's items.
++//! Source: the production branch's zig/src/families/flashnext/cuda_int4.zig and fn_int4.cu at 5c3e3e29 (our own
++//! engine fork), with the plan types taken from cuda.grouped and the kernels loaded from a driver.
++const std = @import("std");
++const cuda = @import("cuda");
++
++const grouped = cuda.grouped;
++/// experts.cu's plan tile: the items of a decode call hold up to 16 pairs.
++pub const plan_tile: usize = 16;
++
++/// One layer's routed experts: up = [E][gate, up] and down = [E] packed matrices with their scales.
++pub const Experts = struct {
++    up: u64 = 0,
++    up_s: u64 = 0,
++    down: u64 = 0,
++    down_s: u64 = 0,
++    count: u32 = 0,
++    /// the intermediate width (gate/up outputs, down inputs)
++    width: u32 = 0,
++    dims: u32 = 0,
++    /// down's input group: 128, or 64 where a slice of the width cuts a group of 128
++    gs_down: u32 = 128,
++};
++
++/// One packed matrix [n outputs, k inputs] (the head).
++pub const Mat = struct { w: u64 = 0, s: u64 = 0, n: u32 = 0, k: u32 = 0, gs: u32 = 128 };
++
++pub const checkpoint_group = 128;
++
++/// Words a packed [n, k] matrix holds (8 codes a word).
++pub fn wordsOf(n: usize, k: usize) usize {
++    return n * k / 8;
++}
++
++/// fp16 scales a packed [n, k] matrix holds at groups of `gs`.
++pub fn scalesOf(n: usize, k: usize, gs: usize) usize {
++    return n * (k / gs);
++}
++
++/// A GPTQ word's eight codes (input j at nibble j) reordered for the kernel: nibble i = input 2i, nibble i + 4 =
++/// input 2i + 1 (the pair at shift 4p is inputs 2p, 2p + 1).
++pub fn shuffle(w: u32) u32 {
++    var out: u32 = 0;
++    inline for (0..4) |i| {
++        out |= ((w >> (8 * i)) & 0xF) << (4 * i);
++        out |= ((w >> (8 * i + 4)) & 0xF) << (4 * (i + 4));
++    }
++    return out;
++}
++
++/// One checkpoint matrix: qweight int32 [k_full / 8, n_full] and scales fp16 [k_full / 128, n_full], little-endian.
++pub const Source = struct { qweight: []const u8, scales: []const u8, n_full: usize, k_full: usize };
++
++pub const Slice = struct { n0: usize, n: usize, k0: usize, k: usize, gs: usize };
++
++/// A slice the kernels take: groups of 64 or 128 inside the source's groups of 128, whole n8 tiles, in bounds.
++fn checkSlice(src: Source, sl: Slice) !void {
++    if (sl.gs != 64 and sl.gs != 128) return error.BadSlice;
++    if (sl.n == 0 or sl.k == 0 or sl.n % 8 != 0 or sl.k % sl.gs != 0 or sl.k0 % sl.gs != 0) return error.BadSlice;
++    if (sl.n0 + sl.n > src.n_full or sl.k0 + sl.k > src.k_full or src.k_full % checkpoint_group != 0) return error.BadSlice;
++    if (src.qweight.len != src.k_full / 8 * src.n_full * 4 or src.scales.len != src.k_full / checkpoint_group * src.n_full * 2) return error.BadLength;
++}
++
++/// Columns [n0, n0 + n) and inputs [k0, k0 + k) of `src` in the kernel's word order: [n/8][k/gs][32][gs/32].
++pub fn packWords(src: Source, sl: Slice, out: []u32) !void {
++    try checkSlice(src, sl);
++    if (out.len != wordsOf(sl.n, sl.k)) return error.BadLength;
++    const kg = sl.k / sl.gs;
++    const per = sl.gs / 32;
++    var at: usize = 0;
++    for (0..sl.n / 8) |nt| for (0..kg) |g| for (0..32) |lane| {
++        const col = sl.n0 + nt * 8 + lane / 4;
++        const t = lane % 4;
++        for (0..per) |b| {
++            const kp = (sl.k0 + g * sl.gs + b * 32) / 8 + t;
++            out[at] = shuffle(std.mem.readInt(u32, src.qweight[(kp * src.n_full + col) * 4 ..][0..4], .little));
++            at += 1;
++        }
++    };
++}
++
++/// The scales of the same slice: fp16 bits [n/8][k/gs][8] (a group of 64 repeats its group of 128's scale).
++pub fn packScales(src: Source, sl: Slice, out: []u16) !void {
++    try checkSlice(src, sl);
++    const kg = sl.k / sl.gs;
++    if (out.len != scalesOf(sl.n, sl.k, sl.gs)) return error.BadLength;
++    var at: usize = 0;
++    for (0..sl.n / 8) |nt| for (0..kg) |g| for (0..8) |c| {
++        const col = sl.n0 + nt * 8 + c;
++        const row = (sl.k0 + g * sl.gs) / checkpoint_group;
++        out[at] = std.mem.readInt(u16, src.scales[(row * src.n_full + col) * 2 ..][0..2], .little);
++        at += 1;
++    };
++}
++
++/// AutoGPTQ v1 symmetric zero points: every nibble of qzeros [k_full / 128, n_full / 8] is 7 (8 minus one).
++pub fn zerosAreSymmetric(qzeros: []const u8) bool {
++    var i: usize = 0;
++    while (i + 8 <= qzeros.len) : (i += 8) if (std.mem.readInt(u64, qzeros[i..][0..8], .little) != 0x7777777777777777) return false;
++    while (i < qzeros.len) : (i += 1) if (qzeros[i] != 0x77) return false;
++    return true;
++}
++
++/// Code q of input k, column n of `src` (0..15; the weight is (q - 8) * scale).
++pub fn code(src: Source, n: usize, k: usize) u4 {
++    const w = std.mem.readInt(u32, src.qweight[((k / 8) * src.n_full + n) * 4 ..][0..4], .little);
++    return @intCast((w >> @intCast(4 * (k % 8))) & 0xF);
++}
++
++pub fn scale(src: Source, n: usize, k: usize) f32 {
++    const h: f16 = @bitCast(std.mem.readInt(u16, src.scales[((k / checkpoint_group) * src.n_full + n) * 2 ..][0..2], .little));
++    return @floatCast(h);
++}
++
++/// The dequantized weight of input k, column n: (q - 8) * scale, exact in fp32.
++pub fn weight(src: Source, n: usize, k: usize) f32 {
++    return @as(f32, @floatFromInt(@as(i32, code(src, n, k)) - 8)) * scale(src, n, k);
++}
++
++/// A whole matrix packed for the kernels and uploaded: the head (groups of 128 over all its inputs).
++pub fn uploadMat(gpa: std.mem.Allocator, d: *const cuda.Driver, src: Source) !struct { mat: Mat, w: cuda.DeviceBuffer, s: cuda.DeviceBuffer } {
++    const sl: Slice = .{ .n0 = 0, .n = src.n_full, .k0 = 0, .k = src.k_full, .gs = checkpoint_group };
++    const words = try gpa.alloc(u32, wordsOf(sl.n, sl.k));
++    defer gpa.free(words);
++    try packWords(src, sl, words);
++    const scales = try gpa.alloc(u16, scalesOf(sl.n, sl.k, sl.gs));
++    defer gpa.free(scales);
++    try packScales(src, sl, scales);
++    var wb = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(words));
++    errdefer wb.free();
++    const sb = try cuda.DeviceBuffer.fromHost(d, std.mem.sliceAsBytes(scales));
++    return .{ .mat = .{ .w = wb.ptr, .s = sb.ptr, .n = @intCast(sl.n), .k = @intCast(sl.k), .gs = checkpoint_group }, .w = wb, .s = sb };
++}
++
++// ---- the kernels -------------------------------------------------------------------------------------------------
++
++const warps = 4;
++/// [kind: gate/up SwiGLU (gs 128), down fp32 gs 128, down bf16 gs 128, fp32 gs 64, bf16 gs 64][NT: 1, 2, 4]
++const n_kinds = 5;
++const nts = [_]usize{ 1, 2, 4 };
++/// row tiles of 16 a pass: 1 (decode), 2 (prompt items of up to 64 pairs, the head's 32-row items)
++const mts = [_]usize{ 1, 2 };
++
++fn symbol(comptime gs: usize, comptime nt: usize, comptime mt: usize, comptime mats: usize, comptime epi: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int411int4_kernelILi{d}ELi{d}ELi{d}ELi{d}ELi{d}ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", .{ gs, nt, mt, mats, epi });
++}
++
++/// The plan tile of prompt calls (items of up to 64 pairs, two 16-row tiles a pass) and the pairs from which it is
++/// taken; smaller calls take plan_tile (16) and one tile a pass.
++pub const prompt_tile: usize = 64;
++pub const prompt_pairs: usize = 2048;
++
++/// Every call takes 16-pair items unless TF_FLASHNEXT_INT4_TILE=64 (the same bits either way).
++pub fn tileFor(pairs: usize) usize {
++    const want = if (std.c.getenv("TF_FLASHNEXT_INT4_TILE")) |v| std.fmt.parseInt(usize, std.mem.span(v), 10) catch plan_tile else plan_tile;
++    return if (want == prompt_tile and pairs >= prompt_pairs) prompt_tile else plan_tile;
++}
++
++const kinds = [n_kinds]struct { gs: usize, mats: usize, epi: usize }{
++    .{ .gs = 128, .mats = 2, .epi = 2 }, .{ .gs = 128, .mats = 1, .epi = 0 }, .{ .gs = 128, .mats = 1, .epi = 3 },
++    .{ .gs = 64, .mats = 1, .epi = 0 },  .{ .gs = 64, .mats = 1, .epi = 3 },
++};
++
++pub const symbols = blk: {
++    var out: [n_kinds][nts.len][mts.len][:0]const u8 = undefined;
++    for (kinds, 0..) |k, i| for (nts, 0..) |nt, j| for (mts, 0..) |mt, q| {
++        out[i][j][q] = symbol(k.gs, nt, mt, k.mats, k.epi);
++    };
++    break :blk out;
++};
++
++/// The routed down of prompt calls (int4_prompt_kernel: a block an (item of up to 64 pairs, 128 columns), 8 warps).
++pub const prompt_down_tile: usize = 64;
++const prompt_threads = 256;
++/// [gs 128, 64][fp32, bf16 out]: stages 2 (128) and 3 (64)
++const prompt_stages = [2]usize{ 2, 3 };
++
++fn promptSymbol(comptime gs: usize, comptime epi: usize, comptime st: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi{d}ELi1ELi{d}ELi2ELi4ELi2ELi4ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ gs, epi, st });
++}
++
++pub const prompt_symbols = [2][2][:0]const u8{
++    .{ promptSymbol(128, 0, 2), promptSymbol(128, 3, 2) },
++    .{ promptSymbol(64, 0, 3), promptSymbol(64, 3, 3) },
++};
++
++/// int4_prompt_kernel's dynamic shared memory: stages x (64 rows of a group, 16 n8 tiles' words and scales).
++pub fn promptSmem(gs: usize, stages: usize) u32 {
++    return @intCast(stages * (64 * gs * 2 + 16 * 32 * (gs / 32) * 4 + 16 * 16));
++}
++
++/// The routed gate/up of prompt calls on int4_prompt_kernel: {row warps, column warps, row tiles a warp, n8 tiles a
++/// warp, stages}, a block 64 rows x 128 columns (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1; the same bits).
++pub const PromptGu = struct { wr: usize, wc: usize, rt: usize, wn: usize, stages: usize };
++pub const prompt_gu: PromptGu = .{ .wr = 2, .wc = 4, .rt = 2, .wn = 4, .stages = 3 };
++
++pub const prompt_gu_symbol = std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi2ELi2ELi{d}ELi{d}ELi{d}ELi{d}ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ prompt_gu.wr, prompt_gu.wc, prompt_gu.rt, prompt_gu.wn, prompt_gu.stages });
++
++/// int4_prompt_kernel's dynamic shared memory for `mats` matrices, `br` rows and `bt` n8 tiles a block.
++pub fn promptSmemOf(gs: usize, mats: usize, br: usize, bt: usize, stages: usize) u32 {
++    return @intCast(stages * (br * gs * 2 + mats * bt * 32 * (gs / 32) * 4 + mats * bt * 16));
++}
++
++pub fn promptGuRows(p: PromptGu) usize {
++    return p.wr * p.rt * 16;
++}
++pub fn promptGuTiles(p: PromptGu) usize {
++    return p.wc * p.wn;
++}
++pub fn promptGuSmem(p: PromptGu) u32 {
++    return promptSmemOf(128, 2, promptGuRows(p), promptGuTiles(p), p.stages);
++}
++
++/// sm_121's (GB10's) opt-in shared memory a block.
++pub const sm121_smem_optin = 101376;
++comptime {
++    std.debug.assert(promptGuSmem(prompt_gu) <= sm121_smem_optin);
++}
++
++/// Whether a block of prompt_gu fits a GPU: its dynamic plus `static` shared memory within the opt-in limit.
++pub fn promptGuFits(static: usize, optin: usize) bool {
++    return promptGuSmem(prompt_gu) + static <= optin;
++}
++
++/// Whether gateUpPrompt takes a call on `ex`: whole column blocks, K groups of 128, aligned rows, words and stores.
++pub fn gateUpPromptFits(ex: Experts, x: u64, x_stride: usize, out: u64) bool {
++    const cols = 8 * promptGuTiles(prompt_gu);
++    return ex.width % cols == 0 and ex.dims % 128 == 0 and x_stride % 8 == 0 and x % 16 == 0 and ex.up % 16 == 0 and ex.up_s % 16 == 0 and out % 8 == 0;
++}
++
++pub const Kernels = struct {
++    module: cuda.Module,
++    fns: [n_kinds][nts.len][mts.len]cuda.Function,
++    /// resident blocks of each function on this GPU (occupancy x SMs)
++    blocks: [n_kinds][nts.len][mts.len]usize,
++    /// the prompt down: [gs 128, 64][fp32, bf16] and their resident blocks
++    pdown: [2][2]cuda.Function,
++    pdown_blocks: [2][2]usize,
++    /// the head's row tiles a pass past 16 rows: 2 (TF_FLASHNEXT_HEAD_ROW_TILES=2) reads the weights once for 32 rows
++    head_mt: usize = 1,
++    pgu_fn: cuda.Function,
++    pgu_blocks: usize,
++    pgu_ready: bool = false,
++    pgu: bool = false,
++
++    pub fn load(d: *const cuda.Driver) !Kernels {
++        if (!cuda.kernels.available) return error.BuiltWithoutKernels;
++        var device: c_int = 0;
++        var sms_c: c_int = 0;
++        var optin_c: c_int = 0;
++        try d.check(d.api.cuDeviceGet(&device, 0), "cuDeviceGet");
++        try d.check(d.api.cuDeviceGetAttribute(&sms_c, .multiprocessor_count, device), "cuDeviceGetAttribute");
++        try d.check(d.api.cuDeviceGetAttribute(&optin_c, .max_shared_memory_per_block_optin, device), "cuDeviceGetAttribute");
++        const sms: usize = @intCast(sms_c);
++        var k: Kernels = undefined;
++        k.module = try cuda.Module.load(d, cuda.kernels.fn_int4);
++        errdefer k.module.unload();
++        for (symbols, 0..) |row, i| for (row, 0..) |cols, j| for (cols, 0..) |s, q| {
++            k.fns[i][j][q] = try k.module.function(s);
++            k.blocks[i][j][q] = @as(usize, @max(1, try k.fns[i][j][q].occupancy(warps * 32, 0))) * sms;
++        };
++        for (0..2) |g| for (0..2) |o| {
++            const sm = promptSmem(if (g == 0) 128 else 64, prompt_stages[g]);
++            k.pdown[g][o] = try k.module.function(prompt_symbols[g][o]);
++            try k.pdown[g][o].allowDynamicShared(sm);
++            k.pdown_blocks[g][o] = @as(usize, @max(1, try k.pdown[g][o].occupancy(prompt_threads, sm))) * sms;
++        };
++        const sm_gu = promptGuSmem(prompt_gu);
++        k.pgu_fn = try k.module.function(prompt_gu_symbol);
++        const static: usize = @intCast(try k.pgu_fn.attribute(.shared_size_bytes));
++        k.pgu_ready = promptGuFits(static, @intCast(optin_c));
++        k.pgu_blocks = 0;
++        if (k.pgu_ready) {
++            try k.pgu_fn.allowDynamicShared(sm_gu);
++            k.pgu_blocks = @as(usize, @max(1, try k.pgu_fn.occupancy(@intCast(prompt_gu.wr * prompt_gu.wc * 32), sm_gu))) * sms;
++        }
++        const want_pgu = if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_GATE_UP")) |v| std.mem.eql(u8, std.mem.span(v), "1") else false;
++        k.pgu = want_pgu and k.pgu_ready;
++        k.head_mt = try headRowTiles(if (std.c.getenv("TF_FLASHNEXT_HEAD_ROW_TILES")) |v| std.mem.span(v) else null);
++        std.log.info("int4 kernels: prompt gate/up {s}, lm_head {s}", .{ if (k.pgu) "int4_prompt_kernel" else "int4_kernel", if (k.head_mt == 2) "32-row items past 16 rows" else "16-row items" });
++        return k;
++    }
++
++    pub fn deinit(k: *Kernels) void {
++        k.module.unload();
++    }
++};
++
++/// TF_FLASHNEXT_HEAD_ROW_TILES: the head's row tiles a pass for calls past 16 rows, 1 (unset) or 2; else refused.
++pub fn headRowTiles(v: ?[]const u8) !usize {
++    const s = v orelse return 1;
++    if (std.mem.eql(u8, s, "1")) return 1;
++    if (std.mem.eql(u8, s, "2")) return 2;
++    std.log.warn("TF_FLASHNEXT_HEAD_ROW_TILES={s} refused: 1 (16-row items) or 2 (32-row items)", .{s});
++    return error.BadSetting;
++}
++
++fn int(x: usize) c_int {
++    return @intCast(x);
++}
++
++/// The widest n8-tile count whose units still fill the GPU twice over (the same bits at any NT).
++fn pickNt(k: *const Kernels, kind: usize, max_items: usize, n: usize, q: usize) usize {
++    var j: usize = nts.len;
++    while (j > 1) {
++        j -= 1;
++        const units = max_items * (n / (8 * nts[j]));
++        if (n % (8 * nts[j]) == 0 and units >= 2 * k.blocks[kind][j][q] * warps) return j;
++    }
++    return 0;
++}
++
++fn launch(k: *const Kernels, s: cuda.Stream, kind: usize, max_items: usize, x: u64, x_stride: usize, slots: usize, w: u64, sc: u64, kk: usize, n: usize, p: ?grouped.Plan, rows: usize, out: u64, out_stride: usize, skip: c_int, force_nt: ?usize, mt: usize) !void {
++    // uint4 loads of the input rows, uint4/uint2 weight words, half2 scales, float2/bf16x2 stores
++    if (n % 8 != 0 or kk % kinds[kind].gs != 0 or x_stride % 8 != 0 or x % 16 != 0 or w % 16 != 0 or sc % 4 != 0 or out % 8 != 0) return error.Invalid;
++    const q = std.mem.indexOfScalar(usize, &mts, mt) orelse return error.Invalid;
++    const j = if (force_nt) |f| (std.mem.indexOfScalar(usize, &nts, f) orelse return error.Invalid) else pickNt(k, kind, max_items, n, q);
++    if (n % (8 * nts[j]) != 0) return error.Invalid;
++    const units = max_items * (n / (8 * nts[j]));
++    const grid = @min((units + warps - 1) / warps, k.blocks[kind][j][q]);
++    if (grid < 1) return;
++    var a: cuda.Args = .{};
++    a.add(x);
++    a.add(int(x_stride));
++    a.add(int(slots));
++    a.add(w);
++    a.add(sc);
++    a.add(int(kk));
++    a.add(int(n));
++    if (p) |pl| {
++        a.add(pl.items);
++        a.add(pl.counts);
++        a.add(pl.members);
++    } else {
++        a.add(@as(u64, 0));
++        a.add(@as(u64, 0));
++        a.add(@as(u64, 0));
++    }
++    a.add(int(rows));
++    a.add(out);
++    a.add(int(out_stride));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try cuda.launch.launch(k.fns[kind][j][q], .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = warps * 32 } }, s, &a);
++}
++
++/// The routed experts' gate/up with SwiGLU: x [R, D] token rows -> out [R * slots, width] bf16, a row per routed pair
++/// of the plan (items of expert `skip` untouched). `tile`: the plan's (tileFor: 64 makes two row tiles a pass).
++pub fn gateUp(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int, tile: usize) !void {
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, tile);
++    try launch(k, s, 0, items, x, x_stride, plan_slots, ex.up, ex.up_s, ex.dims, ex.width, p, 0, out, ex.width, skip, null, if (tile > 16) 2 else 1);
++}
++
++/// The routed experts' down: act [R * slots, width] pair rows -> out [R * slots, D], fp32 (`f32_out`) or bf16.
++pub fn down(k: *const Kernels, s: cuda.Stream, act: u64, act_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, f32_out: bool, rows: usize, skip: c_int, tile: usize) !void {
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, tile);
++    const kind: usize = switch (ex.gs_down) {
++        128 => if (f32_out) 1 else 2,
++        64 => if (f32_out) 3 else 4,
++        else => return error.Invalid,
++    };
++    try launch(k, s, kind, items, act, act_stride, 0, ex.down, ex.down_s, ex.width, ex.dims, p, 0, out, ex.dims, skip, null, if (tile > 16) 2 else 1);
++}
++
++/// The routed experts' down of a prompt call on int4_prompt_kernel: `down`'s outputs, byte for byte, from a plan
++/// whose items hold at most `prompt_down_tile` pairs.
++pub fn downPrompt(k: *const Kernels, s: cuda.Stream, act: u64, act_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, f32_out: bool, rows: usize, skip: c_int) !void {
++    const gs: usize = ex.gs_down;
++    const g: usize = switch (gs) {
++        128 => 0,
++        64 => 1,
++        else => return error.Invalid,
++    };
++    const n: usize = ex.dims;
++    const kk: usize = ex.width;
++    if (n % 128 != 0 or kk % gs != 0 or act_stride % 8 != 0 or act % 16 != 0 or ex.down % 16 != 0 or ex.down_s % 16 != 0 or out % 8 != 0) return error.Invalid;
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, prompt_down_tile);
++    const units = items * (n / 128);
++    const f = k.pdown[g][@intFromBool(!f32_out)];
++    const grid = @min(units, k.pdown_blocks[g][@intFromBool(!f32_out)]);
++    if (grid < 1) return;
++    var a: cuda.Args = .{};
++    a.add(act);
++    a.add(int(act_stride));
++    a.add(@as(c_int, 0));
++    a.add(ex.down);
++    a.add(ex.down_s);
++    a.add(int(kk));
++    a.add(int(n));
++    a.add(p.items);
++    a.add(p.counts);
++    a.add(p.members);
++    a.add(out);
++    a.add(int(n));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try cuda.launch.launch(f, .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = prompt_threads }, .shared = promptSmem(gs, prompt_stages[g]) }, s, &a);
++}
++
++/// Whether a prompt call of `pairs` routed pairs takes `downPrompt` (TF_FLASHNEXT_INT4_PROMPT_DOWN=0: never).
++pub fn promptDown(pairs: usize) bool {
++    if (std.c.getenv("TF_FLASHNEXT_INT4_PROMPT_DOWN")) |v| if (std.mem.eql(u8, std.mem.span(v), "0")) return false;
++    return pairs >= prompt_pairs;
++}
++
++/// The routed gate/up of a prompt call on int4_prompt_kernel (prompt_gu): `gateUp`'s outputs, byte for byte, from a
++/// plan whose items hold at most `prompt_tile` (64) pairs.
++pub fn gateUpPrompt(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int) !void {
++    const sh = prompt_gu;
++    const n: usize = ex.width;
++    const kk: usize = ex.dims;
++    const cols = 8 * promptGuTiles(sh);
++    if (!k.pgu_ready or !gateUpPromptFits(ex, x, x_stride, out)) return error.Invalid;
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, prompt_tile);
++    const units = items * (n / cols);
++    const grid = @min(units, k.pgu_blocks);
++    if (grid < 1) return;
++    var a: cuda.Args = .{};
++    a.add(x);
++    a.add(int(x_stride));
++    a.add(int(plan_slots));
++    a.add(ex.up);
++    a.add(ex.up_s);
++    a.add(int(kk));
++    a.add(int(n));
++    a.add(p.items);
++    a.add(p.counts);
++    a.add(p.members);
++    a.add(out);
++    a.add(int(n));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try cuda.launch.launch(k.pgu_fn, .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = @intCast(sh.wr * sh.wc * 32) }, .shared = promptGuSmem(sh) }, s, &a);
++}
++
++/// Whether a prompt call of `pairs` routed pairs takes `gateUpPrompt`; else int4_kernel on 16-pair items, same bits.
++pub fn promptGu(k: *const Kernels, pairs: usize, ex: Experts, x: u64, x_stride: usize, out: u64) bool {
++    return k.pgu and pairs >= prompt_pairs and gateUpPromptFits(ex, x, x_stride, out);
++}
++
++/// A dense matmul (the head): x [rows, k] -> out [rows, n] bf16 (or fp32), rows `x_stride` apart.
++pub fn dense(k: *const Kernels, s: cuda.Stream, x: u64, x_stride: usize, m: Mat, out: u64, f32_out: bool, rows: usize) !void {
++    if (rows == 0) return;
++    const kind: usize = switch (m.gs) {
++        128 => if (f32_out) 1 else 2,
++        64 => if (f32_out) 3 else 4,
++        else => return error.Invalid,
++    };
++    const mt: usize = if (rows <= 16 or k.head_mt == 1) 1 else 2;
++    try launch(k, s, kind, (rows + 16 * mt - 1) / (16 * mt), x, if (rows == 1) m.k else x_stride, 0, m.w, m.s, m.k, m.n, null, rows, out, m.n, -1, null, mt);
++}
++
++// ---- host tests ----------------------------------------------------------------------------------------------------
++
++test "shuffle puts input 2i at nibble i and 2i + 1 at nibble i + 4" {
++    var w: u32 = 0;
++    for (0..8) |j| w |= @as(u32, @intCast(j + 1)) << @intCast(4 * j);
++    const s = shuffle(w);
++    for (0..4) |i| {
++        try std.testing.expectEqual(@as(u32, @intCast(2 * i + 1)), (s >> @intCast(4 * i)) & 0xF);
++        try std.testing.expectEqual(@as(u32, @intCast(2 * i + 2)), (s >> @intCast(4 * (i + 4))) & 0xF);
++    }
++}
++
++test "packWords: a lane's word of a block holds its column's inputs 8 t .. 8 t + 7" {
++    const gpa = std.testing.allocator;
++    const n_full = 16;
++    const k_full = 256;
++    const qw = try gpa.alloc(u8, k_full / 8 * n_full * 4);
++    defer gpa.free(qw);
++    var prng = std.Random.DefaultPrng.init(7);
++    prng.random().bytes(qw);
++    const sc = try gpa.alloc(u8, k_full / 128 * n_full * 2);
++    defer gpa.free(sc);
++    for (0..sc.len / 2) |i| std.mem.writeInt(u16, sc[2 * i ..][0..2], @intCast(i), .little);
++    const src: Source = .{ .qweight = qw, .scales = sc, .n_full = n_full, .k_full = k_full };
++    for ([_]usize{ 128, 64 }) |gs| {
++        const sl: Slice = .{ .n0 = 8, .n = 8, .k0 = 128, .k = 128, .gs = gs };
++        const out = try gpa.alloc(u32, wordsOf(sl.n, sl.k));
++        defer gpa.free(out);
++        try packWords(src, sl, out);
++        const kg = sl.k / gs;
++        for (0..kg) |g| for (0..32) |lane| for (0..gs / 32) |b| {
++            const word = out[(g * 32 + lane) * (gs / 32) + b];
++            for (0..8) |j| {
++                const nib: usize = if (j % 2 == 0) j / 2 else j / 2 + 4;
++                const got: u4 = @intCast((word >> @intCast(4 * nib)) & 0xF);
++                const kin = sl.k0 + g * gs + b * 32 + 8 * (lane % 4) + j;
++                try std.testing.expectEqual(code(src, sl.n0 + lane / 4, kin), got);
++            }
++        };
++    }
++}
++
++test "symmetric zero points and the kernel symbols" {
++    var z: [20]u8 = @splat(0x77);
++    try std.testing.expect(zerosAreSymmetric(&z));
++    z[19] = 0x87;
++    try std.testing.expect(!zerosAreSymmetric(&z));
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi4ELi1ELi2ELi2ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", symbols[0][2][0]);
++}
+diff --git a/zig/src/families/flashnext/cuda_int4_load.zig b/zig/src/families/flashnext/cuda_int4_load.zig
+new file mode 100644
+index 000000000..0f7d0bfd2
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_int4_load.zig
+@@ -0,0 +1,127 @@
++//! INT4-AutoRound's GPTQ int4 tensors packed for fn_int4.cu at load: a layer's routed experts and the lm_head.
++//! The layouts are cuda_int4.zig's (the production branch's loader `int4Experts` / `int4Head`, at one GPU).
++const std = @import("std");
++const cuda = @import("cuda");
++const wt = @import("cuda_prompt_wt.zig");
++const int4 = @import("cuda_int4.zig");
++
++/// One layer's packed routed experts and the buffers behind them.
++pub const Owned = struct {
++    up: cuda.DeviceBuffer,
++    up_s: cuda.DeviceBuffer,
++    down: cuda.DeviceBuffer,
++    down_s: cuda.DeviceBuffer,
++    ex: int4.Experts,
++
++    pub fn free(self: *Owned) void {
++        self.up.free();
++        self.up_s.free();
++        self.down.free();
++        self.down_s.free();
++        self.* = undefined;
++    }
++};
++
++/// Whether `prefix`'s routed experts are GPTQ int4: the first expert's gate has a qweight.
++pub fn isInt4(store: *wt.Store, prefix: []const u8) bool {
++    var buf: [256]u8 = undefined;
++    return store.has(std.fmt.bufPrint(&buf, "{s}.experts.0.gate_proj.qweight", .{prefix}) catch return false);
++}
++
++/// `name`'s qweight int32 [k/8, n] and scales fp16 [k/128, n], its qzeros checked symmetric (borrowed until release).
++fn source(store: *wt.Store, name: []const u8, n: usize, k: usize) !int4.Source {
++    var buf: [256]u8 = undefined;
++    const qw = try store.get(try std.fmt.bufPrint(&buf, "{s}.qweight", .{name}));
++    if (!qw.is(.i32, &.{ k / 8, n })) return error.UnexpectedTensor;
++    const sc = try store.get(try std.fmt.bufPrint(&buf, "{s}.scales", .{name}));
++    if (!sc.is(.f16, &.{ k / int4.checkpoint_group, n })) return error.UnexpectedTensor;
++    const qz = try store.get(try std.fmt.bufPrint(&buf, "{s}.qzeros", .{name}));
++    if (!qz.is(.i32, &.{ k / int4.checkpoint_group, n / 8 })) return error.UnexpectedTensor;
++    if (!int4.zerosAreSymmetric(qz.bytes)) {
++        std.log.err("{s}: zero points other than 8 (AutoGPTQ v1 qzeros 7); the engine reads symmetric GPTQ", .{name});
++        return error.UnsupportedQuantization;
++    }
++    return .{ .qweight = qw.bytes, .scales = sc.bytes, .n_full = n, .k_full = k };
++}
++
++/// Every routed expert of `prefix` whole, gate and up rows [E][2], down [E], groups of 128, one expert at a time.
++pub fn experts(a: std.mem.Allocator, d: *const cuda.Driver, store: *wt.Store, prefix: []const u8) !Owned {
++    const e = wt.experts_n;
++    const dims = wt.dims;
++    const width = wt.moe_w;
++    const uw = int4.wordsOf(width, dims);
++    const us = int4.scalesOf(width, dims, int4.checkpoint_group);
++    const dw = int4.wordsOf(dims, width);
++    const ds = int4.scalesOf(dims, width, int4.checkpoint_group);
++    var up = try cuda.DeviceBuffer.alloc(d, e * 2 * uw * 4);
++    errdefer up.free();
++    var up_s = try cuda.DeviceBuffer.alloc(d, e * 2 * us * 2);
++    errdefer up_s.free();
++    var down = try cuda.DeviceBuffer.alloc(d, e * dw * 4);
++    errdefer down.free();
++    var down_s = try cuda.DeviceBuffer.alloc(d, e * ds * 2);
++    errdefer down_s.free();
++    const hw = try a.alloc(u32, 2 * uw);
++    defer a.free(hw);
++    const hs = try a.alloc(u16, 2 * us);
++    defer a.free(hs);
++    const hdw = try a.alloc(u32, dw);
++    defer a.free(hdw);
++    const hds = try a.alloc(u16, ds);
++    defer a.free(hds);
++    var buf: [256]u8 = undefined;
++    for (0..e) |x| {
++        defer store.release();
++        for ([_][]const u8{ "gate_proj", "up_proj" }, 0..) |proj, m| {
++            const src = try source(store, try std.fmt.bufPrint(&buf, "{s}.experts.{d}.{s}", .{ prefix, x, proj }), width, dims);
++            const sl: int4.Slice = .{ .n0 = 0, .n = width, .k0 = 0, .k = dims, .gs = int4.checkpoint_group };
++            try int4.packWords(src, sl, hw[m * uw ..][0..uw]);
++            try int4.packScales(src, sl, hs[m * us ..][0..us]);
++        }
++        const src = try source(store, try std.fmt.bufPrint(&buf, "{s}.experts.{d}.down_proj", .{ prefix, x }), dims, width);
++        const sl: int4.Slice = .{ .n0 = 0, .n = dims, .k0 = 0, .k = width, .gs = int4.checkpoint_group };
++        try int4.packWords(src, sl, hdw);
++        try int4.packScales(src, sl, hds);
++        try up.upload(x * 2 * uw * 4, std.mem.sliceAsBytes(hw));
++        try up_s.upload(x * 2 * us * 2, std.mem.sliceAsBytes(hs));
++        try down.upload(x * dw * 4, std.mem.sliceAsBytes(hdw));
++        try down_s.upload(x * ds * 2, std.mem.sliceAsBytes(hds));
++    }
++    const ex: int4.Experts = .{ .up = up.ptr, .up_s = up_s.ptr, .down = down.ptr, .down_s = down_s.ptr, .count = @intCast(e), .width = @intCast(width), .dims = @intCast(dims), .gs_down = int4.checkpoint_group };
++    return .{ .up = up, .up_s = up_s, .down = down, .down_s = down_s, .ex = ex };
++}
++
++/// Whether the checkpoint's lm_head is GPTQ int4 (a qweight beside no weight).
++pub fn headIsInt4(store: *wt.Store) bool {
++    return store.has("language_model.lm_head.qweight");
++}
++
++/// The lm_head packed as one int4 matrix [vocab, dims]: words in `w`, scales in `s` of the returned projection.
++pub fn head(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store) !wt.Q4 {
++    defer store.release();
++    const src = try source(store, "language_model.lm_head", wt.vocab, wt.dims);
++    const up = try int4.uploadMat(a, d, src);
++    var p = wt.Q4.empty(d);
++    p.w = up.w;
++    p.s = up.s;
++    p.n = wt.vocab;
++    p.k = wt.dims;
++    p.int4 = up.mat;
++    return p;
++}
++
++/// The lm_head's rows at `ids` dequantized to BF16 ((q - 8) * scale rounded): the draft head's source (drafts only).
++pub fn headRows(a: std.mem.Allocator, store: *wt.Store, ids: []const u32) ![]u8 {
++    defer store.release();
++    const src = try source(store, "language_model.lm_head", wt.vocab, wt.dims);
++    const out = try a.alloc(u8, ids.len * wt.dims * 2);
++    errdefer a.free(out);
++    for (ids, 0..) |id, r| for (0..wt.dims) |k| {
++        const v: f32 = int4.weight(src, id, k);
++        const bits: u32 = @bitCast(v);
++        // round to nearest even into bf16
++        const rounded: u32 = bits +% (0x7FFF + ((bits >> 16) & 1));
++        std.mem.writeInt(u16, out[(r * wt.dims + k) * 2 ..][0..2], @intCast(rounded >> 16), .little);
++    };
++    return out;
++}
+diff --git a/zig/src/families/flashnext/cuda_mixed_experts.zig b/zig/src/families/flashnext/cuda_mixed_experts.zig
+index bf6efb0f1..e29f406d4 100644
+--- a/zig/src/families/flashnext/cuda_mixed_experts.zig
++++ b/zig/src/families/flashnext/cuda_mixed_experts.zig
+@@ -4,6 +4,7 @@ const cuda = @import("cuda");
+ const wt = @import("cuda_prompt_wt.zig");
+ const routed = @import("cuda_modelopt_experts.zig");
+ const projections = @import("cuda_projection_load.zig");
++const int4_load = @import("cuda_int4_load.zig");
+ 
+ pub const Owned = struct {
+     experts: routed.Owned,
+@@ -11,28 +12,41 @@ pub const Owned = struct {
+     rank: usize,
+     world: usize,
+     split_shared: bool = false,
++    /// the shared expert's intermediate width, as its gate_proj stores it (INT4-AutoRound: 1280, its MTP layer 640)
++    shared_width: usize = wt.moe_w,
++    /// INT4-AutoRound's GPTQ int4 routed experts (fn_int4.cu); `experts` then holds no buffers
++    int4: ?int4_load.Owned = null,
+ 
+     pub fn free(self: *Owned) void {
+-        self.experts.free();
++        if (self.int4) |*q| q.free() else self.experts.free();
+         for (&self.shared) |*p| p.free();
+     }
+ };
+ 
+ pub fn load(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []const u8, world: usize, rank: usize, split: bool) !Owned {
+-    var e = try routed.load(a, d, store, prefix, world, rank);
+-    errdefer e.free();
++    var q4: ?int4_load.Owned = null;
++    var e: routed.Owned = undefined;
++    if (int4_load.isInt4(store, prefix)) {
++        if (world != 1) return error.UnsupportedQuantization;
++        q4 = try int4_load.experts(a, d, store, prefix);
++        const z: cuda.DeviceBuffer = .{ .d = d, .ptr = 0, .len = 0 };
++        e = .{ .up = z, .down = z, .up_scale = z, .down_scale = z, .width = wt.moe_w, .dims = wt.dims, .count = wt.experts_n };
++    } else e = try routed.load(a, d, store, prefix, world, rank);
++    errdefer if (q4) |*q| q.free() else e.free();
+     var shared: [3]wt.Q4 = @splat(wt.Q4.empty(d));
+     errdefer for (&shared) |*p| p.free();
++    var buf: [256]u8 = undefined;
++    const width = (try store.tensor(try std.fmt.bufPrint(&buf, "{s}.shared_expert.gate_proj.weight", .{prefix}))).dim(0);
++    if (width != wt.moe_w and width != wt.shared_w) return error.UnexpectedTensor;
+     // The shared branch participates exactly once in the sum across ranks.
+     if (rank == 0 or split) {
+-        var buf: [256]u8 = undefined;
+         for ([_][]const u8{ "gate_proj", "up_proj", "down_proj" }, 0..) |name, i| {
+-            const n = if (i == 2) wt.dims else wt.moe_w;
+-            const k = if (i == 2) wt.moe_w else wt.dims;
++            const n = if (i == 2) wt.dims else width;
++            const k = if (i == 2) width else wt.dims;
+             const key = try std.fmt.bufPrint(&buf, "{s}.shared_expert.{s}", .{ prefix, name });
+             shared[i] = if (split) try projections.loadCut(a, d, store, key, n, k, try routed.Cut.init(n, world, rank), .rows) else try projections.load(a, d, store, key, n, k);
+             if (shared[i].native == null) return error.UnsupportedQuantization;
+         }
+     }
+-    return .{ .experts = e, .shared = shared, .rank = rank, .world = world, .split_shared = split };
++    return .{ .experts = e, .shared = shared, .rank = rank, .world = world, .split_shared = split, .shared_width = width, .int4 = q4 };
+ }
+diff --git a/zig/src/families/flashnext/cuda_modelopt_experts.zig b/zig/src/families/flashnext/cuda_modelopt_experts.zig
+index 7bae50f6c..8bd06cef9 100644
+--- a/zig/src/families/flashnext/cuda_modelopt_experts.zig
++++ b/zig/src/families/flashnext/cuda_modelopt_experts.zig
+@@ -140,6 +140,8 @@ fn formatOf(store: anytype, prefix: []const u8) !cuda.experts.Format {
+     return switch (w.dtype) {
+         .u8 => .nvfp4,
+         .f8_e4m3 => .fp8g,
++        // BF16 experts (INT4-AutoRound's MTP layer) load through the block-FP8 loader, which re-codes them
++        .bf16 => .fp8g,
+         else => error.UnsupportedQuantization,
+     };
+ }
+diff --git a/zig/src/families/flashnext/cuda_moe_native.zig b/zig/src/families/flashnext/cuda_moe_native.zig
+index d6b58e3d5..6860984a9 100644
+--- a/zig/src/families/flashnext/cuda_moe_native.zig
++++ b/zig/src/families/flashnext/cuda_moe_native.zig
+@@ -21,7 +21,14 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize, pairs: usize, pl
+     const picks = if (native.world == 1) s.picks else try ownPicks(self, s.picks, s.picks_ep, pairs, owned.first, owned.count);
+     if (zs.clearsY(native.world, native.rank)) try self.stream.d.check(self.stream.d.api.cuMemsetD8Async(s.y, 0, pairs * dims * 4, self.stream.handle), "cuMemsetD8Async");
+     const side = try shared.fork(self, native, n);
+-    switch (owned.format) {
++    if (native.int4) |q| {
++        // INT4-AutoRound: the GPTQ int4 gate/up SwiGLU and down (fn_int4.cu), the shared slot's items skipped
++        const int4 = @import("cuda_int4.zig");
++        const tile = int4.tileFor(pairs);
++        try self.k.router.route(self.stream, picks, pairs, e, tile, plan);
++        try int4.gateUp(&self.k.int4, self.stream, s.mixed, dims, q.ex, plan, slots, e, s.moe_act, n, skip, tile);
++        try int4.down(&self.k.int4, self.stream, s.moe_act, q.ex.width, q.ex, plan, slots, e, s.y, true, n, skip, tile);
++    } else switch (owned.format) {
+         .nvfp4 => {
+             const pt = nvfp4_tile.size(self.k, n);
+             try self.k.router.route(self.stream, picks, pairs, e, pt, plan);
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 69afddbf9..32af62d29 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -262,7 +262,7 @@ pub const Head = struct {
+         defer gpa.free(ids);
+         const head_load = @import("cuda_mtp_load.zig");
+         const role = try head_load.mode();
+-        const dtype = (try store.tensor("language_model.lm_head.weight")).dtype;
++        const dtype: @TypeOf((try store.tensor("language_model.mtp.fc_hidden.weight")).dtype) = if (@import("cuda_int4_load.zig").headIsInt4(&store)) .bf16 else (try store.tensor("language_model.lm_head.weight")).dtype;
+         h.artifact = try proposal.legacy.artifact(gpa, ids, .{ .vocab = vocab, .hidden = dims, .format = if (dtype == .bf16) "bf16" else "affine4", .group = if (dtype == .bf16) 0 else 32, .scale_recipe = if (dtype == .bf16) @tagName(role) else "stored affine4 group32" });
+         errdefer h.artifact.deinit();
+         h.ids = h.artifact.ids();
+diff --git a/zig/src/families/flashnext/cuda_mtp_load.zig b/zig/src/families/flashnext/cuda_mtp_load.zig
+index 0a911ba4f..5c412a1a0 100644
+--- a/zig/src/families/flashnext/cuda_mtp_load.zig
++++ b/zig/src/families/flashnext/cuda_mtp_load.zig
+@@ -17,6 +17,13 @@ pub fn mode() !Mode {
+ pub fn draft(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, artifact: *const core.proposal_vocab.Artifact, role: Mode) !wt.Q4 {
+     const ids = artifact.ids();
+     const affine = role == .affine4;
++    if (@import("cuda_int4_load.zig").headIsInt4(store)) {
++        // INT4-AutoRound: the GPTQ head's rows dequantized (drafts only propose; the verify keeps the target's tokens)
++        const rows = try @import("cuda_int4_load.zig").headRows(a, store, ids);
++        defer a.free(rows);
++        if (affine) return quantized(a, d, rows, ids.len);
++        return projection.dense(a, d, .{ .dtype = .bf16, .rank = 2, .shape = .{ ids.len, wt.dims, 1, 1, 1 }, .bytes = rows });
++    }
+     const tensor = try store.tensor("language_model.lm_head.weight");
+     if (tensor.dtype == .bf16) {
+         if (!tensor.is(.bf16, &.{ wt.vocab, wt.dims })) return error.UnexpectedTensor;
+diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
+index d16f086fd..87c7635e1 100644
+--- a/zig/src/families/flashnext/cuda_projection.zig
++++ b/zig/src/families/flashnext/cuda_projection.zig
+@@ -10,11 +10,19 @@ pub const Projection = struct {
+     n: usize,
+     k: usize,
+     native: ?cuda.qmmf.Weight = null,
++    /// INT4-AutoRound's GPTQ int4 matrix (the lm_head): words in `w`, scales in `s`; fn_int4.cu runs it
++    int4: ?@import("cuda_int4.zig").Mat = null,
++    /// rows [at, at + n) of the output held as BF16 beside a block-FP8 `native` whose rows there are zero
++    tail: ?Tail = null,
++    tail_w: ?cuda.DeviceBuffer = null,
++
++    pub const Tail = struct { native: cuda.qmmf.Weight, at: usize, n: usize };
+ 
+     pub fn free(self: *Projection) void {
+         self.w.free();
+         self.s.free();
+         self.b.free();
++        if (self.tail_w) |*t| t.free();
+     }
+ 
+     pub fn empty(d: *const cuda.Driver) Projection {
+@@ -23,6 +31,45 @@ pub const Projection = struct {
+     }
+ };
+ 
++/// Block-FP8 rows (e4m3 `codes` [nh, k], fp32 `scale_inv` [nh/128, k/128]) and an optional BF16 tail [nt, k] after
++/// them: the lane matmul's FP8G weight over nh + nt rows (the tail's codes zero) and the tail's own BF16 weight.
++pub fn fp8g(gpa: std.mem.Allocator, driver: *const cuda.Driver, codes: []const u8, scale_inv: []const f32, nh: usize, k: usize, tail_bf16: ?[]const u8, nt: usize) !Projection {
++    const fp8 = cuda.fp8;
++    if (nh == 0 or k % 128 != 0 or nh % 128 != 0 or codes.len != nh * k or scale_inv.len != (nh / 128) * (k / 128)) return error.UnexpectedTensor;
++    const n = nh + nt;
++    const all = try gpa.alloc(u8, n * k);
++    defer gpa.free(all);
++    @memcpy(all[0 .. nh * k], codes);
++    @memset(all[nh * k ..], 0);
++    const kb = k / 128;
++    const sinv = try gpa.alloc(f32, ((n + 127) / 128) * kb);
++    defer gpa.free(sinv);
++    @memcpy(sinv[0..scale_inv.len], scale_inv);
++    @memset(sinv[scale_inv.len..], 1.0);
++    const packed_codes = try gpa.alloc(u8, fp8.padded(n) * k);
++    defer gpa.free(packed_codes);
++    fp8.packCodes(packed_codes, all, n, k);
++    const packed_scales = try gpa.alloc(f32, fp8.padded(n) * (k / fp8.group));
++    defer gpa.free(packed_scales);
++    fp8.packScales(packed_scales, sinv, n, k);
++    var p = Projection.empty(driver);
++    p.w = try cuda.DeviceBuffer.fromHost(driver, packed_codes);
++    errdefer p.w.free();
++    p.s = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(packed_scales));
++    errdefer p.s.free();
++    p.n = n;
++    p.k = k;
++    p.native = fp8.weight(p.w.ptr, p.s.ptr, n, k);
++    if (tail_bf16) |t| {
++        var tp = try dense(gpa, driver, .{ .dtype = .bf16, .rank = 2, .shape = .{ nt, k, 1, 1, 1 }, .bytes = t });
++        p.tail_w = tp.w;
++        tp.s.free();
++        tp.b.free();
++        p.tail = .{ .native = tp.native.?, .at = nh, .n = nt };
++    }
++    return p;
++}
++
+ /// Set while the drafter's weights load (TF_FLASHNEXT_MTP_WEIGHTS): a BF16 projection is re-coded, not repacked.
+ pub var recode: @import("cuda_mtp_mxfp8.zig").Format = .bf16;
+ 
+diff --git a/zig/src/families/flashnext/cuda_projection_load.zig b/zig/src/families/flashnext/cuda_projection_load.zig
+index 90336a2d0..ab1dbea65 100644
+--- a/zig/src/families/flashnext/cuda_projection_load.zig
++++ b/zig/src/families/flashnext/cuda_projection_load.zig
+@@ -70,6 +70,76 @@ fn uploadMicro(a: std.mem.Allocator, d: *const cuda.Driver, value: Micro) !wt.Q4
+     return projection.mxfp8(a, d, .{ .dtype = .f8_e4m3, .rank = 2, .shape = .{ value.n, value.k, 1, 1, 1 }, .bytes = value.codes }, .{ .dtype = .u8, .rank = 2, .shape = .{ value.n, value.k / 32, 1, 1, 1 }, .bytes = value.scales });
+ }
+ 
++/// Block-FP8 (e4m3 weight, fp32 weight_scale_inv per 128x128 block) parts of one projection, rows stacked in order.
++const Block8 = struct {
++    n: usize,
++    k: usize,
++    codes: []u8,
++    sinv: []f32,
++
++    fn deinit(self: *Block8, a: std.mem.Allocator) void {
++        a.free(self.codes);
++        a.free(self.sinv);
++    }
++};
++
++fn isBlock8(store: *wt.Store, prefix: []const u8) bool {
++    var buf: [512]u8 = undefined;
++    return store.has(std.fmt.bufPrint(&buf, "{s}.weight_scale_inv", .{prefix}) catch return false);
++}
++
++fn readBlock8(a: std.mem.Allocator, store: *wt.Store, prefix: []const u8, names: []const []const u8) !Block8 {
++    var n: usize = 0;
++    var k: usize = 0;
++    var buf: [512]u8 = undefined;
++    for (names) |name| {
++        const w = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight", .{ prefix, name }));
++        if (w.dtype != .f8_e4m3 or w.rank != 2 or w.dim(0) % 128 != 0 or w.dim(1) % 128 != 0) return error.UnexpectedTensor;
++        if (k != 0 and k != w.dim(1)) return error.UnexpectedTensor;
++        k = w.dim(1);
++        n += w.dim(0);
++    }
++    const codes = try a.alloc(u8, n * k);
++    errdefer a.free(codes);
++    const sinv = try a.alloc(f32, (n / 128) * (k / 128));
++    errdefer a.free(sinv);
++    var row: usize = 0;
++    for (names) |name| {
++        const w = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight", .{ prefix, name }));
++        const pn = w.dim(0);
++        @memcpy(codes[row * k ..][0 .. pn * k], w.bytes[0 .. pn * k]);
++        const s = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight_scale_inv", .{ prefix, name }));
++        if (!s.is(.f32, &.{ pn / 128, k / 128 })) return error.UnexpectedTensor;
++        for (0..(pn / 128) * (k / 128)) |j| sinv[(row / 128) * (k / 128) + j] = @bitCast(std.mem.readInt(u32, s.bytes[j * 4 ..][0..4], .little));
++        row += pn;
++    }
++    return .{ .n = n, .k = k, .codes = codes, .sinv = sinv };
++}
++
++/// A projection whose leading parts are block FP8 and whose trailing parts are BF16 (INT4-AutoRound's mixers).
++fn loadBlock8(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []const u8, names: []const []const u8, n: usize, k: usize) !wt.Q4 {
++    var buf: [512]u8 = undefined;
++    var heads: usize = 0;
++    while (heads < names.len and isBlock8(store, try std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, names[heads] }))) heads += 1;
++    if (heads == 0) return error.UnexpectedTensor;
++    var head = try readBlock8(a, store, prefix, names[0..heads]);
++    defer head.deinit(a);
++    if (head.k != k or head.n > n) return error.UnexpectedTensor;
++    const nt = n - head.n;
++    if (nt == 0) return projection.fp8g(a, d, head.codes, head.sinv, head.n, k, null, 0);
++    const tail = try a.alloc(u8, nt * k * 2);
++    defer a.free(tail);
++    var at: usize = 0;
++    for (names[heads..]) |name| {
++        const t = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight", .{ prefix, name }));
++        if (t.dtype != .bf16 or t.rank != 2 or t.dim(1) != k or at + t.bytes.len > tail.len) return error.UnexpectedTensor;
++        @memcpy(tail[at..][0..t.bytes.len], t.bytes);
++        at += t.bytes.len;
++    }
++    if (at != tail.len) return error.UnexpectedTensor;
++    return projection.fp8g(a, d, head.codes, head.sinv, head.n, k, tail, nt);
++}
++
+ pub fn load(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []const u8, n: usize, k: usize) !wt.Q4 {
+     var buf: [512]u8 = undefined;
+     const t = try store.tensor(try std.fmt.bufPrint(&buf, "{s}.weight", .{prefix}));
+@@ -79,6 +149,7 @@ pub fn load(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []c
+             return projection.dense(a, d, t);
+         },
+         .f8_e4m3 => {
++            if (isBlock8(store, prefix)) return loadBlock8(a, d, store, prefix, &.{""}, n, k);
+             var value = try readMicro(a, store, prefix);
+             defer value.deinit(a);
+             if (value.n != n or value.k != k) return error.UnexpectedTensor;
+@@ -100,6 +171,7 @@ pub fn loadStitched(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, pre
+     if (names.len == 0) return error.UnexpectedTensor;
+     var buf: [512]u8 = undefined;
+     const first = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight", .{ prefix, names[0] }));
++    if (first.dtype == .f8_e4m3 and isBlock8(store, try std.fmt.bufPrint(&buf, "{s}{s}", .{ prefix, names[0] }))) return loadBlock8(a, d, store, prefix, names, n, k);
+     if (first.dtype == .f8_e4m3) {
+         var value = try readStitched(a, store, prefix, names);
+         defer value.deinit(a);
+diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
+index 0d041c6be..4b1f66ead 100644
+--- a/zig/src/families/flashnext/cuda_prompt.zig
++++ b/zig/src/families/flashnext/cuda_prompt.zig
+@@ -182,8 +182,11 @@ pub const Engine = struct {
+         e.eos = try ple.eosOf(gpa, io, e.model_dir);
+         e.mixer = try loadHc(gpa, driver, &e.store, "language_model.model.hyper_connection_mixer", false);
+         errdefer e.mixer.free();
+-        const head_tensor = try e.store.tensor("language_model.lm_head.weight");
+-        if (head_tensor.dtype == .bf16) {
++        if (@import("cuda_int4_load.zig").headIsInt4(&e.store)) {
++            if (try @import("cuda_head.zig").enabled()) return error.BadHeadSharding;
++            e.head_q = try @import("cuda_int4_load.zig").head(gpa, driver, &e.store);
++        } else if ((try e.store.tensor("language_model.lm_head.weight")).dtype == .bf16) {
++            const head_tensor = try e.store.tensor("language_model.lm_head.weight");
+             if (!head_tensor.is(.bf16, &.{ vocab, dims })) return error.UnexpectedTensor;
+             e.head_q = try @import("cuda_projection.zig").dense(gpa, driver, if (try @import("cuda_head.zig").enabled()) try @import("cuda_head.zig").shard(head_tensor, world, rank) else head_tensor);
+         } else {
+diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
+index f1314ffea..122bdc254 100644
+--- a/zig/src/families/flashnext/cuda_prompt_wt.zig
++++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
+@@ -17,8 +17,11 @@ pub const low: usize = 320;
+ pub const eps: f32 = 1e-6;
+ pub const vocab: usize = 248320;
+ pub const experts_n: usize = 512;
+-pub const slots: usize = 11;
++/// INT4-AutoRound's routing: top-5 and the shared slot (this series builds the engine for that checkpoint alone).
++pub const slots: usize = 6;
+ pub const moe_w: usize = 640;
++/// INT4-AutoRound's main-layer shared expert width (its MTP layer's is moe_w); buffers are sized by it.
++pub const shared_w: usize = 1280;
+ pub const block_bytes: usize = 160 * 4;
+ pub const tile: usize = 16;
+ pub const q_heads: usize = 24;
+diff --git a/zig/src/families/flashnext/cuda_shared_split.zig b/zig/src/families/flashnext/cuda_shared_split.zig
+index 2ec348b63..e58fe1d2d 100644
+--- a/zig/src/families/flashnext/cuda_shared_split.zig
++++ b/zig/src/families/flashnext/cuda_shared_split.zig
+@@ -8,7 +8,7 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize) !void {
+     const s = self.s;
+     const dims = wt.dims;
+     const glue = self.tri.own orelse return error.NativeGlueRequired;
+-    const width = if (native.split_shared) wt.moe_w / 2 else wt.moe_w;
++    const width = if (native.split_shared) native.shared_width / 2 else native.shared_width;
+     try self.k.native_lane.matmul(self.stream, s.mixed, dims, n, native.shared[0].native.?, s.shared_gate, s.native_part);
+     try self.k.native_lane.matmul(self.stream, s.mixed, dims, n, native.shared[1].native.?, s.shared_up, s.native_part);
+     try glue.sharedSwiGLU(self.stream, s.shared_gate, s.shared_up, s.shared_act, n, width);
+@@ -16,12 +16,12 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize) !void {
+     if (native.split_shared) {
+         const c = self.m.collective orelse return error.TensorParallelUnavailable;
+         try c.gather(self.stream, input, s.rank_gather, n * width);
+-        for (0..2) |rank| try ops.copyCols(self.k, self.stream, s.rank_gather + rank * n * width * 2, width, s.rank_input + rank * width * 2, wt.moe_w, width, n);
++        for (0..2) |rank| try ops.copyCols(self.k, self.stream, s.rank_gather + rank * n * width * 2, width, s.rank_input + rank * width * 2, native.shared_width, width, n);
+         input = s.rank_input;
+     }
+     // the whole expert's down goes straight into its slot (cuda_batch_side.down), as on the side stream
+     if (!native.split_shared) return @import("cuda_batch_side.zig").down(self, self.stream, input, native, n);
+-    try self.k.native_lane.matmulF32(self.stream, input, wt.moe_w, n, native.shared[2].native.?, s.shared_out, s.native_part);
++    try self.k.native_lane.matmulF32(self.stream, input, native.shared_width, n, native.shared[2].native.?, s.shared_out, s.native_part);
+     // Every routed slot and the peer's output columns stay at the zeros set before the expert launches.
+     try ops.copyCols(self.k, self.stream, s.shared_out, dims, s.y + (wt.slots - 1) * dims * 4 + native.rank * dims * 2, wt.slots * dims * 2, dims, n);
+ }
