@@ -7,8 +7,9 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
 
 ## 1. What I need from you (decisions and approvals)
 
-1. **Approve or edit the upstream issue text** for the drafter setting: `work/issue0014/FINAL-issue.md` (proposal
-   template, all fields). It has the new naming `TF_FLASHNEXT_MTP_WEIGHTS=checkpoint|mxfp8`. Nothing is posted.
+1. **Approve or edit the upstream issue text** for the drafter setting: `work/issue0014/FINAL-issue.styled.md` (restyled
+   through adam-style and repaired by me: identifiers, the 181.1 MB sizes, `"draft": false`, the stream table and the
+   arrows restored; source text is `FINAL-issue.md`). Proposal template, all fields. It has the new naming `TF_FLASHNEXT_MTP_WEIGHTS=checkpoint|mxfp8`. Nothing is posted.
    After your approval I post it, run `atc check/claim`, and open the PR (text for the PR body is written after
    the receipt exists; it also needs your approval).
 2. **PR defect fixed, receipt green:** on upstream main `mxfp8` failed with `FormatMismatch` (the recode window also
@@ -16,8 +17,8 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
    `flashnext-mtp-weights` in `work/upmain`, signed commit `74c33dc`, BadAd84 identity, NOT pushed. Gates: fmt, pr_check
    (0 errors), lean 345/345, type-check, host suite 381/381 steps. Receipt on main vs branch: default level with main
    (-0.5..+0.2%), `mxfp8` +1.8..+3.1% on code at 1/2/4 streams, +2.3..+2.4% on chat at 2/4, flat on chat at 1 stream,
-   golden 6/6, cold prompts flat. PR body draft: `work/pr0014/PR-body-draft.md` (not yet restyled; needs your approval
-   along with the issue text). Receipt files for `docs/receipts/flashnext-mtp-weights/` are in `work/rcpt/`.
+   golden 6/6, cold prompts flat. PR body: `work/pr0014/PR-body-final-draft.md` (intro restyled and repaired; the rest is the template's
+   fixed form with measured numbers; needs your approval along with the issue text). Receipt files for `docs/receipts/flashnext-mtp-weights/` are in `work/rcpt/`.
 3. **Patch 0007 (4-bit draft head default flip)** has the same upstream problem as 0014 had: it changes a default
    (`TF_FLASHNEXT_DRAFT_HEAD` affine4). For an upstream PR it should be a measured default change or an env setting
    in our recipe. Your call; I changed nothing.
