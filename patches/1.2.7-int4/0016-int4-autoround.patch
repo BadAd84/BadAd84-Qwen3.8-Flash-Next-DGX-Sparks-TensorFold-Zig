@@ -528,7 +528,7 @@ index 1602657143..d40270f553 100644
  pub const gdn_train: []const u8 = if (available) &Blob("fatbin_gdn_train").bytes else &.{};
  pub const train_q4: []const u8 = if (available) &Blob("fatbin_train_q4").bytes else &.{};
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 6dd7748d71..a143200681 100644
+index 6dd7748d71..84355717b4 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -131,6 +131,21 @@ pub fn Pass(comptime Tri: type) type {
@@ -553,6 +553,40 @@ index 6dd7748d71..a143200681 100644
              if (try zs.lane(self.k, self.stream, self.s, self.zero_slices, x, w, part, m, sk)) |one| return one;
              return tiles.matmul(self.k, self.stream, x, xs, w, out, part, self.s.native_part, m, sk, self.hooks.prompt);
          }
+@@ -185,7 +200,7 @@ pub fn Pass(comptime Tri: type) type {
+             const y = s.y + r0 * slots * dims * 4;
+             const wts = s.wts + r0 * slots * 4;
+             if (self.shared_direct) return hc.writebackSharedDirect(self, r0, n);
+-            try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, 10, 11, 1);
++            try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, slots - 1, slots, 1);
+         }
+ 
+         /// A read-out over rows [r0, r0 + n) of the streams: mixed and its group sums, and the inject gates.
+diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
+index 5e52a1afd7..25771e3f37 100644
+--- a/zig/src/families/flashnext/cuda_batch_hc.zig
++++ b/zig/src/families/flashnext/cuda_batch_hc.zig
+@@ -59,7 +59,7 @@ pub fn writebackSharedDirect(pass: anytype, r0: usize, n: usize) !void {
+     const inj = s.inj + r0 * streams * 2;
+     const y = s.y + r0 * slots * dims * 4;
+     const wts = s.wts + r0 * slots * 4;
+-    return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", pass.rows * dims, n, dims, streams, 3, 10, 11, 1);
++    return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", pass.rows * dims, n, dims, streams, 3, slots - 1, slots, 1);
+ }
+ 
+ /// moe_native.run after taking the prompt rows' shared-direct decision: the write-back reads the output in place.
+@@ -89,9 +89,9 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+     const wts = s.wts + r0 * slots * 4;
+     if (pass.shared_direct) {
+         pass.shared_direct = false;
+-        return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 3, 10, 11, 1);
++        return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 3, slots - 1, slots, 1);
+     }
+-    try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, 10, 11, 1);
++    try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, slots - 1, slots, 1);
+ }
+ 
+ /// A native read-out over rows [r0, r0 + n) whose normed rows are in: down, act and gates, up, the mix.
 diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
 index 176bc29c98..0bc632511e 100644
 --- a/zig/src/families/flashnext/cuda_batch_kernels.zig
@@ -1813,10 +1847,10 @@ index 90336a2d02..ab1dbea65f 100644
          var value = try readStitched(a, store, prefix, names);
          defer value.deinit(a);
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 84c5a377fc..e7a050c6e6 100644
+index 0d041c6be8..4b1f66ead2 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
-@@ -184,8 +184,11 @@ pub const Engine = struct {
+@@ -182,8 +182,11 @@ pub const Engine = struct {
          e.eos = try ple.eosOf(gpa, io, e.model_dir);
          e.mixer = try loadHc(gpa, driver, &e.store, "language_model.model.hyper_connection_mixer", false);
          errdefer e.mixer.free();
@@ -1843,6 +1877,19 @@ index 56158bd162..45e9c0edb8 100644
          native_experts = try mixed.load(gpa, driver, store, mlp_root, world, rank, cut != null);
      } else {
          if (world != 1 or rank != 0) return error.UnsupportedQuantization;
+diff --git a/zig/src/families/flashnext/cuda_prompt_step.zig b/zig/src/families/flashnext/cuda_prompt_step.zig
+index ddef6e6fdd..10bd121843 100644
+--- a/zig/src/families/flashnext/cuda_prompt_step.zig
++++ b/zig/src/families/flashnext/cuda_prompt_step.zig
+@@ -195,7 +195,7 @@ pub fn writeback(tri: anytype, s: *Scratch, h: u64, mode: usize, inj: u64, y: u6
+     if (mode == 0) {
+         try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", dummy, dummy, "*bf16", dummy, "*bf16", dims, 1, dims, streams, 0, 1, 1, 1);
+     } else if (mode == 2) {
+-        try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", dims, 1, dims, streams, 2, 10, 11, 1);
++        try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", dims, 1, dims, streams, 2, slots - 1, slots, 1);
+     } else if (mode == 4) {
+         try tri.hcWriteback(h, h, s.pss.ptr, s.part.ptr, "*fp32", inj, dummy, "*bf16", dummy, "*bf16", dims, 1, dims, streams, 4, 1, 1, out_sk);
+     } else return error.UnexpectedTensor;
 diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
 index f1314ffea4..122bdc254b 100644
 --- a/zig/src/families/flashnext/cuda_prompt_wt.zig

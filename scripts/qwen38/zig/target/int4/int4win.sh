@@ -2,8 +2,9 @@
 # int4win.sh CELL... - one GPU window on spark6: each CELL is kind:name:streams[:ENV...] with kind ours|prod.
 # ours boots tensorfold-qwen38:$IMG through the campaign recipe on the INT4-AutoRound checkpoint (fp8 KV, 262,144
 # window, VISION=0, HOST=127.0.0.1); prod boots production's own launcher. Per cell: golden at one stream (GOLD=1),
-# fixed chat prompts (CHAT=1), one decode pass of prose and code, the boot log. Production is restored at the end
-# (and on any exit) and /health is checked. The GPU lock is held for the whole window.
+# fixed chat prompts (CHAT=1), one decode pass of prose and code, the boot log. GUARD=1: an ours golden at one stream
+# whose first reply is not production's "Paris" ends the window. Production is restored at the end (and on any
+# exit) and /health is checked. The GPU lock is held for the whole window.
 set -u
 IMG=${IMG:-tensorfold-qwen38:int4a}
 OUT=${OUT:-$HOME/work/int4/bench}
@@ -52,6 +53,10 @@ cell() { # kind name streams env...
     IFS=: read -r kind name c envs <<< "$spec"
     # shellcheck disable=SC2086
     cell "$kind" "$name" "$c" $envs
+    if [ "${GUARD:-0}" = 1 ] && [ "$kind" = ours ] && [ "$c" = 1 ] && ! grep -q '"content": "Paris' "$OUT/$name-c$c/zgold.json" 2>/dev/null; then
+      echo "=== guard: $name golden-0 is not Paris, window ends"
+      break
+    fi
   done
 ) 9>"$HOME/work/gpu.lock"
 touch "$OUT/DONE"
