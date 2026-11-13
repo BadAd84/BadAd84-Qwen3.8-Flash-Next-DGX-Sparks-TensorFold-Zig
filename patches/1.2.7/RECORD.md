@@ -66,4 +66,6 @@
   out) carry no kernel contract records, as 0009's Q12 instances carry none; the knob is registered in
   `platform/environment.zig` and covered in its test. Both patches built as image `rq17` on spark6 (`rq17x` with
   v16x's kernel and expert logs) and measured in `README.md`; `zig build compile-config-server
-  -Dtarget=aarch64-linux-gnu` passes on the laptop; `zig build test-cuda-host` was not run for them.
+  -Dtarget=aarch64-linux-gnu` passes on the laptop; `zig build test-cuda-host` passes on WSL ext4 (Zig 0.17.0) for the
+  17-patch tree, as it does for pristine v1.2.7 and the 15-patch tree (`scripts/qwen38/zig/target/readout/host17.sh`:
+  rc 0 on all three, 330, 215 and 264 s).
