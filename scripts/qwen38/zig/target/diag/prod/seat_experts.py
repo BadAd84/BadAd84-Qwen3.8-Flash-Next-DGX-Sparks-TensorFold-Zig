@@ -59,15 +59,28 @@ def main() -> None:
     s = io.open(fact, encoding="utf-8", newline="").read()
     if MARK in s:
         print("experts_fact.zig: already seated")
+    else:
+        print(edit(
+            fact,
+            "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n",
+            "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n"
+            "    @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_fact_up\" else \"nvfp4_fact_down\", items, p.counts, "
+            "cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1);\n",
+        ))
+
+    waves = os.path.join(cuda, "experts_waves.zig")
+    s = io.open(waves, encoding="utf-8", newline="").read()
+    if MARK in s:
+        print("experts_waves.zig: already seated")
         return
     print(edit(
-        fact,
-        "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n",
-        "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n"
-        "    @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_fact_up\" else \"nvfp4_fact_down\", items, p.counts, "
-        "cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1);\n",
+        waves,
+        "    try launch_.launch(e.fns[fi], .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, "
+        ".block = .{ .x = @intCast(e.warps * 32), .y = 1, .z = 1 } }, s, &a);\n",
+        "    try launch_.launch(e.fns[fi], .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, "
+        ".block = .{ .x = @intCast(e.warps * 32), .y = 1, .z = 1 } }, s, &a);\n"
+        "    @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_waves_up\" else \"nvfp4_waves_down\", items, p.counts, "
+        "@intCast(grid), if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1);\n",
     ))
-
-
 if __name__ == "__main__":
     main()

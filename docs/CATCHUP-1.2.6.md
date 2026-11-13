@@ -1016,52 +1016,54 @@ read-out shape, and we have already measured it: `TF_FLASHNEXT_HC_Q12=1` is exac
 has an explanation - our read-outs already ride the dense qmmf path at the same per-byte rate, so q12 moves work
 between kernels rather than removing it.
 
-### The expert path at the roofline: our backbone is at it, our drafter is six times under it (2026-11-13)
+### The expert path at the roofline: both stacks are at it, and our round reads twice the bytes (2026-11-13)
 
 The instrument got a second log. `zig/src/cuda/expert_log.zig` (`TF_FLASHNEXT_EXPERT_LOG=1`) reads four bytes back
 after every expert launch - the plan's own item count - and prints it beside the items the grid covers and the
 matrix behind one item, so a launch's weight bytes are counted rather than guessed. The same file went into
 production's tree at its one int4 launch funnel. Both stacks then ran the kernel log and the expert log together,
-graphs eager, one fresh boot an arm (`~/work/target/bench/rf-*`, aggregated by `scripts/qwen38/zig/target/rftab.py`).
-Bytes are the items the plan made times one item's weight bytes: 0.5625 a weight on our NVFP4 checkpoint (144
-int32 a 32 by 32 block), 0.5156 on production's INT4 group-128 (half2 scales).
+graphs eager, one fresh boot an arm (`~/work/target/bench/rf-*` and `fr-log2`, aggregated by
+`scripts/qwen38/zig/target/rftab.py` and `rfgrid.py`). Bytes are the items the plan made times one item's weight
+bytes: 0.5625 a weight on our NVFP4 checkpoint (144 int32 a 32 by 32 block), 0.5156 on production's INT4 group-128.
 
-Ours at one stream, 235 rounds:
+The first attempt hooked only three of the four launch sites and attributed the waves kernels' time to the handful
+of `run` calls, which made the drafter look six times under the roofline. It was an instrument fault, not a
+finding: `experts_waves.entry` launches its own kernels, so the hook went there too and the arm was re-run. The
+corrected table, ours at one stream over 235 rounds, by launch shape (the grid width identifies the shape):
 
-| call | launches a round | items the grid covers | items made | MB a round | ms a round | GB a second |
-|---|---|---|---|---|---|---|
-| `nvfp4_fact_up` (backbone gate and up) | 13.5 | 529 | 145 | 3,598 | 15.71 | 229 |
-| `nvfp4_fact_down` | 13.5 | 529 | 145 | 1,799 | 8.65 | 208 |
-| `nvfp4_run_up` (the drafter's own layer) | 13.3 | 28 | 19 | 454 | 10.82 | **42** |
-| `nvfp4_run_down` | 18.8 | 11 | 11 | 191 | 5.52 | **35** |
-| total | | | | 6,042 | 40.70 | 148 |
+| kernel | grid | launches a round | items covered | items made | MB a round | ms a round | us a call | GB a second |
+|---|---|---|---|---|---|---|---|---|
+| `nvfp4_expert_waves` gate and up | 192 | 48.2 | 161 | 57 | 5,044 | 9.55 | 779 | 528 |
+| `nvfp4_fact_swiglu` | 2,645 | 13.3 | 529 | 145 | 3,549 | 15.62 | 1,176 | 227 |
+| `nvfp4_expert_waves` down | 240 | 61.5 | 133 | 49 | 2,749 | 4.90 | 387 | 561 |
+| `nvfp4_fact_down_f32` | 5,290 | 13.3 | 529 | 145 | 1,774 | 8.67 | 653 | 205 |
+| `nvfp4_expert_waves` gate and up, small | 110 | 18.8 | 11 | 11 | 382 | 1.34 | 101 | 284 |
+| total | | | | | 14,217 | 41.19 | | 345 |
 
-Production at one stream, 267 rounds: `int4_gate_up` 141.7 launches a round, 43 items covered and 19 made, 4,524 MB
-in 14.51 ms (312 GB a second); `int4_down` the same launches, 2,262 MB in 10.97 ms (206); total 6,786 MB in 25.48 ms
-at **266 GB a second**. At four streams production reaches 435 GB a second overall (507 on gate and up) while ours
-falls to 142.
+Production at one stream over 267 rounds: `int4_down` at grid 144, 190.2 launches a round, 3,715 MB in 12.90 ms
+(288 GB a second); `int4_gate_up` at grid 96, 62.9 launches, 2,841 MB in 10.47 ms (271); two smaller shapes add
+230 MB; total **6,786 MB in 25.48 ms at 266 GB a second**.
 
-Three things follow, and the first kills the easy story.
+So neither stack is leaving bandwidth on the floor. Our `fact_*` kernels stream 266 MB and 133 MB a launch at 227
+and 205 GB a second, 83% and 75% of GB10's 273 peak, which is what a DRAM stream looks like; our waves kernels read
+105 MB and 45 MB a launch at 528 and 561 GB a second, which is what cache reuse looks like - they re-read experts
+that the previous launch brought in. Production sits at 266 GB a second overall.
 
-**Our backbone expert kernels are already at the roofline.** 229 and 208 GB a second against GB10's 273 peak is 84%
-and 76%; there is no factor of two sitting in the `fact_*` kernels. They read 266 MB and 133 MB a launch, far past
-any cache, so they are honest DRAM streams.
+The gap is bytes, not rate. Our round reads **14.2 GB** of expert weights against production's **6.8 GB**, and per
+accepted token (3.5 ours, 2.75 theirs) that is 4.06 GB against 2.47 GB. We pay for it in time even at the better
+rate: 41.2 ms a round against 25.5. The plan's item bound `maxItems(pairs, 512, 16)` prices the rows behind it -
+529 items is about 50 rows a round for us, 43 is about 4 for production - so our tree verifies about twelve times
+their rows and re-reads the expert set about twice as often per accepted token.
 
-**The drafter's expert calls are not.** `nvfp4_expert_waves` moves 34 MB a launch in 813 us - 42 GB a second, six
-times under the roofline - and 645 MB a round costs 16.3 ms, which is 40% of our expert time for 10% of our expert
-bytes. Production's calls are the same size (31.9 MB a launch) and take 102 us. At four and eight streams ours gets
-worse, not better: 22 and 10 GB a second.
+`TF_FLASHNEXT_FACT_ROWS` (the rows from which NVFP4 experts take the prompt tiles, 64 by default) is the knob that
+moves work between those kernels, and it was measured: at `=1` every call takes the fact path, bytes rise to 14.0 GB
+a round at 339 GB a second, and the round is unchanged (41.47 ms against 40.70). The arm speeds agree - one stream
+60.35 / 79.97 against 60.65 / 80.44 off and 60.15 / 80.08 off again, four streams 110.7 / 163.6 against 111.3 /
+164.3 - so it is a wash, recorded here so nobody pays for it twice.
 
-**The two stacks verify very different numbers of rows.** The plan's item bound is `maxItems(pairs, 512, 16)`, so
-the logged 529 against 43 reads back as about 50 rows a round for us and about 4 for production (ten picks a row).
-We accept 3.5 tokens a round against their 2.75, so per accepted token we read 1.73 GB against their 2.47 GB and
-still spend 11.6 ms against their 9.3: we move fewer bytes and lose on the rate.
-
-So the portable item is not the arithmetic and not the checkpoint: it is the shape of the drafter's expert launch.
-The `fact_*` kernels are documented as "the decode form's sums (per-16 mma from zero, then fma)", which is the same
-per-output accumulation the waves kernel performs, so routing the drafter's small-item calls through them is an
-exactness-preserving change. At one stream it would turn 16.3 ms a round into about 2.9 ms at the measured 220 GB a
-second, against a 57 ms round.
+What that leaves as the lever is the number of expert passes a round, not the kernel: 48.2 waves gate-and-up
+launches a round of about 15 rows each beside 13.3 fact launches of about 50 rows is the shape to attack, because
+merging passes removes whole re-reads of the expert set rather than making a stream faster.
 
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
