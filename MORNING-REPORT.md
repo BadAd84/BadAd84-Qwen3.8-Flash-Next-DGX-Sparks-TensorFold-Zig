@@ -3,7 +3,7 @@
 Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; agents ran
 overnight; see section 4.
 
-Last updated: 2026-11-13 (session end of day).
+Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is posted anywhere outside our own repo.
 
 ## 1. What I need from you (decisions and approvals)
 
@@ -28,7 +28,7 @@ Last updated: 2026-11-13 (session end of day).
    cost at one stream about -0.3% (bf16 pages cost -2.4/-5.6%). **IMPORTANT correction found on the way:** three
    bugs in our patch 0003 meant every earlier "fp8 KV" cell actually ran bf16 caches (served streams ignored the
    engine's format), so earlier fp8 tables/claims are superseded by the new fp8pg2 cells (1/2/4 streams barely
-   changed: 61.2/81.4, 86.2/120.4, 113.3/164.7). Follow-up running: host test, kv8 GPU test, vision at fp8 pages.
+   changed: 61.2/81.4, 86.2/120.4, 113.3/164.7). Follow-up done (`b550fbe`): Linux host suite passes as pristine, the fp8 device test passes (fails in v16: bug 2 proved), vision at fp8 pages answers an image correctly and identically to unpaged.
 5. **Spend:** the agent has cost about $15 in this resumed run (plus the earlier $17); it keeps going on its queue
    until it finishes or is stopped (stop it with `write proc://RoundCostLever/kill`).
 6. **One optional setting is on the table, measured and exact:** `TF_FLASHNEXT_GREEDY_WIDE=8` (the round width up to
@@ -94,8 +94,7 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
 
 ## 4. Running overnight
 
-- `Fp8Pages` (opus5.5-max): finished 0015; follow-up running for the unrun host test, kv8 GPU test and vision
-  at fp8 pages (stop: `write proc://Fp8Pages/kill`).
+- Nothing is running. All agents are idle; spark6 production is up (`/health` 200).
 - Agent tasks so far (PR fix and receipt, roofline, draft-policy sweep, expert-id traffic, same-checkpoint attempt)
   are finished. spark6 production serve is up (`/health` 200).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
