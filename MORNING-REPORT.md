@@ -45,16 +45,18 @@ fp8 KV and a 262,144 window; aggregate tok/s prose / code against production's t
 
 Patch 0014 (drafter linears in MXFP8, selectable) adds +3.8% / +7.6% at one stream on top (not in the table).
 
-## 3. What the measurements say about the gap
+## 3. What the measurements say about the gap (updated)
 
-- Dense and expert BYTES are the same in production's INT4-AutoRound checkpoint and our NVFP4 one.
-- Production's round, measured in its own process (`pdiag` image): expert path 25.5 ms a round (INT4 kernel) against
-  our 42.6 ms (`fact_swiglu` + waves + `fact_down_f32`), dense projections about equal (32.1 vs 30.2 ms), and the
-  production spends 12.2 ms on 12-bit read-out kernels we do not run.
-- So the expert kernels are the largest per-row cost and the gap widens with streams. The agent's queued task is to
-  roofline our expert kernels against production's and port an exact schedule change (patch 0015). Details in
-  `docs/CATCHUP-1.2.6.md` ("Where production's round goes").
-- Production's environment on our binary costs us about 9%; their knob set is tuned for their engine.
+- Dense and expert BYTES are the same in production's INT4-AutoRound checkpoint and our NVFP4 one, and our expert
+  kernels run near roofline (`fact_*` at 75-83% of GB10's 273 GB/s; production's `int4` kernels at 266 GB/s). So it is
+  NOT a kernel-speed or checkpoint problem.
+- **It is the draft policy:** our round verifies ~50 rows to accept 3.5 tokens (reading 14.2 GB of expert weights a
+  round, 4.06 GB per accepted token); production verifies ~4 rows for 2.75 tokens (6.8 GB a round, 2.47 GB per token).
+  Drafts are proposals, so tuning this is exact. Patch 0010 (price a round from the environment) is the mechanism and
+  has never been run priced; the agent is sweeping it now (`ROUND_MS`, `DRAFT_ROW_MS`, `CONFIDENCE`, depth) on our
+  engine. Production's own env block costs our binary ~9%, so the settings must be tuned here, not copied.
+- Drafter in MXFP8 (patch 0014) is the other measured gain (+3.8/+7.6% at one stream on v1.2.7).
+- Spend so far this resumed run about $28 (agent, one job); the sweep is a bounded task (about 80 requests).
 
 ## 4. Running overnight
 
