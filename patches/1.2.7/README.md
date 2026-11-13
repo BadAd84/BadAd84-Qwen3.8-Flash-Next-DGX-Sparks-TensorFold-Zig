@@ -122,6 +122,11 @@ branch.
   layer a round, our decode expert kernels stream at 195 to 222 GB a second (faster than production's at equal rows),
   and the 2.35 times the expert bytes a round at one stream is production's checkpoint routing 5 experts a token
   against our 10. `docs/CATCHUP-1.2.6.md`, "The decode round's expert traffic, measured by expert id".
+- **The target serves a different model configuration (2026-11-13).** Production's checkpoint (azampatti INT4-AutoRound)
+  routes 5 experts a token with a GPTQ int4 head; ours (nvidia FP4) routes 10 with a BF16 head. Neither engine loads
+  the other's checkpoint, and on one harness the one-stream round splits as about 12 ms of routing width and up to
+  5 ms of head format (the checkpoint's) against about 4.5 ms of engine work. Table and refusals in
+  `docs/CATCHUP-1.2.6.md`, "The production target is a different model configuration".
 
 ## Draft-policy settings on this base, measured (2026-11-13)
 

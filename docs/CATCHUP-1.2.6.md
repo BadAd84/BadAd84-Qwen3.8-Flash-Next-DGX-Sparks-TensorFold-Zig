@@ -1213,6 +1213,76 @@ What it says:
   most 1.5 to 2.0 ms of a ~60 ms round at one stream (2.5 to 3.4%), inside the ~4% boot spread, and no kernel here
   reaches those rates below 20 rows. Closing the gap means serving a top-5 checkpoint, which changes replies.
 
+## The production target is a different model configuration, and neither engine serves the other's checkpoint (2026-11-13)
+
+The two checkpoints' own `config.json` (spark6 HF cache): production's azampatti INT4-AutoRound routes **5 experts a
+token** with a 1280-wide shared expert, GPTQ int4 group 128 on the routed experts and the LM head (`quant_method`
+gptq, sym, `desc_act` false, `lm_head` true; mixers, hyper-connections, shared expert, embeddings and the MTP layer
+left out by its `dynamic` rules). Ours, nvidia FP4-Local, routes **10** with a 640-wide shared expert, ModelOpt
+MIXED_PRECISION: NVFP4 routed experts, MXFP8 mixers and shared expert, a BF16 head. Both have 48 layers, 512 experts
+of width 640 and a 2560 hidden size.
+
+Neither engine serves the other's checkpoint (one fresh boot a cell; `expert_ids/sameckpt.sh`, `samenv.sh`,
+`samenv2.sh`; spark6 `~/work/target/bench/sc`, `bench/sn`):
+
+- Our `v16` and stock `up127` on INT4-AutoRound stop at load with "config.json's quantization_config.quant_method
+  differs from the supported Flash Next CUDA layout" (`UnsupportedCheckpoint`). v1.2.7's `cuda_config.zig:122` takes
+  `quant_method` modelopt only, `:123` `quant_algo` MIXED_PRECISION, `:126-141` NVFP4 group-16 routed experts and
+  declared shared-expert and attention layers.
+- Production's binary on our checkpoint (its own launcher, `MODEL_ID`/`MODEL_REVISION`, `VISION=0`; with vision on
+  its helper refuses the vision tower first) stops with "ModelOpt quantizes
+  model.language_model.layers.0.mlp.shared_expert.gate_proj as MXFP8; the engine reads NVFP4 routed experts,
+  FP8_PB_WO MTP experts and an FP8 n-gram table, the rest bf16" (its `cuda_config.zig:393`).
+
+The smallest port of production's checkpoint onto our series, each item where v1.2.7 refuses or fixes it at compile
+time:
+
+1. the GPTQ layout accepted beside ModelOpt in `cuda_config.check` (bits 4, group 128, sym, the `dynamic` list);
+2. the routing width and the shared-expert width as load-time values: `cuda_prompt_wt.zig:20` `slots = 11` (top-10
+   plus the shared slot) and `:21` `moe_w = 640`, which also sizes the shared expert's buffers
+   (`cuda_batch_state.zig:468`), are comptime constants, and `slots` or `experts_n` sit on 245 lines in 57 files of
+   the family; this checkpoint wants 6 slots in its 48 layers, 11 in its MTP layer (production routes that layer at
+   top-10, `TF_FLASHNEXT_MTP_TOPK`) and a 1280-wide shared expert;
+3. a GPTQ int4 group-128 routed-expert path: the native MoE takes `.nvfp4` and `.fp8g` only
+   (`cuda_moe_native.zig:25-33`); production carries `tf_fn_int4::int4_kernel`;
+4. the GPTQ int4 LM head, where ours reads a BF16 head;
+5. the checkpoint's FP8 mixers and BF16 MTP experts, where ours reads MXFP8 mixers and FP8_PB_WO MTP experts.
+
+That is production's whole INT4-AutoRound path, not a lever. The like-for-like row therefore cannot be measured in
+either direction; what can be measured is each stack on its own checkpoint, one harness, one window
+(`tfm_decode.py`, one pass, fp8 KV, production at its 262,144 window, ours at 262,144 for 1 to 4 streams and 131,072
+for 6 and 8; aggregate tok/s prose / code; repeats in brackets):
+
+| streams | production (INT4, top-5) | ours `v16` (FP4, top-10, BF16 drafter) | ours with the MXFP8 drafter | ours against production |
+|---|---|---|---|---|
+| 1 | 74.5 / 131.0 (74.3 / 130.3) | 61.4 / 81.3 (61.6 / 81.5, 61.5 / 81.4) | 63.6 / 87.8 | -17.6% / -37.9% |
+| 2 | 122.2 / 181.2 | 86.8 / 120.6 | | -29.0% / -33.4% |
+| 4 | 170.5 / 263.1 (170.7 / 264.4) | 112.9 / 166.4 (112.7 / 166.7, 113.0 / 166.6) | 114.1 / 173.3 | -33.8% / -36.8% |
+| 6 | 210.2 / 334.6 | 146.4 / 204.5 | | -30.4% / -38.9% |
+| 8 | 239.5 / 386.1 | 162.9 / 234.0 | | -32.0% / -39.4% |
+
+Golden: production against its repeat 6/6 identical; ours against both repeats and against the MXFP8 drafter arm
+6/6. Across the two stacks the replies come from different models and are not compared. On this harness production
+reads faster than its own target table (74.5 / 131.0 at one stream against 70.9 / 113.0), so the gap is 18 to 39%
+here rather than 13 to 37%.
+
+Where the one-stream round goes on each stack's checkpoint, from the decode window of the kernel log and the expert
+log (`bench/ep-o1`, `bench/ep-p1`, `expert_ids/ktab3.py` and `ids.py`; graphs off, every launch waited for; ours at fp8
+KV and 262,144, `bench/sn/v16x-c1`, totals 69.98 against 70.15):
+
+| ms a round | ours (FP4, top-10) | production (INT4, top-5) | difference | owner |
+|---|---|---|---|---|
+| routed experts, verify | 21.91 | 9.93 | 11.98 | the checkpoint: routing width and bytes a weight; our kernel is the faster per byte |
+| the drafter's experts | 0.82 | 0.40 | 0.42 | both NVFP4 |
+| heads, verify and draft | 8.38 (5.40 BF16 verify, 2.98 our 4-bit draft head) | 3.30 (its int4 launches outside the expert log: the GPTQ head) | 5.08 | the verify head's format is the checkpoint's (1.27 GB BF16 against 0.33 GB int4); the draft head is ours |
+| everything else: projections, read-outs, attention and DeltaNet, routing, glue | 39.04 | 34.50 | 4.54 | the engine, on equal bytes |
+| in kernels | 70.15 | 48.13 | 22.02 | |
+
+So of the 22 ms a round between the two serves at one stream, about 12 ms is the routing width and up to 5 ms is the
+head format (both the checkpoint's), and about 4.5 ms is engine work on bytes both checkpoints share. Served with
+graphs, the rounds differ by about the same amount: production 36.9 / 48.2 ms a round prose / code (186 and 81
+rounds for 512 tokens), ours 57.1 / 70.8 (146 and 89).
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
