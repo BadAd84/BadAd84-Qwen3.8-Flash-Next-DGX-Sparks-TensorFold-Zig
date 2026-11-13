@@ -1589,6 +1589,62 @@ index 0a911ba4f..5c412a1a0 100644
      const tensor = try store.tensor("language_model.lm_head.weight");
      if (tensor.dtype == .bf16) {
          if (!tensor.is(.bf16, &.{ wt.vocab, wt.dims })) return error.UnexpectedTensor;
+diff --git a/zig/src/families/flashnext/cuda_ple.zig b/zig/src/families/flashnext/cuda_ple.zig
+index c539a2753..bf00f3296 100644
+--- a/zig/src/families/flashnext/cuda_ple.zig
++++ b/zig/src/families/flashnext/cuda_ple.zig
+@@ -255,6 +255,28 @@ fn readScale(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, wm: std.json.O
+     };
+ }
+ 
++/// The index's weight map with the n-gram tensors of `dir`/ple-table/*.safetensors added, mapped to their files.
++fn withTable(a: std.mem.Allocator, io: std.Io, dir: []const u8, wm: std.json.ObjectMap) !std.json.ObjectMap {
++    const sub = try std.fs.path.join(a, &.{ dir, "ple-table" });
++    var d = std.Io.Dir.cwd().openDir(io, sub, .{ .iterate = true }) catch return wm;
++    defer d.close(io);
++    var out = try wm.clone(a);
++    var it = d.iterate();
++    while (try it.next(io)) |e| {
++        if (e.kind != .file and e.kind != .sym_link) continue;
++        if (!std.mem.endsWith(u8, e.name, ".safetensors")) continue;
++        const rel = try std.fmt.allocPrint(a, "ple-table/{s}", .{e.name});
++        const path = try std.fs.path.join(a, &.{ dir, rel });
++        var f = try Open.load(a, io, path);
++        defer f.close(a);
++        var names = f.file.names.iterator();
++        while (names.next()) |kv| if (std.mem.indexOf(u8, kv.key_ptr.*, ".ngram_embedding.") != null) {
++            try out.put(a, try a.dupe(u8, kv.key_ptr.*), .{ .string = rel });
++        };
++    }
++    return out;
++}
++
+ fn jsonU64(v: std.json.Value) !u64 {
+     if (v != .integer or v.integer < 0) return error.UnexpectedTensor;
+     return @intCast(v.integer);
+@@ -376,7 +398,12 @@ pub const Ngram = struct {
+         defer gpa.free(text);
+         const parsed = try std.json.parseFromSlice(std.json.Value, gpa, text, .{});
+         defer parsed.deinit();
+-        const wm = try core.safetensors.index.weightMap(parsed.value);
++        var table_arena = std.heap.ArenaAllocator.init(gpa);
++        defer table_arena.deinit();
++        const wm0 = try core.safetensors.index.weightMap(parsed.value);
++        // INT4-AutoRound keeps its FP8 table outside the index, in ple-table/ (no table scale: 1)
++        const beside = !wm0.contains("model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_0.weight");
++        const wm = if (beside) try withTable(table_arena.allocator(), io, model_dir, wm0) else wm0;
+         const first = "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.shard_0.weight";
+         const modelopt = wm.contains(first);
+         g.format = if (modelopt) try ple_fp8.format(gpa, io, model_dir, wm, first) else .mlx;
+@@ -385,7 +412,7 @@ pub const Ngram = struct {
+         g.scale = switch (g.format) {
+             .mlx => try tableScale(gpa, io, model_dir, wm),
+             .nvfp4 => try readScale(gpa, io, model_dir, wm, "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.weight_scale_2", true),
+-            .fp8 => try readScale(gpa, io, model_dir, wm, "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.weight_scale", true),
++            .fp8 => try readScale(gpa, io, model_dir, wm, "model.language_model.layers.1.ple.ple_embedding.ngram_embedding.weight_scale", !beside),
+         };
+         const dh = g.hash.dh;
+         var key: [180]u8 = undefined;
 diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
 index d16f086fd..87c7635e1 100644
 --- a/zig/src/families/flashnext/cuda_projection.zig
@@ -1791,6 +1847,19 @@ index f1314ffea..122bdc254 100644
  pub const block_bytes: usize = 160 * 4;
  pub const tile: usize = 16;
  pub const q_heads: usize = 24;
+diff --git a/zig/src/families/flashnext/cuda_rank_memory.zig b/zig/src/families/flashnext/cuda_rank_memory.zig
+index bad76b127..4cba9ff13 100644
+--- a/zig/src/families/flashnext/cuda_rank_memory.zig
++++ b/zig/src/families/flashnext/cuda_rank_memory.zig
+@@ -39,6 +39,8 @@ fn tensorBytes(name: []const u8, e: Entry, world: usize, rank: usize, split: boo
+     if (rank != 0 and std.mem.indexOf(u8, name, ".mlp.shared_expert.") != null) return 0;
+     if (std.mem.indexOf(u8, name, ".mlp.experts.") != null) {
+         if (std.mem.endsWith(u8, name, ".weight_scale_2")) return bytes;
++        // INT4-AutoRound's GPTQ experts: the packed words and fp16 scales keep the checkpoint's sizes, qzeros stay
++        if (std.mem.endsWith(u8, name, ".qweight") or std.mem.endsWith(u8, name, ".scales")) return bytes;
+         if (!std.mem.endsWith(u8, name, ".weight")) return 0;
+         if (e.dtype != .u8 or e.rank != 2 or bytes % (8 * world) != 0) return error.UnexpectedTensor;
+         // NVFP4 device blocks hold 128 code words and 16 scale words; a rank's whole experts average bytes / world.
 diff --git a/zig/src/families/flashnext/cuda_shared_split.zig b/zig/src/families/flashnext/cuda_shared_split.zig
 index 2ec348b63..e58fe1d2d 100644
 --- a/zig/src/families/flashnext/cuda_shared_split.zig
