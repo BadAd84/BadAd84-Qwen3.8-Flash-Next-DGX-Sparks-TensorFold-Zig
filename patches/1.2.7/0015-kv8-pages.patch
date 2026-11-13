@@ -407,6 +407,18 @@ index c12e4ac22..73207e8be 100644
      }
      pub fn explain(err: anyerror) ?[]const u8 {
          return switch (err) {
+diff --git a/zig/src/families/flashnext/cuda_kv_init_test.zig b/zig/src/families/flashnext/cuda_kv_init_test.zig
+index 3906302b8..8622f0353 100644
+--- a/zig/src/families/flashnext/cuda_kv_init_test.zig
++++ b/zig/src/families/flashnext/cuda_kv_init_test.zig
+@@ -86,6 +86,7 @@ var queue: cuda.Stream = undefined;
+ fn engine(d: *cuda.Driver) E {
+     var e: E = undefined;
+     e.driver = d;
++    e.kv = .bf16;
+     queue = .{ .d = d, .handle = Device.stream };
+     e.stream = &queue;
+     e.eos = 0;
 diff --git a/zig/src/families/flashnext/cuda_kv_lanes.zig b/zig/src/families/flashnext/cuda_kv_lanes.zig
 index e10452bd5..af57ae108 100644
 --- a/zig/src/families/flashnext/cuda_kv_lanes.zig
@@ -473,10 +485,18 @@ index e10452bd5..af57ae108 100644
      try std.testing.expectEqual(@as(usize, 161), mostPages(40960, 256));
      try std.testing.expect(l.pages(40960 + window_rows) <= mostPages(40960, 256));
 diff --git a/zig/src/families/flashnext/cuda_kv_lifetime_test.zig b/zig/src/families/flashnext/cuda_kv_lifetime_test.zig
-index 8984d5430..28c57b07c 100644
+index 8984d5430..9f7c346c5 100644
 --- a/zig/src/families/flashnext/cuda_kv_lifetime_test.zig
 +++ b/zig/src/families/flashnext/cuda_kv_lifetime_test.zig
-@@ -33,7 +33,7 @@ test "KV lifetime: Flash Next failed table wait and later fill retain pages unti
+@@ -16,6 +16,7 @@ var queue: cuda.Stream = undefined;
+ fn engine(d: *cuda.Driver) E {
+     var e: E = undefined;
+     e.driver = d;
++    e.kv = .bf16;
+     queue = .{ .d = d, .handle = D.stream };
+     e.stream = &queue;
+     e.eos = 0;
+@@ -33,7 +34,7 @@ test "KV lifetime: Flash Next failed table wait and later fill retain pages unti
              D.fail_wait = false;
              cuda.completion.drain(&d, e.stream.*, "the test driver must drain before it leaves");
          }
@@ -485,7 +505,7 @@ index 8984d5430..28c57b07c 100644
          const p = try pages.Pool.init(t.allocator, &e, l, 64, null, 1, l.runPages() + 16);
          defer {
              D.fail_wait = false;
-@@ -63,7 +63,7 @@ test "KV lifetime: Flash Next close and deinit retain pages until context proof"
+@@ -63,7 +64,7 @@ test "KV lifetime: Flash Next close and deinit retain pages until context proof"
              D.fail_wait = false;
              cuda.completion.drain(&d, e.stream.*, "the test driver must drain before it leaves");
          }

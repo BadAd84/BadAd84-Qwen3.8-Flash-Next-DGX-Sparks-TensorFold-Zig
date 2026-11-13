@@ -3,6 +3,15 @@
 Measured on spark6 on 2026-11-11, one fresh boot a cell, the target's own settings (nvfp4 checkpoint, fp8 KV,
 262,144-token windows, every slot busy, 512-token requests, three passes, median).
 
+**Corrected 2026-11-13: before patch 0015 no served stream held fp8 rows.** Under `--kv-cache fp8` the lane-parts
+constructor (`cuda_seq_parts.newSeqIn`, on by default in v1.2.6 and v1.2.7) and the pool lane built bf16 caches while the
+memory check priced fp8, so every fp8 KV figure from our kv8 lever before 0015 measured bf16 caches: the target-settings
+tables (the one in `patches/1.2.7/README.md` and the one below at "The production target is a different model
+configuration"), the 0003 row of `patches/1.2.6/README.md` ("costs no speed"), and the "fp8 KV decode is identical to
+bf16" pricing below wherever it ran that lever with lane parts on. Real fp8 rows, image `fp8pg2` (the 14 patches +
+0015), unpaged at 262,144: 61.2 / 81.4 at one stream, 86.2 / 120.4 at two, 113.3 / 164.7 at four, golden 6/6 identical
+to stock's; they supersede the old rows, and 6 and 8 streams now run at 262,144 on the fp8 page pool (`patches/1.2.7/README.md`, 0015).
+
 ## The gap, measured
 
 | arm | 1 stream prose / code | 2 | 4 | 6 |

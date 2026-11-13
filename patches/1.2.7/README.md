@@ -48,8 +48,8 @@ patches. Aggregate tok/s, prose / code; every cell's golden is 6/6 identical to 
 The series' own arms, bf16 KV, a 131,072-token window, one fresh boot a cell, 512-token prose and code replies,
 aggregate tok/s (`scripts/qwen38/zig/target/widetile.sh`, spark6 `~/work/target/widetile.log`, image `v14`, which
 is this series plus a lever that measured flat and did not land). The target is the production serve's own table,
-`production/SPEED-TARGET.md` on the `production` branch, measured at 262,144 tokens; fp8 and bf16 KV decode the
-same on this box, so the two are comparable.
+`production/SPEED-TARGET.md` on the `production` branch, measured at 262,144 tokens. (Corrected 2026-11-13: "fp8 and
+bf16 KV decode the same on this box" rested on fp8 cells that ran bf16 caches; see 0015, defect 1.)
 
 | streams | ours prose / code | production prose / code | gap prose / code |
 |---|---|---|---|
@@ -95,6 +95,11 @@ self-check: 1176 of 2080"; the rounds a 512-token reply takes move (146 / 89 to 
 changing its proposals, not the model changing its tokens.
 
 ## Against the production target, at its settings (2026-11-12)
+
+**Corrected 2026-11-13: every `KV_DTYPE=fp8` cell in this table ran bf16 caches** (0015, defect 1: served streams
+kept bf16 rows while the memory check priced fp8). The real fp8 rows for 1, 2 and 4 streams are the unpaged column of
+the 0015 table below (image `fp8pg2`, 61.2 / 81.4, 86.2 / 120.4 and 113.3 / 164.7), which supersede the rows here; the
+6 and 8 stream rows ran at 131,072 and are superseded by that table's `KV_PAGES=4096` rows at 262,144.
 
 `target127.sh` and `target127b.sh`, spark6: NVFP4 checkpoint, `KV_DTYPE=fp8`, a 262,144-token window, one fresh boot a
 cell, one decode pass of 512-token replies; aggregate tok/s prose / code. Golden 6/6 identical to stock's in every
@@ -198,8 +203,11 @@ Writing it found three defects in 0003, which 0015 repairs:
 1. **Served streams never held fp8 rows.** The lane-parts constructor (`cuda_seq_parts.newSeqIn`, every stream unless
    `TF_FLASHNEXT_LANE_PARTS=0`) and the pool lane built bf16 caches while the memory check priced fp8, so every
    "fp8 KV" cell measured before 0015 ran bf16 caches.
-2. **The fp8 staging took its head arguments swapped** (slot `key * hk + HK` for `key * HK + hk`), found by reading the
-   call against the slots `kv8_store` writes; defect 1 kept served streams away from it.
+2. **The fp8 staging took its head arguments swapped** (slot `key * hk + HK` for `key * HK + hk`). Measured with the
+   fp8 device test (`tf-cuda-test flashnext-kv8`, spark6 `~/work/target/fp8vis.log`): it fails in `v16` ("fp8
+   attention dense: first difference at byte 0, 2975 of 3072 words differ") and passes with 0015 ("the widening reads
+   equal the bf16 kernels on the dequantized rows, dense and sparse, chunked and fused"); defect 1 had kept served
+   streams away from it.
 3. **A pass's kept-state marks wrote the n-gram tail at the bf16 offset**, past an fp8 state's buffer. With the prompt
    cache on (1, 2 and 4 streams) the first request failed with `cuMemcpyDtoDAsync: CUDA_ERROR_INVALID_VALUE`: image
    `fp8pg` (0015 without this repair) failed so in every such cell, and `v16` with `TF_FLASHNEXT_LANE_PARTS=0`, the
@@ -237,4 +245,13 @@ fp8pg2 g8` and `fp8q.sh`, spark6 `~/work/target/fp8pages-fp8pg2.{log,sum}` and `
 - `KV_DTYPE=fp8` without pages now keeps fp8 rows on every stream: golden is still 6/6 identical to stock's and one
   stream decodes 61.2 / 81.4, against 61.8 / 81.7 and 61.4 / 80.4 for the accepted stack on 2026-11-12, when those
   cells ran bf16 caches.
+- **Vision.** With vision on, fp8 KV, a 262,144 window and every stream on pool pages, one image request (a 64x64 PNG,
+  red left half, blue right half, temperature 0) is answered "The left half of the image is filled with a solid,
+  bright red color ... The right half ... blue", and the same request to an unpaged fp8 boot returns the identical
+  reply (`fp8vis.sh`, `bench/vis-{vpa,vu}.json`).
+- **Host suite.** `zig build test-cuda-host` on a native Linux filesystem (WSL ext4, Zig 0.17.0): the 15-patch tree
+  passes every step, as pristine v1.2.7 does on the same machine. Its first run crashed five pool tests ("switch on
+  corrupt value" in `Kv.keyRow`: their `Engine` is `undefined` but for a few fields, and the pool lane now reads its
+  format); those tests now set `kv = .bf16`, as 0003 did for the others.
+  A mutant of the new page test (18,881 bytes a token for 18,880) fails it by name, so the suite does run it.
 

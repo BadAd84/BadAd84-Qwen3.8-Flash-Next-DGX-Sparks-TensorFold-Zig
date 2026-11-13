@@ -51,7 +51,8 @@
   (`TF_FLASHNEXT_KV_PAGES` with `KV_DTYPE=fp8`, pool off by default). It carries three repairs of 0003 found on the way
   (lane-parts and pool-lane streams kept bf16 caches; the fp8 staging's swapped head arguments; the marks' bf16 tail
   offset), described and measured in `README.md`. Built as image `fp8pg2` on spark6 from this text less its kernel
-  contract records, which no image contains; the records hold the nvcc 13.3 resources `scripts/qwen38/zig/target/fp8res.sh`
+  contract records and the two pool tests' `kv = .bf16` lines, which no image contains; the records hold the nvcc 13.3 resources `scripts/qwen38/zig/target/fp8res.sh`
   measured for that image's `flashnext_attn.cu` (`fn_attn_chunks_kv8` re-measured at 80 registers on sm_120 and sm_121).
-  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` passes on the laptop; `scripts/check-patch-reverts.py`:
-  79 findings, 79 allowed (the 0015 reasons are in `mkallow.py`).
+  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` passes on the laptop and `zig build test-cuda-host`
+  passes on a native Linux filesystem (as pristine v1.2.7 does); the fp8 device test passes in image `fp8pg2` and
+  fails in `v16`; `scripts/check-patch-reverts.py`: every finding allowed (the 0015 reasons are in `mkallow.py`).
