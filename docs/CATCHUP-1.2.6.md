@@ -1065,6 +1065,43 @@ What that leaves as the lever is the number of expert passes a round, not the ke
 launches a round of about 15 rows each beside 13.3 fact launches of about 50 rows is the shape to attack, because
 merging passes removes whole re-reads of the expert set rather than making a stream faster.
 
+### The round's price, measured: the cost curve is linear and the priced round is inert here (2026-11-13)
+
+Patch 0010 lets a shared round be priced from the environment, and it had never been run priced. The price needs
+two numbers, so they were measured first on the shipped image `v16` at one stream, cutting the draft chain to a
+known length (`TF_FLASHNEXT_DRAFTS` and `DRAFTS_GREEDY` together, `CONFIDENCE=0` so nothing truncates it) and
+reading rounds, drafts and accepted tokens from the engine's own `/metrics` (`~/work/target/bench/cc-*`):
+
+| chain | prose ms a round | prose rows a round | code ms a round | code rows a round |
+|---|---|---|---|---|
+| 2 | 48.98 | 3.00 | 50.11 | 3.28 |
+| 4 | 57.83 | 4.96 | 59.40 | 5.34 |
+| 8 | 73.00 | 8.83 | 74.40 | 9.08 |
+| 12 | 86.47 | 12.69 | 87.90 | 12.73 |
+| 15 | 95.66 | 15.55 | 97.10 | 15.50 |
+
+A round costs **38 ms plus 3.75 ms a row** on prose and 38 plus 3.85 on code, straight to 15 rows. Taking the
+drafter's own 1.58 ms a row from the round profile leaves the forward at about 2.15 ms a row, so the price is
+`TF_FLASHNEXT_ROUND_MS=38+2.15` with `TF_FLASHNEXT_DRAFT_ROW_MS=1.6`.
+
+Run priced, nothing moves. One stream: 61.18 / 80.50 priced against 61.48 / 81.61 unpriced and 61.16 / 81.25
+unpriced again, with the counters identical to the digit (146 rounds, 578 drafts, 365 accepted on prose; 89, 639,
+422 on code), which is the engine saying it kept exactly the same drafts. Four streams: 113.6 / 166.8 priced
+against 113.1 / 166.7 and 112.4 / 166.3 unpriced, drafts 1,853 against 1,861 - a 0.4% trim inside a 1% noise band.
+A steeper price (`38+3.0`) and a flatter one (`38+1.5`) give the same 1,853 drafts, so the shape of the line is not
+the reason either.
+
+Confidence was swept beside it at one stream: -0.15 gives 57.97 / 79.31 (787 drafts against 578, and slower),
+-0.25 gives 61.01 / 80.11, -0.6 gives 59.22 / 82.71. Our default of -0.4 is already the best of the four, and
+production's -0.15 is worth -6% here, which is another piece of their environment that does not travel.
+
+The counters also correct a number in the roofline section above. At one stream a round verifies `drafted / rounds
++ 1` = **5.0 rows**, not the 50 the plan's item bound suggested: the expert plan counts a pair for each routed
+expert of each row, so 529 items is about 50 pairs a row-batch, not 50 rows. The rows beyond the MTP drafts are the
+copy continuations the serve announces as "drafts: MTP + copies", and they are what fills the expert call. So the
+row count to attack is the copy policy (`TF_FLASHNEXT_COPY_*`), not the MTP chain, and the priced round cannot see
+those rows because they are not drafts it owns.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
