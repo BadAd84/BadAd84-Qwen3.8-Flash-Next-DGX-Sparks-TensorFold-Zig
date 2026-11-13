@@ -7,6 +7,7 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
 
 ## 1. What I need from you (decisions and approvals)
 
+0. **OWNER DIRECTIVE (this evening): port the INT4-AutoRound path onto our engine to test whether the checkpoint/model is the whole speed gap (not for upstream unless it proves out).** Agent `Int4Port` (opus5.5-max, budget 160 requests, phased, commits at each phase: scope table, load and boot, int4 experts and head, same-checkpoint benchmark at 1/2/4/6/8 streams). Experimental series in `patches/1.2.7-int4/`, the accepted series is untouched. Stop with `write proc://Int4Port/kill`. `ReadoutGap` (the 4.5 ms engine-owned dense/read-out investigation, patch 0016) also runs; both take `gpu.lock`.
 0. **Sampled decode and drafter-off measured (commit d221fe8):** drafter on beats `"draft": false` in 48 of 48 cells; PR unset is level with main; mxfp8 is +1..4% greedy but -2.0%/-1.2% on sampled chat at 1/2 streams (seed-dependent: +1.9% over 9 seeds). Draft PR comment with this, restyled and repaired: `work/pr0014/comment-sampled.final.md`, needs your approval before posting.
 0. **PR OPENED: ashhart/TensorFold#3218** (Refs #3162; branch `BadAd84:flashnext-mtp-weights`, head `e16ca9d`, rebased on upstream `a3aecd8`; text as you approved, with the rebase-refreshed numbers shown to you). Watch for CI and the maintainer's reply on #3162 and #3218.
 0. (earlier note) **The issue is POSTED: ashhart/TensorFold#3162** (your approved text). ATC cannot claim it: `atc check` returns `incomplete`
