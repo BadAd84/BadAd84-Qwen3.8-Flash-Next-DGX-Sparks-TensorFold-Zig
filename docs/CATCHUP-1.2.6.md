@@ -1150,32 +1150,68 @@ the edge of the noise band but on the wrong side of it twice. It is exact by con
 but it is not yet a shipping recommendation: the rule is no regression at any stream count, so it needs 1, 2 and 4
 streams and a golden before it can go into the README.
 
-### The decode-only expert bytes, split out of the same logs (2026-11-13)
+### The decode round's expert traffic, measured by expert id (2026-11-13)
 
-The times in those arms belong to a boot window, but the expert log's own lines carry their position in the log, so
-the decode half of the BYTES can be recovered without another arm: take only the lines after the boot marker (our
-"window self-check" line at 18,609 of 44,642; production's "serving Qwen3.8-Flash-Next at http" at 49,721 of
-76,124) and price the items each launch really made.
+The instrument was rebuilt so a decode round can be read on its own (`scripts/qwen38/zig/target/diag/prod/`): every
+expert launch now prints its own booked time (the kernel log's wait for that launch) and its layer's weight base, and
+every gate/up launch prints each plan item's expert id and pair count; its down launch runs the same plan. A trailing
+request after the decode passes closes the kernel log's decode window, and `expert_ids/ids.py` reads only the launches
+between the boot table and that one. Rows a call are the shared slot's pairs (expert 512, which the routed kernels
+skip); unique experts are the distinct other ids; bytes are 2.7648 MB an expert (gate, up and down at 0.5625 bytes a
+weight) ours and 2.5344 MB production's (INT4 group-128, 0.5156). Images `tensorfold-qwen38:v16x` (the 14-patch
+series plus the instrument) and `pdiagx` (production's tree plus the same files), one fresh boot an arm, graphs eager,
+512-token prose and code (`expert_ids/run.sh`, `run2.sh`; spark6 `~/work/target/bench/ep-{o1,p1,o4,p4}`).
 
-| | launches a round | MB a round |
+One stream, a round (ours 236 rounds, production 268):
+
+| | ours (NVFP4, top-10) | production (INT4, top-5) |
 |---|---|---|
-| ours `nvfp4_expert_waves` gate and up | 41.5 | 2,910 |
-| ours `nvfp4_expert_waves` down | 48.8 | 1,619 |
-| ours `nvfp4_run_up` (the drafter's layer) | 12.9 | 440 |
-| ours `nvfp4_run_down` | 5.5 | 56 |
-| **ours total** | **108.7** | **5,026** |
-| production `int4_gate_up` | 48.7 | 1,422 |
-| production `int4_down` | 48.7 | 711 |
-| **production total** | **97.4** | **2,132** |
+| verify forwards a round (48 MoE layers each) | 1.013 | 1.011 |
+| rows a layer call | 6.44 | 5.39 |
+| routed picks a layer call | 64.4 | 26.9 |
+| unique experts a layer call | 35.0 (54% of the picks) | 16.3 (60%) |
+| passes an expert's weights take | 1.000 | 1.000 |
+| unique MB a round / launched MB | 4,698.6 / 4,700.5 | 1,999.0 / 1,999.5 |
+| ms a round, gate-up + down | 14.57 + 7.34 = **21.91** | 6.58 + 3.35 = **9.93** |
+| GB a second, gate-up / down | 215.0 / 213.4 | 202.5 / 198.8 |
+| drafter's MoE a round | 5.52 one-row steps, 10 unique a step, 39.7 over the round (1.39 passes), 152.6 MB, 0.82 ms | FP8 experts, outside the int4 hook: not measured |
+| tokens a round / expert MB a token | 4.35 / 1,116 | 3.83 / 522 |
 
-A decode round of ours reads **2.36 times** production's expert bytes, and the launch counts are the same shape -
-about one call a layer for the 48 MoE layers on both sides, ours plus the drafter's own. The ratio is almost
-entirely the checkpoint: ten routed experts a token against five is 2.0, and NVFP4's 0.5625 bytes a weight against
-INT4 group-128's 0.5156 is another 1.09, which multiply to 2.18 against the measured 2.36. Per accepted token
-(3.5 ours, 2.75 theirs) it is 1.44 GB against 0.78.
+Four streams, a verify forward (the round is per stream, so per forward is the shared unit): ours 15.84 rows a layer
+call, 158.4 picks, **78.5 unique experts** (50%), 10,428 MB in 46.8 ms at 223 GB a second; production 16.18 rows,
+80.9 picks, **45.4 unique** (56%), 5,518 MB in 25.4 ms at 216-220. Passes 1.002 on both.
 
-So the expert-byte gap is a property of the checkpoint we serve, not of our kernels, our plan or our draft policy,
-and no exact lever on our side can close it: closing it means serving a top-5 checkpoint, which changes replies.
+The same rows on both stacks separate the kernels from the routing (one stream, by rows a call):
+
+| rows | ours unique | ours up / down us | ours GB/s up / down | production unique | production up / down us | production GB/s |
+|---|---|---|---|---|---|---|
+| 2 | 15.9 | 146.4 / 75.1 | 199.7 / 194.5 | 8.5 | 76.5 / 39.8 | 186.9 / 179.8 |
+| 3 | 20.3 | 181.0 / 92.7 | 207.1 / 202.1 | 11.1 | 94.8 / 50.8 | 197.3 / 184.2 |
+| 5 | 28.4 | 247.1 / 124.6 | 211.6 / 209.8 | 15.7 | 133.0 / 67.4 | 199.9 / 197.1 |
+| 9 | 47.3 | 398.2 / 199.8 | 218.9 / 218.1 | 20.1 | 168.1 / 83.2 | 202.6 / 204.5 |
+| 16 | 68.5 | 568.1 / 284.1 | 222.2 / 222.2 | 40.1 | 316.5 / 155.7 | 213.8 / 217.3 |
+
+Grid: our gate-up launches 115 blocks at 2 rows and 175 at 3 (the classic kernel, items bound times 20 blocks over 4
+warps), the resident 192 from 4 rows (equal waves), down the resident 240 throughout; production 144 or 96 and 144.
+
+What it says:
+
+- **The gap is bytes, set by the checkpoint's routing.** At equal rows our layer call reads 1.8 to 2.4 times the
+  unique experts (top-10 against top-5, less the overlap), times 1.09 for the format: 1.97 times the bytes at five
+  rows. Over a round it is 2.35 times at one stream (21.91 ms against 9.93, 12.0 ms of the round gap) and 1.89
+  times a forward at four.
+- **Every unique expert is read once a layer a round** (passes 1.000; 1.002 at four streams, where an expert past 16
+  pairs takes a second item). There is no double pass: no decode call takes the `fact_*` kernels, which run only in
+  the boot self-check. `TF_FLASHNEXT_FACT_ROWS=1` was a wash for that reason: both forms read each unique expert
+  once, so moving rows between them moves no bytes.
+- **Our kernels are at the DRAM rate, faster than production's at every equal row count**: 200 to 222 GB a second
+  at 2 to 16 rows (73 to 81% of GB10's 273, launch and wait included) against 187 to 214. `fact_swiglu`'s 1,176 us
+  was a boot-only ~94-row launch streaming at 224 GB a second, DRAM-bound rather than wave, tile or ALU-bound.
+- **So no exact lever exists on the expert path.** Merging gate-up and down reads the same bytes and saves one launch
+  a layer. A tile or CTA change can only close the distance to the best rate any expert kernel reached here (229.7
+  GB a second, ours at 46 rows; production 236 at a 105-row prompt pass): about 5% at the dominant 9-row call, at
+  most 1.5 ms of a 60 ms round at one stream, inside the ~4% boot spread. Closing the gap means serving a top-5
+  checkpoint, which changes replies.
 
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
@@ -1208,7 +1244,7 @@ teaching the fp8 attention kernels to read through the page table. That, not a p
 `0038-seq-pool` commit, is the work the 262,144-token target needs; the old patch text is kept at
 `work/0038-seq-pool-fp4port.patch` for its design.
 
-## The two checkpoints carry the same bytes a round (2026-11-12)
+## The two checkpoints store the same bytes; a decode token reads twice as many of ours (2026-11-12, corrected 2026-11-13)
 
 `scripts/qwen38/zig/target/ckpt_layer.py` lists one layer's tensors from the safetensors headers of both checkpoints
 (spark6 HF cache; no tensor data read), `ckpt_bytes2.py` sums them by group. Production serves
@@ -1220,4 +1256,8 @@ different quantisation of the mixers: the drafter's BF16 weights (181 MB) accoun
 the rest is kernel and glue work in production's tree (the production kernel table, being measured, will say which).
 The INT4 checkpoint also stores a BF16 and an FP8 copy of each hyper-connection matrix; production's launcher does not
 set `TF_FLASHNEXT_INT4AR_FAST`, so it reads the BF16 ones (as ours do).
+
+Corrected 2026-11-13: the stored bytes are the same, but production's checkpoint routes 5 experts a token and ours
+10 (`num_experts_per_tok`), so a decode round reads 2.35 times the expert bytes at one stream ("The decode round's
+expert traffic, measured by expert id" above). The drafter estimate above predates that measurement.
 

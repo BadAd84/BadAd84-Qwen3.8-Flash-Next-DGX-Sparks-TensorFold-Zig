@@ -14,8 +14,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 LAUNCH = ("    try cuda.launch.launch(k.fns[kind][j][q], .{ .grid = .{ .x = @intCast(grid) }, "
           ".block = .{ .x = warps * 32 } }, s, &a);\n")
+OLD = ("    if (p) |pl| cuda.expert_log.note(s, if (kind == 0) \"int4_gate_up\" else \"int4_down\", max_items, "
+       "pl.counts, @intCast(grid), n, kk, if (kind == 0) 2 else 1);\n")
 NOTE = ("    if (p) |pl| cuda.expert_log.note(s, if (kind == 0) \"int4_gate_up\" else \"int4_down\", max_items, "
-        "pl.counts, @intCast(grid), n, kk, if (kind == 0) 2 else 1);\n")
+        "pl.counts, @intCast(grid), n, kk, if (kind == 0) 2 else 1, pl.items, w);\n")
 
 
 def main() -> None:
@@ -36,8 +38,12 @@ def main() -> None:
 
     int4 = os.path.join(tree, "zig", "src", "families", "flashnext", "cuda_int4.zig")
     s = io.open(int4, encoding="utf-8", newline="").read()
-    if "expert_log.note" in s:
+    if NOTE in s:
         print("cuda_int4.zig: already seated")
+        return
+    if OLD in s:
+        io.open(int4, "w", encoding="utf-8", newline="").write(s.replace(OLD, NOTE, 1))
+        print("cuda_int4.zig: hook given the plan items and weight base")
         return
     if s.count(LAUNCH) != 1:
         raise SystemExit(f"{int4}: launch anchor appears {s.count(LAUNCH)} times, not once")

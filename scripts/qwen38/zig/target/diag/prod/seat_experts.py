@@ -45,14 +45,14 @@ def main() -> None:
             ".block = .{ .x = @intCast(e.warps * 32), .y = 1, .z = 1 } }, s, &a);\n"
             "        @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_run_up\" else \"nvfp4_run_down\", items, "
             "p.counts, @intCast(grid), if (gate) l.width else l.dims, if (gate) l.dims else l.width, "
-            "if (gate and !l.relu2) 2 else 1);\n",
+            "if (gate and !l.relu2) 2 else 1, p.items, if (gate) l.up else l.down);\n",
         ))
         print(edit(
             experts,
             "        try launch_.launch(e.prompt_fns[fi], cfg, s, &a);\n",
             "        try launch_.launch(e.prompt_fns[fi], cfg, s, &a);\n"
             "        @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_prompt_up\" else \"nvfp4_prompt_down\", items, "
-            "p.counts, cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, parts);\n",
+            "p.counts, cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, parts, p.items, if (gate) l.up else l.down);\n",
         ))
 
     fact = os.path.join(cuda, "experts_fact.zig")
@@ -65,7 +65,7 @@ def main() -> None:
             "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n",
             "    try launch_.launch(e.fact_fns[fi], cfg, s, &a);\n"
             "    @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_fact_up\" else \"nvfp4_fact_down\", items, p.counts, "
-            "cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1);\n",
+            "cfg.grid.x, if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1, p.items, if (gate) l.up else l.down);\n",
         ))
 
     waves = os.path.join(cuda, "experts_waves.zig")
@@ -80,7 +80,7 @@ def main() -> None:
         "    try launch_.launch(e.fns[fi], .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, "
         ".block = .{ .x = @intCast(e.warps * 32), .y = 1, .z = 1 } }, s, &a);\n"
         "    @import(\"expert_log.zig\").note(s, if (gate) \"nvfp4_waves_up\" else \"nvfp4_waves_down\", items, p.counts, "
-        "@intCast(grid), if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1);\n",
+        "@intCast(grid), if (gate) l.width else l.dims, if (gate) l.dims else l.width, if (gate) 2 else 1, p.items, if (gate) l.up else l.down);\n",
     ))
 if __name__ == "__main__":
     main()

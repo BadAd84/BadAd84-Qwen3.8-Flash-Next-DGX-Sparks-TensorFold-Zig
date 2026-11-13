@@ -23,6 +23,8 @@ var name_bytes: [max][name_max]u8 = undefined;
 var name_len: [max]usize = @splat(0);
 var named: usize = 0;
 
+/// The last booked launch's time, start of the queue to the end of its wait (read by expert_log.zig).
+pub var last_ns: u64 = 0;
 var window_start: u64 = 0;
 var last_end: u64 = 0;
 
@@ -62,6 +64,7 @@ pub fn booked(f: module.Function, stream: stream_.Stream, t0: u64, grid_x: u32) 
     if (window_start == 0) window_start = t0;
     _ = f.d.api.cuStreamSynchronize(stream.handle);
     const t1 = now();
+    last_ns = t1 - t0;
     var i: usize = 0;
     while (i < used and (handles[i] != f.handle or grids[i] != grid_x)) i += 1;
     if (i == used) {
