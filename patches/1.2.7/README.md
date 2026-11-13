@@ -168,6 +168,15 @@ against 205.8) and **5.6%** at eight (248.2 against 235.1), prose loses **0.9%**
 the longer chain, not cell noise. Below five streams the counters are identical to the digit and the speeds differ
 by less than 1% either way, which is the knob doing nothing there by construction.
 
+There is no middle setting that takes the code gain without the prose cost, and that was tested rather than
+assumed (`~/work/target/bench/gx-*`): at six streams `GREEDY_WIDE=6` gives 146.1 / 218.4 and `=16` gives
+145.6 / 218.6, both on the same 1,103 rounds, 2,806 drafts and 1,860 accepted as `=8`, because any value at or
+above the round width keeps the chain; at eight streams `=6` returns the default's own counters to the digit
+(1,490 rounds, 3,630 drafts, 2,342 accepted) and the default's speed, because a value below the width shortens
+the chain exactly as the default does. Tightening the stop beside it does not buy the prose back either:
+`=8` with `CONFIDENCE=-0.5` gives 145.4 / 219.1 at six streams and 162.8 / 247.4 at eight. The knob is a two-state
+trade at each width, so taking it is a choice between prose and code, not a tuning problem.
+
 Golden is 6/6 identical to stock's at one stream with the knob on and off, and every boot log reads "window
 self-check: 1176 of 2080", so replies are unchanged. It is therefore exact but **not a default**: the rule for this
 series is no regression at any stream count, and the six and eight stream prose cells regress. It is recorded here
