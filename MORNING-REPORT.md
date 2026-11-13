@@ -7,6 +7,7 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
 
 ## 1. What I need from you (decisions and approvals)
 
+0. **Sampled decode and drafter-off measured (commit d221fe8):** drafter on beats `"draft": false` in 48 of 48 cells; PR unset is level with main; mxfp8 is +1..4% greedy but -2.0%/-1.2% on sampled chat at 1/2 streams (seed-dependent: +1.9% over 9 seeds). Draft PR comment with this, restyled and repaired: `work/pr0014/comment-sampled.final.md`, needs your approval before posting.
 0. **PR OPENED: ashhart/TensorFold#3218** (Refs #3162; branch `BadAd84:flashnext-mtp-weights`, head `e16ca9d`, rebased on upstream `a3aecd8`; text as you approved, with the rebase-refreshed numbers shown to you). Watch for CI and the maintainer's reply on #3162 and #3218.
 0. (earlier note) **The issue is POSTED: ashhart/TensorFold#3162** (your approved text). ATC cannot claim it: `atc check` returns `incomplete`
    (limitation `pullRequestsLimit`: over 300 open PRs, a fixed cap), so no claim was posted; no competing work exists.
