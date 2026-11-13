@@ -1,0 +1,229 @@
+diff --git a/zig/src/cuda/expert_log.zig b/zig/src/cuda/expert_log.zig
+new file mode 100644
+index 0000000000..fb1a1814af
+--- /dev/null
++++ b/zig/src/cuda/expert_log.zig
+@@ -0,0 +1,39 @@
++//! TF_FLASHNEXT_EXPERT_LOG=1: an expert launch prints the items its grid covers, the items the plan really made, the
++//! matrix behind one item, the launch's booked time and weight base; a gate/up call also prints every item's expert
++//! and pair count (its down call runs the same plan), so a round's unique experts, passes and bytes can be counted.
++//! It waits for the launch and reads the plan back, so the run is slower: its tok/s is not a speed result.
++const std = @import("std");
++const stream_ = @import("stream.zig");
++const kernel_log = @import("kernel_log.zig");
++
++var known = false;
++var enabled = false;
++var plan: [3 * 6144]i32 = undefined;
++var line: [6144 * 12 + 256]u8 = undefined;
++
++pub fn on() bool {
++    if (!known) {
++        known = true;
++        const v = std.c.getenv("TF_FLASHNEXT_EXPERT_LOG");
++        enabled = v != null and std.mem.eql(u8, std.mem.span(v.?), "1");
++    }
++    return enabled;
++}
++
++/// `counts` and `items` are the plan's item count and items on the device; `n` and `k` one item's matrix, `mats` how
++/// many it reads, `w` the launch's weight base (one per layer, so it names the layer).
++pub fn note(s: stream_.Stream, name: []const u8, items: usize, counts: u64, grid: u32, n: usize, k: usize, mats: usize, items_ptr: u64, w: u64) void {
++    if (!on()) return;
++    var made: i32 = -1;
++    _ = s.d.api.cuStreamSynchronize(s.handle);
++    _ = s.d.api.cuMemcpyDtoH_v2(@ptrCast(&made), counts, 4);
++    const us = @as(f64, @floatFromInt(kernel_log.last_ns)) / 1e3;
++    var at: usize = (std.fmt.bufPrint(&line, "expert log: {s} grid {d} items {d} made {d} mats {d} n {d} k {d} us {d:.1} w {x}", .{ name, grid, items, made, mats, n, k, us, w }) catch return).len;
++    if (made > 0 and std.mem.indexOf(u8, name, "up") != null) {
++        const m: usize = @min(@as(usize, @intCast(made)), plan.len / 3);
++        _ = s.d.api.cuMemcpyDtoH_v2(@ptrCast(&plan), items_ptr, m * 3 * 4);
++        at += (std.fmt.bufPrint(line[at..], " ids", .{}) catch return).len;
++        for (0..m) |i| at += (std.fmt.bufPrint(line[at..], " {d}:{d}", .{ plan[3 * i], plan[3 * i + 2] }) catch break).len;
++    }
++    std.debug.print("{s}\n", .{line[0..at]});
++}
+diff --git a/zig/src/cuda/kernel_log.zig b/zig/src/cuda/kernel_log.zig
+new file mode 100644
+index 0000000000..9a740bd7c5
+--- /dev/null
++++ b/zig/src/cuda/kernel_log.zig
+@@ -0,0 +1,118 @@
++//! TF_FLASHNEXT_KERNEL_LOG=1: every launch is waited for and booked to its kernel and grid width. A gap of more
++//! than 300 ms between launches closes a window and prints its table, so one decode request's kernels can be read
++//! against the rounds its reply took. The waiting makes the run slower: its tok/s is not a speed result.
++const std = @import("std");
++const abi = @import("abi.zig");
++const module = @import("module.zig");
++const stream_ = @import("stream.zig");
++
++const max = 4096;
++const name_max = 96;
++const gap_ns: u64 = 300 * std.time.ns_per_ms;
++
++var known = false;
++var enabled = false;
++var handles: [max]abi.Function = @splat(null);
++var grids: [max]u32 = @splat(0);
++var ns: [max]u64 = @splat(0);
++var calls: [max]u64 = @splat(0);
++var used: usize = 0;
++
++var name_handles: [max]abi.Function = @splat(null);
++var name_bytes: [max][name_max]u8 = undefined;
++var name_len: [max]usize = @splat(0);
++var named: usize = 0;
++
++/// The last booked launch's time, start of the queue to the end of its wait (read by expert_log.zig).
++pub var last_ns: u64 = 0;
++var window_start: u64 = 0;
++var last_end: u64 = 0;
++
++pub fn on() bool {
++    if (!known) {
++        known = true;
++        const v = std.c.getenv("TF_FLASHNEXT_KERNEL_LOG");
++        enabled = v != null and std.mem.eql(u8, std.mem.span(v.?), "1");
++    }
++    return enabled;
++}
++pub fn now() u64 {
++    var ts: std.c.timespec = undefined;
++    if (std.c.clock_gettime(std.c.CLOCK.MONOTONIC, &ts) != 0) return 0;
++    return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
++}
++
++/// The name a module resolved a function under, kept for the table (a later lookup of the same handle is ignored).
++pub fn note(handle: abi.Function, name: []const u8) void {
++    if (!on() or handle == null or named == max) return;
++    for (name_handles[0..named]) |h| if (h == handle) return;
++    const n = @min(name.len, name_max);
++    @memcpy(name_bytes[named][0..n], name[0..n]);
++    name_len[named] = n;
++    name_handles[named] = handle;
++    named += 1;
++}
++
++fn nameOf(handle: abi.Function) []const u8 {
++    for (name_handles[0..named], 0..) |h, i| if (h == handle) return name_bytes[i][0..name_len[i]];
++    return "(unnamed)";
++}
++
++/// The launch queued since `t0` is waited for and booked to its kernel and grid width.
++pub fn booked(f: module.Function, stream: stream_.Stream, t0: u64, grid_x: u32) void {
++    if (last_end != 0 and t0 > last_end + gap_ns) dump();
++    if (window_start == 0) window_start = t0;
++    _ = f.d.api.cuStreamSynchronize(stream.handle);
++    const t1 = now();
++    last_ns = t1 - t0;
++    var i: usize = 0;
++    while (i < used and (handles[i] != f.handle or grids[i] != grid_x)) i += 1;
++    if (i == used) {
++        if (used == max) return;
++        handles[i] = f.handle;
++        grids[i] = grid_x;
++        used += 1;
++    }
++    ns[i] += t1 - t0;
++    calls[i] += 1;
++    last_end = t1;
++}
++
++/// The window's kernels by time, the largest first; the table then starts over.
++pub fn dump() void {
++    if (used == 0 or window_start == 0) return;
++    const wall = last_end - window_start;
++    var total: u64 = 0;
++    var launches: u64 = 0;
++    for (ns[0..used], calls[0..used]) |v, c| {
++        total += v;
++        launches += c;
++    }
++    std.debug.print("kernel log: window {d:.1} ms wall, {d:.1} ms in kernels, {d} launches in {d} kernels\n", .{
++        @as(f64, @floatFromInt(wall)) / 1e6, @as(f64, @floatFromInt(total)) / 1e6, launches, used,
++    });
++    var order: [max]usize = undefined;
++    for (order[0..used], 0..) |*o, i| o.* = i;
++    var shown: usize = 0;
++    while (shown < used) : (shown += 1) {
++        var best = shown;
++        for (order[shown..used], shown..) |o, j| {
++            if (ns[o] > ns[order[best]]) best = j;
++        }
++        std.mem.swap(usize, &order[shown], &order[best]);
++        const i = order[shown];
++        const t: f64 = @floatFromInt(ns[i]);
++        const c: f64 = @floatFromInt(calls[i]);
++        if (t / 1e6 < 0.5) break;
++        std.debug.print("kernel log: {d:.3} ms {d} launches {d:.1} us each grid {d} {s}\n", .{
++            t / 1e6, calls[i], t / 1e3 / c, grids[i], nameOf(handles[i]),
++        });
++    }
++    ns = @splat(0);
++    calls = @splat(0);
++    grids = @splat(0);
++    handles = @splat(null);
++    used = 0;
++    window_start = 0;
++    last_end = 0;
++}
+diff --git a/zig/src/cuda/launch.zig b/zig/src/cuda/launch.zig
+index f280a0de07..7482b7a760 100644
+--- a/zig/src/cuda/launch.zig
++++ b/zig/src/cuda/launch.zig
+@@ -1,4 +1,5 @@
+ //! Kernel launches: argument values packed where cuLaunchKernel reads them, plus the extended launch attributes.
++const kernel_log = @import("kernel_log.zig");
+ 
+ const std = @import("std");
+ const abi = @import("abi.zig");
+@@ -84,6 +85,13 @@ pub const Config = struct {
+ 
+ /// cuLaunchKernel for plain launches, cuLaunchKernelEx when a cluster, PDL or cooperative attribute is set.
+ pub fn launch(f: Function, cfg: Config, stream: Stream, args: *Args) Error!void {
++    const log = kernel_log.on();
++    const t0 = if (log) kernel_log.now() else 0;
++    try launchQueued(f, cfg, stream, args);
++    if (log) kernel_log.booked(f, stream, t0, cfg.grid.x);
++}
++
++fn launchQueued(f: Function, cfg: Config, stream: Stream, args: *Args) Error!void {
+     try cfg.validate();
+     const d = f.d;
+     const g = cfg.grid;
+diff --git a/zig/src/cuda/module.zig b/zig/src/cuda/module.zig
+index fa39da8483..d1a1086d37 100644
+--- a/zig/src/cuda/module.zig
++++ b/zig/src/cuda/module.zig
+@@ -43,6 +43,7 @@ pub const Module = struct {
+             std.log.err("kernel symbol not in module: {s}", .{name});
+             return e;
+         };
++        @import("kernel_log.zig").note(f, name);
+         return .{ .d = self.d, .handle = f };
+     }
+ 
+diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
+index fceaa7ca68..3cbfa6b810 100644
+--- a/zig/src/cuda/root.zig
++++ b/zig/src/cuda/root.zig
+@@ -1,6 +1,7 @@
+ //! TensorFold's CUDA runtime: the driver, cuBLASLt and NCCL through dlopen, our kernels and Triton's, no Python.
+ 
+ pub const sm120_test_override = @import("sm120_test_override.zig");
++pub const expert_log = @import("expert_log.zig");
+ pub const abi = @import("abi.zig");
+ pub const Driver = @import("driver.zig").Driver;
+ pub const priority_copies = @import("priority_copies.zig");
+diff --git a/zig/src/families/flashnext/cuda_int4.zig b/zig/src/families/flashnext/cuda_int4.zig
+index 429d9fc417..f06ca525a5 100644
+--- a/zig/src/families/flashnext/cuda_int4.zig
++++ b/zig/src/families/flashnext/cuda_int4.zig
+@@ -346,6 +346,7 @@ fn launch(k: *const Kernels, s: cuda.Stream, kind: usize, max_items: usize, x: u
+     a.add(@as(f32, 0));
+     a.add(skip);
+     try cuda.launch.launch(k.fns[kind][j][q], .{ .grid = .{ .x = @intCast(grid) }, .block = .{ .x = warps * 32 } }, s, &a);
++    if (p) |pl| cuda.expert_log.note(s, if (kind == 0) "int4_gate_up" else "int4_down", max_items, pl.counts, @intCast(grid), n, kk, if (kind == 0) 2 else 1, pl.items, w);
+ }
+ 
+ /// The routed experts' gate/up with SwiGLU: x [R, D] token rows -> out [R * slots, width] bf16, a row per routed pair

@@ -56,45 +56,135 @@ the main layers unless it gets its own constant (see item 6 and the measured pro
 - The rest of the forward (read-outs, attention and DeltaNet, glue) is v1.2.7's, not production's. Where those
   differ in arithmetic the replies can diverge after some tokens; the oracle reports the first divergence.
 
-## Phase 1: load and boot (2026-11-13, in progress)
+## Phase 1: load and boot (done 2026-11-13)
 
-`patches/1.2.7-int4/0016-int4-autoround.patch` (24 files, +1,477 / -33 against the 15-patch tree) carries items 1 to 6
-of the table, with these additions found on the way:
+`patches/1.2.7-int4/0016-int4-autoround.patch` (26 files, +1,482 / -38 against the 15-patch tree, cut by
+`scripts/qwen38/zig/target/int4/mkpatch.sh` from the series' own files) carries items 1 to 6 of the table, and these
+found on the way:
 
 - The n-gram table is not in this checkpoint's index: it is the FP8 table of `Qwen/Qwen3.8-Flash-Next-FP8` in
-  `ple-table/*.safetensors` (shards e4m3 `[2500012, 160]`, no table scale). `cuda_ple.Ngram.open` now maps that
+  `ple-table/*.safetensors` (shards e4m3 `[2500012, 160]`, no table scale). `cuda_ple.Ngram.open` maps that
   directory's n-gram tensors beside the index (production's loader does the same, `openExtra` in its
   `cuda_weights.zig`).
 - The rank memory estimate (`cuda_rank_memory.tensorBytes`) priced the GPTQ experts at zero bytes (it counts
   `.weight` only); `qweight` and `scales` are now counted.
-- The MTP layer is in `model_extra_tensors.safetensors` (1,565 BF16 tensors); the 1280-wide main-layer shared
-  experts are in `model-healed-shared-expert.safetensors` ("healed shared_expert top-k=5"), the head in
-  `model-lmhead-int4.safetensors`.
+- The layer loader chose the native MoE only when the experts store a `.weight` (`cuda_prompt_load.zig` l.431), so
+  GPTQ experts fell to the legacy MLX branch, which refused the 1280-wide shared expert (`UnexpectedTensor` within
+  nine seconds of boot, image `int4b`).
+- Five hyper-connection write-back calls passed a fixed top-10 and 11 slots (`cuda_batch.zig` l.203,
+  `cuda_batch_hc.zig` l.62, l.92, l.94, `cuda_prompt_step.zig` l.198). With 6 slots the MoE sum read the wrong rows:
+  image `int4c` booted and answered garbage from the first token (golden 0 of 6, "window self-check: 1 of 2080").
+  They now pass `slots - 1, slots`.
 
-Evidence so far: the 16-patch tree passes `zig build compile-config-server -Dtarget=aarch64-linux-gnu` on the laptop
-after each step; image `int4a` (the first text, nvcc included) built on spark6 (`~/work/int4/build-int4a.log`,
-"BUILT"). Image `int4b` booted in GPU window `~/work/int4/win-int4b.log` (lock 21:45:56 UTC) and refused within
-nine seconds with `UnexpectedTensor`: the layer loader chose the native MoE only when the experts store a `.weight`
-(`cuda_prompt_load.zig` l.431), so GPTQ experts (`.qweight`) fell to the legacy MLX branch, whose shared-expert
-check allows a 640-wide expert plus a 128-neuron pocket and refused 1280. 0016 now routes GPTQ experts to the native
-loader; image `int4c` (this text) is the next boot, with golden, the chat prompts and the speed cells chained behind
-its build (`~/work/int4/chain-int4c.log`, cells in `~/work/int4/bench-int4c/`).
+Image `int4d` (this text) boots in 148 to 151 s: "model 70.69 GiB; 1 stream at once, 5.14 GiB each at a
+262144-token window (fp8 caches)", "window self-check: 1176 of 2080 rows byte-equal to their one-token steps",
+48-row copy windows, as the accepted series on its own checkpoint. The tree passes
+`zig build compile-config-server -Dtarget=aarch64-linux-gnu` on the laptop at every step.
 
-## Production's own serve in the same window (reference for phases 2 and 3)
+## Phase 2: replies against production's own serve (2026-11-13)
 
-Image `zmerge8-kfix-e5139fcd8c6101c7`, its own launcher, `HOST=127.0.0.1`, one fresh boot a cell, one decode pass
-of 512-token prose and code replies (`tfm_decode.py`), spark6 21:47 to 21:58 UTC
-(`~/work/int4/bench-int4b/p-c*`, `pr-c1`); aggregate tok/s prose / code, per-stream median in brackets:
+Golden (`~/work/qf_harness.py golden`, six greedy prompts) of image `int4d` at one stream against production's
+golden captured in the same evening (`~/work/int4/bench-int4b/p-c1/zgold.json`, its own launcher), compared by
+`scripts/qwen38/zig/target/int4/gcmp.py`: **6 of 6 identical**, content and token hash, including the two long
+replies (215 and 256 tokens):
 
-| streams | prose | code |
-|---:|---|---|
-| 1 | 71.6 | 128.4 |
-| 2 | 119.8 (59.9) | 180.8 (90.4) |
-| 4 | 165.1 (41.3) | 259.4 (65.3) |
-| 6 | 210.3 (35.7) | 328.2 (55.0) |
-| 8 | 242.4 (30.7) | 380.0 (47.5) |
-| 1, repeat | 75.0 | 130.7 |
+| prompt | tokens | token hash, both serves |
+|---|---:|---|
+| golden-0 | 2 | `7d3144d36034` |
+| golden-1 | 215 | `24916427be0a` |
+| golden-2 | 13 | `a82a61d48299` |
+| golden-3 | 7 | `43c6b9cfeecb` |
+| golden-4 | 256 | `fd67ce6f9784` |
+| golden-5 | 4 | `559657976e04` |
 
-Rounds for 512 tokens at one stream: 186 prose, 81 code, identical on the repeat (497 / 602 drafted). Production's
-golden in this window: `~/work/int4/bench-int4b/p-c1/zgold.json`; the comparison for phase 2 is
-`python3 ~/work/int4/gcmp.py <production zgold> <ours zgold> <snapshot>/tokenizer.json`.
+So on these prompts our forward (v1.2.7's attention, DeltaNet, read-outs and glue, production's int4 kernels, the
+FP8G lane matmul on the block-FP8 mixers) gives production's tokens. Six prompts are not a proof that every reply
+is identical; they are the bar this campaign uses.
+
+The three fixed chat prompts (`chat_prompts.txt`, temperature 0, thinking off, 160 tokens) read as coherent, correct
+answers: "The capital of Australia is **Canberra** ... selected as the capital in **1908** as a political compromise
+between Australia's two largest cities"; a typed iterative `fibonacci(n: int) -> int` with a docstring and doctest
+examples; and "A refrigerator uses a circulating refrigerant that absorbs heat from the interior air as it
+evaporates ... compressed by a motor ... releases this heat into the surrounding room air as it condenses".
+
+## Phase 3: the speed answer (2026-11-13)
+
+One GPU window each, spark6, one fresh boot a cell, the same harness (`tfm_decode.py`, one pass of 512-token prose
+and code replies), fp8 KV at a 262,144-token window. Ours: image `int4d`, `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` (our
+8-bit drafter, the counterpart of production's FP8 overlay), 6 and 8 streams on `TF_FLASHNEXT_KV_PAGES=4096`
+(window 22:57 to 23:20 UTC, `~/work/int4/bench-int4d/`). Production: its own launcher and image (window 21:47 to
+21:58 UTC, `bench-int4b/p-c*`, repeats in brackets: `bench-int4b/pr-c1` and, at the end of our window,
+`bench-int4d/pr-c1`, `pr-c4`). Aggregate tok/s prose / code, per-stream median after the semicolon:
+
+| streams | ours (INT4 checkpoint) | production (INT4 checkpoint) | ours / production |
+|---:|---|---|---|
+| 1 | 61.3 / 105.8 (65.8 / 110.5) | 71.6 / 128.4 (75.0 / 130.7, 71.9 / 129.4) | 0.86 / 0.82 |
+| 2 | 93.9 / 156.9; 47.0 / 78.5 a stream | 119.8 / 180.8; 59.9 / 90.4 | 0.78 / 0.87 |
+| 4 | 134.8 / 218.5; 34.4 / 56.0 | 165.1 / 259.4 (166.0 / 261.9); 41.3 / 65.3 | 0.82 / 0.84 |
+| 6 | 166.2 / 267.7; 27.7 / 45.7 | 210.3 / 328.2; 35.7 / 55.0 | 0.79 / 0.82 |
+| 8 | 184.7 / 308.4; 23.4 / 39.6 | 242.4 / 380.0; 30.7 / 47.5 | 0.76 / 0.81 |
+
+Production's drift across the two windows is small (one stream 71.6 / 128.4, 75.0 / 130.7 and 71.9 / 129.4; four
+streams 165.1 / 259.4 and 166.0 / 261.9); our one-stream repeat read 7% / 4% above the first cell, so the ratios
+carry a few percent of cell noise.
+
+### What the number means
+
+The earlier table (`docs/CATCHUP-1.2.6.md`, "The production target is a different model configuration") had ours on
+the FP4 checkpoint at 61.4 / 81.3, 86.8 / 120.6, 112.9 / 166.4, 146.4 / 204.5 and 162.9 / 234.0 tok/s at 1, 2, 4, 6
+and 8 streams. The same engine on production's checkpoint gives +0% / +30% at one stream and +8 to +19% / +30 to +32%
+at two to eight. Splitting each total gap to production into the part that moves with the checkpoint and the part
+that stays (in logarithms, so the parts add; production from this evening's windows):
+
+| streams | total gap, FP4 checkpoint | gap on the same checkpoint | the checkpoint's share | the engine's share |
+|---:|---|---|---|---|
+| 1 | -16% / -37% | -13% / -16% (repeats averaged) | 20% / 61% | 80% / 39% |
+| 2 | -28% / -33% | -22% / -13% | 24% / 65% | 76% / 35% |
+| 4 | -32% / -36% | -19% / -16% | 46% / 61% | 54% / 39% |
+| 6 | -30% / -38% | -21% / -18% | 35% / 57% | 65% / 43% |
+| 8 | -33% / -38% | -24% / -19% | 32% / 57% | 68% / 43% |
+
+So on code a little over half of the old gap was the checkpoint (production's top-5 routing reads less than half our
+expert bytes a round, and its int4 head about a quarter of our BF16 head's), and on prose most of it is the engine.
+What remains on the same checkpoint is a 13 to 24% gap that belongs to our engine.
+
+### Where the remaining gap goes at one stream
+
+Factorised from the served one-stream cells (rounds are deterministic: every repeat of a serve gave the same count):
+
+| | ours | production | ours / production |
+|---|---|---|---|
+| prose: tokens a round (512 tokens in 195 / 186 rounds) | 2.63 | 2.75 | 0.95 |
+| prose: ms a round | 42.8 (39.9 repeat) | 38.4 (36.7, 38.3) | about 1.09 |
+| code: tokens a round (94 / 81 rounds) | 5.45 | 6.32 | 0.86 |
+| code: ms a round | 51.5 (49.3) | 49.2 (48.4, 48.8) | about 1.03 |
+
+So on code the remaining gap is mostly the drafter (14% fewer tokens a round), and on prose mostly the round (about
+9% longer). The drafter is engine-side on both counts: production drafts with its int4 head's own columns
+(`TF_FLASHNEXT_DRAFT_INT4`), its MTP layer's BF16 experts and its block-FP8 overlay, and its draft policy
+(`CONFIDENCE=-0.15`, `DEPTH=15`, `DRAFT_CONTINUE=0.20`, `DRAFT_PROPOSE=0.05`); ours drafts with a 4-bit head
+re-quantized from the int4 head's dequantized rows (patch 0007), its MTP experts re-coded to block FP8 at load, the
+MXFP8 drafter linears (0014) and our defaults.
+
+The round, from the kernel log (`TF_FLASHNEXT_KERNEL_LOG=1`, graphs off, every launch waited for, one stream, the
+decode window closed by a trailing request, aggregated by `expert_ids/ktab3.py`): ours is image `int4x` (0016 plus
+the diagnostic patch, `scripts/qwen38/zig/target/int4/0099-diag-int4.patch`, spark6 `~/work/int4/bench-int4x/ep-o1`,
+290 rounds); production is `pdiag` on the same checkpoint (`~/work/target/bench/ep-p1`, 268 rounds):
+
+| ms a round | ours (INT4) | production (INT4) | difference |
+|---|---|---|---|
+| dense projections (ours: the hyper-connection read-outs run here, on the BF16 lane) | 30.10 | 19.91 | +10.19 |
+| hyper-connection kernels (production: its 12-bit read-outs `hc_down_q12`, `hc_upmix_q12`) | 2.91 | 8.29 | -5.38 |
+| the two above together | 33.01 | 28.20 | **+4.81** |
+| experts and the int4 head (every `int4_kernel` launch, our block-FP8 drafter experts) | 11.35 | 14.19 | -2.84 |
+| attention and DeltaNet | 2.56 | 2.28 | +0.28 |
+| routing | 1.55 | 1.38 | +0.17 |
+| rest | 1.75 | 1.92 | -0.17 |
+| in kernels | 50.28 | 48.13 | +2.15 |
+| window wall | 52.02 | 52.29 | -0.27 |
+
+On equal bytes the engine-owned round cost is where `docs/CATCHUP-1.2.6.md` already placed it: the dense projections
+and the read-outs, +4.81 ms a round here against +4.23 there. Our expert and head launches are 2.84 ms cheaper on the
+same int4 kernels (production also runs its draft head on `int4_kernel`), and production's window spends 4.16 ms a
+round outside its kernels against our 1.74, so the instrumented walls are equal. The served gap at one stream is
+therefore the drafter's tokens a round first and the dense projections and read-outs second.

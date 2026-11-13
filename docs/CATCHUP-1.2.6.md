@@ -1298,6 +1298,32 @@ dense tiles, 107 + 114), attention and DeltaNet 2.65 against 2.28 (+0.37), routi
 1.80 (+0.32), the rest -0.39. So the engine-owned part sits in the dense projections and read-outs, on equal bytes;
 `TF_FLASHNEXT_HC_Q12=1` on our stack was flat (above), so the read-out format alone does not close it.
 
+## Our engine on production's own checkpoint: the gap split into checkpoint and engine (2026-11-13)
+
+The experimental series `patches/1.2.7-int4` (0001-0015 plus 0016: the GPTQ layout, top-5 routing and the
+1280-wide shared expert at build time, production's `fn_int4.cu` experts and head, block-FP8 mixers on the FP8G
+lane matmul) serves `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound`. Golden is **6/6 identical** to
+production's own serve, token hashes included, and the window self-check reads 1,176 of 2,080. Same harness, fp8
+KV, a 262,144-token window, one fresh boot a cell (details, repeats and per-stream rates in `docs/INT4-PORT.md`,
+Phase 3); aggregate tok/s prose / code:
+
+| streams | ours, FP4 checkpoint (table above) | ours, production's checkpoint | production | ours / production on one checkpoint |
+|---:|---|---|---|---|
+| 1 | 61.4 / 81.3 | 61.3 / 105.8 (65.8 / 110.5) | 71.6 / 128.4 (75.0 / 130.7, 71.9 / 129.4) | 0.86 / 0.82 |
+| 2 | 86.8 / 120.6 | 93.9 / 156.9 | 119.8 / 180.8 | 0.78 / 0.87 |
+| 4 | 112.9 / 166.4 | 134.8 / 218.5 | 165.1 / 259.4 (166.0 / 261.9) | 0.82 / 0.84 |
+| 6 | 146.4 / 204.5 | 166.2 / 267.7 | 210.3 / 328.2 | 0.79 / 0.82 |
+| 8 | 162.9 / 234.0 | 184.7 / 308.4 | 242.4 / 380.0 | 0.76 / 0.81 |
+
+In plain terms: of the old 16 to 38% gap, on **code** about 57 to 65% was the checkpoint (production's top-5 routing
+reads less than half our expert bytes a round, its int4 head about a quarter of our BF16 head's) and the rest is the
+engine; on **prose** only 20 to 46% was the checkpoint. On the same checkpoint our engine is still 13 to 24% behind.
+At one stream that remainder factorises as 14% fewer tokens a round on code and 5% on prose (the drafter: production
+drafts with its int4 head's columns, its MTP layer as stored and its own draft policy) and a round about 3% longer on
+code and 9% on prose. In the kernel log on equal bytes the round's engine cost is again the dense projections with
+the read-outs (+4.81 ms a round, against the +4.23 above), while our int4 expert and head launches are 2.84 ms
+cheaper than production's.
+
 ## The 4.23 ms by tensor shape: read-out bytes, read-out glue and projections, both stacks (2026-11-13)
 
 The same two decode windows (`bench/ep-o1`, ours, image `v16x`, 236 rounds; `bench/ep-p1`, production, `pdiagx`, 268
