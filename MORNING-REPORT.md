@@ -26,7 +26,15 @@ Last updated: 2026-11-13 (session end of day).
    page layout plus attention kernels reading through the page table). Do you want that built? Not started.
 5. **Spend:** the agent has cost about $15 in this resumed run (plus the earlier $17); it keeps going on its queue
    until it finishes or is stopped (stop it with `write proc://RoundCostLever/kill`).
-6. Older open items (no change): deleting `ots/tensorfold-fp4port`, `ots/ai-engine` and `ots/tensorfold-gb10` on Gitea
+6. **One optional setting is on the table, measured and exact:** `TF_FLASHNEXT_GREEDY_WIDE=8` (the round width up to
+   which greedy chains keep their depth, default 4). It is identical to the default below five streams - same
+   counters to the digit at 1, 2 and 4 - and at six and eight streams it gives code 218.2 against 205.6/206.2 and
+   247.8 against 235.9, while prose pays 0.5 to 1.1% there. Golden 6/6 with it on and off, self-check 1,176 of
+   2,080 in every boot, so replies are unchanged. The series rule is no regression at any stream count, so I have
+   recorded it in `patches/1.2.7/README.md` as an optional setting and NOT made it a default: your call whether a
+   code-heavy multi-stream serve should take it. A repeat of the six and eight stream cells is queued behind
+   `ExpertPass`'s run to tighten the prose figure.
+7. Older open items (no change): deleting `ots/tensorfold-fp4port`, `ots/ai-engine` and `ots/tensorfold-gb10` on Gitea
    after the salvage bundles (needs your word); the three serve repos' `REPO-FORMAT.md` work orders are with their
    agents.
 
