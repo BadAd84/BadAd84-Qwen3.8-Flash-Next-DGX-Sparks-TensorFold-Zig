@@ -45,24 +45,33 @@ fp8 KV and a 262,144 window; aggregate tok/s prose / code against production's t
 
 Patch 0014 (drafter linears in MXFP8, selectable) adds +3.8% / +7.6% at one stream on top (not in the table).
 
-## 3. What the measurements say about the gap (updated)
+## 3. What the measurements say about the gap (updated again, overnight)
 
-- Dense and expert BYTES are the same in production's INT4-AutoRound checkpoint and our NVFP4 one, and our expert
-  kernels run near roofline (`fact_*` at 75-83% of GB10's 273 GB/s; production's `int4` kernels at 266 GB/s). So it is
-  NOT a kernel-speed or checkpoint problem.
-- **It is the draft policy:** our round verifies ~50 rows to accept 3.5 tokens (reading 14.2 GB of expert weights a
-  round, 4.06 GB per accepted token); production verifies ~4 rows for 2.75 tokens (6.8 GB a round, 2.47 GB per token).
-  Drafts are proposals, so tuning this is exact. Patch 0010 (price a round from the environment) is the mechanism and
-  has never been run priced; the agent is sweeping it now (`ROUND_MS`, `DRAFT_ROW_MS`, `CONFIDENCE`, depth) on our
-  engine. Production's own env block costs our binary ~9%, so the settings must be tuned here, not copied.
-- Drafter in MXFP8 (patch 0014) is the other measured gain (+3.8/+7.6% at one stream on v1.2.7).
-- Spend so far this resumed run about $28 (agent, one job); the sweep is a bounded task (about 80 requests).
+Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
+- Dense and expert BYTES are the same in production's checkpoint and ours; the hyper-connection read-outs are at
+  roofline on our side (177 GB/s); read-out levers (12-bit copies, wide tile, half tiles) are all flat.
+- The drafter's BF16 weights were real cost: patch 0014 (MXFP8, selectable) gives +3.8/+7.6% at one stream on v1.2.7,
+  and +1.8..+3.1% on upstream main (where the baseline is faster and the drafter a smaller share).
+- Draft policy is NOT the lever: 11 priced/confidence/depth/copy configurations are inert or negative on our engine
+  (default CONFIDENCE -0.4 beats production's -0.15 by 6% on prose; priced rounds change no decision). A round costs
+  38 ms plus 3.75 ms a row (prose). Verify rows a round are ~5 for us (the metrics counter), about the same as
+  production, so my earlier "50 rows vs 4" claim was wrong (the agent corrected it; the 50 was expert-plan pairs).
+- Production's expert path costs 25.5 ms a round, ours 41-43 ms, for the same ~5 rows. Our `fact_*` kernels stream at
+  75-83% of peak by the instrument's byte count, but the two stacks' byte counts are not on the same basis (ours counts
+  plan items, which includes cache reuse; production's looks unique), so "same bytes, 70% slower" is NOT yet explained.
+  Candidates: our waves + fact passes read the same experts twice from DRAM; a different split of rows between the
+  two kernels. Unmeasured: unique-expert DRAM traffic per round.
+
+So: nothing exact is left that I can name with confidence except investigating the expert path's double pass; it is
+the largest remaining item (17 ms of the ~19 ms forward gap) and needs a DRAM-level measurement or a fused-pass
+experiment, which is a kernel project (cost: another agent run, order of $15-30). I paused the agent here rather
+than guess. Decision for you: continue on the expert-pass question (recommended), or stop spending and ship what we
+have (0001-0014, +15..20% over stock on decode, gap 13-37% to production).
 
 ## 4. Running overnight
 
-- Agent `RoundCostLever`: (a) the `FormatMismatch` fix and the PR receipt run on upstream main
-  (`~/work/target/receipt0014.sh`: main vs branch, upstream's own bench tools at 1/2/4 streams, golden, cold
-  prompts); (b) the NVFP4 expert path roofline and an exact port.
+- Nothing is running: the agent finished everything it was given (PR fix and receipt, expert roofline, draft-policy
+  sweep). spark6 production serve is up (`/health` 200).
 - spark6 production serve is restored after each stage (`/health` 200 at last check).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
   stream (our v1.2.7 stock is ~54 on our own harness: different prompt and base, not comparable yet; the receipt
