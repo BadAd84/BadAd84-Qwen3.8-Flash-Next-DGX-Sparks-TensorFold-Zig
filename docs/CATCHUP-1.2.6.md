@@ -1109,6 +1109,47 @@ stream 60.66 to 61.21 prose and 80.82 to 81.26 code across five configurations, 
 165.6 to 166.3. So the copy policy does not move this workload either, and what fills the wide verify batches is
 still to be named.
 
+### The roofline table above measured the BOOT window, not decode (2026-11-13)
+
+`ExpertPass` caught it and the logs confirm it in one count. In our instrumented arm the kernel log's single window
+header sits at line 18,623 of `~/work/target/bench/fr-log2/logs.txt`, **fourteen lines after** the boot line
+"window self-check: 1176 of 2080", and every one of the 3,120 `nvfp4_fact_up` and 3,120 `nvfp4_fact_down` launches
+falls BEFORE that mark; after it the log holds only `nvfp4_expert_waves` and `nvfp4_run_*`. The window closed when
+the serve went idle between loading and the first request, so the table divided boot work by decode rounds. The
+same is true on the production side: its window header sits at line 49,725 of 76,124, with 26,399 expert-log lines
+after it in a window that was never dumped.
+
+So the figures in "The expert path at the roofline" - 14.2 GB a round, 41.2 ms, 227 GB a second on the `fact_*`
+kernels - describe the boot self-check's 2,080-row passes, not a decode round, and the comparison with production's
+6.8 GB and 25.5 ms is not like for like either. What survives is the per-launch physics (a 266 MB launch at 227 GB
+a second is a real DRAM stream; a 105 MB launch at 528 is real cache reuse) and the fact that decode runs the waves
+kernels only. The instrument needs a window that closes on a decode boundary rather than on an idle gap before one;
+`ExpertPass` is re-running it with that fix, so the corrected decode table belongs to that lane.
+
+One model-level fact from the same exchange, checked against both checkpoints' `config.json`: production's INT4
+AutoRound checkpoint routes **5 experts a token**, ours routes **10** (`num_experts_per_tok`, 512 experts and a 640
+moe width on both). Every decode token on our checkpoint therefore reads twice the expert rows theirs does, before
+any kernel or policy is considered, which is a checkpoint choice rather than a knob.
+
+### The greedy width is worth 5 to 6% on code at six and eight streams (2026-11-13)
+
+`TF_FLASHNEXT_GREEDY_WIDE` is the round width up to which greedy chains keep their depth, default 4, so at six and
+eight streams our chains are being shortened. Measured on `v16` with the shared page pool, one fresh boot a cell
+(`~/work/target/bench/gw-*`):
+
+| cell | prose agg | code agg | rounds (code) | accepted (code) |
+|---|---|---|---|---|
+| 6 streams, default | 146.8, repeat 147.5 | 205.6, repeat 206.2 | 662 | 2,404 |
+| 6 streams, `GREEDY_WIDE=8` | 146.1 | **218.2** | 612 | 2,454 |
+| 8 streams, default | 164.8 | 235.9 | 918 | 3,171 |
+| 8 streams, `GREEDY_WIDE=8` | 163.0 | **247.8** | 866 | 3,222 |
+
+Code gains 5.9% at six streams and 5.0% at eight, by keeping the chain long enough that a round accepts more
+(2,454 against 2,404 tokens over 612 rounds instead of 662). Prose pays 0.7% at six and 1.1% at eight, which is at
+the edge of the noise band but on the wrong side of it twice. It is exact by construction - a draft is a proposal -
+but it is not yet a shipping recommendation: the rule is no regression at any stream count, so it needs 1, 2 and 4
+streams and a golden before it can go into the README.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
