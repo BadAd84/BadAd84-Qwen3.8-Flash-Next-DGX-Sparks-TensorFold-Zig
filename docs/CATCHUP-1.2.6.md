@@ -1283,6 +1283,12 @@ head format (both the checkpoint's), and about 4.5 ms is engine work on bytes bo
 graphs, the rounds differ by about the same amount: production 36.9 / 48.2 ms a round prose / code (186 and 81
 rounds for 512 tokens), ours 57.1 / 70.8 (146 and 89).
 
+The engine's 4.5 ms by family, same two tables: dense projections with the hyper-connection read-outs 32.43 against
+28.20 ms a round (+4.23; production runs its read-outs as q12 kernels, 96 + 96 launches a round, ours run inside the
+dense tiles, 107 + 114), attention and DeltaNet 2.65 against 2.28 (+0.37), routing and the expert plan 2.12 against
+1.80 (+0.32), the rest -0.39. So the engine-owned part sits in the dense projections and read-outs, on equal bytes;
+`TF_FLASHNEXT_HC_Q12=1` on our stack was flat (above), so the read-out format alone does not close it.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
