@@ -55,3 +55,46 @@ the main layers unless it gets its own constant (see item 6 and the measured pro
 - Item 6 never changes a reply: the MTP layer only proposes and the verify keeps or rejects every token.
 - The rest of the forward (read-outs, attention and DeltaNet, glue) is v1.2.7's, not production's. Where those
   differ in arithmetic the replies can diverge after some tokens; the oracle reports the first divergence.
+
+## Phase 1: load and boot (2026-11-13, in progress)
+
+`patches/1.2.7-int4/0016-int4-autoround.patch` (24 files, +1,477 / -33 against the 15-patch tree) carries items 1 to 6
+of the table, with these additions found on the way:
+
+- The n-gram table is not in this checkpoint's index: it is the FP8 table of `Qwen/Qwen3.8-Flash-Next-FP8` in
+  `ple-table/*.safetensors` (shards e4m3 `[2500012, 160]`, no table scale). `cuda_ple.Ngram.open` now maps that
+  directory's n-gram tensors beside the index (production's loader does the same, `openExtra` in its
+  `cuda_weights.zig`).
+- The rank memory estimate (`cuda_rank_memory.tensorBytes`) priced the GPTQ experts at zero bytes (it counts
+  `.weight` only); `qweight` and `scales` are now counted.
+- The MTP layer is in `model_extra_tensors.safetensors` (1,565 BF16 tensors); the 1280-wide main-layer shared
+  experts are in `model-healed-shared-expert.safetensors` ("healed shared_expert top-k=5"), the head in
+  `model-lmhead-int4.safetensors`.
+
+Evidence so far: the 16-patch tree passes `zig build compile-config-server -Dtarget=aarch64-linux-gnu` on the laptop
+after each step; image `int4a` (the first text, nvcc included) built on spark6 (`~/work/int4/build-int4a.log`,
+"BUILT"). Image `int4b` booted in GPU window `~/work/int4/win-int4b.log` (lock 21:45:56 UTC) and refused within
+nine seconds with `UnexpectedTensor`: the layer loader chose the native MoE only when the experts store a `.weight`
+(`cuda_prompt_load.zig` l.431), so GPTQ experts (`.qweight`) fell to the legacy MLX branch, whose shared-expert
+check allows a 640-wide expert plus a 128-neuron pocket and refused 1280. 0016 now routes GPTQ experts to the native
+loader; image `int4c` (this text) is the next boot, with golden, the chat prompts and the speed cells chained behind
+its build (`~/work/int4/chain-int4c.log`, cells in `~/work/int4/bench-int4c/`).
+
+## Production's own serve in the same window (reference for phases 2 and 3)
+
+Image `zmerge8-kfix-e5139fcd8c6101c7`, its own launcher, `HOST=127.0.0.1`, one fresh boot a cell, one decode pass
+of 512-token prose and code replies (`tfm_decode.py`), spark6 21:47 to 21:58 UTC
+(`~/work/int4/bench-int4b/p-c*`, `pr-c1`); aggregate tok/s prose / code, per-stream median in brackets:
+
+| streams | prose | code |
+|---:|---|---|
+| 1 | 71.6 | 128.4 |
+| 2 | 119.8 (59.9) | 180.8 (90.4) |
+| 4 | 165.1 (41.3) | 259.4 (65.3) |
+| 6 | 210.3 (35.7) | 328.2 (55.0) |
+| 8 | 242.4 (30.7) | 380.0 (47.5) |
+| 1, repeat | 75.0 | 130.7 |
+
+Rounds for 512 tokens at one stream: 186 prose, 81 code, identical on the repeat (497 / 602 drafted). Production's
+golden in this window: `~/work/int4/bench-int4b/p-c1/zgold.json`; the comparison for phase 2 is
+`python3 ~/work/int4/gcmp.py <production zgold> <ours zgold> <snapshot>/tokenizer.json`.
