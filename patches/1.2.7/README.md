@@ -158,13 +158,18 @@ chain above it. Aggregate tok/s prose / code, six and eight streams on the share
 | 1 | 61.26 / 80.88 (repeat 61.19 / 80.92) | 60.79 / 81.53 | identical: 89 rounds, 639 drafts, 422 accepted |
 | 2 | 87.5 / 120.7 | 87.3 / 120.0 | identical: 190, 1,144, 832 |
 | 4 | 112.2 / 166.8 | 112.4 / 166.0 | identical: 424, 2,265, 1,620 |
-| 6 | 146.8 / 205.6 (repeat 147.5 / 206.2) | 146.1 / **218.2** | 662 -> 612 rounds, 2,404 -> 2,454 accepted |
-| 8 | 164.8 / 235.9 | 163.0 / **247.8** | 918 -> 866 rounds, 3,171 -> 3,222 accepted |
+| 6 | 146.8, 147.5, 147.2 / 205.6, 206.2, 205.6 | 146.1, 145.3, 146.1 / **218.2, 218.7, 219.1** | 662 -> 612 rounds, 2,404 -> 2,454 accepted |
+| 8 | 164.8, 164.0 / 235.9, 234.2 | 163.0, 163.5 / **247.8, 248.6** | 918 -> 866 rounds, 3,171 -> 3,222 accepted |
 
-Code gains 5.9% at six streams and 5.0% at eight by accepting more over fewer rounds; prose pays 0.5 to 1.1% at
-those widths and nothing measurable below them, where the counters are identical to the digit. Golden is 6/6
-identical to stock's at one stream with the knob on and off, and every boot log reads "window self-check: 1176 of
-2080". It is therefore exact but **not a default**: the rule for this series is no regression at any stream count,
-and the six and eight stream prose cells regress. It is recorded here as a setting for a code-heavy multi-stream
-serve, for the owner to take or leave.
+Three runs of each six-stream cell and two of each eight-stream cell: code gains **6.3%** at six (218.7 mean
+against 205.8) and **5.6%** at eight (248.2 against 235.1), prose loses **0.9%** at six (145.8 against 147.2) and
+**0.7%** at eight (163.3 against 164.4). The repeats are tight - every wide six-stream run returns 1,103 rounds,
+2,806 drafts and 1,860 accepted, every default one 1,111, 2,788 and 1,852 - so the prose loss is a real effect of
+the longer chain, not cell noise. Below five streams the counters are identical to the digit and the speeds differ
+by less than 1% either way, which is the knob doing nothing there by construction.
+
+Golden is 6/6 identical to stock's at one stream with the knob on and off, and every boot log reads "window
+self-check: 1176 of 2080", so replies are unchanged. It is therefore exact but **not a default**: the rule for this
+series is no regression at any stream count, and the six and eight stream prose cells regress. It is recorded here
+as a setting for a code-heavy multi-stream serve, for the owner to take or leave.
 
