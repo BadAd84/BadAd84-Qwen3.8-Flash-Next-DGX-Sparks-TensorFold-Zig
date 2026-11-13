@@ -2,7 +2,7 @@
 
 The TensorFold tree stays pristine at upstream v1.2.7 (`93a2e93ecebff8aa52b88e58c5dd222516e69c5f`) and every change
 we own is one numbered patch here, one lever a patch, applied in filename order. Each patch builds on the ones
-before it and on nothing after it: the tree compiles after every one of the 15.
+before it and on nothing after it: the tree compiles after every one of the first 15 and with all 17.
 
     ./apply.sh --check TREE     # the whole series applies, nothing written
     ./apply.sh TREE             # apply it
@@ -255,3 +255,53 @@ fp8pg2 g8` and `fp8q.sh`, spark6 `~/work/target/fp8pages-fp8pg2.{log,sum}` and `
   format); those tests now set `kv = .bf16`, as 0003 did for the others.
   A mutant of the new page test (18,881 bytes a token for 18,880) fails it by name, so the suite does run it.
 
+
+## 0016 and 0017: the read-outs' 12-bit blocks two groups ahead, and split-K projections on the fused form (2026-11-13)
+
+Both aim at rows of the per-kernel table in `docs/CATCHUP-1.2.6.md` ("The 4.23 ms by tensor shape"), and both are
+exact by construction: they change when bytes are loaded or which block adds the K slices, never a product or an
+addition order.
+
+- **0016** (no new switch: it is the path of 0009's `TF_FLASHNEXT_HC_Q12=1`): the 12-bit read-out tile loaded and
+  decoded each group's blocks inside the group loop, one group at a time; it now loads them two groups ahead.
+- **0017** `TF_FLASHNEXT_FUSED_SPLIT=1` (default off): a lane call split over K on a cluster, 2,048 columns or more
+  below 256 rows, runs on the fused form, one block a 64-column tile adding its K slices in slice order, which is
+  the cluster's order. Production's launcher runs the same form (`TF_FLASHNEXT_FP8_FUSED_SPLIT=4`). Here it takes
+  out_proj and o_proj (MXFP8 [2560, 6144], 8 slices) and the drafter's BF16 2,560-column projections.
+
+Kernel log, one stream (image `rq17x`: the 17 patches plus v16x's logs; bf16 KV, 131,072, graphs eager; spark6
+`~/work/target/bench/rk-*`, `scripts/qwen38/zig/target/readout/rtab.py`), us a launch:
+
+| arm | read-out down | read-out up | out_proj, o_proj | in kernels a round |
+|---|---|---|---|---|
+| base | 43.6 (BF16) | 36.5 (BF16) | 84.3 (cluster) | 69.92 ms |
+| `HC_Q12=1` | 40.2 (0009 alone: 41.0) | 34.2 (0009 alone: 34.2) | 85.0 | 69.45 ms |
+| `HC_Q12=1 FUSED_SPLIT=1` | 40.1 | 34.0 | 79.7 (fused) | 69.00 ms |
+
+Served, image `rq17`, one fresh boot a cell, fp8 KV at 262,144 for 1, 2 and 4 streams, `TF_FLASHNEXT_KV_PAGES=4096`
+for 6 and 8, one decode pass of 512-token prose and code replies, aggregate tok/s prose / code
+(`scripts/qwen38/zig/target/readout/chain17.sh`, spark6 `~/work/target/readout/chain17.{log,sum}`, 21:01 to 21:41
+UTC):
+
+| streams | base | `HC_Q12=1` | `HC_Q12=1 FUSED_SPLIT=1` | `FUSED_SPLIT=1` alone |
+|---:|---|---|---|---|
+| 1 | 62.4 / 82.8 (repeat 61.8 / 82.0) | 62.7 / 82.9 | 62.8 / 82.7 (repeat 62.9 / 83.2) | 62.2 / 82.7 |
+| 2 | 87.9 / 122.6 | 88.6 / 123.4 | 88.4 / 123.2 | |
+| 4 | 115.3 / 167.7 (114.3 / 166.4) | 115.6 / 167.9 | 115.8 / 167.8 (115.2 / 167.9) | 115.1 / 167.2 |
+| 6 | 147.1 / 209.6 | 147.1 / 208.9 | 147.7 / 210.7 | |
+| 8 | 163.8 / 239.3 | 163.3 / 238.4 | 164.5 / 242.3 | |
+
+- **Exact.** Golden is 6/6 identical to stock's in all 21 cells, every boot log reads "window self-check: 1176 of
+  2080", and every decode reply's sha equals the base arm's: 2, 4, 8, 12 and 16 at 1, 2, 4, 6 and 8 streams for both
+  arms, 2 and 8 for the fused split alone and for the repeats.
+- **Speed.** Both together against the base: +1.2% / +0.7% at one stream (two pairs), +0.6% / +0.5% at two,
+  +0.6% / +0.5% at four (two pairs), +0.4% / +0.5% at six, +0.4% / +1.3% at eight, no cell slower. In kernels, 0.47
+  ms a round from the 12-bit read-outs and 0.45 more from the fused form. Each alone moves less than the ~1% cell
+  noise: `HC_Q12=1` reads 0.0% / -0.3% at six and -0.3% / -0.4% at eight, the fused split alone -0.3% / -0.1%
+  against the first base cell and +0.6% / +0.9% against its repeat at one stream.
+- **Defaults stay off.** Neither lever alone shows a gain outside the cell noise at every stream count, and the
+  12-bit copies take 1.07 GB of device memory (the boot line's model 73.29 to 74.31 GiB). Together they are a
+  setting that measured no slower anywhere: `TF_FLASHNEXT_HC_Q12=1 TF_FLASHNEXT_FUSED_SPLIT=1`.
+- **The prefetch is not why the 12-bit read-outs trail production's.** Two groups ahead moved the down from 41.0 to
+  40.2 us and the up not at all; our 12-bit tiles stream 125 and 145 GB/s against production's 139 and 156, so what
+  is left is the decode work inside the group loop, not load latency.

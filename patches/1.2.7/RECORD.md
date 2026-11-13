@@ -56,3 +56,14 @@
   `zig build compile-config-server -Dtarget=aarch64-linux-gnu` passes on the laptop and `zig build test-cuda-host`
   passes on a native Linux filesystem (as pristine v1.2.7 does); the fp8 device test passes in image `fp8pg2` and
   fails in `v16`; `scripts/check-patch-reverts.py`: every finding allowed (the 0015 reasons are in `mkallow.py`).
+- **0016 (added 2026-11-13):** written here: 0009's 12-bit read-out tile loads each warp's blocks two groups ahead of
+  their products (`warp_load`, `warp_decode` and `group_block` replace `warp_tiles` in `qmmf_q12.cuh`; the decode
+  and the products are unchanged). `scripts/check-patch-reverts.py`: its 10 findings (the split `warp_tiles`)
+  allowed, the reasons in `mkallow.py`.
+- **0017 (added 2026-11-13):** written here: `TF_FLASHNEXT_FUSED_SPLIT=1` (default off) runs lane calls split over K
+  on a cluster, 2,048 columns or more, on the fused form, one block a 64-column tile adding its K slices in slice
+  order (the cluster's order). Eight new `qmmf_kernel` instances (MXFP8 and BF16, row tiles 16 and 32, bf16 and fp32
+  out) carry no kernel contract records, as 0009's Q12 instances carry none; the knob is registered in
+  `platform/environment.zig` and covered in its test. Both patches built as image `rq17` on spark6 (`rq17x` with
+  v16x's kernel and expert logs) and measured in `README.md`; `zig build compile-config-server
+  -Dtarget=aarch64-linux-gnu` passes on the laptop; `zig build test-cuda-host` was not run for them.

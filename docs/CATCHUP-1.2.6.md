@@ -1353,6 +1353,28 @@ What the rows say:
   blocks in clusters of 8, at 189 GB/s. The shared expert is 640 wide on ours (three calls of 1.69 MB at 91 to 103
   GB/s) and 1,280 on production's (twice the bytes), so that row is not like for like.
 
+Two exact levers aimed at these rows, patches 0016 (the 12-bit read-out tile loads its blocks two groups ahead) and
+0017 (`TF_FLASHNEXT_FUSED_SPLIT`, production's fused form for split-K projections of 2,048 columns or more), measured
+in `patches/1.2.7/README.md`: exact in every cell, 0.92 ms a round less in kernels at one stream together (read-outs
+8.847 to 8.218 ms, out_proj and o_proj 84.3 to 79.7 us a launch), +0.4% to +1.3% served at every stream count, each
+alone inside the cell noise; both stay off by default.
+
+What bounds the rest of the 4.23 ms, family by family:
+
+- **Read-out matmuls, +1.748 ms.** 0.57 ms is the drafter's read-outs, BF16 against production's FP8 drafter (not
+  equal bytes; the MXFP8 drafter of 0014 is that lever). The 12-bit copies take 0.63 ms off our read-out matmuls
+  (8.847 to 8.218 ms, the drafter's included); against production's 12-bit verify launches what remains is our tiles'
+  rate (125 and 145 GB/s against 139 and 156), which loading ahead did not move. Production's down adds 32 K slices
+  of 320 where ours adds 8 of 1,280, a different addition order, so its kernel is not exact on our stack; a faster
+  exact tile keeps our slice order and changes the decode.
+- **Read-out glue, +1.448 ms.** `fn_hc_reduce_act` and `fn_hc_dense_mix8`, 1.497 ms in 229.6 launches a round, are
+  what production folds into its read-out kernels. An exact port fuses our reduce-and-act into the down's cluster
+  epilogue and the mix into an up tile that holds all four streams of its columns, with our qmmf chain's bits and
+  `fn_hc_dense_mix8`'s arithmetic; that is a kernel port, not a switch, and it is the largest exact lever left.
+- **Projections, +1.034 ms.** The fused form recovers 0.22 ms of out_proj and o_proj; q, k, v differ by 0.12 ms on
+  equal bytes; the rest is the shared expert (640 wide against 1,280: not equal bytes) and the drafter's BF16 linears
+  against production's FP8 drafter.
+
 
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 

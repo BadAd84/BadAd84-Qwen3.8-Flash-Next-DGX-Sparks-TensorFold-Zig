@@ -46,6 +46,8 @@ RULES = [
     ("kv8-pages", "flashnext_attn.cu", "", "the fp8 rows are written and staged through a page table too; the store and the staging are template helpers in flashnext_kv8.cuh"),
     ("kv8-pages", "flashnext_kv8.cuh", "", "the staging reads a paged row at its page's start and slot; a contiguous row's slot is the same key * nkv + hk"),
     ("kv8-pages", "flashnext_kv8_pending.zig", "", "fn_attn_chunks_kv8 re-measured with the templated staging: 80 registers on sm_120 and sm_121"),
+    ("readout-q12-ahead", "qmmf_body.cuh", "", "the q12 tile's decode moved under its two-groups-ahead load (warp_load, then warp_decode): the same blocks decoded into the same operands"),
+    ("readout-q12-ahead", "qmmf_q12.cuh", "", "warp_tiles split into warp_load and warp_decode so the tile loads a group's blocks two groups before decoding them; group_block is its block index"),
 ]
 
 names = {}

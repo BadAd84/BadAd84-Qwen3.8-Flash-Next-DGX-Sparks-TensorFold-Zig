@@ -1,0 +1,70 @@
+diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
+index e122b222928b081ff682aeb65b4c5f6db9d90166..b94cc35585d09618cb977d12e7148dc3bebdd731 100644
+--- a/zig/kernels/cuda/qmmf_body.cuh
++++ b/zig/kernels/cuda/qmmf_body.cuh
+@@ -116,10 +116,23 @@
+         if (s < per) load(s, g0 + s);
+         commit();
+     }
++    // the 12-bit weights two groups ahead of their products: groups it + 1 and it + 2 are in flight during group it
++    [[maybe_unused]] tf_qmmf_q12::Raw qr[MODE == Q12 ? T::NT : 1], qn[MODE == Q12 ? T::NT : 1];
++    if constexpr (MODE == Q12) {
++        const tf_qmmf_q12::View qv = tf_qmmf_q12::view(w, npad, K);
++        tf_qmmf_q12::warp_load(qr, qv, tf_qmmf_q12::group_block(K, n0, g0, wn, T::NT), lane);
++        if (per > 1) tf_qmmf_q12::warp_load(qn, qv, tf_qmmf_q12::group_block(K, n0, g0 + 1, wn, T::NT), lane);
++    }
+     for (int it = 0; it < per; ++it) {
+-        // the 12-bit weights of this group, read straight from global memory and decoded before the staged inputs
++        // this group's 12-bit weights, decoded before the staged inputs; then the load two groups on
+         uint32_t bw[MODE == Q12 ? T::NT : 1][8];
+-        if constexpr (MODE == Q12) tf_qmmf_q12::warp_tiles(bw, w, npad, K, n0, g0 + it, wn, lane);
++        if constexpr (MODE == Q12) {
++            const tf_qmmf_q12::View qv = tf_qmmf_q12::view(w, npad, K);
++            tf_qmmf_q12::warp_decode(bw, qr, qv, tf_qmmf_q12::group_block(K, n0, g0 + it, wn, T::NT), lane);
++#pragma unroll
++            for (int j = 0; j < T::NT; ++j) qr[j] = qn[j];
++            if (it + 2 < per) tf_qmmf_q12::warp_load(qn, qv, tf_qmmf_q12::group_block(K, n0, g0 + it + 2, wn, T::NT), lane);
++        }
+         if constexpr (FUSE) {
+             if (it > 0 && it % slice_groups == 0) {
+ #pragma unroll
+diff --git a/zig/kernels/cuda/qmmf_q12.cuh b/zig/kernels/cuda/qmmf_q12.cuh
+index 818e2aec0f184e1ae1c7de217b755bcb3967c551..5dbc9ebd0079e398017cd02816e77d894e367937 100644
+--- a/zig/kernels/cuda/qmmf_q12.cuh
++++ b/zig/kernels/cuda/qmmf_q12.cuh
+@@ -88,19 +88,24 @@ __device__ __forceinline__ void decode(uint32_t (&o)[8], const Raw& r, const Vie
+     }
+ }
+ 
+-// The warp's n8 tiles of one 64-input group, decoded: the block at column tile n0 / 64, group g, tile wn NT + j.
++// The block of the warp's first n8 tile in 64-input group g: column tile n0 / 64, group g, tile wn NT.
++__device__ __forceinline__ uint32_t group_block(int K, int n0, int g, int wn, int nt) {
++    return (uint32_t(n0 / 64) * uint32_t(K / 64) + uint32_t(g)) * 8 + uint32_t((n0 % 64) / 32 * 4) + uint32_t(wn * nt);
++}
++
++// The warp's NT blocks of one group, loaded and not yet decoded, so a tile can read them groups ahead of their use.
+ template <int NT>
+-__device__ __forceinline__ void warp_tiles(uint32_t (&o)[NT][8], const unsigned char* p, int npad, int K, int n0,
+-                                           int g, int wn, int lane) {
+-    const View w = view(p, npad, K);
+-    const uint32_t first = (uint32_t(n0 / 64) * uint32_t(K / 64) + uint32_t(g)) * 8 + uint32_t((n0 % 64) / 32 * 4);
++__device__ __forceinline__ void warp_load(Raw (&r)[NT], const View& w, uint32_t first, int lane) {
+ #pragma unroll
+-    for (int j = 0; j < NT; ++j) {
+-        const uint32_t blk = first + uint32_t(wn * NT + j);
+-        Raw r;
+-        load(r, w, blk, lane);
+-        decode(o[j], r, w, blk, lane);
+-    }
++    for (int j = 0; j < NT; ++j) load(r[j], w, first + uint32_t(j), lane);
++}
++
++// Those blocks decoded into the warp's operand pairs (the escapes read here, from the block's own list).
++template <int NT>
++__device__ __forceinline__ void warp_decode(uint32_t (&o)[NT][8], const Raw (&r)[NT], const View& w, uint32_t first,
++                                            int lane) {
++#pragma unroll
++    for (int j = 0; j < NT; ++j) decode(o[j], r[j], w, first + uint32_t(j), lane);
+ }
+ 
+ }  // namespace tf_qmmf_q12
