@@ -19,7 +19,8 @@ if [ "$check" = 1 ]; then
   trap 'rm -f "$idx"' EXIT
   export GIT_INDEX_FILE="$idx"
   git read-tree HEAD
-  for p in "$ACCEPTED"/[0-9]*.patch "$HERE"/[0-9]*.patch; do
+  for p in "$ACCEPTED"/00[01][0-9]-*.patch "$HERE"/[0-9]*.patch; do
+    case "$(basename "$p")" in 001[6-9]-*|00[2-9]*) [ "$(dirname "$p")" = "$ACCEPTED" ] && continue ;; esac
     git apply --cached --whitespace=nowarn "$p" || { echo "apply.sh: $(basename "$p") does not apply"; exit 1; }
     n=$((n + 1))
   done
@@ -27,7 +28,8 @@ if [ "$check" = 1 ]; then
   exit 0
 fi
 [ -z "$(git status --porcelain)" ] || { echo "apply.sh: $TREE has local changes"; exit 2; }
-for p in "$ACCEPTED"/[0-9]*.patch "$HERE"/[0-9]*.patch; do
+for p in "$ACCEPTED"/00[01][0-9]-*.patch "$HERE"/[0-9]*.patch; do
+  case "$(basename "$p")" in 001[6-9]-*|00[2-9]*) [ "$(dirname "$p")" = "$ACCEPTED" ] && continue ;; esac
   git apply --whitespace=nowarn "$p" || { echo "apply.sh: $(basename "$p") does not apply"; exit 1; }
   n=$((n + 1))
 done
