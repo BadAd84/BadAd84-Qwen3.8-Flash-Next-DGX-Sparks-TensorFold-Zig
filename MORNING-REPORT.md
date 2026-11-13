@@ -56,20 +56,21 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
   (default CONFIDENCE -0.4 beats production's -0.15 by 6% on prose; priced rounds change no decision). A round costs
   38 ms plus 3.75 ms a row (prose). Verify rows a round are ~5 for us (the metrics counter), about the same as
   production, so my earlier "50 rows vs 4" claim was wrong (the agent corrected it; the 50 was expert-plan pairs).
-- Production's expert path costs 25.5 ms a round, ours 41-43 ms, for the same ~5 rows. Our `fact_*` kernels stream at
-  75-83% of peak by the instrument's byte count, but the two stacks' byte counts are not on the same basis (ours counts
-  plan items, which includes cache reuse; production's looks unique), so "same bytes, 70% slower" is NOT yet explained.
-  Candidates: our waves + fact passes read the same experts twice from DRAM; a different split of rows between the
-  two kernels. Unmeasured: unique-expert DRAM traffic per round.
+- **The two serves run different models (verified in both config.json files on the box):** production's INT4-AutoRound
+  checkpoint routes `num_experts_per_tok=5` with a 1280-wide shared expert, our NVIDIA FP4 checkpoint routes 10 with a
+  640-wide one. Our round reads 2.35x production's expert bytes at one stream (4,699 MB vs 1,999 MB per round) and our
+  expert kernels run at DRAM speed (213-222 GB/s, as fast as production's 199-217 at the same row counts). So much of the
+  13-37% gap is the checkpoint, not our engine; no exact expert-kernel lever exists (the earlier "41 vs 25.5 ms" table was
+  a boot-window artefact and is retracted in `docs/CATCHUP-1.2.6.md`).
+- Running now: `ExpertPass` follow-up, running OUR engine on production's own INT4 checkpoint for a like-for-like table.
+  That is the honest measure of what is engine and what is model. Result lands in `docs/CATCHUP-1.2.6.md`.
 
-So the largest remaining item is the expert path (17 ms of the ~19 ms forward gap). Agent `ExpertPass`
-(opus5.5-max) was dispatched overnight to measure unique-expert DRAM traffic and passes per expert on both stacks and
-build an exact patch 0015 or prove why none exists. Stop it with `write proc://ExpertPass/kill` if you want to cap spend
-(budget about 90 requests, roughly $15-30).
+**Decision for you:** the speed target (`production/SPEED-TARGET.md`) compares different models. Do you want the target
+restated as "same checkpoint" once that table exists? Recommended yes.
 
 ## 4. Running overnight
 
-- `ExpertPass` (expert path investigation, patch 0015). Earlier agent tasks (PR fix and receipt, roofline, draft-policy
+- `ExpertPass` (same-checkpoint comparison). Earlier agent tasks (PR fix and receipt, roofline, draft-policy
   sweep) are finished. spark6 production serve is up (`/health` 200) between agent runs.
 - spark6 production serve is restored after each stage (`/health` 200 at last check).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
