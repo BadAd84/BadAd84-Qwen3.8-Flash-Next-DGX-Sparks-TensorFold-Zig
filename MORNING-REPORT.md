@@ -62,16 +62,15 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
   Candidates: our waves + fact passes read the same experts twice from DRAM; a different split of rows between the
   two kernels. Unmeasured: unique-expert DRAM traffic per round.
 
-So: nothing exact is left that I can name with confidence except investigating the expert path's double pass; it is
-the largest remaining item (17 ms of the ~19 ms forward gap) and needs a DRAM-level measurement or a fused-pass
-experiment, which is a kernel project (cost: another agent run, order of $15-30). I paused the agent here rather
-than guess. Decision for you: continue on the expert-pass question (recommended), or stop spending and ship what we
-have (0001-0014, +15..20% over stock on decode, gap 13-37% to production).
+So the largest remaining item is the expert path (17 ms of the ~19 ms forward gap). Agent `ExpertPass`
+(opus5.5-max) was dispatched overnight to measure unique-expert DRAM traffic and passes per expert on both stacks and
+build an exact patch 0015 or prove why none exists. Stop it with `write proc://ExpertPass/kill` if you want to cap spend
+(budget about 90 requests, roughly $15-30).
 
 ## 4. Running overnight
 
-- Nothing is running: the agent finished everything it was given (PR fix and receipt, expert roofline, draft-policy
-  sweep). spark6 production serve is up (`/health` 200).
+- `ExpertPass` (expert path investigation, patch 0015). Earlier agent tasks (PR fix and receipt, roofline, draft-policy
+  sweep) are finished. spark6 production serve is up (`/health` 200) between agent runs.
 - spark6 production serve is restored after each stage (`/health` 200 at last check).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
   stream (our v1.2.7 stock is ~54 on our own harness: different prompt and base, not comparable yet; the receipt
