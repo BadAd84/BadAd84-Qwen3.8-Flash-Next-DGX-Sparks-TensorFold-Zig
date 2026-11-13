@@ -21,9 +21,14 @@ Last updated: 2026-11-13 (session end of day).
 3. **Patch 0007 (4-bit draft head default flip)** has the same upstream problem as 0014 had: it changes a default
    (`TF_FLASHNEXT_DRAFT_HEAD` affine4). For an upstream PR it should be a measured default change or an env setting
    in our recipe. Your call; I changed nothing.
-4. **Capacity at the production window:** 6 and 8 streams do not start at fp8 KV and 262,144 tokens (the engine's
-   page pool is refused with fp8 KV by one guard line, and the page geometry is bf16 rows). It needs new code (fp8
-   page layout plus attention kernels reading through the page table). Do you want that built? Not started.
+4. **Capacity at the production window: DONE (patch 0015, `e081b7b`).** fp8 KV page pool: 6 and 8 streams now boot at
+   262,144 and run byte-exact (golden 6/6, self-check 1,176 of 2,080, reply hashes equal to unpaged fp8 at 1/2/4):
+   6 streams 144.2/204.8, 8 streams 160.5/234.3 (production 202.2/311.8 and 237.1/370.5, still 29-37% slower: the
+   capacity gap is closed, the speed gap is the checkpoint plus ~4.5 ms engine). Opt-in `TF_FLASHNEXT_KV_PAGES`,
+   cost at one stream about -0.3% (bf16 pages cost -2.4/-5.6%). **IMPORTANT correction found on the way:** three
+   bugs in our patch 0003 meant every earlier "fp8 KV" cell actually ran bf16 caches (served streams ignored the
+   engine's format), so earlier fp8 tables/claims are superseded by the new fp8pg2 cells (1/2/4 streams barely
+   changed: 61.2/81.4, 86.2/120.4, 113.3/164.7). Follow-up running: host test, kv8 GPU test, vision at fp8 pages.
 5. **Spend:** the agent has cost about $15 in this resumed run (plus the earlier $17); it keeps going on its queue
    until it finishes or is stopped (stop it with `write proc://RoundCostLever/kill`).
 6. **One optional setting is on the table, measured and exact:** `TF_FLASHNEXT_GREEDY_WIDE=8` (the round width up to
@@ -89,9 +94,8 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
 
 ## 4. Running overnight
 
-- `Fp8Pages` (opus5.5-max): building patch 0015, fp8 KV pages, so 6 and 8 streams boot at the 262,144 window
-  (stop: `write proc://Fp8Pages/kill`; budget about 100 requests). Item 4 of section 1 is therefore being done, not
-  waiting for you.
+- `Fp8Pages` (opus5.5-max): finished 0015; follow-up running for the unrun host test, kv8 GPU test and vision
+  at fp8 pages (stop: `write proc://Fp8Pages/kill`).
 - Agent tasks so far (PR fix and receipt, roofline, draft-policy sweep, expert-id traffic, same-checkpoint attempt)
   are finished. spark6 production serve is up (`/health` 200).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
