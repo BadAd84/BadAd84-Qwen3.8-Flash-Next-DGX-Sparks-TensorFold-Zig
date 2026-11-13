@@ -1368,9 +1368,11 @@ What bounds the rest of the 4.23 ms, family by family:
   of 320 where ours adds 8 of 1,280, a different addition order, so its kernel is not exact on our stack; a faster
   exact tile keeps our slice order and changes the decode.
 - **Read-out glue, +1.448 ms.** `fn_hc_reduce_act` and `fn_hc_dense_mix8`, 1.497 ms in 229.6 launches a round, are
-  what production folds into its read-out kernels. An exact port fuses our reduce-and-act into the down's cluster
-  epilogue and the mix into an up tile that holds all four streams of its columns, with our qmmf chain's bits and
-  `fn_hc_dense_mix8`'s arithmetic; that is a kernel port, not a switch, and it is the largest exact lever left.
+  what production folds into its read-out kernels. Patch 0018 (`TF_FLASHNEXT_READOUT_FUSE=1`) does it exactly: the
+  reduce and act in the down's cluster epilogue, the mix in an up tile holding all four streams of 32 columns. At one
+  stream its kernels take the four launches' 9.938 ms to 9.130 ms and 229.5 launches out of the round; 0.64 ms of the
+  glue gap is left (the normalize and write-backs, 0.23 ms, and the epilogues' own time inside the two products).
+  Served it is exact everywhere and inside the cell noise at 1 to 4 streams, +1.8% at 8, so it stays off by default.
 - **Projections, +1.034 ms.** The fused form recovers 0.22 ms of out_proj and o_proj; q, k, v differ by 0.12 ms on
   equal bytes; the rest is the shared expert (640 wide against 1,280: not equal bytes) and the drafter's BF16 linears
   against production's FP8 drafter.

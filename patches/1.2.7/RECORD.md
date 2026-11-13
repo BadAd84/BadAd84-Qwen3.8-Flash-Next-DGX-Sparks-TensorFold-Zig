@@ -69,3 +69,14 @@
   -Dtarget=aarch64-linux-gnu` passes on the laptop; `zig build test-cuda-host` passes on WSL ext4 (Zig 0.17.0) for the
   17-patch tree, as it does for pristine v1.2.7 and the 15-patch tree (`scripts/qwen38/zig/target/readout/host17.sh`:
   rc 0 on all three, 330, 215 and 264 s).
+- **0018 (added 2026-11-13):** written here: `TF_FLASHNEXT_READOUT_FUSE=1` (default off), the decode read-out's
+  reduce and act in the down's cluster epilogue and its stream mix in the up. New `extern "C"` kernels in `qmmf.cu`
+  (`tf_qmmf_hcact_*` through `qmmf_body.cuh` under `TF_QMMF_HCACT`, and `tf_qmmf_upmix_*`), BF16 and 12-bit, with no
+  kernel contract records, as 0009's instances carry none; the knob is registered in `platform/environment.zig` and
+  covered in its test. Built as image `rq18` on spark6 (`rq18x` with v16x's kernel and expert logs) and measured in
+  `README.md`; `zig build compile-config-server -Dtarget=aarch64-linux-gnu` passes on the laptop and `zig build
+  test-cuda-host` passes on WSL ext4 for the 19-patch tree (rc 0, 279 s); `scripts/check-patch-reverts.py`: no
+  findings for it.
+- **0019 (added 2026-11-13):** written here: the fused split's kernel contract, a `fused` flag on the half-tile
+  contract (`contract_lane_half.zig`) and its six kernels in `contract_tests.zig`. `tf-cuda-test kernel-contract
+  "fused form" "half tiles"` passes in image `rq18` with both fused-form controls caught.

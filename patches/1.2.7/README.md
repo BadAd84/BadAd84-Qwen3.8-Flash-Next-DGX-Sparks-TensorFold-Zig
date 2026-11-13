@@ -2,7 +2,7 @@
 
 The TensorFold tree stays pristine at upstream v1.2.7 (`93a2e93ecebff8aa52b88e58c5dd222516e69c5f`) and every change
 we own is one numbered patch here, one lever a patch, applied in filename order. Each patch builds on the ones
-before it and on nothing after it: the tree compiles after every one of the first 15 and with all 17.
+before it and on nothing after it: the tree compiles after every one of the first 15 and with all 19.
 
     ./apply.sh --check TREE     # the whole series applies, nothing written
     ./apply.sh TREE             # apply it
@@ -305,3 +305,49 @@ UTC):
 - **The prefetch is not why the 12-bit read-outs trail production's.** Two groups ahead moved the down from 41.0 to
   40.2 us and the up not at all; our 12-bit tiles stream 125 and 145 GB/s against production's 139 and 156, so what
   is left is the decode work inside the group loop, not load latency.
+
+## 0018 and 0019: the read-out's reduce and mix inside its products, and the fused split's kernel contract (2026-11-13)
+
+- **0018** `TF_FLASHNEXT_READOUT_FUSE=1` (default off): the decode read-out's `fn_hc_reduce_act` runs in the down's
+  cluster epilogue (`qmmf.cu` TF_HCACT: the cluster tile's K slices and sums, then the reduce's act, inject gates and
+  32-column act sums from the same f32 row) and `fn_hc_dense_mix8` in the up (TF_UPMIX: a block a 32-column group of
+  the four streams, warp s stream s, each column's m16n8k16 chain as the lane's one-slice tile runs it, the up rows
+  rounded to bf16 as the lane stores them, then the mix and its sums op for op). BF16 and 12-bit weights, row tiles
+  16 and 32 (and 64 for BF16); a call those kernels do not carry runs the four launches.
+- **0019**: the fused split's (0017) kernel contract (`tf-cuda-test kernel-contract "fused form"`): MXFP8 and BF16,
+  bf16 and fp32 out, 16 shapes bit-equal to the cluster kernel's K slices, exact sums at k 10,240; its control (a
+  1.5x tensor scale posing as the cluster kernel) fails from byte 0, as it must. Image `rq18`, exit 0.
+
+Kernel log, one stream, both existing switches on (image `rq18x`; bf16 KV, 131,072, graphs eager; spark6
+`~/work/readout/bench/rk8-*`):
+
+| arm | the read-out's kernels, ms a round | launches a round | in kernels a round |
+|---|---|---|---|
+| `HC_Q12=1 FUSED_SPLIT=1` | down 4.556 + reduce 0.724 + up 3.904 + mix 0.754 = 9.938 | 1,649.5 | 68.97 ms |
+| + `READOUT_FUSE=1` | down with act 4.733 + up with mix 4.303 + 0.094 at other row tiles = 9.130 | 1,420.0 | 68.29 ms |
+
+Served, image `rq18`, one fresh boot a cell, fp8 KV at 262,144 for 1, 2 and 4 streams, `TF_FLASHNEXT_KV_PAGES=4096`
+for 6 and 8, aggregate tok/s prose / code (`scripts/qwen38/zig/target/readout/chain18.sh`, spark6
+`~/work/readout/chain18.{log,sum}`, 22:21 to 22:47 UTC):
+
+| streams | `HC_Q12=1 FUSED_SPLIT=1` | + `READOUT_FUSE=1` | `READOUT_FUSE=1` alone |
+|---:|---|---|---|
+| 1 | 61.2 / 82.4 (repeat 62.7 / 82.6) | 61.7 / 81.9 (repeat 62.6 / 82.4) | 62.0 / 82.3 |
+| 2 | 88.0 / 122.6 | 87.2 / 122.8 | |
+| 4 | 115.6 / 168.2 (115.4 / 167.9) | 114.6 / 167.0 (115.0 / 167.9) | 114.8 / 166.1 |
+| 6 | 138.6 / 196.4 | 146.6 / 208.3 | |
+| 8 | 161.7 / 237.5 | 164.6 / 241.8 | |
+
+- **Exact.** Golden is 6/6 identical to stock's in all 16 cells, every boot log reads "window self-check: 1176 of
+  2080", and every decode reply's sha equals the base arm's: 2, 4, 8, 12 and 16 at 1, 2, 4, 6 and 8 streams, 2 and 8
+  for each repeat and for `READOUT_FUSE=1` alone, whose BF16 kernels serve the 1- and 4-stream rows.
+- **Speed.** Inside the cell noise at 1, 2 and 4 streams (means of two pairs: +0.3% / -0.4% at one, -0.6% / -0.4%
+  at four; -0.9% / +0.2% at two) and +1.8% / +1.8% at eight. The six-stream base cell (138.6 / 196.4) sits 6% under
+  the 17-patch run of the same switches (147.7 / 210.7), so that row is not read as a gain.
+- **Memory.** 0018 adds none: the boot line's model is 74.31 GiB with and without it from 2 to 8 streams. The pool a
+  6- or 8-stream boot takes moved between 154 and 293 pages from cell to cell with the host's free memory (16.1 to
+  26.2 GiB left after the reserve), more than the 12-bit copies' own cost of 1.02 GiB (73.29 against 74.31 GiB,
+  about 14 pages of 73.75 MiB).
+- **Defaults stay off.** 0018 takes 0.81 ms a round of kernel time and 229.5 launches out of a one-stream round but
+  shows no served gain outside the noise at 1 to 4 streams. `HC_Q12` cannot flip either: its 1.02 GiB is a capacity
+  cost, which counts as a regression.
