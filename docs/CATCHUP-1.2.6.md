@@ -1150,6 +1150,33 @@ the edge of the noise band but on the wrong side of it twice. It is exact by con
 but it is not yet a shipping recommendation: the rule is no regression at any stream count, so it needs 1, 2 and 4
 streams and a golden before it can go into the README.
 
+### The decode-only expert bytes, split out of the same logs (2026-11-13)
+
+The times in those arms belong to a boot window, but the expert log's own lines carry their position in the log, so
+the decode half of the BYTES can be recovered without another arm: take only the lines after the boot marker (our
+"window self-check" line at 18,609 of 44,642; production's "serving Qwen3.8-Flash-Next at http" at 49,721 of
+76,124) and price the items each launch really made.
+
+| | launches a round | MB a round |
+|---|---|---|
+| ours `nvfp4_expert_waves` gate and up | 41.5 | 2,910 |
+| ours `nvfp4_expert_waves` down | 48.8 | 1,619 |
+| ours `nvfp4_run_up` (the drafter's layer) | 12.9 | 440 |
+| ours `nvfp4_run_down` | 5.5 | 56 |
+| **ours total** | **108.7** | **5,026** |
+| production `int4_gate_up` | 48.7 | 1,422 |
+| production `int4_down` | 48.7 | 711 |
+| **production total** | **97.4** | **2,132** |
+
+A decode round of ours reads **2.36 times** production's expert bytes, and the launch counts are the same shape -
+about one call a layer for the 48 MoE layers on both sides, ours plus the drafter's own. The ratio is almost
+entirely the checkpoint: ten routed experts a token against five is 2.0, and NVFP4's 0.5625 bytes a weight against
+INT4 group-128's 0.5156 is another 1.09, which multiply to 2.18 against the measured 2.36. Per accepted token
+(3.5 ours, 2.75 theirs) it is 1.44 GB against 0.78.
+
+So the expert-byte gap is a property of the checkpoint we serve, not of our kernels, our plan or our draft policy,
+and no exact lever on our side can close it: closing it means serving a top-5 checkpoint, which changes replies.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
