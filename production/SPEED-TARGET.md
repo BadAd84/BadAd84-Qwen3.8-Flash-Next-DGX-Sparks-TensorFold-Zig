@@ -6,6 +6,12 @@ every 1.2.6 lever is ranked against: the production serve on spark6 (image
 tfm-fixes, tfm-warm-t and c68-shared-cost-levels, plus its two kindling boot fixes in the base image) ran the
 full suite once, one fresh boot per concurrency level, and the numbers below are its cells.
 
+**Model note (added 2026-11-13):** this serve's checkpoint, azampatti's INT4-AutoRound, routes **5 experts a token**
+(`num_experts_per_tok` 5, shared expert 1280 wide); the campaign's `main` serves nvidia's FP4 checkpoint, which routes
+**10** (shared expert 640 wide), over the same 512 experts of width 640. A decode round here reads about 2.35 times
+fewer expert bytes at one stream (measured by expert id, campaign `docs/CATCHUP-1.2.6.md`), so a cell measured on the
+other checkpoint compares a different model configuration, not only a different engine.
+
 A change ships when the cell it targets moves toward these numbers and no other cell regresses. A faster
 decode cell that costs TTFT, a higher aggregate that costs the per-stream rate, or a win at 6 streams that
 loses at 1 are trades, and a trade is the owner's call.
