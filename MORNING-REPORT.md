@@ -7,7 +7,8 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
 
 ## 1. What I need from you (decisions and approvals)
 
-0. **The issue is POSTED: ashhart/TensorFold#3162** (your approved text). ATC cannot claim it: `atc check` returns `incomplete`
+0. **PR OPENED: ashhart/TensorFold#3218** (Refs #3162; branch `BadAd84:flashnext-mtp-weights`, head `e16ca9d`, rebased on upstream `a3aecd8`; text as you approved, with the rebase-refreshed numbers shown to you). Watch for CI and the maintainer's reply on #3162 and #3218.
+0. (earlier note) **The issue is POSTED: ashhart/TensorFold#3162** (your approved text). ATC cannot claim it: `atc check` returns `incomplete`
    (limitation `pullRequestsLimit`: over 300 open PRs, a fixed cap), so no claim was posted; no competing work exists.
    The PR is NOT opened. All three exactness equalities pass on main, PR unset and PR mxfp8 (`exact0014_summary.md`),
    and the PR body now says so with `Refs #3162`: `work/pr0014/PR-body-final-draft.md`. It needs your approval of the
