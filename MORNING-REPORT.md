@@ -1,7 +1,7 @@
 # Morning report (running file; written 2026-11-13 before the owner went to bed)
 
-Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; the agent
-(`RoundCostLever`, opus5-max) and spark6 keep working while you sleep.
+Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; agents ran
+overnight; see section 4.
 
 Last updated: 2026-11-13 (session end of day).
 
@@ -70,17 +70,27 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
   expert kernels run at DRAM speed (213-222 GB/s, as fast as production's 199-217 at the same row counts). So much of the
   13-37% gap is the checkpoint, not our engine; no exact expert-kernel lever exists (the earlier "41 vs 25.5 ms" table was
   a boot-window artefact and is retracted in `docs/CATCHUP-1.2.6.md`).
-- Running now: `ExpertPass` follow-up, running OUR engine on production's own INT4 checkpoint for a like-for-like table.
-  That is the honest measure of what is engine and what is model. Result lands in `docs/CATCHUP-1.2.6.md`.
+- **Same-checkpoint comparison is impossible in both directions** (measured, `docs/CATCHUP-1.2.6.md`, section "The
+  production target is a different model configuration"): our engine refuses production's INT4-AutoRound checkpoint
+  (`UnsupportedCheckpoint`: modelopt only) and production's binary refuses ours (MXFP8 shared expert). Porting
+  production's whole INT4 path (GPTQ layout, runtime routing width, int4 expert kernel, int4 head) is a project, not a
+  lever. Each stack on its own checkpoint, one harness: ours is 18-39% slower (one stream 61.4/81.3 vs 74.5/131.0).
+- **Where the 22 ms/round at one stream goes:** about 12 ms routing width (top-10 vs top-5), up to 5 ms head format
+  (BF16 vs int4 head) - both the checkpoint's - and about 4.5 ms engine work on equal bytes, sitting in the dense
+  projections and read-outs (production runs read-outs as q12 kernels; our `HC_Q12` is exact but flat).
 
-**Decision for you:** the speed target (`production/SPEED-TARGET.md`) compares different models. Do you want the target
-restated as "same checkpoint" once that table exists? Recommended yes.
+**Decisions for you:**
+- (a) Restate `production/SPEED-TARGET.md` as "each stack on its own checkpoint" (recommended; I have not edited it
+  beyond the agent's note).
+- (b) Whether to port production's INT4-AutoRound path onto our engine (large: GPTQ loader, comptime `slots=11`/`moe_w=640`
+  made runtime on 245 lines in 57 files, int4 expert kernel and head). It is the only way to the production's own numbers
+  on its own model. Not started.
+- (c) Or accept NVFP4's cost as the checkpoint's and keep the 4.5 ms engine-owned part as the remaining target.
 
 ## 4. Running overnight
 
-- `ExpertPass` (same-checkpoint comparison). Earlier agent tasks (PR fix and receipt, roofline, draft-policy
-  sweep) are finished. spark6 production serve is up (`/health` 200) between agent runs.
-- spark6 production serve is restored after each stage (`/health` 200 at last check).
+- Agent tasks so far (PR fix and receipt, roofline, draft-policy sweep, expert-id traffic, same-checkpoint attempt)
+  are finished. spark6 production serve is up (`/health` 200).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
   stream (our v1.2.7 stock is ~54 on our own harness: different prompt and base, not comparable yet; the receipt
   compares main to main plus the PR only).
