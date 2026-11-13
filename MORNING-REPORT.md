@@ -89,6 +89,9 @@ Established (each with logs on spark6 and a section in `docs/CATCHUP-1.2.6.md`):
 
 ## 4. Running overnight
 
+- `Fp8Pages` (opus5.5-max): building patch 0015, fp8 KV pages, so 6 and 8 streams boot at the 262,144 window
+  (stop: `write proc://Fp8Pages/kill`; budget about 100 requests). Item 4 of section 1 is therefore being done, not
+  waiting for you.
 - Agent tasks so far (PR fix and receipt, roofline, draft-policy sweep, expert-id traffic, same-checkpoint attempt)
   are finished. spark6 production serve is up (`/health` 200).
 - The upstream benchmark found that upstream main alone decodes bench_openai's code prompt at ~71.8 tok/s at one
