@@ -74,7 +74,6 @@ def main():
         R = max(w["rounds"], 1)
         hist = collections.Counter()
         fam = collections.defaultdict(lambda: {"calls": 0, "made": 0, "uniq": 0, "bytes": 0.0})
-        verify_u, draft_u, verify_n, draft_n = 0, 0, 0, 0
         for name, grid, items, made, mats, n, k in calls:
             fact = "fact" in name
             r = rows_of(items, slots, 64 if fact else 16)

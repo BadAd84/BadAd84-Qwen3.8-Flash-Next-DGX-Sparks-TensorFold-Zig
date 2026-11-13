@@ -62,7 +62,7 @@ def main():
     def stats(cs):
         rows = picks = uniq = items = 0
         t_up = t_dn = 0.0
-        grids = units = 0
+        grids = 0
         for c in cs:
             r = sum(n for e, n in c["ids"] if e == SKIP)
             routed = [(e, n) for e, n in c["ids"] if e != SKIP]
