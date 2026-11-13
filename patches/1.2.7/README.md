@@ -123,3 +123,43 @@ branch.
   and the 2.35 times the expert bytes a round at one stream is production's checkpoint routing 5 experts a token
   against our 10. `docs/CATCHUP-1.2.6.md`, "The decode round's expert traffic, measured by expert id".
 
+## Draft-policy settings on this base, measured (2026-11-13)
+
+Everything here is exact by construction - a draft is a proposal the verify forward checks - so the question is
+only speed. Image `v16` (the series with 0014 on), bf16 KV, a 131,072-token window, one fresh boot a cell, 512-token
+prose and code replies; counters are the engine's own `/metrics` (`~/work/target/bench/{cc,pr1,pr4,cp,gw,gf}-*`).
+
+**The round's price (0010's `TF_FLASHNEXT_ROUND_MS` and `DRAFT_ROW_MS`) is inert on this workload.** A round costs
+38 ms plus 3.75 ms a row on prose and 38 plus 3.85 on code, straight to 15 rows, so the price is `38+2.15` with
+`DRAFT_ROW_MS=1.6` once the drafter's own 1.58 ms a row is taken out. Priced, the engine keeps exactly the same
+drafts: one stream 61.18 / 80.50 against 61.48 / 81.61 and 61.16 / 81.25 unpriced with identical counters; four
+streams 113.6 / 166.8 against 113.1 / 166.7 and 112.4 / 166.3, 1,853 drafts against 1,861. A steeper line (`38+3.0`)
+and a flatter one (`38+1.5`) give the same 1,853.
+
+**Our `TF_FLASHNEXT_CONFIDENCE=-0.4` default is the best of four.** At one stream: -0.15 gives 57.97 / 79.31,
+-0.25 gives 61.01 / 80.11, -0.6 gives 59.22 / 82.71, against 61.48 / 81.61. Production runs -0.15, which costs 6%
+on prose here.
+
+**The copy policy does not move it either.** `TENSORFOLD_COPY_MISS=keep`, `COPY_RAMP=jump`, `COPY_SHARED=1` and
+`COPY_RESYNC=1`, alone and together, at one and four streams: every cell returns the default counters to the digit
+and the same speed inside noise.
+
+**`TF_FLASHNEXT_GREEDY_WIDE=8` buys code at six and eight streams and costs prose there.** The knob is the round
+width up to which greedy chains keep their depth (default 4), so it does nothing below five streams and changes the
+chain above it. Aggregate tok/s prose / code, six and eight streams on the shared page pool (`KV_PAGES=4096`):
+
+| streams | default | `GREEDY_WIDE=8` | counters (code, default -> 8) |
+|---|---|---|---|
+| 1 | 61.26 / 80.88 (repeat 61.19 / 80.92) | 60.79 / 81.53 | identical: 89 rounds, 639 drafts, 422 accepted |
+| 2 | 87.5 / 120.7 | 87.3 / 120.0 | identical: 190, 1,144, 832 |
+| 4 | 112.2 / 166.8 | 112.4 / 166.0 | identical: 424, 2,265, 1,620 |
+| 6 | 146.8 / 205.6 (repeat 147.5 / 206.2) | 146.1 / **218.2** | 662 -> 612 rounds, 2,404 -> 2,454 accepted |
+| 8 | 164.8 / 235.9 | 163.0 / **247.8** | 918 -> 866 rounds, 3,171 -> 3,222 accepted |
+
+Code gains 5.9% at six streams and 5.0% at eight by accepting more over fewer rounds; prose pays 0.5 to 1.1% at
+those widths and nothing measurable below them, where the counters are identical to the digit. Golden is 6/6
+identical to stock's at one stream with the knob on and off, and every boot log reads "window self-check: 1176 of
+2080". It is therefore exact but **not a default**: the rule for this series is no regression at any stream count,
+and the six and eight stream prose cells regress. It is recorded here as a setting for a code-heavy multi-stream
+serve, for the owner to take or leave.
+
