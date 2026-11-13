@@ -1196,22 +1196,22 @@ warps), the resident 192 from 4 rows (equal waves), down the resident 240 throug
 
 What it says:
 
-- **The gap is bytes, set by the checkpoint's routing.** At equal rows our layer call reads 1.8 to 2.4 times the
+- **The gap is bytes, set by the checkpoint's routing.** At equal rows our layer call reads 1.7 to 2.4 times the
   unique experts (top-10 against top-5, less the overlap), times 1.09 for the format: 1.97 times the bytes at five
-  rows. Over a round it is 2.35 times at one stream (21.91 ms against 9.93, 12.0 ms of the round gap) and 1.89
-  times a forward at four.
+  rows. Over a round it is 2.35 times the bytes at one stream (21.91 ms against 9.93, 12.0 ms of the round gap) and
+  1.89 times a forward at four.
 - **Every unique expert is read once a layer a round** (passes 1.000; 1.002 at four streams, where an expert past 16
   pairs takes a second item). There is no double pass: no decode call takes the `fact_*` kernels, which run only in
   the boot self-check. `TF_FLASHNEXT_FACT_ROWS=1` was a wash for that reason: both forms read each unique expert
   once, so moving rows between them moves no bytes.
-- **Our kernels are at the DRAM rate, faster than production's at every equal row count**: 200 to 222 GB a second
-  at 2 to 16 rows (73 to 81% of GB10's 273, launch and wait included) against 187 to 214. `fact_swiglu`'s 1,176 us
+- **Our kernels are at the DRAM rate, faster than production's at every equal row count**: 195 to 222 GB a second
+  at 2 to 16 rows (71 to 81% of GB10's 273, launch and wait included) against 180 to 217. `fact_swiglu`'s 1,176 us
   was a boot-only ~94-row launch streaming at 224 GB a second, DRAM-bound rather than wave, tile or ALU-bound.
 - **So no exact lever exists on the expert path.** Merging gate-up and down reads the same bytes and saves one launch
   a layer. A tile or CTA change can only close the distance to the best rate any expert kernel reached here (229.7
-  GB a second, ours at 46 rows; production 236 at a 105-row prompt pass): about 5% at the dominant 9-row call, at
-  most 1.5 ms of a 60 ms round at one stream, inside the ~4% boot spread. Closing the gap means serving a top-5
-  checkpoint, which changes replies.
+  GB a second, ours at 46 rows; production 236 at a 105-row prompt pass): 5 to 8% at the dominant 9-row call, at
+  most 1.5 to 2.0 ms of a ~60 ms round at one stream (2.5 to 3.4%), inside the ~4% boot spread, and no kernel here
+  reaches those rates below 20 rows. Closing the gap means serving a top-5 checkpoint, which changes replies.
 
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 

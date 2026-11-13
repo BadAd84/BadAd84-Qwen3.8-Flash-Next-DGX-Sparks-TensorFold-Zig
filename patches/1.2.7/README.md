@@ -118,4 +118,8 @@ branch.
 - The gap widens with streams (-13% at one prose stream, -31% at eight): the cost production saves a round grows with
   the rows verified, which points at per-row work (experts, dense projections and glue at 5 to 8 rows a stream), not at
   a fixed cost such as the drafter's weights alone.
+- There is no patch 0015 for the expert path (2026-11-13): measured by expert id, every unique expert is read once a
+  layer a round, our decode expert kernels stream at 195 to 222 GB a second (faster than production's at equal rows),
+  and the 2.35 times the expert bytes a round at one stream is production's checkpoint routing 5 experts a token
+  against our 10. `docs/CATCHUP-1.2.6.md`, "The decode round's expert traffic, measured by expert id".
 
