@@ -47,3 +47,11 @@
   `TF_FLASHNEXT_HC_MXFP8` experiment (`work/ladder/rungs/gm21.patch`), re-pointed from the read-out matrices at the
   drafter's projections; the hook is one flag in `cuda_projection.zig` set only while `cuda_mtp.zig` loads. Built as
   image `v16` on spark6 and measured in `README.md`; `v16k` carries the round and kernel logs.
+- **0015 (added 2026-11-13):** written here, not re-seated: fp8 KV on every served stream and in the shared page pool
+  (`TF_FLASHNEXT_KV_PAGES` with `KV_DTYPE=fp8`, pool off by default). It carries three repairs of 0003 found on the way
+  (lane-parts and pool-lane streams kept bf16 caches; the fp8 staging's swapped head arguments; the marks' bf16 tail
+  offset), described and measured in `README.md`. Built as image `fp8pg2` on spark6 from this text less its kernel
+  contract records, which no image contains; the records hold the nvcc 13.3 resources `scripts/qwen38/zig/target/fp8res.sh`
+  measured for that image's `flashnext_attn.cu` (`fn_attn_chunks_kv8` re-measured at 80 registers on sm_120 and sm_121).
+  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` passes on the laptop; `scripts/check-patch-reverts.py`:
+  79 findings, 79 allowed (the 0015 reasons are in `mkallow.py`).

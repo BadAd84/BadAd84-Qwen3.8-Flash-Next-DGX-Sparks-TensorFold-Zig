@@ -1320,6 +1320,12 @@ teaching the fp8 attention kernels to read through the page table. That, not a p
 `0038-seq-pool` commit, is the work the 262,144-token target needs; the old patch text is kept at
 `work/0038-seq-pool-fp4port.patch` for its design.
 
+Done 2026-11-13: patch 0015 gives the pages the fp8 geometry and the fp8 kernels the page table, and repairs three 0003
+defects found on the way (served streams kept bf16 caches, the staging's swapped head arguments, the marks' bf16 tail
+offset). Six and eight streams now boot at 262,144 with fp8 KV and `KV_PAGES=4096` (144.2 / 204.8 and 160.5 / 234.3
+tok/s prose / code, against production's 202.2 / 311.8 and 237.1 / 370.5), byte-exact with unpaged fp8 at 1, 2 and 4
+streams and no slower there; the table is in `patches/1.2.7/README.md`.
+
 ## The two checkpoints store the same bytes; a decode token reads twice as many of ours (2026-11-12, corrected 2026-11-13)
 
 `scripts/qwen38/zig/target/ckpt_layer.py` lists one layer's tensors from the safetensors headers of both checkpoints

@@ -2,7 +2,7 @@
 
 The TensorFold tree stays pristine at upstream v1.2.7 (`93a2e93ecebff8aa52b88e58c5dd222516e69c5f`) and every change
 we own is one numbered patch here, one lever a patch, applied in filename order. Each patch builds on the ones
-before it and on nothing after it: the tree compiles after every one of the 13.
+before it and on nothing after it: the tree compiles after every one of the 15.
 
     ./apply.sh --check TREE     # the whole series applies, nothing written
     ./apply.sh TREE             # apply it
@@ -115,6 +115,8 @@ branch.
   two cells ran at a 131,072 window, which does not change the decode work of a 512-token reply but is not the same
   setting; the capacity itself is a gap against production, apart from speed.
 - Decode speed at fp8 KV and 262,144 is the same as bf16 and 131,072 (61.8 / 81.7 against 60.5 / 80.0 at one stream).
+  Corrected 2026-11-13: before patch 0015 every served stream kept bf16 caches under `KV_DTYPE=fp8` (0015, defect 1),
+  so these fp8 cells measured bf16 caches priced as fp8.
 - The gap widens with streams (-13% at one prose stream, -31% at eight): the cost production saves a round grows with
   the rows verified, which points at per-row work (experts, dense projections and glue at 5 to 8 rows a stream), not at
   a fixed cost such as the drafter's weights alone.
@@ -181,4 +183,58 @@ Golden is 6/6 identical to stock's at one stream with the knob on and off, and e
 self-check: 1176 of 2080", so replies are unchanged. It is therefore exact but **not a default**: the rule for this
 series is no regression at any stream count, and the six and eight stream prose cells regress. It is recorded here
 as a setting for a code-heavy multi-stream serve, for the owner to take or leave.
+
+## 0015: fp8 KV on every served stream and in the shared page pool (`TF_FLASHNEXT_KV_PAGES` with fp8) (2026-11-13)
+
+`TF_FLASHNEXT_KV_PAGES=n` was refused with fp8 KV. With 0015 the pool's pages hold the 12 attention layers' rows in
+the geometry 0003 writes (544-byte key rows with their scales, 512-byte value rows, bf16 indexer rows; the MTP head's
+layer stays bf16): 18,880 bytes a token against 30,784. The fp8 prep, chunk and fused kernels write and read through
+each stream's page table (four new launches, nvcc resources measured for the five SM targets in
+`flashnext_kv8_pending.zig`), and the host test in `cuda_pages.zig` checks the geometry and the kernels' addresses.
+Unset, nothing changes; the pool is a capacity switch and stays off by default.
+
+Writing it found three defects in 0003, which 0015 repairs:
+
+1. **Served streams never held fp8 rows.** The lane-parts constructor (`cuda_seq_parts.newSeqIn`, every stream unless
+   `TF_FLASHNEXT_LANE_PARTS=0`) and the pool lane built bf16 caches while the memory check priced fp8, so every
+   "fp8 KV" cell measured before 0015 ran bf16 caches.
+2. **The fp8 staging took its head arguments swapped** (slot `key * hk + HK` for `key * HK + hk`), found by reading the
+   call against the slots `kv8_store` writes; defect 1 kept served streams away from it.
+3. **A pass's kept-state marks wrote the n-gram tail at the bf16 offset**, past an fp8 state's buffer. With the prompt
+   cache on (1, 2 and 4 streams) the first request failed with `cuMemcpyDtoDAsync: CUDA_ERROR_INVALID_VALUE`: image
+   `fp8pg` (0015 without this repair) failed so in every such cell, and `v16` with `TF_FLASHNEXT_LANE_PARTS=0`, the
+   one route into 0003's fp8 caches, failed the same way (golden 0/6). That run overlapped another lane's GPU use
+   (06:14 to 06:33 UTC); its failures were first-request errors, and none of its timings are quoted.
+
+Image `fp8pg2` (the 14 patches + 0015), NVFP4, `KV_DTYPE=fp8`, a 262,144-token window, one fresh boot a cell, one
+decode pass of 512-token prose and code replies, aggregate tok/s prose / code (`scripts/qwen38/zig/target/fp8pages.sh
+fp8pg2 g8` and `fp8q.sh`, spark6 `~/work/target/fp8pages-fp8pg2.{log,sum}` and `fp8q.log`, 06:41 to 07:14 UTC):
+
+| streams | unpaged fp8 | `KV_PAGES=4096` | every stream on pages (`KV_PAGES_ALL=1`) | production | pages against production |
+|---:|---|---|---|---|---|
+| 1 | 61.2 / 81.4 (repeat 61.0 / 80.9) | 60.9 / 81.0 (61.1 / 80.7) | 61.1 / 81.0 (60.9 / 81.0) | 70.9 / 113.0 | -14% / -28% |
+| 2 | 86.2 / 120.4 | 86.4 / 120.1 | exactness only: one pool lane | 103.3 / 173.7 | -16% / -31% |
+| 4 | 113.3 / 164.7 | 113.4 / 164.6 | exactness only: three pool lanes | 162.3 / 254.0 | -30% / -35% |
+| 6 | refused (30.23 GiB against 27.26) | **144.2 / 204.8** | | 202.2 / 311.8 | -29% / -34% |
+| 8 | refused (40.31 GiB) | **160.5 / 234.3** | | 237.1 / 370.5 | -32% / -37% |
+
+- **Exact.** Golden is 6/6 identical to stock's in every cell and every boot log reads "window self-check: 1176 of
+  2080". Paged against unpaged, every decode reply's sha is identical: every stream on pages 2 of 2 at one stream, 4 of
+  4 at two and 8 of 8 at four; the pool beside the engine's own stream 2/2, 4/4 and 8/8; each one-stream repeat 2/2.
+  Six and eight streams have no unpaged cell to compare with; their pages are the ones checked at 1 to 4 streams.
+- **Capacity.** Six and eight streams boot at 262,144 with fp8 KV: "8 streams at once, the engine's own at a
+  262144-token window (5.04 GiB, in the model's), 7 more taking 308 pages of 4096 rows (22.18 GiB) as they need them
+  ... of 27.2 GiB left after a 9.0 GiB reserve", and "KV page groups: one page 73.75 MiB, 4096 rows ... 18.44 KiB a
+  token". The lanes share 308 pages (1,261,568 positions); a request waits for pages when the pool is full. Unpaged,
+  6 and 8 streams are still refused at the price above (0015 does not change it).
+- **Speed.** No cost shows at one stream: the pool beside the own stream reads 60.9 / 81.0 and 61.1 / 80.7 against
+  61.2 / 81.4 and 61.0 / 80.9 unpaged, and the one stream itself on pages 61.1 / 81.0 and 60.9 / 81.0, inside the ~1%
+  cell noise (bf16 pages measured -2.4% / -5.6% at one stream on `v16`); two and four streams are flat too. Even so
+  the pool stays opt-in: it is a capacity switch. `KV_PAGES_ALL=1` gives the pool one lane fewer than the streams (the
+  boot line's "1 more" at two), so its 2- and 4-stream cells queue a stream and are exactness checks only.
+- **Against production** the six and eight stream gap is the speed gap the series already had at 131,072 (-28% / -34%
+  and -31% / -37% in the table above); the capacity gap is closed.
+- `KV_DTYPE=fp8` without pages now keeps fp8 rows on every stream: golden is still 6/6 identical to stock's and one
+  stream decodes 61.2 / 81.4, against 61.8 / 81.7 and 61.4 / 80.4 for the accepted stack on 2026-11-12, when those
+  cells ran bf16 caches.
 

@@ -29,6 +29,23 @@ RULES = [
     ("prompt-readout-fused", "cuda_mtp_ops.zig", "reserveRows", "the same value with the piece as a parameter (equal at the decode piece)"),
     ("gather-direct", "cuda_ple_cache.zig", "", "the open goes through the page cache when TF_FLASHNEXT_GATHER_DIRECT=0, direct otherwise"),
     ("check-log", "cuda_mtp_check.zig", "", "the count is kept; the first differing row is logged beside it"),
+    ("kv8-pages", "cuda_batch.zig", "", "the same fp8 launch with the stream's page argument appended"),
+    ("kv8-pages", "cuda_glue.zig", "", "the fp8 launch takes the page argument and picks its paged kernel when the stream has a page table"),
+    ("kv8-pages", "cuda_launch.zig", "", "the same wrapper, the page argument passed through to the glue"),
+    ("kv8-pages", "cuda_images.zig", "", "the tower also carries the fp8 prep through a page table (prep8_paged)"),
+    ("kv8-pages", "cuda_media.zig", "", "the media state also carries prep8_paged; attnKv8 takes the page argument and picks the paged prep"),
+    ("kv8-pages", "cuda_lanes_explain.zig", "", "fp8 no longer refuses the pages, so the explanation drops the bf16-row caches beside it"),
+    ("kv8-pages", "cuda_lanes_load.zig", "Fp8KvUnsupported", "the guard is lifted: the pages hold fp8 rows (cuda_pages.zig)"),
+    ("kv8-pages", "cuda_lanes_load.zig", "Vision.load", "the tower load also passes the paged fp8 prep"),
+    ("kv8-pages", "cuda_lanes_load.zig", "", "a stream's own bytes go through seqBytesOf, which prices fp8 rows as the stream allocates them"),
+    ("kv8-pages", "cuda_pages.zig", "", "the page geometry is written by the cache's format: rowBytes, layerBytes and pageBytesOf take it, bf16 unchanged"),
+    ("kv8-pages", "cuda_paging_batch_test.zig", "", "the fakes take the page argument the fp8 launches gained"),
+    ("kv8-pages", "cuda_snap.zig", "", "the marks' tail offset takes the state's format: a bf16 offset wrote past an fp8 state's buffer"),
+    ("kv8-pages", "flashnext_kv8_tests.zig", "", "the device test passes the contiguous page argument the fp8 launches gained"),
+    ("kv8-pages", "flashnext_attn.cu", "stage_kv8_tile", "the staging takes the KV head, then the head count, the order its slot needs (it was given HK, hk), and a paged row's page and slot"),
+    ("kv8-pages", "flashnext_attn.cu", "", "the fp8 rows are written and staged through a page table too; the store and the staging are template helpers in flashnext_kv8.cuh"),
+    ("kv8-pages", "flashnext_kv8.cuh", "", "the staging reads a paged row at its page's start and slot; a contiguous row's slot is the same key * nkv + hk"),
+    ("kv8-pages", "flashnext_kv8_pending.zig", "", "fn_attn_chunks_kv8 re-measured with the templated staging: 80 registers on sm_120 and sm_121"),
 ]
 
 names = {}
