@@ -1095,12 +1095,19 @@ Confidence was swept beside it at one stream: -0.15 gives 57.97 / 79.31 (787 dra
 -0.25 gives 61.01 / 80.11, -0.6 gives 59.22 / 82.71. Our default of -0.4 is already the best of the four, and
 production's -0.15 is worth -6% here, which is another piece of their environment that does not travel.
 
-The counters also correct a number in the roofline section above. At one stream a round verifies `drafted / rounds
-+ 1` = **5.0 rows**, not the 50 the plan's item bound suggested: the expert plan counts a pair for each routed
-expert of each row, so 529 items is about 50 pairs a row-batch, not 50 rows. The rows beyond the MTP drafts are the
-copy continuations the serve announces as "drafts: MTP + copies", and they are what fills the expert call. So the
-row count to attack is the copy policy (`TF_FLASHNEXT_COPY_*`), not the MTP chain, and the priced round cannot see
-those rows because they are not drafts it owns.
+The counters also sharpen a number in the roofline section. `/metrics` counts **5.0 MTP draft rows a round** at one
+stream (`drafted / rounds + 1`), while the expert plan's item bound says the forward's row batches are much wider:
+`maxItems(pairs, 512, 16)` inverts to 498 pairs for the 529-item call and 152 for the 161-item call, which at ten
+picks a row is about 50 and 15 rows, and the 11-item call is exactly one row's ten picks (the drafter's own step).
+So a round verifies far more rows than it drafts through MTP, and the balance is rows the MTP counters do not own.
+
+The copy continuations were the obvious owner, so the copy policy was swept too, one fresh boot a cell on `v16`
+(`~/work/target/bench/cp-*`): `TENSORFOLD_COPY_MISS=keep`, `COPY_RAMP=jump`, `COPY_SHARED=1` and `COPY_RESYNC=1`,
+alone and together, at one stream and four. Every cell returns the same counters as the default to the digit (146
+rounds, 578 drafts, 365 accepted at one stream; 749, 1,861, 1,192 at four) and the same speed inside noise: one
+stream 60.66 to 61.21 prose and 80.82 to 81.26 code across five configurations, four streams 112.5 to 112.7 and
+165.6 to 166.3. So the copy policy does not move this workload either, and what fills the wide verify batches is
+still to be named.
 
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
