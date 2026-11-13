@@ -7,7 +7,12 @@ Last updated: 2026-11-13, after all overnight agent runs finished. Nothing is po
 
 ## 1. What I need from you (decisions and approvals)
 
-1. **Approve or edit the upstream issue text** for the drafter setting: `work/issue0014/FINAL-issue.styled.md` (restyled
+0. **The issue is POSTED: ashhart/TensorFold#3162** (your approved text). ATC cannot claim it: `atc check` returns `incomplete`
+   (limitation `pullRequestsLimit`: over 300 open PRs, a fixed cap), so no claim was posted; no competing work exists.
+   The PR is NOT opened. All three exactness equalities pass on main, PR unset and PR mxfp8 (`exact0014_summary.md`),
+   and the PR body now says so with `Refs #3162`: `work/pr0014/PR-body-final-draft.md`. It needs your approval of the
+   exact text (shown in chat), then I push the branch to the fork over SSH and open it.
+1. (superseded by item 0 for the issue) **Approve or edit the upstream issue text** for the drafter setting: `work/issue0014/FINAL-issue.styled.md` (restyled
    through adam-style and repaired by me: identifiers, the 181.1 MB sizes, `"draft": false`, the stream table and the
    arrows restored; source text is `FINAL-issue.md`). Proposal template, all fields. It has the new naming `TF_FLASHNEXT_MTP_WEIGHTS=checkpoint|mxfp8`. Nothing is posted.
    After your approval I post it, run `atc check/claim`, and open the PR (text for the PR body is written after
