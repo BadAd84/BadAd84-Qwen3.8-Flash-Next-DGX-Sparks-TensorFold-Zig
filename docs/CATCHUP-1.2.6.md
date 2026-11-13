@@ -1298,6 +1298,62 @@ dense tiles, 107 + 114), attention and DeltaNet 2.65 against 2.28 (+0.37), routi
 1.80 (+0.32), the rest -0.39. So the engine-owned part sits in the dense projections and read-outs, on equal bytes;
 `TF_FLASHNEXT_HC_Q12=1` on our stack was flat (above), so the read-out format alone does not close it.
 
+## The 4.23 ms by tensor shape: read-out bytes, read-out glue and projections, both stacks (2026-11-13)
+
+The same two decode windows (`bench/ep-o1`, ours, image `v16x`, 236 rounds; `bench/ep-p1`, production, `pdiagx`, 268
+rounds; one stream, graphs eager, every launch waited for), each kernel row matched to the weight it reads by symbol
+and grid, and its bytes taken from the two checkpoints' tensor shapes on one basis: weights times the bytes a weight
+of the format the kernel reads (MXFP8 1 + 1/32, production's block FP8 1 + 4/64, BF16 2, the 12-bit copy 776/512,
+escapes left out). `scripts/qwen38/zig/target/readout/rtab.py`; `kall.py` prints every row. The read-out down is
+[320 + 4, 10240] (the inject's 4 rows ride with it), the up [10240, 320]; ours runs the drafter's read-outs on the
+same rows, production's FP8 drafter has its own.
+
+| family | ours: weight, kernel | launches | ms | us a launch | MB | GB/s | production: weight, kernel | launches | ms | us a launch | MB | GB/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mixer | GDN in_proj [16480, 2560] MXFP8 | 36.15 | 7.233 | 200.1 | 1,573 | 217 | in_proj [16384, 2560] FP8 (a, b apart in BF16) | 36.13 | 7.222 | 199.9 | 1,610 | 223 |
+| mixer | q, k, v, indexer [13952, 2560] MXFP8 | 12.05 | 2.067 | 171.5 | 444 | 215 | q, k, v [13312, 2560] FP8, verify and drafter | 16.18 | 2.620 | 161.9 | 586 | 224 |
+| mixer | out_proj, o_proj [2560, 6144] MXFP8, 8 K slices in a cluster | 48.20 | 4.138 | 85.8 | 782 | 189 | out_proj, o_proj + shared gate-up [2560, 2560], fused form (`FP8_FUSED_SPLIT=4`) | 100.49 | 6.074 | 60.4 | 1,211 | 199 |
+| shared expert | gate, up [640, 2560] MXFP8, two calls | 96.41 | 1.781 | 18.5 | 163 | 91 | down [2560, 1280] FP8, fused form | 48.18 | 1.209 | 25.1 | 168 | 139 |
+| shared expert | down [2560, 640] MXFP8 | 48.20 | 0.787 | 16.3 | 81 | 103 | (gate-up in the mixer row above) | | | | | |
+| read-outs | down, BF16, cluster | 107.44 | 4.664 | 43.4 | 713 | 153 | down, 12-bit copy (`hc_down_q12`, reduce and act inside) | 96.00 | 3.469 | 36.1 | 483 | 139 |
+| read-outs | up, BF16 | 113.95 | 4.192 | 36.8 | 747 | 178 | up and mix, 12-bit copy (`hc_upmix_q12`) | 96.00 | 3.056 | 31.8 | 477 | 156 |
+| read-outs, `HC_Q12=1` (`bench/rq-q12`) | down, 12-bit copy | 107.44 | 4.409 | 41.0 | 540 | 123 | the FP8 drafter's down [320, 10240] | 12.40 | 0.326 | 26.3 | 43 | 132 |
+| read-outs, `HC_Q12=1` | up, 12-bit copy | 113.95 | 3.893 | 34.2 | 566 | 145 | the FP8 drafter's up | 12.40 | 0.258 | 20.8 | 43 | 167 |
+| router | [512, 2560] BF16 | 53.72 | 1.175 | 21.9 | 141 | 120 | [512, 2560] BF16 | 52.68 | 1.015 | 19.3 | 138 | 136 |
+| drafter | q, k, v [13952, 2560] BF16 | 5.51 | 1.691 | 306.8 | 394 | 233 | (FP8, in the rows above) | | | | | |
+
+By family, against ktab3's split (its dense projections less our 4-bit draft head, plus its hyper-connection
+family: 32.43 and 28.20):
+
+| ms a round | ours | production | difference |
+|---|---|---|---|
+| read-out matmuls | 8.856 (BF16, 96 + 96 verify launches and the drafter's) | 6.524 (12-bit, verify) + 0.584 (the FP8 drafter's) | +1.748 |
+| read-out glue: normalize, reduce and act, mix, write-backs | 3.218 (`fn_hc_*`, 458.5 launches) | 1.770 (`_hc_normed`, `_hc_writeback`, 258.6 launches; reduce, act and mix inside the matmuls) | +1.448 |
+| mixers, shared expert, drafter linears, small projections | 20.356 | 19.322 | +1.034 |
+| total | 32.43 | 28.20 | +4.23 |
+
+What the rows say:
+
+- **Where the bytes are equal, the per-byte rate is equal.** The in_proj streams at 217 against 223 GB/s and q, k, v
+  at 215 against 224 (production's block FP8 carries 3% more scale bytes, so the times match to 0.2%).
+- **The read-outs lose on bytes, not on rate.** Our BF16 read-outs run at 153 and 178 GB/s, production's 12-bit ones
+  at 139 and 156: ours is the faster kernel per byte and reads 1.32 times the bytes. Verify launches alone: 96 x (43.4
+  + 36.8) us = 7.70 ms against 6.52 ms. Patch 0009's copy (`HC_Q12=1`) reads production's bytes but at 123 and 145
+  GB/s, 41.0 and 34.2 us a launch against production's 36.1 and 31.8: its 12-bit blocks are loaded and decoded inside
+  the group loop, one group at a time, which is why it measured flat. The drafter's read-outs (0.57 ms) are BF16
+  against production's FP8 drafter: not equal bytes.
+- **The glue is the second largest share.** Production runs the reduce and activation inside the down kernel
+  (`TF_FLASHNEXT_REDUCE_ACT=1`) and the stream mix inside the up kernel (`TF_FLASHNEXT_UPMIX_DECODE=1`); ours runs
+  `fn_hc_reduce_act` (0.730 ms a round) and `fn_hc_dense_mix8` (0.767 ms) as their own launches, 114.8 each a round,
+  against 0.276 ms of reduce, act and mix launches left on production's side. The normalize (0.812
+  against 0.666 ms) and the write-backs (0.909 against 0.828) differ by 0.23 ms together.
+- **Split-K projections run on different forms.** Production's launcher sets `TF_FLASHNEXT_FP8_FUSED_SPLIT=4`: a
+  split shape of 2,048 columns or more below 256 rows runs one block a 64-column tile that adds its K slices in slice
+  order (its fp8-fused-check: the cluster kernel's bytes). Ours runs out_proj and o_proj on the cluster kernel, 320
+  blocks in clusters of 8, at 189 GB/s. The shared expert is 640 wide on ours (three calls of 1.69 MB at 91 to 103
+  GB/s) and 1,280 on production's (twice the bytes), so that row is not like for like.
+
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
