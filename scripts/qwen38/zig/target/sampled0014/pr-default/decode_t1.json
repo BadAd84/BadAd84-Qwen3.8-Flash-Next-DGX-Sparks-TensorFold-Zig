@@ -1,0 +1,150 @@
+[
+ {
+  "label": "pr-default",
+  "prompt": "fibonacci-raw",
+  "temperature": 1.0,
+  "tokens": 256,
+  "thinking": "not applicable",
+  "thinking_off_requested": false,
+  "thinking_switch": true,
+  "thinking_applicable": true,
+  "decode_tps_median": 64.68764336613887,
+  "decode_tps_all": [
+   69.11,
+   57.97,
+   64.69
+  ],
+  "ttft_s_median": 0.07297769607976079,
+  "prompt_ttft_tps_median": 191.839,
+  "prefill_tps_median": 191.839,
+  "itl_mean_ms_median": null,
+  "itl_p50_ms_median": null,
+  "itl_p95_ms_median": null,
+  "tpot_ms_median": null,
+  "chunk_tpot_estimate_ms_median": 15.459,
+  "round_gap_p50_ms_median": 69.609,
+  "round_gap_p95_ms_median": 78.013,
+  "tokens_per_chunk_median": 4.267,
+  "headers_s_median": 0.001,
+  "first_payload_s_median": 0.073,
+  "first_content_s_median": 0.073,
+  "first_reasoning_s_median": null,
+  "first_tool_s_median": null,
+  "first_output_s_median": 0.073,
+  "last_output_s_median": 4.015,
+  "evidence": [
+   {
+    "prompt_tokens": 14,
+    "cached_tokens": 0,
+    "tokens": 256,
+    "cache_state": "cold",
+    "complete": true,
+    "token_sha": "bb1a1d1b1c2f",
+    "output_sha256": "3c959b006cada3032e471210c80923609a915823bfb3db0fd99126908a57e0d4",
+    "completion": "truncated",
+    "tool_sha256": null
+   },
+   {
+    "prompt_tokens": 14,
+    "cached_tokens": 0,
+    "tokens": 256,
+    "cache_state": "cold",
+    "complete": true,
+    "token_sha": "57a51253f387",
+    "output_sha256": "cede9c0aa91c1ebd0dd16f90f6cc2f4613adde919c4491a458508d51a2287566",
+    "completion": "truncated",
+    "tool_sha256": null
+   },
+   {
+    "prompt_tokens": 14,
+    "cached_tokens": 0,
+    "tokens": 256,
+    "cache_state": "cold",
+    "complete": true,
+    "token_sha": "7a84423c938e",
+    "output_sha256": "06bc4587a007055736033f08b4a8cfe55c837b59356f7fafeaecb386563bf191",
+    "completion": "truncated",
+    "tool_sha256": null
+   }
+  ],
+  "sample": "\n\n<think>\n\n</think>\n\nHere is a simple and efficient Python function to compute the Fibonacci sequence, followed by an explanation of how it works.\n\n### Python C",
+  "deprecated_keys": {
+   "prefill_tps": "deprecated: same value as prompt_ttft_tps; prompt tokens over client TTFT, not the engine's prefill time",
+   "aggregate_prefill_tps": "deprecated: same value as aggregate_prompt_ttft_tps; prompt tokens over client TTFT, not the engine's prefill time"
+  }
+ },
+ {
+  "label": "pr-default",
+  "prompt": "gpu-chat-no-think",
+  "temperature": 1.0,
+  "tokens": 256,
+  "thinking": "off",
+  "thinking_off_requested": true,
+  "thinking_switch": true,
+  "thinking_applicable": true,
+  "decode_tps_median": 44.79414889522391,
+  "decode_tps_all": [
+   43.66,
+   47.71,
+   44.79
+  ],
+  "ttft_s_median": 0.06090709310956299,
+  "prompt_ttft_tps_median": null,
+  "prefill_tps_median": null,
+  "itl_mean_ms_median": null,
+  "itl_p50_ms_median": null,
+  "itl_p95_ms_median": null,
+  "tpot_ms_median": null,
+  "chunk_tpot_estimate_ms_median": 22.324,
+  "round_gap_p50_ms_median": 54.49,
+  "round_gap_p95_ms_median": 74.543,
+  "tokens_per_chunk_median": 2.485,
+  "headers_s_median": 0.001,
+  "first_payload_s_median": 0.001,
+  "first_content_s_median": 0.061,
+  "first_reasoning_s_median": null,
+  "first_tool_s_median": null,
+  "first_output_s_median": 0.061,
+  "last_output_s_median": 5.754,
+  "evidence": [
+   {
+    "prompt_tokens": 31,
+    "cached_tokens": 24,
+    "tokens": 256,
+    "cache_state": "reused",
+    "complete": true,
+    "token_sha": "41f6fc95aafb",
+    "output_sha256": "d1507a24293327c18d65a16b86ce9708b46245214e0596c2ea5759da8efe82d8",
+    "completion": "truncated",
+    "tool_sha256": null
+   },
+   {
+    "prompt_tokens": 31,
+    "cached_tokens": 24,
+    "tokens": 256,
+    "cache_state": "reused",
+    "complete": true,
+    "token_sha": "99260e755b11",
+    "output_sha256": "6aea89cc3b9c50fd53ae3e0a8e54cedd351745af75aea4335f4042f3c3c5e894",
+    "completion": "truncated",
+    "tool_sha256": null
+   },
+   {
+    "prompt_tokens": 31,
+    "cached_tokens": 24,
+    "tokens": 256,
+    "cache_state": "reused",
+    "complete": true,
+    "token_sha": "f7167ec39d0f",
+    "output_sha256": "f68e1d916d1e9e0f9364ea47dba5aad3c546ae7b41239ec0a9c71f3e0bbe7838",
+    "completion": "truncated",
+    "tool_sha256": null
+   }
+  ],
+  "sample": "### Part 1: The Plain English Explanation\n\nImagine you have two very large, flat sheets of paper (matrices). To multiply them, the computer has to perform a hug",
+  "deprecated_keys": {
+   "prefill_tps": "deprecated: same value as prompt_ttft_tps; prompt tokens over client TTFT, not the engine's prefill time",
+   "aggregate_prefill_tps": "deprecated: same value as aggregate_prompt_ttft_tps; prompt tokens over client TTFT, not the engine's prefill time"
+  }
+ }
+]

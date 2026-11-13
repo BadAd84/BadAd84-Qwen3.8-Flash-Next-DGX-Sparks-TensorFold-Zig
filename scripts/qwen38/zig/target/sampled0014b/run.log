@@ -1,0 +1,42 @@
+START 2026-11-13T18:53:46+00:00 base 6c5cef8941b27d86b06a986834e13deb9b515e1e
+SHA256 c663d05c795ab4bb up-tools/bench_concurrent.py
+SHA256 edf636290c3a63a1 up-tools/bench_openai.py
+SHA256 b2a55282867019a1 /home/adam/work/target/sampled0014b.sh
+IMAGE um d536ecc4f646
+IMAGE um14 81d89a568016
+=== bench/sampled0014b/main-1 2026-11-13T18:54:23+00:00 boot rc 0 gpu 46,2405MHz
+ENV 
+RC bench/sampled0014b/main-1 soak 0 2026-11-13T18:58:25+00:00 gpu 62,2502MHz
+RC bench/sampled0014b/main-1 decode_t1 0 2026-11-13T19:00:06+00:00 gpu 62,2502MHz
+RC bench/sampled0014b/main-1 on_t1 0 2026-11-13T19:04:09+00:00 gpu 65,2483MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.5 GiB prompt cache; own glue kernels
+=== bench/sampled0014b/pr-default-1 2026-11-13T19:04:44+00:00 boot rc 0 gpu 58,2437MHz
+ENV 
+RC bench/sampled0014b/pr-default-1 decode_t1 0 2026-11-13T19:06:23+00:00 gpu 63,2496MHz
+RC bench/sampled0014b/pr-default-1 on_t1 0 2026-11-13T19:10:25+00:00 gpu 65,2489MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.6 GiB prompt cache; own glue kernels
+=== bench/sampled0014b/pr-mxfp8-1 2026-11-13T19:11:00+00:00 boot rc 0 gpu 59,2444MHz
+ENV TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 
+RC bench/sampled0014b/pr-mxfp8-1 decode_t1 0 2026-11-13T19:12:38+00:00 gpu 63,2489MHz
+RC bench/sampled0014b/pr-mxfp8-1 on_t1 0 2026-11-13T19:16:40+00:00 gpu 65,2483MHz
+LOG info: flashnext: the drafter's BF16 linears re-coded to mxfp8
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.65 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.1 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.7 GiB prompt cache; own glue kernels
+=== bench/sampled0014b/pr-mxfp8-2 2026-11-13T19:17:15+00:00 boot rc 0 gpu 59,2411MHz
+ENV TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 
+RC bench/sampled0014b/pr-mxfp8-2 decode_t1 0 2026-11-13T19:18:53+00:00 gpu 64,2489MHz
+RC bench/sampled0014b/pr-mxfp8-2 on_t1 0 2026-11-13T19:22:54+00:00 gpu 64,2483MHz
+LOG info: flashnext: the drafter's BF16 linears re-coded to mxfp8
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.65 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.1 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.7 GiB prompt cache; own glue kernels
+=== bench/sampled0014b/pr-default-2 2026-11-13T19:23:29+00:00 boot rc 0 gpu 58,2411MHz
+ENV 
+RC bench/sampled0014b/pr-default-2 decode_t1 0 2026-11-13T19:25:06+00:00 gpu 62,2509MHz
+RC bench/sampled0014b/pr-default-2 on_t1 0 2026-11-13T19:29:06+00:00 gpu 63,2483MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.6 GiB prompt cache; own glue kernels
+=== bench/sampled0014b/main-2 2026-11-13T19:29:41+00:00 boot rc 0 gpu 58,2411MHz
+ENV 
+RC bench/sampled0014b/main-2 decode_t1 0 2026-11-13T19:31:19+00:00 gpu 63,2502MHz
+RC bench/sampled0014b/main-2 on_t1 0 2026-11-13T19:35:19+00:00 gpu 65,2489MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.6 GiB prompt cache; own glue kernels
+PR arm means below every main boot: 2
+POOL rc 0 2026-11-13T19:35:20+00:00
+RESTORE prod /health 200 2026-11-13T19:36:49+00:00

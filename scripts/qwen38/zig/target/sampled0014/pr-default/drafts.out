@@ -1,0 +1,8 @@
+ok   drafted == "draft": false  golden-0: token_ids, 64 tokens, ids 1251ff297f72c911, accepted 53 of 68 drafted (plain: 0) 
+ok   drafted == "draft": false  golden-1: token_ids, 64 tokens, ids bad7e75930d235c3, accepted 53 of 71 drafted (plain: 0) 
+ok   drafted == "draft": false  golden-2: token_ids, 64 tokens, ids 7c9ddac6f8a7b369, accepted 13 of 164 drafted (plain: 0) 
+ok   drafted == "draft": false  golden-3: token_ids, 64 tokens, ids d8dec4e3e58648cf, accepted 54 of 72 drafted (plain: 0) 
+ok   drafted == "draft": false  golden-4: token_ids, 64 tokens, ids c606e0c3292b61e6, accepted 49 of 81 drafted (plain: 0) 
+ok   drafted == "draft": false  golden-5: token_ids, 64 tokens, ids c94f87c5012c2bb2, accepted 5 of 264 drafted (plain: 0) 
+ok   drafted == "draft": false  code: token_ids, 64 tokens, ids de803a719410922b, accepted 49 of 69 drafted (plain: 0) 
+ok   drafted == "draft": false  chat: token_ids, 64 tokens, ids 53ff02de8ef57e6c, accepted 40 of 82 drafted (plain: 0) 
