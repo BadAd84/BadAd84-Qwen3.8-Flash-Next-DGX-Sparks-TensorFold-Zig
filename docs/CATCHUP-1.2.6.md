@@ -971,6 +971,51 @@ One side-finding worth keeping from the same arms: production's environment on *
 `v16` at one stream runs 63.2 / 86.8 on our settings and 57.6 / 78.8 under production's (rounds 144 / 86 against
 135 / 88), so their knob set is tuned for their engine and costs ours about 9%.
 
+### Production's round, measured in its own process (2026-11-13)
+
+The nsys route stayed shut, so the instrument went into production's own tree instead. `tensorfold-qwen38:pdiag`
+is the production engine at 5c3e3e29 with one file added (`zig/src/cuda/kernel_log.zig`) and two edits: the single
+launch funnel `cuda/launch.zig` waits for its launch and books it, and `cuda/module.zig` records the name a handle
+was resolved under. It is built the way production is built, overlaid on the production image, so it keeps
+production's captured kernel set (`tf.kernels: present`), its python and its launcher. Our side got the same
+instrument: `tensorfold-qwen38:v16p` is the shipped series plus that one file, overlaid on `v16`.
+
+Behaviour with the switch off, one stream, same harness and same boot: production 73.0 prose / 124.1 code,
+`pdiag` 74.0 / 126.0, the same 186 and 81 rounds, and the reply hashes identical (`20657973d02ee081`,
+`45f424ba7e2614d3`). Our `v16p` with the switch off runs 61.5 / 81.4 on the same harness.
+
+With the switch on, every launch is waited for, so a round reads longer than it is (production 58.6 / 107.5, ours
+54.0 / 73.5) and both stacks run with graphs eager - production through `TF_FLASHNEXT_GRAPH_FAIL=1`, ours through
+`TF_FLASHNEXT_WINDOW_GRAPH=0`. The shares and the per-kernel costs are the measurement; the totals carry the
+instrument's own sync per launch, which production pays more of because it issues more launches.
+
+One window each, prose and code together (production 267 rounds, ours 235; `~/work/target/bench/pt-diaglog2` and
+`pt-ourslog4`, aggregated by `~/work/target/ktab2.py`):
+
+| | production (INT4 checkpoint) | ours (NVFP4 checkpoint) |
+|---|---|---|
+| launches a round | 2,570 | 1,116 |
+| in kernels a round, as instrumented | 86.7 ms | 80.5 ms |
+| experts | `tf_fn_int4::int4_kernel` 25.5 ms over 190 launches | `fact_swiglu` + `expert_waves` + `fact_down_f32` 42.6 ms over 204 launches |
+| dense projections | `qmmf_kernel` and `qmmf_ld` 32.1 ms over 507 launches | `qmmf_kernel` 30.2 ms over 439 launches |
+| hyper-connection read-outs | `hc_upmix_q12` + `hc_down_q12` 12.2 ms over 371 launches | inside the dense qmmf above, as BF16 and MXFP8 |
+| attention and GDN | 3.6 ms over 260 launches | 2.9 ms over 84 launches |
+| router and glue | 1.4 ms `_router` plus small kernels | 0.5 ms |
+
+Read it kernel by kernel and the gap is not where the launch count suggests. Production issues more than twice our
+launches a round and is still ahead, so it does not win on glue. Its dense projections cost about what ours do
+(32.1 against 30.2 ms), and it spends 12.2 ms a round on read-out kernels we do not run at all. Where it is far
+cheaper is the expert path: 25.5 ms a round against our 42.6, and inside ours the two biggest kernels in the whole
+round are `tf_nvfp4_fact_swiglu` at 1,171 us a launch (13.3 a round, 15.6 ms) and `tf_nvfp4_fact_down_f32` at 643 us
+(8.7 ms).
+
+That difference is the checkpoint, not a knob: production serves an INT4 AutoRound checkpoint whose experts run
+`int4_kernel` at 128-row tiles, we serve NVFP4 whose experts run the `fact_*` wave kernels. Nothing in it is
+portable as an exact lever, because changing the expert arithmetic changes the replies. What is portable is the
+read-out shape, and we have already measured it: `TF_FLASHNEXT_HC_Q12=1` is exact on our stack and flat, which now
+has an explanation - our read-outs already ride the dense qmmf path at the same per-byte rate, so q12 moves work
+between kernels rather than removing it.
+
 ## The capacity lever is already in the tree, and one guard line keeps it from the target window (2026-11-12)
 
 Production serves 8 streams at 262,144 tokens with a shared sequence pool (`TF_FLASHNEXT_SEQ_POOL`,
