@@ -1,0 +1,10 @@
+[
+ {"name": "golden-0", "kind": "chat", "prompt": "What is the capital of France? Answer with one word."},
+ {"name": "golden-1", "kind": "chat", "prompt": "Write a Python function that returns the n-th Fibonacci number."},
+ {"name": "golden-2", "kind": "chat", "prompt": "Summarize: photosynthesis converts light energy into chemical energy stored in sugars."},
+ {"name": "golden-3", "kind": "chat", "prompt": "Translate to French: the weather is nice today."},
+ {"name": "golden-4", "kind": "chat", "prompt": "List three prime numbers between 20 and 40."},
+ {"name": "golden-5", "kind": "chat", "prompt": "What is 17 * 23? Answer with the number only."},
+ {"name": "code", "kind": "completion", "prompt": "Write a short Python function that computes the Fibonacci sequence and explain it."},
+ {"name": "chat", "kind": "chat", "prompt": "Explain how matrix multiplication uses a GPU in plain English, then give a small numerical example."}
+]
