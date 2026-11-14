@@ -401,3 +401,81 @@ for 6 and 8, aggregate tok/s prose / code (`scripts/qwen38/zig/target/readout/ch
 - **Defaults stay off.** 0018 takes 0.81 ms a round of kernel time and 229.5 launches out of a one-stream round but
   shows no served gain outside the noise at 1 to 4 streams. `HC_Q12` cannot flip either: its 1.02 GiB is a capacity
   cost, which counts as a regression.
+
+## The FP4 stack against production (2026-11-14)
+
+Every switch this series measured as no slower, on at once, in one window with the defaults and with production's own
+serve. Image `rq18` (0001-0018; 0019 adds only the kernel contract, and no newer series image exists), NVFP4
+checkpoint, the recipe's settings, fp8 KV at 262,144, one fresh boot a cell, one decode pass of 512-token prose and
+code replies, counters from `/metrics` (`scripts/qwen38/zig/target/int4/fp4stack.sh` through `int4win.sh`,
+`fp4stack.py`; spark6 `~/work/fp4stack/win.log` and `bench/`, 09:21 to 10:10 UTC). Order: production at 1, 2, 4, 6
+and 8 streams; then at each stream count the defaults, the stack, the stack again and the defaults again; then
+production again. The stack, as each cell's `env.txt` shows it reached the container:
+
+    TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_HC_Q12=1 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
+    TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8
+    # both arms at 6 and 8 streams: TF_FLASHNEXT_KV_PAGES=4096; TF_FLASHNEXT_CONFIDENCE stays the recipe's -0.4
+    # recipe: IMAGE=tensorfold-qwen38:rq18 CHECKPOINT=nvfp4 VISION=0 TENSORFOLD_CUDA_KERNELS=native KV_DTYPE=fp8 \
+    #         PARALLEL=<streams> CONTEXT=262144 HOST=127.0.0.1 MEM_CHECK=0 PREPARE=0 ./start.sh restart
+
+Production runs its own launcher (`~/qwen6-start-prod.sh` with `PARALLEL=<streams> HOST=127.0.0.1`) on its own
+checkpoint (azampatti INT4-AutoRound, 5 experts a token), through the same decode harness and prompts. Aggregate
+tok/s, prose / code; the percentages compare the means of the two runs on each side:
+
+| streams | defaults (repeat) | stack (repeat) | production (again at the end) | stack against production | stack against defaults |
+|---:|---|---|---|---|---|
+| 1 | 61.8 / 81.9 (61.1 / 80.8) | 63.4 / 84.5 (62.5 / 83.4) | 71.8 / 129.1 (70.2 / 127.2) | -11.3% / -34.5% | +2.4% / +3.2% |
+| 2 | 86.0 / 119.8 (86.0 / 120.0) | 90.1 / 125.2 (90.6 / 125.0) | 120.3 / 178.7 (118.8 / 177.9) | -24.4% / -29.8% | +5.1% / +4.3% |
+| 4 | 112.5 / 164.1 (112.6 / 164.3) | 117.4 / 168.6 (117.7 / 168.5) | 167.4 / 259.9 (163.7 / 256.0) | -29.0% / -34.7% | +4.4% / +2.6% |
+| 6 | 143.7 / 204.1 (143.8 / 204.7) | 150.4 / 208.0 (150.5 / 208.2) | 210.3 / 332.9 (209.3 / 320.0) | -28.3% / -36.3% | +4.7% / +1.8% |
+| 8 | 160.0 / 234.4 (160.0 / 234.4) | 168.1 / 240.6 (168.2 / 241.0) | 241.7 / 380.5 (237.8 / 378.3) | -29.9% / -36.5% | +5.1% / +2.7% |
+
+Rounds a 512-token reply takes (each stream's rounds summed), then drafted and accepted tokens a round, prose / code.
+Each repeat of ours returned its first run's counters to the digit; production's second runs are within one round:
+
+| streams | defaults | stack | production |
+|---:|---|---|---|
+| 1 | 142 / 89, 4.02 / 6.98, 2.61 / 4.74 | 145 / 89, 3.91 / 6.97, 2.53 / 4.74 | 186 / 81, 2.67 / 7.43, 1.75 / 5.31 |
+| 2 | 334 / 191, 2.95 / 5.69, 2.06 / 4.35 | 317 / 181, 3.33 / 6.30, 2.23 / 4.65 | 355 / 193, 2.65 / 5.73, 1.88 / 4.30 |
+| 4 | 736 / 432, 2.61 / 5.04, 1.69 / 3.73 | 686 / 401, 3.01 / 5.82, 1.89 / 4.10 | 738 / 405, 2.45 / 5.20, 1.63 / 4.05 |
+| 6 | 1,071 / 666, 2.67 / 4.60, 1.80 / 3.60 | 994 / 590, 3.10 / 6.05, 2.02 / 4.20 | 1,098 / 596, 2.48 / 5.35, 1.70 / 4.14 |
+| 8 | 1,457 / 914, 2.55 / 4.43, 1.68 / 3.47 | 1,353 / 808, 2.98 / 5.83, 1.89 / 4.06 | 1,468 / 816, 2.42 / 5.16, 1.62 / 4.01 |
+
+- **Exact.** Every decode reply's sha in both stack runs and in the defaults' repeat equals the first defaults run's
+  at the same stream count (2, 4, 8, 12 and 16 replies at 1, 2, 4, 6 and 8 streams); golden is 6/6 identical to the
+  defaults' for both stack runs and the repeat (`fp4stack.py`, and `python3 ~/work/zgold_cmp.py`); every boot log of
+  ours reads "window self-check: 1176 of 2080".
+- **Against the defaults the stack is faster in every cell, outside the repeat spread**: each stack run is above both
+  defaults runs in all ten, so no switch had to be dropped. The two defaults runs differ by at most 1.4% at one
+  stream and 0.3% at two to eight, the two stack runs by 1.4% and 0.6%; the closest pair is one-stream prose (62.5
+  against 61.8). At one stream only the MXFP8 drafter and the three read-out switches act: the code counters are
+  unchanged (89 rounds, 422 accepted), so its +3.2% is round time alone, and prose takes 145 rounds against 142 and
+  still gains 2.4%. (0014's +3.8% / +7.6% ran bf16 KV at 131,072 on `v16`, where the MXFP8 drafter also cut code
+  from 89 rounds to 86.) From two streams `SHARED_DRAFTS=0` cuts the rounds by 5 to 7%, and from six
+  `GREEDY_WIDE=8` cuts code's by 11 to 12%.
+- **Against production**: -11.3% / -34.5% at one stream, -24.4% / -29.8% at two, -29.0% / -34.7% at four,
+  -28.3% / -36.3% at six, -29.9% / -36.5% at eight. Production's second run is slower than its first in every cell,
+  by 0.4% to 3.9% (six-stream code 332.9 then 320.0 on the same 596 rounds), where ours repeat within 1.4%. On this
+  harness production also runs faster than its target table (`production/SPEED-TARGET.md`, 70.9 / 113.0 at one
+  stream to 237.1 / 370.5 at eight), most at one-stream code (128.2 here against 113.0) and two-stream prose (119.6
+  against 103.3), so measured like for like the gap is wider than the earlier tables against that target showed.
+  Production's prose replies at 4, 6 and 8 streams come to 1,938, 2,962 and 3,843 tokens (a stream ends before
+  512); ours are 512 a stream.
+- **Memory.** The stack's model is 74.23 GiB against the defaults' 73.29 at 2 to 8 streams (76.87 against 75.93 at
+  one): 0.94 GiB, which is the 12-bit copies' 1.02 GiB (74.31 with `HC_Q12=1 FUSED_SPLIT=1` in the 0016 to 0018
+  runs) less what the MXFP8 drafter linears save (181.1 MB of BF16 against about 93 MB). The budget left after the
+  9.0 GiB reserve falls from 27.2 or 27.3 GiB to 26.2 or 26.3 (24.5 to 23.4 or 23.5 at one stream). At 1 to 4
+  streams no pool is used and every boot serves the streams asked for. At 6 and 8 streams every stack boot's pool
+  takes 294 pages of 4096 rows (21.17 GiB) against 308 (22.18 GiB) in every defaults boot: 14 pages, 57,344
+  positions (4.5%) fewer, and both still boot at 262,144 with `KV_PAGES=4096` ("8 streams at once, the engine's own
+  at a 262144-token window (5.04 GiB, in the model's), 7 more taking 294 pages of 4096 rows (21.17 GiB) as they need
+  them, 0 MiB fixed each, of 26.3 GiB left after a 9.0 GiB reserve").
+- **The stack does not keep the draft setting's code gain at six and eight streams.** `SHARED_DRAFTS=0
+  GREEDY_WIDE=8` alone, same image and settings, in four runs over three windows (`bench-fp4b`, `bench-fp4c`,
+  `bench-fp4p`, above): six streams 146.9 to 147.6 / 212.2 to 214.1, eight 162.6 to 163.3 / 246.0 to 247.0. The
+  stack: 150.4 to 150.5 / 208.0 to 208.2 and 168.1 to 168.2 / 240.6 to 241.0, so prose +2.3% and +3.3% and code
+  -2.3% at both against those runs' means. The defaults reproduce across those windows within 0.7% (143.7 / 204.1
+  and 143.8 / 204.7 here against 143.5 / 204.6, 144.2 / 205.5 and 143.9 / 205.4; 160.0 / 234.4 twice against
+  160.5 / 234.6, 160.0 / 233.8 and 160.7 / 234.5). The stack's code takes 590 and 808 rounds against 578 and 803, so
+  the MXFP8 drafter's proposals account for at most 2.1% at six and 0.6% at eight; the rest is round time on code's
+  longer rounds.

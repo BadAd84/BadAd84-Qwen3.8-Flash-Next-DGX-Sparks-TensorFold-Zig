@@ -1478,3 +1478,32 @@ Corrected 2026-11-13: the stored bytes are the same, but production's checkpoint
 10 (`num_experts_per_tok`), so a decode round reads 2.35 times the expert bytes at one stream ("The decode round's
 expert traffic, measured by expert id" above). The drafter estimate above predates that measurement.
 
+## The FP4 stack against production, one window (2026-11-14)
+
+All the exact switches of `patches/1.2.7` on at once, ABBA against the defaults, with production's own launcher at
+the start and at the end of the same window: spark6, image `rq18`, NVFP4, fp8 KV at 262,144,
+`TF_FLASHNEXT_KV_PAGES=4096` at 6 and 8 streams in both of our arms, one fresh boot a cell, 512-token prose and code
+replies (`scripts/qwen38/zig/target/int4/fp4stack.sh`, `fp4stack.py`; spark6 `~/work/fp4stack`). The stack, with
+`TF_FLASHNEXT_CONFIDENCE` at the recipe's -0.4:
+
+    TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_HC_Q12=1 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
+    TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8
+
+Aggregate tok/s prose / code, percentages on the means of the two runs a side:
+
+| streams | defaults (repeat) | stack (repeat) | production (again at the end) | stack against production | stack against defaults |
+|---:|---|---|---|---|---|
+| 1 | 61.8 / 81.9 (61.1 / 80.8) | 63.4 / 84.5 (62.5 / 83.4) | 71.8 / 129.1 (70.2 / 127.2) | -11.3% / -34.5% | +2.4% / +3.2% |
+| 2 | 86.0 / 119.8 (86.0 / 120.0) | 90.1 / 125.2 (90.6 / 125.0) | 120.3 / 178.7 (118.8 / 177.9) | -24.4% / -29.8% | +5.1% / +4.3% |
+| 4 | 112.5 / 164.1 (112.6 / 164.3) | 117.4 / 168.6 (117.7 / 168.5) | 167.4 / 259.9 (163.7 / 256.0) | -29.0% / -34.7% | +4.4% / +2.6% |
+| 6 | 143.7 / 204.1 (143.8 / 204.7) | 150.4 / 208.0 (150.5 / 208.2) | 210.3 / 332.9 (209.3 / 320.0) | -28.3% / -36.3% | +4.7% / +1.8% |
+| 8 | 160.0 / 234.4 (160.0 / 234.4) | 168.1 / 240.6 (168.2 / 241.0) | 241.7 / 380.5 (237.8 / 378.3) | -29.9% / -36.5% | +5.1% / +2.7% |
+
+Every reply's sha equals the defaults', golden is 6/6 and every boot of ours reads "window self-check: 1176 of 2080".
+The stack is faster than the defaults in all ten cells, outside the repeat spread. Measured like for like, production
+runs faster than its own target table on this harness (one-stream code 128.2 against 113.0), so the gap is wider than
+the earlier comparisons against that table: -11% / -35% at one stream, and -24% to -30% prose and -30% to -37% code
+at two to eight streams, against an engine whose checkpoint routes 5 experts a token to our 10 ("The production
+target is a different model configuration" above). Counters, memory (the 12-bit copies cost the 6- and 8-stream pool
+14 of its 308 pages) and the comparison with the draft setting alone, whose code the stack trails by 2.3% at six and
+eight streams, are in `patches/1.2.7/README.md`, "The FP4 stack against production".

@@ -2,10 +2,10 @@
 # int4win.sh CELL... - one GPU window on spark6: each CELL is kind:name:streams[:ENV...] with kind ours|prod.
 # ours boots tensorfold-qwen38:$IMG through the campaign recipe on the INT4-AutoRound checkpoint (fp8 KV, 262,144
 # window, VISION=0, HOST=127.0.0.1); prod boots production's own launcher. Per cell: golden at one stream (GOLD=1),
-# fixed chat prompts (CHAT=1), one decode pass of prose and code, the boot log. GUARD=1: an ours golden at one stream
-# whose first reply is not production's "Paris" ends the window. Production is restored at the end (and on any
-# exit) and /health is checked. The GPU lock is held for the whole window. CKPT names the recipe's checkpoint
-# (default int4; nvfp4 for the FP4-Local checkpoint).
+# fixed chat prompts (CHAT=1), one decode pass of prose and code, the boot log, the container's engine variables
+# (env.txt). GUARD=1: an ours golden at one stream whose first reply is not production's "Paris" ends the window.
+# Production is restored at the end (and on any exit) and /health is checked. The GPU lock is held for the whole
+# window. CKPT names the recipe's checkpoint (default int4; nvfp4 for the FP4-Local checkpoint).
 set -u
 IMG=${IMG:-tensorfold-qwen38:int4a}
 OUT=${OUT:-$HOME/work/int4/bench}
@@ -37,6 +37,8 @@ cell() { # kind name streams env...
   fi
   echo "=== $name C=$c $(date -Is) gpu $(nvidia-smi --query-gpu=temperature.gpu,clocks.sm --format=csv,noheader | tr -d ' ') $(grep -a -m1 -E 'answered|ERROR|rror:' "$out/boot.log" | cut -c1-200)"
   docker logs qwen38-flash-next-tf > "$out/logs.txt" 2>&1
+  docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' qwen38-flash-next-tf 2>/dev/null |
+    grep -E '^(TF_FLASHNEXT|TENSORFOLD)_' > "$out/env.txt"
   if curl -s -o /dev/null -m 5 http://127.0.0.1:8888/health; then
     [ "${GOLD:-0}" = 1 ] && [ "$c" = 1 ] && ( cd ~/work && timeout 1200 python3 qf_harness.py golden "$out/zgold.json" 2>&1 | tail -1 )
     [ "${CHAT:-0}" = 1 ] && [ "$c" = 1 ] && chat "$out"
