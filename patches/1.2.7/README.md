@@ -228,6 +228,16 @@ counters from `/metrics` (`scripts/qwen38/zig/target/int4/int4win.sh` with `CKPT
   setting's six and eight stream cells were repeated against the defaults in a second window (`bench-fp4c`, 02:13 to
   02:21 UTC): six streams 147.6 / 214.1 against 143.9 / 205.4 (+2.6% / +4.2%), eight 163.3 / 247.0 against
   160.7 / 234.5 (+1.6% / +5.3%), the counters the same as the first window's to the digit.
+- **The priced round (0010) does not beat it.** With the shared rule lifted, the combined setting plus
+  `TF_FLASHNEXT_ROUND_MS=38+2.15 TF_FLASHNEXT_DRAFT_ROW_MS=1.6` (the price measured above), a flatter `38+1.5` and a
+  steeper `38+3.0`, against the combined setting run twice in the same window (`bench-fp4p`, 02:22 to 02:47 UTC;
+  every reply's sha equal): four streams 113.4 to 113.8 / 163.7 to 164.5 against 113.7 to 114.1 / 164.0 to 165.1;
+  six 146.7 to 147.5 / 213.4 to 213.8 against 146.9 / 212.2 to 212.5; eight 162.4 to 162.7 / 245.6 to 246.1 against
+  162.6 to 162.8 / 246.1 to 246.5. The three lines take the same rounds as each other, a few more than unpriced
+  (687 / 399, 989 / 582 and 1,358 / 814 against 685 / 399, 983 / 578 and 1,349 / 803): the price trims drafts
+  slightly. The only cells above the unpriced pair are at six streams (code +0.4% to +0.8%, one prose cell +0.4%),
+  where the priced arms run more rounds than the pair and sit inside the ~1% cell noise; four and eight streams are
+  inside or under the pair. So the price stays unset.
 
 ## 0015: fp8 KV on every served stream and in the shared page pool (`TF_FLASHNEXT_KV_PAGES` with fp8) (2026-11-13)
 
