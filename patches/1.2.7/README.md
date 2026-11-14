@@ -511,12 +511,129 @@ code, then each arm against the mean of the stack's two runs:
   MXFP8 drafter one-stream code is 3.1% slower on the same 89 rounds, but six-stream code is 4.2% faster on 2.1%
   fewer rounds, so its rounds there are no cheaper with MXFP8 linears than with BF16 (which points at the drafter's
   MXFP8 projections at six streams' rows; not measured by kernel).
-- **The best stack with no cell slower than the defaults is the stack without `HC_Q12`:** +2.7% to +5.7% over the
-  defaults in every cell of this window (mean +4.1%; the full stack +1.7% to +5.2%, mean +3.8%), with no 12-bit
-  copies (model 73.21 GiB; 309 pool pages at six and eight streams against the stack's 294 and the defaults' 308).
-  Its cost against the full stack is prose at two and four streams (-1.5% and -1.4%); each dropped arm ran once, and
-  no single drop is faster than the full stack in every cell. Without `GREEDY_WIDE=8` also averages +4.0%, but reads
-  +0.7% on eight-stream code. The setting:
 
-      TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
-      TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8
+### Recommended launcher block (FP4) (2026-11-14)
+
+    TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
+    TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8
+    # at 6 and 8 streams with a 262,144 window also TF_FLASHNEXT_KV_PAGES=4096; TF_FLASHNEXT_HC_Q12 stays unset
+    # recipe: IMAGE=tensorfold-qwen38:rq18 CHECKPOINT=nvfp4 VISION=0 TENSORFOLD_CUDA_KERNELS=native KV_DTYPE=fp8 \
+    #         PARALLEL=<streams> CONTEXT=262144 HOST=127.0.0.1 MEM_CHECK=0 PREPARE=0 ./start.sh restart
+
+This is the stack without `HC_Q12=1` (N), confirmed with two runs an arm against the defaults (D) and the full stack
+(S) in one window: `scripts/qwen38/zig/target/int4/fp4conf.sh` through `int4win.sh` and `fp4stack.py` (spark6
+`~/work/fp4stack/conf.log` and `conf/`; here `int4/fp4conf.log`, `int4/fp4conf-summary.txt`). Image `rq18`, NVFP4, the
+recipe's settings, fp8 KV at 262,144 (`KV_PAGES=4096` in every arm at 6 and 8 streams), one fresh boot a cell, one
+decode pass of 512-token prose and code replies; D N S S N D at each stream count (16:11 to 16:55 UTC), then the noise
+rule's rerun, N S S N at 2, 6 and 8 streams (18:35 to 18:54). Aggregate tok/s prose / code, first run (second run);
+the percentages compare the means of the two runs a side:
+
+| streams | D, defaults | N, without `HC_Q12=1` | S, the stack | N against D | N against S | S against D |
+|---:|---|---|---|---|---|---|
+| 1 | 61.9 / 82.1 (61.7 / 81.8) | 64.2 / 85.8 (64.4 / 85.9) | 63.8 / 85.1 (63.6 / 85.0) | +4.0% / +4.8% | +0.9% / +0.9% | +3.1% / +3.8% |
+| 2 | 87.2 / 122.0 (87.5 / 121.6) | 90.6 / 127.5 (90.6 / 127.7) | 91.9 / 127.0 (91.3 / 126.7) | +3.7% / +4.8% | **-1.1%** / +0.6% | +4.9% / +4.1% |
+| 4 | 114.0 / 166.4 (112.7 / 163.8) | 117.7 / 170.8 (115.7 / 168.8) | 119.1 / 170.7 (117.5 / 169.1) | +3.0% / +2.8% | -1.4% / -0.1% | +4.4% / +2.9% |
+| 6 | 143.8 / 204.6 (144.0 / 204.8) | 149.8 / 214.0 (150.3 / 213.8) | 150.7 / 207.5 (150.7 / 207.4) | +4.3% / +4.5% | -0.4% / **+3.1%** | +4.7% / +1.3% |
+| 8 | 160.9 / 234.7 (160.3 / 235.0) | 166.9 / 247.0 (166.9 / 245.9) | 168.0 / 240.5 (167.6 / 240.4) | +3.9% / +4.9% | -0.5% / **+2.5%** | +4.5% / +2.4% |
+
+The rerun, N (repeat) against S (repeat): two streams 90.8 / 128.8 (90.9 / 128.3) against 91.8 / 127.6
+(91.9 / 127.6), six 152.6 / 217.8 (152.4 / 217.1) against 153.1 / 211.2 (153.4 / 212.2), eight 169.9 / 251.1
+(169.3 / 249.4) against 170.9 / 245.1 (171.0 / 245.7). That window ran faster than the first for both arms (up to
+2.1%, S's eight-stream code), so only pairs from one window are compared. The noise rule: an arm is slower in a cell
+only when both its runs are under both runs of the other and the mean gap is over 1%; one rerun, slower again is a
+loss.
+
+- **N against D: faster in all ten cells**, both N runs above both D runs, +2.8% to +4.9% (mean +4.1%). S against D is
+  faster in all ten as well, +1.3% to +4.9% (mean +3.6%).
+- **N against S is a trade, and both sides repeat.** S is faster on two-stream prose: N -1.1%, and -1.1% again in the
+  rerun, a loss for N. N is faster on code at six and eight streams: S -3.0% and -2.4%, and -2.6% and -1.9% in the
+  rerun, losses for S. Every other cell is level (four-stream prose reads -1.4% for N, but N's first run, 117.7, is
+  above S's second, 117.5). N against S averages +0.5% over the ten cells (-1.4% to +3.1%).
+- **Memory decides it.** At boot, the same in both runs of every arm: D model 73.29 GiB (75.93 at one stream), 308
+  pool pages of 4096 rows at 6 and 8 streams, 27.2 or 27.3 GiB left after the 9.0 GiB reserve (24.5 at one stream);
+  N 73.21 GiB (75.84), 309 pages, 27.3 GiB (24.6); S 74.23 GiB (76.87), 294 pages, 26.2 or 26.3 GiB (23.5). At 1 to 4
+  streams no pool is used. N holds one page more than the defaults; S's 12-bit copies take 1.02 GiB and leave its
+  pool 14 pages (57,344 positions) under the defaults', a capacity regression, and `HC_Q12` is a copy made at load,
+  so it cannot be gated on the live stream count. The recommended block is therefore N: no cell slower than the
+  defaults, no capacity cost, and against S it gives up 1.1% on two-stream prose for 2.0% to 3.1% on six- and
+  eight-stream code.
+- **Exact.** Every arm's decode replies, the rerun's included, carry the first defaults run's shas at every stream
+  count (2, 4, 8, 12 and 16 replies at 1, 2, 4, 6 and 8 streams), golden is 6/6 identical to the defaults' for all six
+  one-stream cells (`zgold_cmp.py`), and every boot log reads "window self-check: 1176 of 2080".
+- **Counters.** Rounds a 512-token reply takes (each stream's summed), then drafted and accepted tokens a round, prose
+  / code; every second run and every rerun returned its arm's first-run counters to the digit:
+
+| streams | D | N | S |
+|---:|---|---|---|
+| 1 | 142 / 89, 4.02 / 6.98, 2.61 / 4.74 | 143 / 88, 4.01 / 7.14, 2.58 / 4.81 | 145 / 89, 3.91 / 6.97, 2.53 / 4.74 |
+| 2 | 334 / 191, 2.95 / 5.69, 2.06 / 4.35 | 321 / 177, 3.39 / 6.60, 2.19 / 4.77 | 317 / 181, 3.33 / 6.30, 2.23 / 4.65 |
+| 4 | 736 / 432, 2.61 / 5.04, 1.69 / 3.73 | 697 / 400, 3.00 / 5.96, 1.84 / 4.11 | 686 / 401, 3.01 / 5.82, 1.89 / 4.10 |
+| 6 | 1,071 / 666, 2.67 / 4.60, 1.80 / 3.60 | 994 / 582, 3.18 / 6.07, 2.02 / 4.27 | 994 / 590, 3.10 / 6.05, 2.02 / 4.20 |
+| 8 | 1,457 / 914, 2.55 / 4.43, 1.68 / 3.47 | 1,356 / 802, 3.04 / 5.79, 1.88 / 4.10 | 1,353 / 808, 2.98 / 5.83, 1.89 / 4.06 |
+
+### The multi-stream draft setting on upstream main alone (2026-11-14)
+
+Is `SHARED_DRAFTS=0 GREEDY_WIDE=8` worth an upstream performance issue? Measured on upstream main at `d6c4cce602`
+(41 commits after the PR receipt's `06bcb989`), image `umd6c4cce6` built by `~/work/merge/build-br.sh` with no patch,
+NVFP4, bf16 KV at 131,072, `--parallel 4` (receipt0015's boot), with the tip's own `tools/bench_openai.py` and
+`tools/bench_concurrent.py --alone --serial`, greedy and at temperature 1.0 (seed 1234; `bench_openai` seeds 1234 to
+1236), 256 tokens, 3 reps, 1, 2 and 4 streams, /metrics around each: M1 X1 X2 M2, one fresh boot an arm, X =
+`TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8`, then the noise rule's rerun M3 X3 X4 M4 of `conc_t0`
+(`scripts/qwen38/zig/target/int4/updraft.sh`, `sum15.py`, `blank15.py`; spark6 `~/work/target/bench/updraft`, 18:55
+to 19:41 UTC; here `int4/updraft-rule5.md`, `updraft-cells.csv`, `updraft-hashes-rerun.txt`, `updraft-run-*.log`).
+The recipe also exports `TF_FLASHNEXT_DRAFTS=6` and `TF_FLASHNEXT_CONFIDENCE=-0.4`, upstream's defaults, in every arm;
+every boot reads "model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window", and "registered
+overrides: none" in the X arms too, so the startup report does not list these two settings.
+
+What they do at the tip (`zig/src/families/flashnext/`, `d6c4cce602`), introduced by `a54748abe0` (#2160):
+
+- `cuda_lanes_draft.zig:28-32`, `rule(self, width)`, called once a round with the streams drafting together
+  (`cuda_lanes.zig:520`, `requests.len`): a greedy chain may go `depth_greedy` deep (`TF_FLASHNEXT_DRAFTS_GREEDY`,
+  default 8, `cuda_mtp.zig:35`) while the round is at most `wideStreams()` wide (`:39-43`,
+  `TF_FLASHNEXT_GREEDY_WIDE`, default 4), else at most `default_depth`, 6 (`cuda_mtp.zig:33`). Its stop is
+  `shared_stop`, 0.6 (`:26`), while `sharedRule()` (`:45-48`, `TF_FLASHNEXT_SHARED_DRAFTS`, default on) and `busy()`
+  (`:50-60`, more than one stream neither finished nor paused) hold, else the engine's `confidence`
+  (`TF_FLASHNEXT_CONFIDENCE`, default -0.4, `cuda_mtp.zig:48`).
+- `cuda_mtp.zig:50-69`, `Stop.take`: above zero a later draft is proposed only at or above c and the chain ends at
+  the first one under it (0.6 a draft); below zero the chain goes on while the running product p1 x ... x pj stays
+  at or above -c (0.4).
+- `stopFor` (`:35-37`) and `depthFor` (`cuda_mtp.zig:44-46`) give a sampled stream the engine's stop and
+  `TF_FLASHNEXT_DRAFTS` depth whatever the round; the batched head (`:63`, counts at `:91`, stops at `:103`) and the
+  one-at-a-time path (`cuda_lanes.zig:535-542`) both take the round's rule.
+
+So on this boot `GREEDY_WIDE=8` cannot act (no round is wider than 4, the default width), and `SHARED_DRAFTS=0` acts
+only on greedy streams beside another open one: the 2- and 4-stream greedy cells. One stream and temperature 1.0 are
+controls. Aggregate tok/s (the tools' medians), the noise rule on X against M, accepted tokens a round (the tools'
+tokens a streamed chunk less one):
+
+| invocation | prompt | temp | streams | M1, M2 | X1, X2 | X against M | accepted a round, M / X |
+|---|---|---|---:|---|---|---|---|
+| `conc_t0` | chat | 0 | 1 | 46.4, 46.5 | 46.3, 46.5 | -0.1% level | 1.81 / 1.81 |
+| `conc_t0` | chat | 0 | 2 | 86.3, 86.3 | 87.0, 87.3 | +1.0% level (rerun 86.3, 86.2 against 87.0, 87.1) | 1.51 / 1.64 |
+| `conc_t0` | chat | 0 | 4 | 155.4, 156.0 | 157.2, 157.1 | +0.9% level (rerun 156.0, 155.4 against 157.0, 156.8) | 1.51 / 1.64 |
+| `conc_t0` | code | 0 | 1 | 72.1, 72.1 | 72.4, 72.2 | +0.3% level | 4.22 / 4.22 |
+| `conc_t0` | code | 0 | 2 | 137.4, 137.7 | 134.1, 134.6 | **-2.3% SLOWER; rerun 137.4, 138.1 against 134.1, 134.5, -2.5%: a loss** | 3.83 / 4.02 |
+| `conc_t0` | code | 0 | 4 | 242.4, 242.7 | 235.8, 235.4 | **-2.9% SLOWER; rerun 240.4, 242.3 against 234.7, 235.2, -2.7%: a loss** | 3.83 / 4.02 |
+| `conc_t1_s1234` | chat | 1.0 | 1 / 2 / 4 | 44.4, 44.5 / 69.5, 69.6 / 104.0, 104.3 | 44.5, 44.5 / 69.8, 69.8 / 104.2, 104.4 | +0.1% / +0.4% / +0.1% level | 1.39 / 1.45 / 1.46 in both |
+| `conc_t1_s1234` | code | 1.0 | 1 / 2 / 4 | 69.9, 70.2 / 88.0, 88.3 / 128.8, 128.8 | 70.0, 70.3 / 88.3, 88.6 / 128.8, 129.0 | +0.1% / +0.3% / +0.1% level | 3.57 / 2.77 / 2.83 in both |
+| `openai_t0` | fibonacci-raw | 0 | 1 | 72.1, 72.4 | 72.5, 72.4 | +0.3% level | 4.22 in both |
+| `openai_t0` | gpu-chat-no-think | 0 | 1 | 46.3, 46.6 | 46.5, 46.6 | +0.3% level | 1.81 in both |
+| `openai_t1` | fibonacci-raw | 1.0 | 1 | 61.2, 65.7 | 65.6, 65.8 | +3.4% level | 3.27 in both |
+| `openai_t1` | gpu-chat-no-think | 1.0 | 1 | 44.3, 45.7 | 45.7, 45.7 | +1.6% faster | 1.48 in both |
+
+- **Exact.** Every reply hash of every arm equals M1's: 348 of 348 for M2, X1 and X2 (`openai_t0` 6, `openai_t1` 6,
+  `conc_t0` 168, `conc_t1_s1234` 168) and 168 of 168 `conc_t0` replies for M3, M4, X3 and X4; no cell of the 88 has a
+  failed or unmeasured request.
+- **Greedy code at two and four streams loses, twice.** X's rounds carry more (5.02 tokens a chunk against 4.83), yet
+  code is 2.3% to 2.9% slower, so its rounds are about 6% to 7% longer. Over the whole `conc_t0` invocation the server
+  counted 7,934 accepted of 11,682 drafted for M and 8,060 of 12,564 for X: 7.5% more drafts for 1.6% more accepted.
+  Greedy chat gains 0.9% to 1.0% in both pairs, inside the 1% line.
+- **The controls are level**, as the source says they must be. The one "faster" verdict, `openai_t1`
+  gpu-chat-no-think, is a cell X cannot touch (one stream, sampled): M1's two `openai_t1` medians read low (61.2 and
+  44.3, against 65.6 to 65.8 and 45.7 in the other three arms).
+- **Not upstream-worthy on this evidence.** On main alone the setting is a loss on greedy code at two and four streams
+  and level everywhere else it can act, so an issue asking to flip either default would report a regression: main's
+  shared 0.6 rule is the better default there. The gains in "Draft settings on the FP4 checkpoint, multi-stream" were
+  measured on v1.2.7 plus our patches (`rq18`), fp8 KV at 262,144 and our 512-token harness, not on main; which of
+  those differences turns the sign is not measured, nor are six and eight streams on main (its default boot admits
+  four at 131,072 bf16).

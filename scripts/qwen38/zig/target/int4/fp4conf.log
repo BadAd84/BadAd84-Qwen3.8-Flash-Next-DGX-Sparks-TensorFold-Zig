@@ -98,3 +98,41 @@ DEC i4-d2-c8 C=8 prose pass0: per-stream med 20.56 min 15.85 agg 160.3 tok/wall 
 DEC i4-d2-c8 C=8 code pass0: per-stream med 29.83 min 25.91 agg 235.0 tok/wall 201.7 tokens 4096 rounds 914 drafted 4049 accepted 3174
 === restored 2026-11-14T16:55:52+00:00 health 200
 === fp4conf rerun 2026-11-14T16:55:52+00:00: 2 n s;6 n s;8 n s;
+=== lock 2026-11-14T18:35:29+00:00
+=== n3 C=2 2026-11-14T18:36:22+00:00 gpu 55,2437MHz [start.sh] Server answered after 51s
+DEC i4-n3-c2 C=2 prose pass0: per-stream med 45.39 min 43.07 agg 90.8 tok/wall 85.2 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC i4-n3-c2 C=2 code pass0: per-stream med 64.38 min 63.76 agg 128.8 tok/wall 126.0 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== s3 C=2 2026-11-14T18:37:36+00:00 gpu 56,2411MHz [start.sh] Server answered after 52s
+DEC i4-s3-c2 C=2 prose pass0: per-stream med 45.88 min 43.89 agg 91.8 tok/wall 86.8 tokens 1024 rounds 317 drafted 1057 accepted 706
+DEC i4-s3-c2 C=2 code pass0: per-stream med 63.81 min 63.43 agg 127.6 tok/wall 123.7 tokens 1024 rounds 181 drafted 1141 accepted 841
+=== s4 C=2 2026-11-14T18:38:50+00:00 gpu 57,2411MHz [start.sh] Server answered after 51s
+DEC i4-s4-c2 C=2 prose pass0: per-stream med 45.93 min 43.94 agg 91.9 tok/wall 86.9 tokens 1024 rounds 317 drafted 1057 accepted 706
+DEC i4-s4-c2 C=2 code pass0: per-stream med 63.78 min 63.43 agg 127.6 tok/wall 123.6 tokens 1024 rounds 181 drafted 1141 accepted 841
+=== n4 C=2 2026-11-14T18:40:03+00:00 gpu 56,2411MHz [start.sh] Server answered after 52s
+DEC i4-n4-c2 C=2 prose pass0: per-stream med 45.44 min 43.19 agg 90.9 tok/wall 85.4 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC i4-n4-c2 C=2 code pass0: per-stream med 64.15 min 63.54 agg 128.3 tok/wall 125.5 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== n3 C=6 2026-11-14T18:41:17+00:00 gpu 56,2457MHz [start.sh] Server answered after 51s
+DEC i4-n3-c6 C=6 prose pass0: per-stream med 26.17 min 20.52 agg 152.6 tok/wall 135.9 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC i4-n3-c6 C=6 code pass0: per-stream med 37.18 min 32.83 agg 217.8 tok/wall 189.3 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== s3 C=6 2026-11-14T18:42:52+00:00 gpu 57,2411MHz [start.sh] Server answered after 54s
+DEC i4-s3-c6 C=6 prose pass0: per-stream med 26.12 min 20.83 agg 153.1 tok/wall 137.0 tokens 3004 rounds 994 drafted 3080 accepted 2010
+DEC i4-s3-c6 C=6 code pass0: per-stream med 35.14 min 31.56 agg 211.2 tok/wall 184.7 tokens 3072 rounds 590 drafted 3570 accepted 2476
+=== s4 C=6 2026-11-14T18:44:27+00:00 gpu 57,2411MHz [start.sh] Server answered after 55s
+DEC i4-s4-c6 C=6 prose pass0: per-stream med 26.19 min 20.86 agg 153.4 tok/wall 137.2 tokens 3004 rounds 994 drafted 3080 accepted 2010
+DEC i4-s4-c6 C=6 code pass0: per-stream med 35.57 min 31.91 agg 212.2 tok/wall 185.4 tokens 3072 rounds 590 drafted 3570 accepted 2476
+=== n4 C=6 2026-11-14T18:45:59+00:00 gpu 58,2457MHz [start.sh] Server answered after 52s
+DEC i4-n4-c6 C=6 prose pass0: per-stream med 26.09 min 20.63 agg 152.4 tok/wall 135.7 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC i4-n4-c6 C=6 code pass0: per-stream med 37.03 min 32.48 agg 217.1 tok/wall 188.6 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== n3 C=8 2026-11-14T18:47:31+00:00 gpu 58,2444MHz [start.sh] Server answered after 52s
+DEC i4-n3-c8 C=8 prose pass0: per-stream med 21.30 min 16.63 agg 169.9 tok/wall 152.1 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC i4-n3-c8 C=8 code pass0: per-stream med 32.51 min 26.78 agg 251.1 tok/wall 213.4 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== s3 C=8 2026-11-14T18:49:12+00:00 gpu 59,2457MHz [start.sh] Server answered after 54s
+DEC i4-s3-c8 C=8 prose pass0: per-stream med 21.60 min 16.02 agg 170.9 tok/wall 153.2 tokens 3905 rounds 1353 drafted 4034 accepted 2551
+DEC i4-s3-c8 C=8 code pass0: per-stream med 31.15 min 26.55 agg 245.1 tok/wall 208.8 tokens 4096 rounds 808 drafted 4708 accepted 3280
+=== s4 C=8 2026-11-14T18:50:54+00:00 gpu 59,2457MHz [start.sh] Server answered after 55s
+DEC i4-s4-c8 C=8 prose pass0: per-stream med 21.65 min 16.38 agg 171.0 tok/wall 153.5 tokens 3905 rounds 1353 drafted 4034 accepted 2551
+DEC i4-s4-c8 C=8 code pass0: per-stream med 31.19 min 26.26 agg 245.7 tok/wall 209.3 tokens 4096 rounds 808 drafted 4708 accepted 3280
+=== n4 C=8 2026-11-14T18:52:33+00:00 gpu 59,2418MHz [start.sh] Server answered after 52s
+DEC i4-n4-c8 C=8 prose pass0: per-stream med 21.22 min 16.57 agg 169.3 tok/wall 151.5 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC i4-n4-c8 C=8 code pass0: per-stream med 32.07 min 27.11 agg 249.4 tok/wall 212.3 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== restored 2026-11-14T18:54:48+00:00 health 200

@@ -1,0 +1,29 @@
+START rerun 2026-11-14T19:29:23+00:00 base d6c4cce602eef4aff235625a5325bb617a9674ff image umd6c4cce6
+SHA256 c663d05c795ab4bb up-tools-ud/bench_concurrent.py
+SHA256 edf636290c3a63a1 up-tools-ud/bench_openai.py
+SHA256 2345780e4eb62b4d /home/adam/work/target/updraft.sh
+IMAGE umd6c4cce6 3f61419c6425
+=== bench/updraft/M3 2026-11-14T19:29:59+00:00 boot rc 0 gpu 55,2405MHz
+ENV TF_FLASHNEXT_DRAFTS=6| TF_FLASHNEXT_CONFIDENCE=-0.4| 
+RC bench/updraft/M3 conc_t0 0 2026-11-14T19:31:58+00:00 gpu 63,2509MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.5
+LOG [tensorfold] profile: stable; registered overrides: none
+=== bench/updraft/X3 2026-11-14T19:32:33+00:00 boot rc 0 gpu 55,2411MHz
+ENV TF_FLASHNEXT_GREEDY_WIDE=8| TF_FLASHNEXT_CONFIDENCE=-0.4| TF_FLASHNEXT_SHARED_DRAFTS=0| TF_FLASHNEXT_DRAFTS=6| 
+RC bench/updraft/X3 conc_t0 0 2026-11-14T19:34:32+00:00 gpu 61,2496MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.5
+LOG [tensorfold] profile: stable; registered overrides: none
+=== bench/updraft/X4 2026-11-14T19:35:07+00:00 boot rc 0 gpu 55,2444MHz
+ENV TF_FLASHNEXT_DRAFTS=6| TF_FLASHNEXT_CONFIDENCE=-0.4| TF_FLASHNEXT_GREEDY_WIDE=8| TF_FLASHNEXT_SHARED_DRAFTS=0| 
+RC bench/updraft/X4 conc_t0 0 2026-11-14T19:37:06+00:00 gpu 64,2496MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.5
+LOG [tensorfold] profile: stable; registered overrides: none
+=== bench/updraft/M4 2026-11-14T19:37:41+00:00 boot rc 0 gpu 56,2463MHz
+ENV TF_FLASHNEXT_CONFIDENCE=-0.4| TF_FLASHNEXT_DRAFTS=6| 
+RC bench/updraft/M4 conc_t0 0 2026-11-14T19:39:39+00:00 gpu 63,2496MHz
+LOG [tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 72.73 GiB; 4 streams at once, 4.11 GiB each at a 131072-token window, of 28.0 GiB left after a 9.0 GiB reserve; prompts in passes of up to 1536 rows, a 11.6
+LOG [tensorfold] profile: stable; registered overrides: none
+sum15: 88 rows, 16 cells, rerun ['conc_t0'], losses 2
+SUM rc 0 2026-11-14T19:39:40+00:00
+HASHES rc 0 2026-11-14T19:39:40+00:00
+RESTORE prod /health 200 2026-11-14T19:41:06+00:00

@@ -1514,3 +1514,22 @@ is the stack without `HC_Q12`: +2.7% to +5.7% over the defaults in every cell (m
 The full stack is not additive on code at six and eight streams: without the MXFP8 drafter (+4.2% and +3.5%),
 without `HC_Q12` (+2.9% and +2.2%), and at six without `SHARED_DRAFTS=0` or `GREEDY_WIDE=8` (+3.9% each), code runs
 faster there, while `FUSED_SPLIT=1` pays everywhere and `READOUT_FUSE=1` is inert.
+
+Confirmed with two runs an arm in a third window (`fp4conf.sh`: the defaults, the stack without `HC_Q12` and the full
+stack as D N S S N D at each stream count, then the noise rule's rerun at 2, 6 and 8 streams), the stack without
+`HC_Q12` is the recommended FP4 launcher block: faster than the defaults in all ten cells with both runs above both of
+the defaults' (+2.8% to +4.9%, mean +4.1%), every reply's sha equal to the defaults', and one pool page more than the
+defaults at six and eight streams (309 against 308; the full stack 294). Against the full stack it is a trade that
+repeated in the rerun, -1.1% on two-stream prose against +2.0% to +3.1% on six- and eight-stream code, and the full
+stack's 1.02 GiB of 12-bit copies are a capacity cost, so `HC_Q12` stays off. Block and tables:
+`patches/1.2.7/README.md`, "Recommended launcher block (FP4)".
+
+The multi-stream draft setting on upstream main alone (`d6c4cce602`, no patch, NVFP4, bf16 KV at 131,072,
+`--parallel 4`, upstream's own `bench_openai.py` and `bench_concurrent.py --alone --serial`, M1 X1 X2 M2 and the
+rerun): `SHARED_DRAFTS=0 GREEDY_WIDE=8` loses on greedy code at two and four streams (-2.3% and -2.9%, again -2.5% and
+-2.7% in the rerun) while its chains run longer (3.83 to 4.02 accepted a round), is level on greedy chat (+0.9% to
++1.0%), and changes nothing at one stream or at temperature 1.0, where the source (`cuda_lanes_draft.zig:28-37` at
+that sha) applies the alone rule anyway; `GREEDY_WIDE` cannot act on a four-stream boot. Every reply's hash is
+unchanged. So the gain we measured on v1.2.7 plus our patches, with fp8 KV and our harness, does not show on main at
+two and four streams, and on this evidence it is no case for an upstream performance issue (`patches/1.2.7/README.md`,
+"The multi-stream draft setting on upstream main alone").
