@@ -1324,6 +1324,14 @@ code and 9% on prose. In the kernel log on equal bytes the round's engine cost i
 the read-outs (+4.81 ms a round, against the +4.23 above), while our int4 expert and head launches are 2.84 ms
 cheaper than production's.
 
+The drafter measured arm by arm on that image (2026-11-14, `docs/INT4-PORT.md`, "The drafter on production's
+checkpoint"): the drafter's weights and the copy policy do not move acceptance; the stop rule does. Production's
+`TF_FLASHNEXT_CONFIDENCE=-0.15` with a greedy depth of 15 (`TF_FLASHNEXT_DRAFTS_GREEDY=15`) takes ours from 3.92 to
+4.77 tokens a round at one stream (production 4.50), replies unchanged (golden 6/6 identical to production's). One
+stream then runs at 1.00 / 0.97 of production prose / code, so the drafter closes the one-stream gap. From two streams
+up the shared rounds' grant policy sets the chains and the settings leave the counters as they were: ours stays at
+0.78 to 0.89 of production (2.12 / 4.35 tokens a stream round at four streams against production's 2.63 / 5.06).
+
 ## The 4.23 ms by tensor shape: read-out bytes, read-out glue and projections, both stacks (2026-11-13)
 
 The same two decode windows (`bench/ep-o1`, ours, image `v16x`, 236 rounds; `bench/ep-p1`, production, `pdiagx`, 268

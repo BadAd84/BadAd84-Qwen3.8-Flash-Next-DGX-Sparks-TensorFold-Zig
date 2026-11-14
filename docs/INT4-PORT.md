@@ -188,3 +188,68 @@ and the read-outs, +4.81 ms a round here against +4.23 there. Our expert and hea
 same int4 kernels (production also runs its draft head on `int4_kernel`), and production's window spends 4.16 ms a
 round outside its kernels against our 1.74, so the instrumented walls are equal. The served gap at one stream is
 therefore the drafter's tokens a round first and the dense projections and read-outs second.
+
+## The drafter on production's checkpoint (2026-11-14)
+
+Image `int4d`, one fresh boot an arm, spark6. At one stream every arm runs `scripts/qwen38/zig/target/int4/dprobe.py`:
+the six golden prompts (256 tokens) and the decode harness's first prose and code prompts (512 tokens), greedy,
+thinking off, one request at a time, with `decode_rounds_total`, `mtp_drafted_total` and `mtp_accepted_total` read
+from the engine's own `/metrics` around each request (`~/work/int4/bench-dr1`, `bench-dr2`). Every arm starts from
+our defaults (`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`) and changes one thing. All prompts together, 1,521 tokens:
+
+| arm | rounds | drafted a round | accepted a round | tokens a round | prose / code rounds |
+|---|---:|---:|---:|---:|---|
+| ours, defaults (repeat identical) | 388 | 3.55 | 2.93 | 3.92 | 188 / 109 |
+| the drafter's linears as stored (`MTP_WEIGHTS=bf16`) | 389 | 3.56 | 2.92 | 3.91 | 189 / 109 |
+| and the draft head from the int4 head's own rows in BF16 (`DRAFT_HEAD=bf16`) | 390 | 3.49 | 2.91 | 3.90 | 190 / 109 |
+| copy policy `TENSORFOLD_COPY_MISS=keep COPY_RAMP=jump COPY_SHARED=1 COPY_RESYNC=1` | 388 | 3.55 | 2.93 | 3.92 | 188 / 109 |
+| `TF_FLASHNEXT_DRAFTS_GREEDY=15` (production's depth) | 372 | 3.72 | 3.10 | 4.09 | 188 / 104 |
+| `TF_FLASHNEXT_CONFIDENCE=-0.20` | 355 | 4.34 | 3.30 | 4.28 | 168 / 102 |
+| `TF_FLASHNEXT_CONFIDENCE=-0.15` (production's value) | 345 | 4.58 | 3.42 | 4.41 | 164 / 97 |
+| `TF_FLASHNEXT_CONFIDENCE=-0.10` | 330 | 4.88 | 3.62 | 4.61 | 154 / 92 |
+| `CONFIDENCE=-0.15` and `DRAFTS_GREEDY=15` | 319 | 5.03 | 3.78 | **4.77** | 159 / 90 |
+| the four drafter changes together (BF16 linears and head, -0.15, 15) | 321 | 5.01 | 3.75 | 4.74 | 164 / 88 |
+| production, its own launcher | 338 | 4.93 | 3.54 | 4.50 | 155 / 99 |
+
+- The drafter's weights are not the difference: BF16 linears and a draft head made of the int4 head's own rows
+  leave acceptance where it was, and the copy policy is inert. (`DRAFT_HEAD=bf16` together with `MTP_WEIGHTS=mxfp8`
+  fails every request with `FormatMismatch`: the draft head's rows are re-coded to MXFP8 while the drafter loads and
+  then handed to the BF16 proposal head; the pair was run with `MTP_WEIGHTS=bf16`.)
+- The stop rule is: our default `CONFIDENCE=-0.4` (keep drafting while the product of the draft probabilities stays at
+  0.4 or more) cuts chains that this checkpoint's drafter would land; production's -0.15 with a depth of 15 gives ours
+  4.77 tokens a round against production's 4.50. On the FP4 checkpoint the same -0.15 cost 6% on prose (top-10 rows
+  are dearer), so it is a setting of this checkpoint, not a new default for the accepted series.
+- Replies do not move: every arm's token hashes equal the defaults' on all eight prompts, and the golden ones equal
+  production's. The 512-token prose prompt is the one reply where ours and production differ (token hash `ce1e9acf`
+  against `069e7f33`); the code reply and all six golden replies are identical.
+
+At four streams the stop rule and the depth are not what limits a chain: a shared round's depth comes from the lane
+core's grant policy (`zig/src/core/lanes/depth.zig`, `depth_constants.zig`), and the counters do not move
+(`tfm_decode.py`, rounds count each stream's round): defaults 937 / 478 rounds prose / code, 1,341 / 1,825 drafted,
+1,046 / 1,566 accepted; -0.15 gives 934 / 473; -0.15 with depth 15 gives 934 / 471; production takes 738 / 405 with
+1,808 / 2,108 drafted (2.63 / 5.06 tokens a stream round against our 2.11 / 4.28).
+
+### Speed with the drafter settings, against production (`~/work/int4/bench-best`)
+
+Ours: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_CONFIDENCE=-0.15 TF_FLASHNEXT_DRAFTS_GREEDY=15`, with
+`TF_FLASHNEXT_KV_PAGES=4096` at 6 and 8 streams; `+W` adds `TF_FLASHNEXT_GREEDY_WIDE=8`. The baseline (our defaults)
+and production repeated in the same window (00:25 to 00:55 UTC); production's 2, 4, 6 and 8 stream cells are the
+reference table above. Golden with the settings is 6/6 identical to production's, token hashes included.
+
+| streams | ours, drafter settings | ours, defaults | production | settings / production |
+|---:|---|---|---|---|
+| 1 | 71.4 / 125.6 (170 / 73 rounds) | 67.3 / 110.7 (195 / 94) | 71.2 / 129.5 (186 / 81) | 1.00 / 0.97 |
+| 2 | 99.5 / 161.7 (449 / 215) | 93.9 / 156.9 (453 / 214, earlier window) | 119.8 / 180.8 | 0.83 / 0.89 |
+| 4 | 141.7 / 226.5 (934 / 471) | 140.5 / 227.4 (937 / 478) | 165.1 / 259.4, 166.0 / 261.9 | 0.86 / 0.87 |
+| 6 | 175.1 / 277.3; `+W` 178.3 / 285.8 (code 714 to 687 rounds) | 166.2 / 267.7 (earlier window, the same counters) | 210.3 / 328.2 | 0.83 / 0.84; `+W` 0.85 / 0.87 |
+| 8 | 189.0 / 314.8; `+W` 191.9 / 319.0 (code 992 to 963) | 184.7 / 308.4 (earlier window, the same counters) | 242.4 / 380.0 | 0.78 / 0.83; `+W` 0.79 / 0.84 |
+
+So the drafter settings close the one-stream gap: in this window from -5% / -15% (defaults against production) to
+0% / -3%, and against the earlier windows' -13% / -16%. From two streams up they change nothing measurable: the
+counters are the defaults' to within a few rounds, and the faster six and eight stream cells than in the earlier
+window carry identical counters, so that difference is between windows, not the settings. `GREEDY_WIDE=8` buys 3%
+on code at six streams and 1% at eight; its prose counters are unchanged. The remaining 11 to 22% from two to eight
+streams is the shared rounds' chains (2.12 / 4.35 tokens a stream round against production's 2.63 / 5.06 at four
+streams, a 19% / 14% difference) and the round time above. Production's launcher sets a shared-round depth
+(`TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7`); ours grants each stream drafts from what its last shared round landed
+(`draft_slack`, `grant_slack` in `depth_constants.zig`).
