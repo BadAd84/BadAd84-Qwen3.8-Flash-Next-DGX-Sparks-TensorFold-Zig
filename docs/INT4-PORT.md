@@ -223,8 +223,8 @@ our defaults (`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`) and changes one thing. All promp
   production's. The 512-token prose prompt is the one reply where ours and production differ (token hash `ce1e9acf`
   against `069e7f33`); the code reply and all six golden replies are identical.
 
-At four streams the stop rule and the depth are not what limits a chain: a shared round's depth comes from the lane
-core's grant policy (`zig/src/core/lanes/depth.zig`, `depth_constants.zig`), and the counters do not move
+At four streams `CONFIDENCE` and the depth do not reach the chains: in shared rounds greedy chains take their own
+stop rule (next section), and the counters do not move
 (`tfm_decode.py`, rounds count each stream's round): defaults 937 / 478 rounds prose / code, 1,341 / 1,825 drafted,
 1,046 / 1,566 accepted; -0.15 gives 934 / 473; -0.15 with depth 15 gives 934 / 471; production takes 738 / 405 with
 1,808 / 2,108 drafted (2.63 / 5.06 tokens a stream round against our 2.11 / 4.28).
@@ -245,11 +245,34 @@ reference table above. Golden with the settings is 6/6 identical to production's
 | 8 | 189.0 / 314.8; `+W` 191.9 / 319.0 (code 992 to 963) | 184.7 / 308.4 (earlier window, the same counters) | 242.4 / 380.0 | 0.78 / 0.83; `+W` 0.79 / 0.84 |
 
 So the drafter settings close the one-stream gap: in this window from -5% / -15% (defaults against production) to
-0% / -3%, and against the earlier windows' -13% / -16%. From two streams up they change nothing measurable: the
-counters are the defaults' to within a few rounds, and the faster six and eight stream cells than in the earlier
-window carry identical counters, so that difference is between windows, not the settings. `GREEDY_WIDE=8` buys 3%
-on code at six streams and 1% at eight; its prose counters are unchanged. The remaining 11 to 22% from two to eight
-streams is the shared rounds' chains (2.12 / 4.35 tokens a stream round against production's 2.63 / 5.06 at four
-streams, a 19% / 14% difference) and the round time above. Production's launcher sets a shared-round depth
-(`TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7`); ours grants each stream drafts from what its last shared round landed
-(`draft_slack`, `grant_slack` in `depth_constants.zig`).
+0% / -3%, and against the earlier windows' -13% / -16%. From two streams up these two settings alone change nothing
+measurable: the counters are the defaults' to within a few rounds, and the faster six and eight stream cells than in
+the earlier window carry identical counters, so that difference is between windows, not the settings.
+`GREEDY_WIDE=8` buys 3% on code at six streams and 1% at eight; its prose counters are unchanged. At four streams
+the chains were 2.12 / 4.35 tokens a stream round against production's 2.63 / 5.06 (19% / 14% fewer); the next
+section finds the rule that held them.
+
+### The shared rounds' stop rule (`TF_FLASHNEXT_SHARED_DRAFTS=0`) (`~/work/int4/bench-sh`, 2026-11-14)
+
+What held the multi-stream chains is in `cuda_lanes_draft.rule`: while more than one stream is busy, a greedy chain
+takes `shared_stop = 0.6` (every draft at 0.6 or above) instead of the engine's `CONFIDENCE`, unless
+`TF_FLASHNEXT_SHARED_DRAFTS=0`. With it the -0.15 rule holds in shared rounds too. Same image, one fresh boot a cell,
+the full setting set (`MTP_WEIGHTS=mxfp8 CONFIDENCE=-0.15 DRAFTS_GREEDY=15 SHARED_DRAFTS=0`, plus `KV_PAGES=4096` and
+`GREEDY_WIDE=8` at 6 and 8 streams); in-window comparisons without `SHARED_DRAFTS=0` and production at four streams:
+
+| streams | with `SHARED_DRAFTS=0` (rounds) | without it (rounds) | production (rounds) | with it / production |
+|---:|---|---|---|---|
+| 2 | 109.4 / 169.7 (371 / 173) | 99.5 / 161.7 (449 / 215) | 119.8 / 180.8 (354 / 192) | 0.91 / 0.94 |
+| 4 | 151.6 / 239.6 (792 / 373) | 140.9 / 226.9 (934 / 471) | 164.7 / 261.9 (738 / 405) | 0.92 / 0.91 |
+| 6 | 186.1 / 297.1 (1,163 / 541) | 178.3 / 285.8 (1,384 / 687) | 210.3 / 328.2 (1,098 / 596) | 0.88 / 0.91 |
+| 8 | 199.0 / 340.1 (1,556 / 763) | 197.2 / 321.2 (1,842 / 963) | 242.4 / 380.0 (1,468 / 816) | 0.82 / 0.89 |
+
+Every decode reply's sha with `SHARED_DRAFTS=0` equals the one without it at two, four and eight streams, so the
+setting moves rounds only. On code ours now takes fewer rounds than production at two to eight streams; on prose
+still 5 to 7% more.
+
+So the drafter settings close, of the 13 to 24% same-checkpoint gap (in logarithms, against production's averaged
+cells): all of it at one stream on prose and 83% on code; 63% / 56% at two streams, 57% / 52% at four, 48% / 51% at
+six, 28% / 47% at eight. What remains is 0% / -3% at one stream, -9% / -6% at two, -8% / -9% at four, -12% / -9% at
+six and -18% / -11% at eight: at eight streams on prose about a third of it is rounds (6% more than production) and
+the rest the round, whose engine-owned cost the kernel log places in the dense projections and read-outs.

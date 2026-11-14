@@ -1328,9 +1328,13 @@ The drafter measured arm by arm on that image (2026-11-14, `docs/INT4-PORT.md`, 
 checkpoint"): the drafter's weights and the copy policy do not move acceptance; the stop rule does. Production's
 `TF_FLASHNEXT_CONFIDENCE=-0.15` with a greedy depth of 15 (`TF_FLASHNEXT_DRAFTS_GREEDY=15`) takes ours from 3.92 to
 4.77 tokens a round at one stream (production 4.50), replies unchanged (golden 6/6 identical to production's). One
-stream then runs at 1.00 / 0.97 of production prose / code, so the drafter closes the one-stream gap. From two streams
-up the shared rounds' grant policy sets the chains and the settings leave the counters as they were: ours stays at
-0.78 to 0.89 of production (2.12 / 4.35 tokens a stream round at four streams against production's 2.63 / 5.06).
+stream then runs at 1.00 / 0.97 of production prose / code, so the drafter closes the one-stream gap. Above one
+stream a greedy chain takes the shared rounds' own stop rule (0.6 a draft, `cuda_lanes_draft.rule`) unless
+`TF_FLASHNEXT_SHARED_DRAFTS=0`; with it (and `GREEDY_WIDE=8` at six and eight) ours runs at 0.91 / 0.94, 0.92 / 0.91,
+0.88 / 0.91 and 0.82 / 0.89 of production at two, four, six and eight streams, replies unchanged. Of the 13 to 24%
+same-checkpoint gap the drafter settings close all of it on one-stream prose, 83% on one-stream code and 28 to 63%
+from two to eight streams; on code ours now takes fewer rounds than production, on prose still 5 to 7% more, and the
+rest is the round.
 
 ## The 4.23 ms by tensor shape: read-out bytes, read-out glue and projections, both stacks (2026-11-13)
 

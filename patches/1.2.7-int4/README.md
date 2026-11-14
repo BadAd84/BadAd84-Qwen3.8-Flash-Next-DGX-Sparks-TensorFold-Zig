@@ -17,25 +17,24 @@ The recipe's own environment plus:
     TF_FLASHNEXT_MTP_WEIGHTS=mxfp8      # the drafter's BF16 linears on MXFP8 (patch 0014)
     TF_FLASHNEXT_CONFIDENCE=-0.15       # draft while the drafts' probability product stays at 0.15 or more
     TF_FLASHNEXT_DRAFTS_GREEDY=15       # a greedy chain's depth at most
+    TF_FLASHNEXT_SHARED_DRAFTS=0        # shared rounds keep that rule instead of 0.6 a draft
+    TF_FLASHNEXT_GREEDY_WIDE=8          # 6 and 8 streams keep the depth
     TF_FLASHNEXT_KV_PAGES=4096          # 6 and 8 streams at a 262,144-token window with fp8 KV (patch 0015)
 
 Drafts are proposals the verify keeps or rejects, so the settings move rounds, not replies: golden is 6/6 identical
-to production's own serve with them, token hashes included. Aggregate tok/s prose / code, one fresh boot a cell, fp8
-KV, 262,144 tokens (`~/work/int4/bench-best` on spark6):
+to production's own serve with them, token hashes included, and every multi-stream decode reply's sha equals the one
+without `SHARED_DRAFTS=0`. Aggregate tok/s prose / code, one fresh boot a cell, fp8 KV, 262,144 tokens (spark6
+`~/work/int4/bench-best` for one stream, `bench-sh` for two to eight):
 
-| streams | with the settings | recipe defaults | production |
-|---:|---|---|---|
-| 1 | 71.4 / 125.6 | 67.3 / 110.7 | 71.2 / 129.5 |
-| 2 | 99.5 / 161.7 | 93.9 / 156.9 | 119.8 / 180.8 |
-| 4 | 141.7 / 226.5 | 140.5 / 227.4 | 165.1 / 259.4 |
-| 6 | 175.1 / 277.3 | 166.2 / 267.7 | 210.3 / 328.2 |
-| 8 | 189.0 / 314.8 | 184.7 / 308.4 | 242.4 / 380.0 |
+| streams | with the settings | recipe defaults | production | settings / production |
+|---:|---|---|---|---|
+| 1 | 71.4 / 125.6 | 67.3 / 110.7 | 71.2 / 129.5 | 1.00 / 0.97 |
+| 2 | 109.4 / 169.7 | 93.9 / 156.9 | 119.8 / 180.8 | 0.91 / 0.94 |
+| 4 | 151.6 / 239.6 | 140.5 / 227.4 | 164.7 / 261.9 | 0.92 / 0.91 |
+| 6 | 186.1 / 297.1 | 166.2 / 267.7 | 210.3 / 328.2 | 0.88 / 0.91 |
+| 8 | 199.0 / 340.1 | 184.7 / 308.4 | 242.4 / 380.0 | 0.82 / 0.89 |
 
-The settings' column and the one- and four-stream defaults ran in one window (00:25 to 00:55 UTC); the other defaults
-cells (2, 6 and 8 streams, with the same counters as the settings' cells) and production's 2 to 8 stream cells are
-the evening's earlier windows (`bench-int4d`, `bench-int4b`).
-
-The settings act at one stream (tokens a round 3.92 to 4.77 over the probe's prompts, production 4.50); from two
-streams up the shared rounds' grants set the chains and the counters stay the defaults'. `TF_FLASHNEXT_GREEDY_WIDE=8`
-adds 3% on code at six streams and 1% at eight. On the FP4 checkpoint `CONFIDENCE=-0.15` costs 6% on prose, so these
-are settings of this checkpoint only.
+The one-stream cells ran in one window (`bench-best`, 00:25 to 00:55 UTC); the settings' two to eight stream cells
+and production at four streams in another (`bench-sh`, 00:58 to 01:19); the four-stream defaults are `bench-best`'s,
+the other defaults and production cells the evening's earlier windows (`bench-int4d`, `bench-int4b`).
+On the FP4 checkpoint `CONFIDENCE=-0.15` costs 6% on prose, so these are settings of this checkpoint only.
