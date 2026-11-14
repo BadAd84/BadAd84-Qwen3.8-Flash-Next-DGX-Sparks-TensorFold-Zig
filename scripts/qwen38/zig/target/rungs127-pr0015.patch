@@ -1,0 +1,352 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index d18d4145b1..d148c7b8a1 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ ## Unreleased
+ 
++- Flash Next on CUDA: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` re-codes the MTP drafter's BF16 linears to MXFP8 as they load (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes; `checkpoint`, the default, keeps the rows as the checkpoint stores them (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move.
++
+ - Tests: the cluster bring-up test of a stopped peer checks the membership's real promise instead of a two-second wall bound that failed on busy CI runners (#3310).
+ 
+ - Nemotron Omni on CUDA: when an image request's setup fails (more image rows than the budget, or an encoder error), its image rows are now cleared. Before, the next text-only request on the same engine spliced them into its prompt and gave a wrong reply with no error (#2985, for #2943). Thanks to @jishnuvenugopal.
+diff --git a/docs/environment.md b/docs/environment.md
+index 3b7859cc48..a45f5874d5 100644
+--- a/docs/environment.md
++++ b/docs/environment.md
+@@ -87,7 +87,7 @@ Direct family readers also refuse malformed values when called without the serve
+ 
+ ## Flash Next
+ 
+-Flash Next checks these 29 settings when its engine loads, before any device or checkpoint work: a malformed value
++Flash Next checks these 30 settings when its engine loads, before any device or checkpoint work: a malformed value
+ stops the start with the variable, the supplied text and the accepted forms.
+ 
+ | Variable | Accepted explicit value |
+@@ -121,6 +121,7 @@ stops the start with the variable, the supplied text and the accepted forms.
+ | `TF_FLASHNEXT_KV_PAGE_TEST` | Whole page size the kernels take: whole blocks of the indexer's ratio up to the window; unset or blank leaves the plain caches |
+ | `TF_FLASHNEXT_CONFIDENCE` | Finite number, negative values included; default -0.4, the chain's own stop |
+ | `TF_FLASHNEXT_PROMPT` | Exactly `rows` for the rows path; unset or blank keeps the plain path |
++| `TF_FLASHNEXT_MTP_WEIGHTS` | Exactly `checkpoint` or `mxfp8`; unset or blank is `checkpoint`, the MTP drafter's rows as the checkpoint stores them. `mxfp8` re-codes the drafter's BF16 linears to MXFP8 as they load, on CUDA only: on Metal or HIP, or where a drafter linear is stored as anything but BF16, it stops the start naming the setting |
+ 
+ An on-by-default switch keeps the same kernels and bits as off; only the launch count changes.
+ The two row counts and the two draft counts keep their existing clamps after parsing.
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 9f176e5e95..5512c0b3a3 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -232,6 +232,11 @@ pub const Head = struct {
+         errdefer h.norm_e.free();
+         h.norm_h = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(nh));
+         errdefer h.norm_h.free();
++        // the drafter's own weights only: TF_FLASHNEXT_MTP_WEIGHTS names how its BF16 linears are held
++        const weights = try @import("mtp_weights.zig").format();
++        @import("cuda_projection.zig").recode = weights;
++        @import("cuda_projection.zig").recoded = 0;
++        defer @import("cuda_projection.zig").recode = .checkpoint;
+         h.fc_e = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_embedding");
+         errdefer h.fc_e.free();
+         h.fc_h = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_hidden");
+@@ -245,6 +250,9 @@ pub const Head = struct {
+             h.layer = try load.loadLayerAt(gpa, driver, stream, &store, pack_fn, "language_model.mtp.layers.0", false, false);
+         }
+         store.dropStaging(); // the head's experts are on the device
++        // the proposal head carries the checkpoint's own rows through its artifact, so it loads outside the window
++        @import("cuda_projection.zig").recode = .checkpoint;
++        if (weights != .checkpoint) std.log.info("flashnext: TF_FLASHNEXT_MTP_WEIGHTS={s} re-coded {d} MiB of the drafter's BF16 linears", .{ @tagName(weights), @import("cuda_projection.zig").recoded >> 20 });
+         errdefer h.layer.free(gpa);
+         const ids = try draftIds(gpa);
+         defer gpa.free(ids);
+diff --git a/zig/src/families/flashnext/cuda_mtp_mxfp8.zig b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
+new file mode 100644
+index 0000000000..c21e477b22
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
+@@ -0,0 +1,95 @@
++//! TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 re-codes the drafter's BF16 linears to MXFP8 at load; a draft is only a proposal.
++const std = @import("std");
++const core = @import("core");
++const cuda = @import("cuda");
++const projection = @import("cuda_projection.zig");
++
++/// E4M3's largest value: a group's scale brings its largest weight to this or under, so no code saturates.
++const top_code: f32 = 448.0;
++/// The scale's inputs (UE8M0 a 32-input group, 127 is 2^0).
++const group = 32;
++
++fn value(bf16: []const u8, i: usize) f32 {
++    return @bitCast(@as(u32, std.mem.readInt(u16, bf16[i * 2 ..][0..2], .little)) << 16);
++}
++
++/// The least power of two that brings `top` to 448 or under, as the exponent the scale byte stores.
++fn exponentFor(top: f32) i32 {
++    if (!(top > 0) or !std.math.isFinite(top)) return 0;
++    var e: i32 = @intFromFloat(@ceil(@log2(top / top_code)));
++    // the float logarithm may be one off at a power of two: settle it on the exact scaled values
++    while (std.math.ldexp(top, -e) > top_code) e += 1;
++    while (e > -126 and std.math.ldexp(top, -(e - 1)) <= top_code) e -= 1;
++    return std.math.clamp(e, -126, 127);
++}
++
++/// BF16 rows [n, k] as MXFP8: `codes` [n * k] E4M3 and `scales` [n * k / 32] UE8M0, each group at its own scale.
++pub fn encode(bf16: []const u8, n: usize, k: usize, codes: []u8, scales: []u8) void {
++    std.debug.assert(k % group == 0 and bf16.len == n * k * 2 and codes.len == n * k and scales.len == n * k / group);
++    for (0..n * k / group) |g| {
++        const base = g * group;
++        var top: f32 = 0;
++        for (0..group) |i| top = @max(top, @abs(value(bf16, base + i)));
++        const e = exponentFor(top);
++        scales[g] = @intCast(127 + e);
++        for (0..group) |i| codes[base + i] = core.exlr8.codec.e4m3FromF32(std.math.ldexp(value(bf16, base + i), -e));
++    }
++}
++
++/// A BF16 matrix [n, k] uploaded through the MXFP8 projection the mixers of an MXFP8 checkpoint load through.
++pub fn project(gpa: std.mem.Allocator, driver: *const cuda.Driver, bf16: []const u8, n: usize, k: usize) !projection.Projection {
++    if (k % 64 != 0 or bf16.len != n * k * 2) return error.UnexpectedTensor;
++    const codes = try gpa.alloc(u8, n * k);
++    defer gpa.free(codes);
++    const scales = try gpa.alloc(u8, n * k / group);
++    defer gpa.free(scales);
++    encode(bf16, n, k, codes, scales);
++    return projection.mxfp8(gpa, driver, .{ .dtype = .f8_e4m3, .rank = 2, .shape = .{ n, k, 1, 1, 1 }, .bytes = codes }, .{ .dtype = .u8, .rank = 2, .shape = .{ n, k / group, 1, 1, 1 }, .bytes = scales });
++}
++
++test {
++    _ = @import("mtp_weights.zig");
++}
++
++test "a group's scale brings its largest weight under 448 and every code decodes within an eighth of its weight" {
++    const k = 64;
++    var bf16: [2 * k * 2]u8 = undefined;
++    var want: [2 * k]f32 = undefined;
++    for (&want, 0..) |*w, i| {
++        // two rows, groups of very different size: 3e-4 up to 40, both signs, a zero
++        const mag: f32 = if (i % 7 == 0) 0 else std.math.ldexp(@as(f32, 1.0) + @as(f32, @floatFromInt(i % 13)) / 16.0, @as(i32, @intCast(i / group)) * 5 - 12);
++        const bits: u32 = @bitCast(if (i % 3 == 0) -mag else mag);
++        std.mem.writeInt(u16, bf16[i * 2 ..][0..2], @intCast(bits >> 16), .little);
++        w.* = @bitCast(bits & 0xFFFF0000);
++    }
++    var codes: [2 * k]u8 = undefined;
++    var scales: [2 * k / group]u8 = undefined;
++    encode(&bf16, 2, k, &codes, &scales);
++    for (want, codes, 0..) |w, c, i| {
++        const e = @as(i32, scales[i / group]) - 127;
++        const got = std.math.ldexp(core.exlr8.codec.e4m3Value(c), e);
++        try std.testing.expect(@abs(core.exlr8.codec.e4m3Value(c)) <= top_code);
++        try std.testing.expect(@abs(got - w) <= @abs(w) / 8.0 + std.math.ldexp(@as(f32, 1), e - 9));
++    }
++    // the largest weight of every group sits in E4M3's top binade
++    for (0..2 * k / group) |g| {
++        var top: f32 = 0;
++        for (0..group) |i| top = @max(top, @abs(core.exlr8.codec.e4m3Value(codes[g * group + i])));
++        try std.testing.expect(top > top_code / 2 - 32 and top <= top_code);
++    }
++}
++
++test "under mxfp8 a drafter linear stored as anything but BF16 stops the load, and checkpoint keeps every format" {
++    defer projection.recode = .checkpoint;
++    projection.recode = .mxfp8;
++    try projection.recodable("language_model.mtp.fc_embedding", .bf16);
++    try std.testing.expectError(error.InvalidEnvironment, projection.recodable("language_model.mtp.fc_embedding", .f8_e4m3));
++    try std.testing.expectError(error.InvalidEnvironment, projection.recodable("language_model.mtp.fc_hidden", .u32));
++    projection.recode = .checkpoint;
++    try projection.recodable("language_model.mtp.fc_hidden", .u32);
++    // every loader the drafter's window reaches asks before it packs a stored format
++    const load_src = @embedFile("cuda_projection_load.zig");
++    try std.testing.expect(std.mem.count(u8, load_src, "try projection.recodable(prefix, t.dtype);") == 1);
++    try std.testing.expect(std.mem.count(u8, load_src, "try projection.recodable(prefix, first.dtype);") == 1);
++    try std.testing.expect(std.mem.indexOf(u8, @embedFile("cuda_prompt_wt.zig"), "try @import(\"cuda_projection.zig\").recodable(prefix, down_tensor.dtype);") != null);
++}
+diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
+index c0b96adb3b..c07ec54aae 100644
+--- a/zig/src/families/flashnext/cuda_projection.zig
++++ b/zig/src/families/flashnext/cuda_projection.zig
+@@ -23,6 +23,18 @@ pub const Projection = struct {
+     }
+ };
+ 
++/// Set while the drafter's weights load (TF_FLASHNEXT_MTP_WEIGHTS): a BF16 projection is re-coded, not repacked.
++pub var recode: @import("mtp_weights.zig").Format = .checkpoint;
++/// The BF16 bytes the open window re-coded, for the drafter's startup line.
++pub var recoded: usize = 0;
++
++/// Under mxfp8 a drafter linear stored as anything but BF16 stops the load by name rather than loading as stored.
++pub fn recodable(prefix: []const u8, dtype: core.safetensors.DType) !void {
++    if (recode == .checkpoint or dtype == .bf16) return;
++    if (!@import("builtin").is_test) std.log.err("TF_FLASHNEXT_MTP_WEIGHTS=mxfp8: {s} is stored as {s}, and mxfp8 re-codes BF16 linears only; unset it or set checkpoint", .{ prefix, @tagName(dtype) });
++    return error.InvalidEnvironment;
++}
++
+ /// Repack the checkpoint's BF16 bits without rounding or widening the resident weight.
+ pub fn dense(gpa: std.mem.Allocator, driver: *const cuda.Driver, t: core.safetensors.Tensor) !Projection {
+     if (t.rank != 2 or t.dtype != .bf16 or t.dim(0) == 0 or t.dim(1) == 0 or t.dim(1) % 64 != 0)
+@@ -31,6 +43,13 @@ pub fn dense(gpa: std.mem.Allocator, driver: *const cuda.Driver, t: core.safeten
+     const k = t.dim(1);
+     const count = try std.math.mul(usize, n, k);
+     if (t.bytes.len != try std.math.mul(usize, count, 2)) return error.UnexpectedTensor;
++    switch (recode) {
++        .checkpoint => {},
++        .mxfp8 => {
++            recoded += t.bytes.len;
++            return @import("cuda_mtp_mxfp8.zig").project(gpa, driver, t.bytes, n, k);
++        },
++    }
+     const input = try gpa.alloc(u16, count);
+     defer gpa.free(input);
+     for (input, 0..) |*v, i| v.* = std.mem.readInt(u16, t.bytes[i * 2 ..][0..2], .little);
+diff --git a/zig/src/families/flashnext/cuda_projection_load.zig b/zig/src/families/flashnext/cuda_projection_load.zig
+index 90336a2d02..fab2ef30df 100644
+--- a/zig/src/families/flashnext/cuda_projection_load.zig
++++ b/zig/src/families/flashnext/cuda_projection_load.zig
+@@ -73,6 +73,7 @@ fn uploadMicro(a: std.mem.Allocator, d: *const cuda.Driver, value: Micro) !wt.Q4
+ pub fn load(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []const u8, n: usize, k: usize) !wt.Q4 {
+     var buf: [512]u8 = undefined;
+     const t = try store.tensor(try std.fmt.bufPrint(&buf, "{s}.weight", .{prefix}));
++    try projection.recodable(prefix, t.dtype);
+     switch (t.dtype) {
+         .bf16 => {
+             if (!t.is(.bf16, &.{ n, k })) return error.UnexpectedTensor;
+@@ -100,6 +101,7 @@ pub fn loadStitched(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, pre
+     if (names.len == 0) return error.UnexpectedTensor;
+     var buf: [512]u8 = undefined;
+     const first = try store.tensor(try std.fmt.bufPrint(&buf, "{s}{s}.weight", .{ prefix, names[0] }));
++    try projection.recodable(prefix, first.dtype);
+     if (first.dtype == .f8_e4m3) {
+         var value = try readStitched(a, store, prefix, names);
+         defer value.deinit(a);
+diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
+index 423194ba60..506783761e 100644
+--- a/zig/src/families/flashnext/cuda_prompt_wt.zig
++++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
+@@ -476,6 +476,7 @@ pub fn loadHc(gpa: std.mem.Allocator, driver: *cuda.Driver, store: *Store, prefi
+     var buf: [180]u8 = undefined;
+     const down_name = try std.fmt.bufPrint(&buf, "{s}.input_mix_weight_down.weight", .{prefix});
+     const down_tensor = try store.tensor(down_name);
++    try @import("cuda_projection.zig").recodable(prefix, down_tensor.dtype);
+     if (down_tensor.dtype == .bf16) return loadDenseHc(gpa, driver, store, prefix, inject);
+     const down = try join3(gpa, store, &buf, prefix, ".input_mix_weight_down");
+     defer gpa.free(down.w);
+diff --git a/zig/src/families/flashnext/engine_load.zig b/zig/src/families/flashnext/engine_load.zig
+index 793859136f..e2bfa837e6 100644
+--- a/zig/src/families/flashnext/engine_load.zig
++++ b/zig/src/families/flashnext/engine_load.zig
+@@ -47,6 +47,7 @@ pub fn loadConfigured(gpa: Allocator, io: std.Io, model_dir: []const u8, dump_di
+     try @import("env_validate.zig").startup();
+     try window.validate(speed_up != null or platform.c.getenv("TF_FLASHNEXT_TP") != null);
+     try load_admission.check(gpa, io, model_dir);
++    try @import("mtp_weights.zig").refuse("Metal", try @import("mtp_weights.zig").format());
+     const memory = @import("flashnext_memory");
+     const weights = try memory.weightBytes(@import("core").checkpoint_host, gpa, io, model_dir);
+     var inventory = try memory.weights_plan.read(@import("core").checkpoint_host.Checkpoint, @import("core").quant.mlx, gpa, io, model_dir);
+diff --git a/zig/src/families/flashnext/hip/load.zig b/zig/src/families/flashnext/hip/load.zig
+index 1b3d08dadc..4088e85b56 100644
+--- a/zig/src/families/flashnext/hip/load.zig
++++ b/zig/src/families/flashnext/hip/load.zig
+@@ -393,6 +393,7 @@ test "the MTP head's HIP names follow the index's root, so oMLX's top-level mtp.
+ 
+ /// One rank's weights (`rank` null: the whole model) from `ck`; rank 0 also holds the MTP head under `mtp_root`.
+ pub fn load(gpa: Allocator, d: *const hip.Runtime, ck: *core.checkpoint.Checkpoint, c: *const config.Config, rank: ?Rank, act: model.Kind, mtp_root: []const u8) !Weights {
++    try @import("../mtp_weights.zig").refuse("HIP", try @import("../mtp_weights.zig").format());
+     var w: Weights = .{ .gpa = gpa };
+     errdefer w.deinit();
+     const tables: Tables = .{ .ck = ck, .cfg = c };
+diff --git a/zig/src/families/flashnext/mtp_weights.zig b/zig/src/families/flashnext/mtp_weights.zig
+new file mode 100644
+index 0000000000..5366c4aeb1
+--- /dev/null
++++ b/zig/src/families/flashnext/mtp_weights.zig
+@@ -0,0 +1,42 @@
++//! TF_FLASHNEXT_MTP_WEIGHTS: how the MTP drafter holds its BF16 linears; only the CUDA loader re-codes them.
++const std = @import("std");
++const environment = @import("sys").environment;
++
++const name = "TF_FLASHNEXT_MTP_WEIGHTS";
++
++/// How the drafter's linears are held in memory; the order is the setting's accepted words.
++pub const Format = enum { checkpoint, mxfp8 };
++
++/// What an unset or blank TF_FLASHNEXT_MTP_WEIGHTS selects: the rows as the checkpoint stores them.
++pub const default_format: Format = .checkpoint;
++
++/// The setting's text as its reader takes it: unset or blank is the default, anything malformed is refused by name.
++pub fn parse(raw: ?[]const u8) !Format {
++    return @fromBackingInt(@intCast(try environment.value(u1, name, raw, @backingInt(default_format))));
++}
++
++pub fn format() !Format {
++    return @fromBackingInt(@intCast(try environment.read(u1, name, @backingInt(default_format))));
++}
++
++/// A backend with no MXFP8 projection for the drafter stops the start on mxfp8 rather than loading the stored rows.
++pub fn refuse(backend: []const u8, weights: Format) !void {
++    if (weights == .checkpoint) return;
++    if (!@import("builtin").is_test) std.log.err("{s}=mxfp8: Flash Next on {s} has no MXFP8 projection for the drafter; unset it or set checkpoint", .{ name, backend });
++    return error.InvalidEnvironment;
++}
++
++test "unset and blank read checkpoint, the two words read as themselves, and other text is refused" {
++    for ([_]?[]const u8{ null, "", " ", "\t", " \t\r\n" }) |raw| try std.testing.expectEqual(Format.checkpoint, try parse(raw));
++    try std.testing.expectEqual(Format.checkpoint, try parse("checkpoint"));
++    try std.testing.expectEqual(Format.mxfp8, try parse("mxfp8"));
++    for ([_][]const u8{ "MXFP8", "fp8", "1", "mxfp8 ", "bf16", "checkpoints" }) |raw| try std.testing.expectError(error.InvalidEnvironment, parse(raw));
++}
++
++test "Metal and HIP stop the start on mxfp8 and keep checkpoint" {
++    try std.testing.expectError(error.InvalidEnvironment, refuse("Metal", .mxfp8));
++    try refuse("HIP", .checkpoint);
++    // each backend's load asks before its first checkpoint or device work
++    try std.testing.expect(std.mem.indexOf(u8, @embedFile("engine_load.zig"), "try @import(\"mtp_weights.zig\").refuse(\"Metal\", try @import(\"mtp_weights.zig\").format());") != null);
++    try std.testing.expect(std.mem.indexOf(u8, @embedFile("hip/load.zig"), "try @import(\"../mtp_weights.zig\").refuse(\"HIP\", try @import(\"../mtp_weights.zig\").format());") != null);
++}
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 3b90166d1c..cd0043a89e 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -195,6 +195,7 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_KV_PAGE_TEST", .scope = .flashnext, .kind = .size, .forms = "a page size the kernels take, whole blocks of the indexer's ratio up to the window (unset: off)" },
+     .{ .name = "TF_FLASHNEXT_CONFIDENCE", .scope = .flashnext, .kind = .signed_real, .forms = "a finite number (default -0.4)" },
+     .{ .name = "TF_FLASHNEXT_PROMPT", .scope = .flashnext, .kind = .word, .words = &.{"rows"}, .forms = "rows for the rows path (unset or blank keeps the plain path)" },
++    .{ .name = "TF_FLASHNEXT_MTP_WEIGHTS", .scope = .flashnext, .kind = .word, .words = &.{ "checkpoint", "mxfp8" }, .forms = "checkpoint or mxfp8 (unset or blank keeps checkpoint, the rows as stored; mxfp8 re-codes the drafter's BF16 linears on CUDA)" },
+ };
+ 
+ pub fn rule(name: []const u8) Rule {
+diff --git a/zig/src/platform/environment_flashnext_test.zig b/zig/src/platform/environment_flashnext_test.zig
+index 1bfb646a3a..07485d8255 100644
+--- a/zig/src/platform/environment_flashnext_test.zig
++++ b/zig/src/platform/environment_flashnext_test.zig
+@@ -33,13 +33,13 @@ fn check(name: []const u8, raw: []const u8, valid: bool) !void {
+     try t.expect(std.mem.endsWith(u8, why.?, e.rule(name).forms));
+ }
+ 
+-test "Flash Next strict env: the table holds all 29 settings: 20 switches, 7 integers, 1 real, 1 structured" {
++test "Flash Next strict env: the table holds all 30 settings: 20 switches, 7 integers, 1 real, 2 structured" {
+     var counts: [4]usize = @splat(0);
+     for (e.rules) |r| if (r.scope == .flashnext) {
+         try t.expect(std.mem.startsWith(u8, r.name, "TF_FLASHNEXT_"));
+         counts[@backingInt(group(r))] += 1;
+     };
+-    try t.expectEqual([4]usize{ 20, 7, 1, 1 }, counts);
++    try t.expectEqual([4]usize{ 20, 7, 1, 2 }, counts);
+ }
+ 
+ test "Flash Next strict env: unset and blank settings both read as the caller's default" {
+@@ -103,6 +103,17 @@ test "Flash Next strict env: the prompt word keeps rows as a present index and r
+     try t.expect((try e.value(?u64, name, null, null)) == null);
+ }
+ 
++test "Flash Next strict env: the drafter's weights keep checkpoint and mxfp8, read blank as checkpoint, refuse other text" {
++    const name = "TF_FLASHNEXT_MTP_WEIGHTS";
++    try check(name, "checkpoint", true);
++    try check(name, "mxfp8", true);
++    // the words' order is the reader's: checkpoint is 0, its default, and mxfp8 is 1
++    try t.expectEqual(@as(u1, 0), try e.value(u1, name, "checkpoint", 1));
++    try t.expectEqual(@as(u1, 1), try e.value(u1, name, "mxfp8", 0));
++    for ([_]?[]const u8{ null, "", " ", "\t", " \t\r\n" }) |raw| try t.expectEqual(@as(u1, 0), try e.value(u1, name, raw, 0));
++    for ([_][]const u8{ "MXFP8", "fp8", "1", "mxfp8 ", "bf16", "checkpoints" }) |raw| try check(name, raw, false);
++}
++
+ test "Flash Next strict env: the late keep reads unset and blank as null, and 0 and 1 as false and true" {
+     const name = "TF_FLASHNEXT_KEEP_LATE";
+     for ([_]?[]const u8{ null, "", " ", "\t", " \t\r\n" }) |raw|
