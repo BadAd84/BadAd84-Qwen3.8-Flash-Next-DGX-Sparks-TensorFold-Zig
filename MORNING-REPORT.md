@@ -5,6 +5,10 @@ overnight; see section 4.
 
 Last updated: 2026-11-14, after the INT4 port, drafter and multi-stream settings work. Nothing is running now. Nothing is posted anywhere outside our own repo.
 
+## GAME PLAN (owner, 2026-11-14): "submit whatever we can as upstream issues/PRs, that's the entire game plan"
+
+Done: #3162 (issue, accepted in principle) and #3218 (PR, follow-up posted; maintainer's agent will run its own device check). In preparation (agents never publish; each hands back local branches, receipts and DRAFT texts that you approve before anything is posted): `UpDraftHead` (the 4-bit draft head default, our 0007), `UpPromptReadout` (prompt read-out fusion, 0008, -3.5% cold 32k), `UpReadoutLevers` (0016-0019: first whether the 12-bit copy is lossless; lossy formats are banned upstream), `UpInt4Proposal` (a proposal issue only: GPTQ int4 as stored on Flash Next CUDA), plus `Fp4Confirm` part B (SHARED_DRAFTS/GREEDY_WIDE on upstream main alone; both settings already exist upstream). NOT submittable: fp8 KV (0003, 0015: a lossy cache format, banned upstream), flat levers (0001-0006, 0010-0013).
+
 ## 0. WAITING ON YOU (clean list, 2026-11-14; everything else below is status log)
 
 Decisions (none blocks running work):
