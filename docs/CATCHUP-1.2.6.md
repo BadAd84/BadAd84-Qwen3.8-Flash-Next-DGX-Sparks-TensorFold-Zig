@@ -1118,6 +1118,14 @@ stream 60.66 to 61.21 prose and 80.82 to 81.26 code across five configurations, 
 165.6 to 166.3. So the copy policy does not move this workload either, and what fills the wide verify batches is
 still to be named.
 
+Corrected 2026-11-14: these four-stream cells could not have moved. While more than one stream is busy a greedy
+chain stops at the first draft under 0.6 (`cuda_lanes_draft.rule`, `shared_stop`) whatever the price or
+`TF_FLASHNEXT_CONFIDENCE` says, unless `TF_FLASHNEXT_SHARED_DRAFTS=0`. Measured with it lifted on image `rq18` (NVFP4,
+fp8 KV at 262,144, `KV_PAGES=4096` at 6 and 8, `patches/1.2.7/README.md`, "Draft settings on the FP4 checkpoint,
+multi-stream"): `SHARED_DRAFTS=0 GREEDY_WIDE=8` with our -0.4 rule is no slower at any stream count (one stream
+unchanged, two +1.3% / +1.5%, four +0.8% / -0.0%, six +2.3% / +3.9%, eight +1.5% / +5.0%, every reply's sha equal to
+the defaults'), and a looser rule (-0.25, -0.15) loses at every stream count on this checkpoint, so -0.4 stays.
+
 ### The roofline table above measured the BOOT window, not decode (2026-11-13)
 
 `ExpertPass` caught it and the logs confirm it in one count. In our instrumented arm the kernel log's single window

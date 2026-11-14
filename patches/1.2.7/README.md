@@ -146,11 +146,14 @@ prose and code replies; counters are the engine's own `/metrics` (`~/work/target
 `DRAFT_ROW_MS=1.6` once the drafter's own 1.58 ms a row is taken out. Priced, the engine keeps exactly the same
 drafts: one stream 61.18 / 80.50 against 61.48 / 81.61 and 61.16 / 81.25 unpriced with identical counters; four
 streams 113.6 / 166.8 against 113.1 / 166.7 and 112.4 / 166.3, 1,853 drafts against 1,861. A steeper line (`38+3.0`)
-and a flatter one (`38+1.5`) give the same 1,853.
+and a flatter one (`38+1.5`) give the same 1,853. Corrected 2026-11-14: above one stream these runs had the shared
+rounds' own stop rule in force (0.6 a draft, `cuda_lanes_draft.rule`, unless `TF_FLASHNEXT_SHARED_DRAFTS=0`), so
+neither the price nor `CONFIDENCE` could reach a multi-stream chain; the next section measures them with it lifted.
 
 **Our `TF_FLASHNEXT_CONFIDENCE=-0.4` default is the best of four.** At one stream: -0.15 gives 57.97 / 79.31,
 -0.25 gives 61.01 / 80.11, -0.6 gives 59.22 / 82.71, against 61.48 / 81.61. Production runs -0.15, which costs 6%
-on prose here.
+on prose here. (Re-measured at one stream on image `rq18`, fp8 KV at 262,144, 2026-11-14, against the two defaults
+cells' mean: -0.25 gives -2.7% / -1.0% and -0.15 -7.7% / -2.1%; -0.4 still wins at one stream.)
 
 **The copy policy does not move it either.** `TENSORFOLD_COPY_MISS=keep`, `COPY_RAMP=jump`, `COPY_SHARED=1` and
 `COPY_RESYNC=1`, alone and together, at one and four streams: every cell returns the default counters to the digit
@@ -180,14 +183,49 @@ assumed (`~/work/target/bench/gx-*`): at six streams `GREEDY_WIDE=6` gives 146.1
 145.6 / 218.6, both on the same 1,103 rounds, 2,806 drafts and 1,860 accepted as `=8`, because any value at or
 above the round width keeps the chain; at eight streams `=6` returns the default's own counters to the digit
 (1,490 rounds, 3,630 drafts, 2,342 accepted) and the default's speed, because a value below the width shortens
-the chain exactly as the default does. Tightening the stop beside it does not buy the prose back either:
-`=8` with `CONFIDENCE=-0.5` gives 145.4 / 219.1 at six streams and 162.8 / 247.4 at eight. The knob is a two-state
-trade at each width, so taking it is a choice between prose and code, not a tuning problem.
+the chain exactly as the default does. (`=8` with `CONFIDENCE=-0.5` gave 145.4 / 219.1 at six streams and 162.8 /
+247.4 at eight, but that `CONFIDENCE` never reached the chains: above one stream the shared rounds' 0.6 rule held
+them, see the next section.)
 
 Golden is 6/6 identical to stock's at one stream with the knob on and off, and every boot log reads "window
-self-check: 1176 of 2080", so replies are unchanged. It is therefore exact but **not a default**: the rule for this
-series is no regression at any stream count, and the six and eight stream prose cells regress. It is recorded here
-as a setting for a code-heavy multi-stream serve, for the owner to take or leave.
+self-check: 1176 of 2080", so replies are unchanged. On its own it stays **not a default** (the six and eight
+stream prose cells regressed here); together with `TF_FLASHNEXT_SHARED_DRAFTS=0` the prose loss is gone (next
+section).
+
+## Draft settings on the FP4 checkpoint, multi-stream (2026-11-14)
+
+`cuda_lanes_draft.rule`: while more than one stream is busy, a greedy chain stops at the first draft under 0.6
+(`shared_stop`) whatever `TF_FLASHNEXT_CONFIDENCE` says, unless `TF_FLASHNEXT_SHARED_DRAFTS=0`. Measured on image
+`rq18` (0001-0018; 0019 adds only the kernel contract), NVFP4 checkpoint, the recipe's settings, fp8 KV at 262,144,
+`KV_PAGES=4096` at 6 and 8 streams, one fresh boot a cell, one decode pass of 512-token prose and code replies,
+counters from `/metrics` (`scripts/qwen38/zig/target/int4/int4win.sh` with `CKPT=nvfp4`, `fp4sum.py`; spark6
+`~/work/int4/bench-fp4a`, `bench-fp4b`, 01:22 to 02:11 UTC). Aggregate tok/s prose / code, against the defaults
+(each defaults cell run twice; rounds are each stream's rounds, prose / code):
+
+| streams | defaults (repeat) | `SHARED_DRAFTS=0` | `GREEDY_WIDE=8` | both | both, `CONFIDENCE=-0.25` |
+|---:|---|---|---|---|---|
+| 1 | 61.6 / 82.1 (61.7 / 81.7), 142 / 89 rounds | inactive at one stream | inactive | inactive | -0.25: 60.0 / 81.1; -0.15: 56.9 / 80.2 |
+| 2 | 87.4 / 121.8 (85.7 / 120.5), 334 / 191 | 88.2 / 124.0 (87.2 / 122.0), 316 / 177 | inactive | as `SHARED_DRAFTS=0` | 84.6 / 121.9, 302 / 172 |
+| 4 | 114.0 / 166.4 (112.6 / 163.9), 736 / 432 | 114.8 / 166.4 (113.5 / 163.8), 685 / 399 | inactive | as `SHARED_DRAFTS=0` | 109.7 / 164.9, 652 / 383 |
+| 6 | 143.5 / 204.6 (144.2 / 205.5), 1,071 / 666 | 148.4 / 203.9, 988 / 626 | 144.7 / 210.8, 1,063 / 620 | **147.1 / 213.0**, 983 / 578 | 140.3 / 212.3, 932 / 553 |
+| 8 | 160.5 / 234.6 (160.0 / 233.8), 1,457 / 914 | 164.0 / 232.6, 1,355 / 860 | 160.5 / 242.4, 1,448 / 857 | **162.7 / 246.0**, 1,349 / 803 | 155.4 / 239.1, 1,279 / 775 |
+
+- **Exact.** Every decode reply's sha equals the defaults' at the same stream count in every arm (2, 4, 8, 12 and 16
+  replies at 1, 2, 4, 6 and 8 streams), golden is 6/6 identical to the defaults' in every one-stream arm, and every
+  boot log reads "window self-check: 1176 of 2080".
+- **`TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8` with the default `CONFIDENCE=-0.4` is the one setting
+  that is no slower anywhere**, against the defaults' means: one stream unchanged (both switches act only above one
+  stream; `GREEDY_WIDE` only above four), two streams +1.3% / +1.5% (two pairs), four +0.8% / -0.0% (two pairs),
+  six +2.3% / +3.9%, eight +1.5% / +5.0%. The rounds a 512-token reply takes fall 5 to 13%.
+- **A looser stop rule loses on this checkpoint at every stream count**: -0.25 and -0.15 draft more and land more,
+  but a top-10 round's extra rows cost more than the extra tokens buy. Against the defaults' means: one stream -2.7%
+  and -7.7% on prose; two and four streams -2% to -9% on prose and from +0.6% (-0.25 at two streams, 0.9% under
+  `SHARED_DRAFTS=0` alone) to -11% on code; six and eight streams -2.5% / -3.0% on prose with code +3.5% / +2.1%, under
+  the combined setting's +3.9% / +5.0%. No looser rule beats -0.4 at any stream count, so no stream-count gate is
+  needed.
+- `SHARED_DRAFTS=0` alone buys prose at six and eight streams (+3.2% / +2.3%) and costs code a little (-0.6% /
+  -0.7%); `GREEDY_WIDE=8` alone buys code there (+2.8% / +3.5%); together each side keeps its gain. Six and eight
+  stream cells of the combined setting were run once.
 
 ## 0015: fp8 KV on every served stream and in the shared page pool (`TF_FLASHNEXT_KV_PAGES` with fp8) (2026-11-13)
 
