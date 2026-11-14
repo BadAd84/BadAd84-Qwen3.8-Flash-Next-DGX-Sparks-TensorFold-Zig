@@ -446,13 +446,14 @@ Each repeat of ours returned its first run's counters to the digit; production's
   defaults' for both stack runs and the repeat (`fp4stack.py`, and `python3 ~/work/zgold_cmp.py`); every boot log of
   ours reads "window self-check: 1176 of 2080".
 - **Against the defaults the stack is faster in every cell, outside the repeat spread**: each stack run is above both
-  defaults runs in all ten, so no switch had to be dropped. The two defaults runs differ by at most 1.4% at one
-  stream and 0.3% at two to eight, the two stack runs by 1.4% and 0.6%; the closest pair is one-stream prose (62.5
-  against 61.8). At one stream only the MXFP8 drafter and the three read-out switches act: the code counters are
-  unchanged (89 rounds, 422 accepted), so its +3.2% is round time alone, and prose takes 145 rounds against 142 and
-  still gains 2.4%. (0014's +3.8% / +7.6% ran bf16 KV at 131,072 on `v16`, where the MXFP8 drafter also cut code
-  from 89 rounds to 86.) From two streams `SHARED_DRAFTS=0` cuts the rounds by 5 to 7%, and from six
-  `GREEDY_WIDE=8` cuts code's by 11 to 12%.
+  defaults runs in all ten, so no cell called for a switch to be dropped (each is dropped in turn below anyway). The
+  two defaults runs differ by at most 1.4% at one stream and 0.3% at two to eight, the two stack runs by 1.4% and
+  0.6%; the closest pair is one-stream prose (62.5 against 61.8). At one stream only the MXFP8 drafter and the three
+  read-out switches act: the code counters are unchanged (89 rounds, 422 accepted), so its +3.2% is round time
+  alone, and prose takes 145 rounds against 142 and still gains 2.4%. (0014's +3.8% / +7.6% ran bf16 KV at 131,072
+  on `v16`, where the MXFP8 drafter also cut code from 89 rounds to 86.) From two streams the stack takes 5 to 7%
+  fewer rounds, which is `SHARED_DRAFTS=0` (without it they return to about the defaults' at two and four streams),
+  and at six and eight 11 to 12% fewer on code, from both draft switches.
 - **Against production**: -11.3% / -34.5% at one stream, -24.4% / -29.8% at two, -29.0% / -34.7% at four,
   -28.3% / -36.3% at six, -29.9% / -36.5% at eight. Production's second run is slower than its first in every cell,
   by 0.4% to 3.9% (six-stream code 332.9 then 320.0 on the same 596 rounds), where ours repeat within 1.4%. On this
@@ -470,12 +471,52 @@ Each repeat of ours returned its first run's counters to the digit; production's
   positions (4.5%) fewer, and both still boot at 262,144 with `KV_PAGES=4096` ("8 streams at once, the engine's own
   at a 262144-token window (5.04 GiB, in the model's), 7 more taking 294 pages of 4096 rows (21.17 GiB) as they need
   them, 0 MiB fixed each, of 26.3 GiB left after a 9.0 GiB reserve").
-- **The stack does not keep the draft setting's code gain at six and eight streams.** `SHARED_DRAFTS=0
-  GREEDY_WIDE=8` alone, same image and settings, in four runs over three windows (`bench-fp4b`, `bench-fp4c`,
-  `bench-fp4p`, above): six streams 146.9 to 147.6 / 212.2 to 214.1, eight 162.6 to 163.3 / 246.0 to 247.0. The
-  stack: 150.4 to 150.5 / 208.0 to 208.2 and 168.1 to 168.2 / 240.6 to 241.0, so prose +2.3% and +3.3% and code
-  -2.3% at both against those runs' means. The defaults reproduce across those windows within 0.7% (143.7 / 204.1
-  and 143.8 / 204.7 here against 143.5 / 204.6, 144.2 / 205.5 and 143.9 / 205.4; 160.0 / 234.4 twice against
-  160.5 / 234.6, 160.0 / 233.8 and 160.7 / 234.5). The stack's code takes 590 and 808 rounds against 578 and 803, so
-  the MXFP8 drafter's proposals account for at most 2.1% at six and 0.6% at eight; the rest is round time on code's
-  longer rounds.
+- **The stack does not keep the draft setting's code gain at six and eight streams**, and one window shows it:
+  `SHARED_DRAFTS=0 GREEDY_WIDE=8` alone (`t` in the next table, 13:03 to 14:08 UTC) reads 149.4 / 215.8 at six
+  streams and 164.9 / 249.3 at eight, against the stack's 153.9 / 212.1 and 152.8 / 210.7, and 170.5 / 244.5 and
+  170.1 / 244.0 in the same window: prose +2.6% and +3.3%, code -2.0% at both. (Against four runs of the draft
+  setting in `bench-fp4b`, `bench-fp4c` and `bench-fp4p` the stack read -2.3% on code; the afternoon window ran
+  about 2% faster than the morning's for both of our arms at six and eight streams, so only pairs from one window
+  are compared below.)
+
+### One switch dropped at a time (2026-11-14)
+
+`scripts/qwen38/zig/target/int4/fp4drop.sh`, the same settings, one window (spark6 `~/work/fp4stack/drop.log` and
+`drop/`, 13:03 to 14:08 UTC): at each stream count the defaults, the stack, the stack without each switch that acts
+at that stream count in turn, the draft setting alone at six and eight, and the stack again. Aggregate tok/s prose /
+code, then each arm against the mean of the stack's two runs:
+
+| streams | stack (repeat) | defaults | no `MTP_WEIGHTS=mxfp8` | no `HC_Q12=1` | no `FUSED_SPLIT=1` | no `READOUT_FUSE=1` | no `SHARED_DRAFTS=0` | no `GREEDY_WIDE=8` | draft setting alone |
+|---:|---|---|---|---|---|---|---|---|---|
+| 1 | 63.5 / 85.0 (63.7 / 85.0) | 61.3 / 81.2 | 62.9 / 82.4, -1.1% / -3.1% | 63.6 / 85.8, +0.0% / +0.9% | 63.1 / 84.2, -0.8% / -0.9% | 63.6 / 84.7, +0.0% / -0.4% | inactive | inactive | inactive |
+| 2 | 91.4 / 126.4 (91.6 / 126.5) | 87.0 / 121.6 | 89.1 / 125.3, -2.6% / -0.9% | 90.1 / 127.6, -1.5% / +0.9% | 90.9 / 125.5, -0.7% / -0.8% | 91.1 / 126.5, -0.4% / +0.0% | 88.1 / 125.5, -3.7% / -0.8% | inactive | |
+| 4 | 118.7 / 170.1 (118.6 / 170.5) | 113.8 / 165.9 | 116.0 / 166.8, -2.2% / -2.1% | 117.0 / 170.4, -1.4% / +0.1% | 118.1 / 169.0, -0.5% / -0.8% | 118.7 / 170.3, +0.0% / +0.0% | 115.4 / 168.5, -2.7% / -1.1% | inactive | |
+| 6 | 153.9 / 212.1 (152.8 / 210.7) | 145.9 / 207.9 | 151.7 / 220.3, -1.1% / +4.2% | 152.6 / 217.5, -0.5% / +2.9% | 152.0 / 208.8, -0.9% / -1.2% | 153.0 / 210.7, -0.2% / -0.3% | 150.6 / 219.6, -1.8% / +3.9% | 152.9 / 219.7, -0.3% / +3.9% | 149.4 / 215.8, -2.6% / +2.1% |
+| 8 | 170.5 / 244.5 (170.1 / 244.0) | 163.2 / 238.7 | 167.2 / 252.9, -1.8% / +3.5% | 169.3 / 249.6, -0.6% / +2.2% | 168.5 / 241.0, -1.1% / -1.3% | 170.5 / 244.4, +0.1% / +0.1% | 166.9 / 245.0, -2.0% / +0.3% | 170.2 / 240.3, -0.1% / -1.6% | 164.9 / 249.3, -3.2% / +2.1% |
+
+- **Exact.** Every arm's decode replies carry the defaults' shas at every stream count, golden is 6/6 identical to
+  the defaults' for all six one-stream arms (`zgold_cmp.py`), and every boot log reads "window self-check: 1176 of
+  2080". The stack's two runs differ by 0.7% at six streams and at most 0.3% elsewhere.
+- **`FUSED_SPLIT=1` pays everywhere** (0.5% to 1.3% slower without it) and **`READOUT_FUSE=1` is inert in the
+  stack** (-0.4% to +0.1% without it, on the same counters).
+- `SHARED_DRAFTS=0` pays on prose from two streams (1.8% to 3.7% slower without it) and on code at two and four, but
+  costs code at six (+3.9% without it). The MXFP8 drafter pays on prose everywhere and on code at one to four streams
+  (0.9% to 3.1% slower without it), but costs code at six and eight (+4.2% and +3.5% without it). `HC_Q12=1` costs
+  code at six and eight (+2.9% and +2.2% without it), pays on prose at two and four (-1.5% and -1.4% without it) and
+  holds 1.02 GiB. `GREEDY_WIDE=8` costs code at six (+3.9% without it) and pays at eight (-1.6% without it).
+- **Code at six and eight streams is where the stack is not additive.** Six-stream code takes 590 rounds with the
+  stack (6.05 drafted and 4.20 accepted a round), 578 without the MXFP8 drafter (5.98 and 4.30), 582 without
+  `HC_Q12`, and 620 without either draft switch, whose rounds are shorter (5.31 and 5.13 drafted): the arms with more
+  but shorter rounds are faster too, so the stack's six-stream code rounds are longer than they pay for. Without the
+  MXFP8 drafter one-stream code is 3.1% slower on the same 89 rounds, but six-stream code is 4.2% faster on 2.1%
+  fewer rounds, so its rounds there are no cheaper with MXFP8 linears than with BF16 (which points at the drafter's
+  MXFP8 projections at six streams' rows; not measured by kernel).
+- **The best stack with no cell slower than the defaults is the stack without `HC_Q12`:** +2.7% to +5.7% over the
+  defaults in every cell of this window (mean +4.1%; the full stack +1.7% to +5.2%, mean +3.8%), with no 12-bit
+  copies (model 73.21 GiB; 309 pool pages at six and eight streams against the stack's 294 and the defaults' 308).
+  Its cost against the full stack is prose at two and four streams (-1.5% and -1.4%); each dropped arm ran once, and
+  no single drop is faster than the full stack in every cell. Without `GREEDY_WIDE=8` also averages +4.0%, but reads
+  +0.7% on eight-stream code. The setting:
+
+      TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
+      TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8

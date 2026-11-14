@@ -1505,5 +1505,12 @@ runs faster than its own target table on this harness (one-stream code 128.2 aga
 the earlier comparisons against that table: -11% / -35% at one stream, and -24% to -30% prose and -30% to -37% code
 at two to eight streams, against an engine whose checkpoint routes 5 experts a token to our 10 ("The production
 target is a different model configuration" above). Counters, memory (the 12-bit copies cost the 6- and 8-stream pool
-14 of its 308 pages) and the comparison with the draft setting alone, whose code the stack trails by 2.3% at six and
-eight streams, are in `patches/1.2.7/README.md`, "The FP4 stack against production".
+14 of its 308 pages) and the comparison with the draft setting alone, whose code the stack trails by 2.0% at six and
+eight streams in the same window, are in `patches/1.2.7/README.md`, "The FP4 stack against production".
+
+Dropped one switch at a time in a second window (`fp4drop.sh`), the best stack with no cell slower than the defaults
+is the stack without `HC_Q12`: +2.7% to +5.7% over the defaults in every cell (mean +4.1%; the full stack +1.7% to
+5.2%, mean +3.8%), with no 12-bit copies, at -1.5% and -1.4% prose against the full stack at two and four streams.
+The full stack is not additive on code at six and eight streams: without the MXFP8 drafter (+4.2% and +3.5%),
+without `HC_Q12` (+2.9% and +2.2%), and at six without `SHARED_DRAFTS=0` or `GREEDY_WIDE=8` (+3.9% each), code runs
+faster there, while `FUSED_SPLIT=1` pays everywhere and `READOUT_FUSE=1` is inert.
