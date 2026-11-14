@@ -7,6 +7,8 @@ Last updated: 2026-11-14, after the INT4 port, drafter and multi-stream settings
 
 ## GAME PLAN (owner, 2026-11-14): "submit whatever we can as upstream issues/PRs, that's the entire game plan"
 
+**Issue #3392 POSTED (with your approval):** the prompt read-out fusion, `TF_FLASHNEXT_READOUT_FUSED=1`: cold prompts 3.0% to 3.7% faster, replies equal main's, default off. Branch `flashnext-readout-fused` is pushed to the fork (plain push). The PR itself waits for the kernel-contract GPU run and your approval of its text.
+
 **#3218 round 4 POSTED (with your approval):** the maintainer's last item was HIP refusing before any device work. Branch pushed (`cc6fb6b`, plain push, 9 commits, MERGEABLE), comment issuecomment-6885063528, body refreshed. I put the HIP refusal in the backend's flag-refusal hook (`refusal` in `hip/native.zig`), not at the top of `check` as he asked, because `ready` opens a HIP runtime before Flash Next's `open` runs, so `check` is already too late; the comment explains it with file:line references. Waiting on his reply.
 
 **#3218 round 3 POSTED (with your approval):** the branch is pushed (`8b5a008`, a plain push, no force; it carries one merge commit of main `2ba55ec`), the reply comment is up (issuecomment-6882229170) and the body is refreshed; the PR is MERGEABLE. Still waiting on the maintainer. **The reply on #3368 is POSTED** (issuecomment-6882308637: licence facts, agreement with (b) and his order, the `affine4` reason).
