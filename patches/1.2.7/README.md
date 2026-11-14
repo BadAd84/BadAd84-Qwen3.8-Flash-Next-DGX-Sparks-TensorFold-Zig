@@ -224,8 +224,10 @@ counters from `/metrics` (`scripts/qwen38/zig/target/int4/int4win.sh` with `CKPT
   the combined setting's +3.9% / +5.0%. No looser rule beats -0.4 at any stream count, so no stream-count gate is
   needed.
 - `SHARED_DRAFTS=0` alone buys prose at six and eight streams (+3.2% / +2.3%) and costs code a little (-0.6% /
-  -0.7%); `GREEDY_WIDE=8` alone buys code there (+2.8% / +3.5%); together each side keeps its gain. Six and eight
-  stream cells of the combined setting were run once.
+  -0.7%); `GREEDY_WIDE=8` alone buys code there (+2.8% / +3.5%); together each side keeps its gain. The combined
+  setting's six and eight stream cells were repeated against the defaults in a second window (`bench-fp4c`, 02:13 to
+  02:21 UTC): six streams 147.6 / 214.1 against 143.9 / 205.4 (+2.6% / +4.2%), eight 163.3 / 247.0 against
+  160.7 / 234.5 (+1.6% / +5.3%), the counters the same as the first window's to the digit.
 
 ## 0015: fp8 KV on every served stream and in the shared page pool (`TF_FLASHNEXT_KV_PAGES` with fp8) (2026-11-13)
 
