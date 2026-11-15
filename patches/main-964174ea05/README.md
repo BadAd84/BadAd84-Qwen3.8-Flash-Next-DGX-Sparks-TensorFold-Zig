@@ -50,3 +50,33 @@ row for this base is in `docs/RESTACK-main-964174ea05.md`.
 The rest of the 1.2.7 measurements - the draft settings on the FP4 checkpoint, the one-switch-at-a-time drop table,
 and the stack against production at 1, 2, 4, 6 and 8 streams - are in `patches/1.2.7/README.md`; they are not
 re-measured here beyond the table this base gets.
+
+## Measured on this base (2026-11-15, spark6)
+
+One decode pass of 512-token prose and code replies a cell, one fresh boot a cell, aggregate tok/s, golden 6/6
+identical in every cell (`~/work/restack/win2`, images `um96` upstream main alone, `rs96` this package, `rq7` the
+1.2.7 package).
+
+**This base against upstream main alone, bf16 KV at 131,072** (upstream main refuses `--kv-cache fp8` for this
+family, so the like-for-like arm is bf16):
+
+| streams | um96 | rs96 | rs96 against um96 |
+|---:|---|---|---|
+| 1 | 52.1 / 73.2 | 64.6 / 88.8 | +24.0% / +21.3% |
+| 2 | 80.8 / 108.6 | 90.9 / 130.1 | +12.5% / +19.8% |
+| 4 | 106.4 / 155.2 | 116.8 / 177.6 | +9.8% / +14.4% |
+
+**This base against the 1.2.7 package, fp8 KV at 262,144** (the production setting, `KV_PAGES=4096` at 6 and 8):
+
+| streams | rs96 | rq7 | rs96 against rq7 | counters (rounds / drafted / accepted) |
+|---:|---|---|---|---|
+| 1 | 63.7 / 85.3 | 63.9 / 85.4 | -0.3% / -0.1% | identical, 143/574/369 and 88/628/423 |
+| 2 | 89.6 / 127.0 | 90.1 / 126.4 | -0.6% / +0.5% | identical, 321/1089/702 and 177/1169/845 |
+| 4 | 117.2 / 170.1 | 116.8 / 169.3 | +0.3% / +0.5% | identical, 697/2092/1285 and 400/2384/1644 |
+| 6 | 151.5 / 216.5 | 150.5 / 214.7 | +0.7% / +0.8% | identical, 994/3160/2010 and 582/3534/2484 |
+| 8 | 169.2 / 249.8 | 167.1 / 247.1 | +1.3% / +1.1% | identical, 1356/4128/2546 and 802/4646/3286 |
+
+Every `rs96` and `rq7` boot logs "window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths
+1-64)". One run an arm, so no cell meets the noise rule's two-runs condition for a slowdown; the counters are the
+same to the digit in every pair, which is the stronger statement: the two stacks do the same work. **No patch is
+retired**, so no cell was run with one dropped.

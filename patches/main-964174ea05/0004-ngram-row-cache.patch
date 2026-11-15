@@ -331,7 +331,7 @@ index bfe367798b..cff8b4f4b3 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_mtp_nonfinite_more_test.zig b/zig/src/families/flashnext/cuda_mtp_nonfinite_more_test.zig
-index f6f05e0d77..dbdce96d9f 100644
+index f6f05e0d77..8d377ebf2f 100644
 --- a/zig/src/families/flashnext/cuda_mtp_nonfinite_more_test.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_nonfinite_more_test.zig
 @@ -67,7 +67,7 @@ test "Flash Next nonfinite: draftMany drives two lanes through the actual shared
@@ -352,6 +352,15 @@ index f6f05e0d77..dbdce96d9f 100644
      try t.expectEqual(@as(usize, 2), calls);
      try t.expectEqual(@as(usize, 2), D.best_calls);
      try t.expectEqual(@as(usize, 0), second.n);
+@@ -320,7 +320,7 @@ test "Flash Next batch draws: four draft steps preserve eight serial chains and
+         h.draw_batch.on = side == 1;
+         D.reset();
+         calls = 0;
+-        try ops.draftMany(flow, &refs, &nexts, &rows, &@as([8]usize, @splat(4)), &positions, &sms, &@as([8]f64, @splat(0)), &outs);
++        try ops.draftMany(flow, &refs, &nexts, &rows, &@as([8]usize, @splat(4)), &positions, &sms, &@as([8]f64, @splat(0)), &outs, null);
+         try t.expectEqual(@as(usize, 4), calls);
+         for (outs) |out| try t.expectEqual(@as(usize, 4), out.n);
+         if (side == 1) {
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
 index daa897c7d5..f5f9811a17 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
