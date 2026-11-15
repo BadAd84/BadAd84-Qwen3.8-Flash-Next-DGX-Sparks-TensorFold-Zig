@@ -69,6 +69,6 @@ posted or pushed by this re-seat. Verified read-only on 2026-11-15: both PRs are
 - `zig build compile-config-server -Dtarget=aarch64-linux-gnu` (Zig 0.17.0, Windows): see
   `docs/RESTACK-main-964174ea05.md` for the run and its result.
 - `scripts/check-patch-packages.sh`: `RECORD.md`, `SHA256SUMS` and the hashes.
-- `zig build test-cuda-host` on spark6 (aarch64): the base fails 2 inherited DeepSeek-V4.1 encoder fixtures; this
-  package adds 2 failures and a leak in 0004's row-cache tests (`cuda_ple_cache_test.zig:17`,
-  `cuda_ple_nvfp4_test.zig:171`). **0004 is open on this base**; details in `docs/RESTACK-main-964174ea05.md`.
+- `zig build test-cuda-host` on spark6 (aarch64, every `TF_`/`TENSORFOLD_` variable unset): 2 failures, the same two
+  DeepSeek-V4.1 encoder fixtures the pristine base fails; no failure is ours (details in
+  `docs/RESTACK-main-964174ea05.md`).

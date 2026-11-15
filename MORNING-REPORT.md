@@ -7,7 +7,7 @@ Last updated: 2026-11-15 13:30 UTC, the stack re-seated onto upstream main `9641
 
 - **Restack done and gated:** `patches/main-964174ea05/` (19 patches) applies on `964174ea05` in order, the applied tree is byte-identical to the staged one, the aarch64 type-check is rc 0 (1021 s; the base's own is rc 0, 856 s) and 89/89 revert findings are the 1.2.7 set. **No patch is retired: upstream absorbed none** (per-patch evidence in its `RECORD.md`); 0014 (#3218) and 0008 (#3413) are still OPEN upstream.
 - **INT4 port** re-seated as `patches/main-964174ea05-int4/` (text only, not built or served on this base); two hunks decided, both in its `RECORD.md`.
-- **Measured (spark6, 15:09-15:34 UTC):** against upstream main alone the stack is +9.8% to +24.0% (bf16, 1-4 streams); against the 1.2.7 stack it is level at 1-8 streams with identical counters; golden 6/6 everywhere. **But the host suite on spark6 shows 0004 (row cache) failing 2 tests and leaking on this base** (2 more failures are inherited from main); 0004 needs a real re-seat before the package is green. Images removed, production /health 200.
+- **Measured (spark6, 15:09-15:34 UTC):** against upstream main alone the stack is +9.8% to +24.0% (bf16, 1-4 streams); against the 1.2.7 stack it is level at 1-8 streams with identical counters; golden 6/6 everywhere. Host suite on spark6 with the serve's variables unset: only the 2 DeepSeek fixtures main itself fails. Images removed, production /health 200.
 - Everything below is the 2026-11-14 state and still stands except where this block says otherwise.
 
 Last updated: 2026-11-14, after the INT4 port, drafter and multi-stream settings work. Nothing is running now. Nothing is posted anywhere outside our own repo.

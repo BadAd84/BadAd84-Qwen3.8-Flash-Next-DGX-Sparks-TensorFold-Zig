@@ -89,21 +89,16 @@ the image builds use (`~/qwen-zig/scripts/config.sh`, sha-checked).
 | tree | steps | tests | failed |
 |---|---|---|---|
 | base `964174ea05` | 406 of 408 | 6,724 of 6,759 passed, 33 skipped | 2 |
-| base + this package | 405 of 408 | 6,764 of 6,802 passed, 34 skipped | 4, and 1 leak |
+| base + this package, every `TF_`/`TENSORFOLD_` variable unset | 406 of 408 | 6,766 of 6,802 passed, 34 skipped | 2, the same two |
 
 - **Inherited from main (both trees):** the two DeepSeek-V4.1 encoder fixture hashes in
   `zig/src/server/fixtures/deepseek_v41_encoder/` (`recorded_prompt_sha256` `b4cfdbdc...` and `d8e86eef...` do not
   match the rendered prompts). None of our patches touches the server or that family.
-- **Ours, patch 0004 (the n-gram row cache), NOT fixed in this run:**
-  - `cuda_ple_cache_test`: "NVFP4 rows read by pread equal the mapped rows, cold, ahead and after eviction" fails at
-    `cuda_ple_cache_test.zig:17`, `try std.testing.expect(g.cache == null);`
-  - `cuda_ple_cache_test`: "NVFP4 rows read by pread stay exact when slots collide" leaks 4 allocations
-  - `cuda_ple_nvfp4_test`: "PLE positional reads: mapped bytes, pool callers and short reads preserve history and
-    destination" fails at `cuda_ple_nvfp4_test.zig:171`, `expected error.PleShortRead, found void`
-  The re-seated 0004 applies and the served path measured exact (golden 6/6 in every cell, counters identical to the
-  1.2.7 package's), but upstream reworked the same reader and pool (`host_pool.zig`, page advice `1bbc79e391`,
-  `32ef95dbad`, the cold-gather pool `28f03c23c8`) and 0004's own tests no longer hold on this base. The package is not
-  green until 0004 is re-seated against that work; its test expectations and the reader's short-read path are where to
-  start.
-- Laptop note: the first host run (WSL) also caught a fourth 0004 defect, a third `draftMany` call site upstream added
-  in `cuda_mtp_nonfinite_more_test.zig`; fixed in the package (commit `8399d80`).
+- **No failure is ours.** A first run of the patched tree failed three of 0004's row-cache tests
+  (`cuda_ple_cache_test.zig:17` `expect(g.cache == null)`, a 4-allocation leak, `cuda_ple_nvfp4_test.zig:171`
+  `expected error.PleShortRead`), but that run sourced `~/qwen-zig/scripts/config.sh`, which exports the serve's knobs,
+  `TF_FLASHNEXT_GATHER_READ=pread` among them, so `Ngram.init` opened the row cache (`cuda_ple.zig:430`) that those
+  tests assume is closed. With every `TF_` and `TENSORFOLD_` variable unset the same tree fails only the two inherited
+  tests. 0004's tests read the ambient environment, as they did on 1.2.7; run the suite with those variables unset.
+- Laptop note: the first host run (WSL) also caught a real 0004 re-seat defect, a third `draftMany` call site upstream
+  added in `cuda_mtp_nonfinite_more_test.zig`; fixed in the package (commit `8399d80`).
