@@ -7,6 +7,8 @@ Last updated: 2026-11-14, after the INT4 port, drafter and multi-stream settings
 
 ## GAME PLAN (owner, 2026-11-14): "submit whatever we can as upstream issues/PRs, that's the entire game plan"
 
+**Delegation rule (your 2026-11-15 instruction):** new sub-agents are `ds41-direct` (DeepSeek V4.1 Flash direct) with specific briefs; Anthropic models only review and take hard escalations. The four running lanes (`Int4Port`, `UpDraftHead`, `UpFusedSplit`, `UpPromptReadout`) were started as Opus and finish as they are.
+
 **PR #3413 OPENED (with your approval):** `TF_FLASHNEXT_READOUT_FUSED` prompt read-out fusion, on current main `41a72fd257`: cold prompts 8k to 64k 2.8% to 3.5% faster, 2k level, 0 of 19 cells slower, replies equal main's, kernel contract passes. I also posted a correction on #3392 (its first table came from the older main; 2k is level on the newer one). Small follow-up in progress: the CHANGELOG line and pin notes should name the PR (#3413), not the issue.
 
 **Issue #3392 POSTED (with your approval):** the prompt read-out fusion, `TF_FLASHNEXT_READOUT_FUSED=1`: cold prompts 3.0% to 3.7% faster, replies equal main's, default off. Branch `flashnext-readout-fused` is pushed to the fork (plain push). The PR itself waits for the kernel-contract GPU run and your approval of its text.
