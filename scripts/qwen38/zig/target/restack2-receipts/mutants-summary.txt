@@ -1,0 +1,18 @@
+zig 0.17.0, 19 patches
+== unmutated rc=1 Build Summary: 406/408 steps succeeded (1 failed); 6767/6803 tests passed (34 skipped, 2 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+slot-test lines: 0
+== M1 rc=1 Build Summary: 404/408 steps succeeded (3 failed); 4558/4581 tests passed (19 skipped, 4 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'cuda_disk_test.test.kept states written to disk read back byte-equal after a restart, sharing blocks; a cut or flipped file is refused' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+slot-test lines: 2
+== M2 rc=1 Build Summary: 405/408 steps succeeded (2 failed); 4025/4049 tests passed (21 skipped, 2 failed, 1 crashed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+slot-test lines: 2
+== M3 rc=1 Build Summary: 405/408 steps succeeded (2 failed); 2599/2612 tests passed (10 skipped, 3 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+slot-test lines: 2

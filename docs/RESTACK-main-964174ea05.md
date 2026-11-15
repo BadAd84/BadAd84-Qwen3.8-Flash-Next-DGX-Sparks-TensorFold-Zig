@@ -174,6 +174,12 @@ own local cache so every test runs again. "clean" has no `TF_` or `TENSORFOLD_` 
   would shift a 64-bit hash by 64). `slotsFor` now rounds to two slots at the fewest and saturates an overflowing MiB
   count, `create` refuses fewer than two, and the rule's text says two. New test: "the row cache's address space is a
   power of two of slots, two at the fewest".
+- **The new slot test is load-bearing** (`restack2-mutants.sh`, spark6, clean shell; receipts
+  `restack2-receipts/mutants-summary.txt`): unmutated, the package fails only main's two; M1, the old rounding, fails
+  it ("expected 2, found 0" at `cuda_ple_cache_test.zig:123`); M2, `create` without its two-slot guard, crashes it
+  (`std.math.isPowerOfTwo` asserts); M3, the MiB count shifted instead of saturated, fails its saturation check. The
+  M1 run also failed `cuda_disk_test` "kept states written to disk read back byte-equal after a restart" once; it
+  passed in the unmutated, M2 and M3 runs and is not 0004's, and it was not looked into further.
 - The served path is unchanged: the same `init`, `fill`, `row` and read-ahead code. `deinit` now joins the prompt
   read-ahead and closes the cache before it stops the gather pool rather than after; both are idle at that point.
 - Laptop note: the first host run (WSL) also caught a real 0004 re-seat defect, a third `draftMany` call site upstream
