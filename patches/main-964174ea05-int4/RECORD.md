@@ -39,6 +39,12 @@
 
 - `patches/main-964174ea05-int4/apply.sh --check`: `the series and the INT4 patch apply on
   964174ea05879e6dde1de1198a3aae3ef8b46a3b in order (nothing written)`.
+- `zig build compile-config-server` natively on spark6 (aarch64, Zig 0.17.0, the image builds' toolchain) on the
+  series plus this patch: rc 0 in 235 s. The first cut of this patch (commit `b20ef9b`) was wrong: it was taken with an
+  unrestricted `git diff --cached` against the series stage, so besides the port it reverted every other series path
+  and deleted the series' new files, and only `apply.sh --check` passed. It is regenerated restricted to the port's
+  26 paths (1,949 lines); their added and removed lines are identical to `patches/1.2.7-int4` except
+  `cuda_fp8_experts_load.zig`, the resolution above.
 - **NOT built into an image or served on this base.** The receipts in `docs/INT4-PORT.md` (boot, golden 6/6 against
   production's own serve, the speed table at 1, 2, 4, 6 and 8 streams, the kernel-log comparison) are the 1.2.7
   package's, image `int4d`. This re-seat is the text only; a boot and a golden comparison on this base are the next

@@ -8,7 +8,7 @@ routing width is a build-time constant and the config check refuses the FP4 chec
     ./apply.sh --check TREE     # both series apply, nothing written
     ./apply.sh TREE             # apply them
 
-STATUS: re-seated on 2026-11-15 against `964174ea05` and NOT yet built into an image or served; the receipts in
+STATUS: re-seated on 2026-11-15 against `964174ea05`; `compile-config-server` passes on spark6 (rc 0), but it is NOT yet built into an image or served; the receipts in
 `docs/INT4-PORT.md` are the 1.2.7 series' (`patches/1.2.7-int4`, image `int4d`). Two hunks needed a decision, both
 recorded in `RECORD.md`: the BF16-expert recode stays beside upstream's shared block-FP8 reader, and the scratch
 estimate keeps upstream's extra slot row.

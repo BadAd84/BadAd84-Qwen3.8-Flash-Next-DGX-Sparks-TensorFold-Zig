@@ -1,7 +1,7 @@
 # Serving production's INT4-AutoRound checkpoint on our engine (experimental, 2026-11-13)
 
 **Re-seated 2026-11-15 onto upstream main `964174ea05`** as `patches/main-964174ea05-int4/` (on top of
-`patches/main-964174ea05`), text only: not yet built into an image or served on that base, so every number below is
+`patches/main-964174ea05`), and `compile-config-server` passes on spark6, but it is not yet built into an image or served on that base, so every number below is
 the v1.2.7 package's (image `int4d`). Two hunks needed a decision - the BF16-expert recode stays in front of
 upstream's shared block-FP8 reader (#2892, `1bc80c5f78`) and the scratch estimate keeps upstream's extra slot row -
 both recorded in that package's `RECORD.md`.
