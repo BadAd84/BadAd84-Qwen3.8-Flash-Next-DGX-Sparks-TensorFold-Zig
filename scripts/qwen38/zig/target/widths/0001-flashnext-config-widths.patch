@@ -1,0 +1,888 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index a6c4c73290..88a3ebfd53 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -2,6 +2,10 @@
+ 
+ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 release notes](RELEASE-NOTES-1.0.0.md) for the native binary's supported models and migration details.
+ 
++## Unreleased
++
++- Flash Next on CUDA: the routing width and the shared expert's width come from the checkpoint's `config.json` (`num_experts_per_tok`, `shared_expert_intermediate_size`): top-10 with a 640-wide shared expert as before, or top-5 with a 1280-wide one; any other value is refused by the field's name, as is a captured kernel set with the top-5 shape (#3368).
++
+ ## 1.2.9
+ 
+ - Tests: the sessions writes test on real files does the same coverage with 40 requests at half the token sizes, so it no longer times out on busy CI runners (#3347).
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index bd1b87e63f..7edb56c872 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -29,7 +29,6 @@ const low = wt.low;
+ const eps = wt.eps;
+ const vocab = wt.vocab;
+ const experts_n = wt.experts_n;
+-const slots = wt.slots;
+ const moe_w = wt.moe_w;
+ const tile = wt.tile;
+ const head_dim = wt.head_dim;
+@@ -180,9 +179,9 @@ pub fn Pass(comptime Tri: type) type {
+                 try self.tri.hcWriteback(h, h, pss, s.moe_f32 + r0 * dims * 4, "*fp32", inj, dummy, "*bf16", dummy, "*bf16", rs, n, dims, streams, 4, 1, 1, 1);
+                 return;
+             }
+-            const y = s.y + r0 * slots * dims * 4;
+-            const wts = s.wts + r0 * slots * 4;
+-            try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, 10, 11, 1);
++            const y = s.y + r0 * s.slots * dims * 4;
++            const wts = s.wts + r0 * s.slots * 4;
++            try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, s.slots - 1, s.slots, 1);
+         }
+ 
+         /// A read-out over rows [r0, r0 + n) of the streams: mixed and its group sums, and the inject gates.
+@@ -440,10 +439,10 @@ pub fn Pass(comptime Tri: type) type {
+         pub fn moeBlockKeep(self: *Self, lw: *const Layer, keep: LayerKeep) !void {
+             const s = self.s;
+             const n = self.rows;
+-            const pairs = n * slots;
++            const pairs = n * s.slots;
+             try self.copy(keep.moe_x, s.mixed, n * dims * 2);
+             try self.tri.routerMany(s.mixed, lw.router.ptr, s.router_l, dims, n);
+-            try self.tri.topkMany(s.router_l, s.picks, s.wts, n);
++            try self.tri.topkMany(s.router_l, s.picks, s.wts, n, s.slots);
+             try self.copy(keep.moe_ids, s.picks, pairs * 4);
+             try self.copy(keep.moe_wts, s.wts, pairs * 4);
+             const e = experts_n + 1;
+@@ -453,13 +452,13 @@ pub fn Pass(comptime Tri: type) type {
+                 // prompt rows on 64-pair factored tiles, expert_rows' bits
+                 try self.k.router.route(self.stream, s.picks, pairs, e, tk.fexp_tile, plan);
+                 const items64 = cdiv(pairs, tk.fexp_tile) + e;
+-                try tiles.experts(self.stream, self.k.tiles.fexp_up, 2, s.mixed, dims, slots, lw.experts_up.ptr, dims / 32, moe_w / 32, plan, s.moe_act, moe_w, items64);
++                try tiles.experts(self.stream, self.k.tiles.fexp_up, 2, s.mixed, dims, s.slots, lw.experts_up.ptr, dims / 32, moe_w / 32, plan, s.moe_act, moe_w, items64);
+                 try tiles.experts(self.stream, self.k.tiles.fexp_down, 4, s.moe_act, moe_w, 0, lw.experts_down.ptr, moe_w / 32, dims / 32, plan, s.y, dims, items64);
+                 return;
+             }
+             try self.k.router.route(self.stream, s.picks, pairs, e, rows_tile, plan);
+             const items = cdiv(pairs, rows_tile) + e;
+-            try self.k.moe.run(self.stream, true, s.mixed, dims, slots, lw.experts_up.ptr, dims / 32, moe_w / 32, plan, s.moe_act, moe_w, items);
++            try self.k.moe.run(self.stream, true, s.mixed, dims, s.slots, lw.experts_up.ptr, dims / 32, moe_w / 32, plan, s.moe_act, moe_w, items);
+             try self.k.moe.run(self.stream, false, s.moe_act, moe_w, 0, lw.experts_down.ptr, moe_w / 32, dims / 32, plan, s.y, dims, items);
+         }
+ 
+diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
+index a6ff78fef8..b59d795a58 100644
+--- a/zig/src/families/flashnext/cuda_batch_hc.zig
++++ b/zig/src/families/flashnext/cuda_batch_hc.zig
+@@ -7,7 +7,6 @@ const dims = wt.dims;
+ const streams = wt.streams;
+ const wide = wt.wide;
+ const low = wt.low;
+-const slots = wt.slots;
+ const eps = wt.eps;
+ const pss_n = (dims / 256) * streams;
+ 
+@@ -39,9 +38,9 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+         pass.pending_f32 = false;
+         return pass.tri.hcWritebackNorm(h, h, pss, s.moe_f32 + r0 * dims * 4, inj, dummy, dummy, scale, norm, eps, rs, n, dims, streams, 4, 1, 1, 1);
+     }
+-    const y = s.y + r0 * slots * dims * 4;
+-    const wts = s.wts + r0 * slots * 4;
+-    try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, 10, 11, 1);
++    const y = s.y + r0 * s.slots * dims * 4;
++    const wts = s.wts + r0 * s.slots * 4;
++    try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, s.slots - 1, s.slots, 1);
+ }
+ 
+ /// A native read-out over rows [r0, r0 + n) whose normed rows are in: down, act and gates, up, the mix.
+diff --git a/zig/src/families/flashnext/cuda_batch_head.zig b/zig/src/families/flashnext/cuda_batch_head.zig
+index a20a788bb4..56cdd84079 100644
+--- a/zig/src/families/flashnext/cuda_batch_head.zig
++++ b/zig/src/families/flashnext/cuda_batch_head.zig
+@@ -7,7 +7,6 @@ const HcKeep = batch.HcKeep;
+ const dims = wt.dims;
+ const wide = wt.wide;
+ const streams = wt.streams;
+-const slots = wt.slots;
+ const vocab = wt.vocab;
+ const pss_n = batch.pss_n;
+ pub fn head(self: anytype, logits_host: ?[]u8) !void {
+@@ -59,8 +58,8 @@ pub fn head(self: anytype, logits_host: ?[]u8) !void {
+                 try self.copy(s.h, s.h + r * wide * 2, wide * 2);
+                 try self.copy(s.pss, s.pss + r * pss_n * 4, pss_n * 4);
+                 try self.copy(s.inj, s.inj + r * streams * 2, streams * 2);
+-                try self.copy(s.y, s.y + r * slots * dims * 4, slots * dims * 4);
+-                try self.copy(s.wts, s.wts + r * slots * 4, slots * 4);
++                try self.copy(s.y, s.y + r * s.slots * dims * 4, s.slots * dims * 4);
++                try self.copy(s.wts, s.wts + r * s.slots * 4, s.slots * 4);
+                 if (self.pending_f32) try self.copy(s.moe_f32, s.moe_f32 + r * dims * 4, dims * 4);
+             }
+             if (self.hooks.streams == 0) try self.writeback(0, 1);
+diff --git a/zig/src/families/flashnext/cuda_batch_moe.zig b/zig/src/families/flashnext/cuda_batch_moe.zig
+index 992607e5f8..847288d20f 100644
+--- a/zig/src/families/flashnext/cuda_batch_moe.zig
++++ b/zig/src/families/flashnext/cuda_batch_moe.zig
+@@ -4,7 +4,6 @@ const wt = @import("cuda_prompt_wt.zig");
+ const batch = @import("cuda_batch.zig");
+ const LayerKeep = batch.LayerKeep;
+ const dims = wt.dims;
+-const slots = wt.slots;
+ 
+ /// After a layer's experts, when something adds to or keeps its output: the slots' fp32 sum, adds, kept branch.
+ pub fn moeAdds(self: anytype, layer: usize, keep: LayerKeep) !void {
+@@ -23,10 +22,10 @@ pub fn moeAdds(self: anytype, layer: usize, keep: LayerKeep) !void {
+ pub fn sumSlots(self: anytype, r0: usize, rows: usize) !void {
+     const s = self.s;
+     var a: cuda.Args = .{};
+-    a.add(s.y + r0 * slots * dims * 4);
+-    a.add(s.wts + r0 * slots * 4);
++    a.add(s.y + r0 * s.slots * dims * 4);
++    a.add(s.wts + r0 * s.slots * 4);
+     a.add(s.moe_f32 + r0 * dims * 4);
+     a.add(batch.cint(dims));
+-    a.add(batch.cint(slots));
++    a.add(batch.cint(s.slots));
+     try cuda.launch.launch(self.k.moe_sum, .{ .grid = .{ .x = @intCast(rows), .y = dims / 256 }, .block = .{ .x = 256 } }, self.stream, &a);
+ }
+diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
+index 282557604a..7043f96c48 100644
+--- a/zig/src/families/flashnext/cuda_batch_side.zig
++++ b/zig/src/families/flashnext/cuda_batch_side.zig
+@@ -4,8 +4,6 @@ const cuda = @import("cuda");
+ const wt = @import("cuda_prompt_wt.zig");
+ 
+ const dims = wt.dims;
+-const slots = wt.slots;
+-const moe_w = wt.moe_w;
+ 
+ /// On by default: its slot rows of y are apart from the routed experts', so the bits match; =0 runs it after them.
+ pub fn on() bool {
+@@ -40,7 +38,7 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
+     const glue = pass.tri.own orelse return error.NativeGlueRequired;
+     try pass.k.nativeMatmul(st, s.mixed, dims, n, native.shared[0].native.?, s.shared_gate, s.native_part, .bf16);
+     try pass.k.nativeMatmul(st, s.mixed, dims, n, native.shared[1].native.?, s.shared_up, s.native_part, .bf16);
+-    try glue.sharedSwiGLU(st, s.shared_gate, s.shared_up, s.shared_act, n, moe_w);
++    try glue.sharedSwiGLU(st, s.shared_gate, s.shared_up, s.shared_act, n, native.shared_width);
+     try down(pass, st, s.shared_act, native, n);
+ }
+ 
+@@ -48,11 +46,11 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
+ pub fn down(pass: anytype, st: cuda.Stream, input: u64, native: anytype, n: usize) !void {
+     const s = pass.s;
+     const w = native.shared[2].native.?;
+-    if (w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, moe_w, slots * dims))
+-        return pass.k.native_lane.matmulF32Strided(st, input, moe_w, n, w, s.y + (slots - 1) * dims * 4, slots * dims);
++    if (w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, native.shared_width, s.slots * dims))
++        return pass.k.native_lane.matmulF32Strided(st, input, native.shared_width, n, w, s.y + (s.slots - 1) * dims * 4, s.slots * dims);
+     const glue = pass.tri.own orelse return error.NativeGlueRequired;
+-    try pass.k.nativeMatmul(st, input, moe_w, n, w, s.shared_out, s.native_part, .f32);
+-    try glue.sharedScatter(st, s.shared_out, s.y, n, dims, slots);
++    try pass.k.nativeMatmul(st, input, native.shared_width, n, w, s.shared_out, s.native_part, .f32);
++    try glue.sharedScatter(st, s.shared_out, s.y, n, dims, s.slots);
+ }
+ 
+ /// After y is cleared: the shared expert forked onto the side stream (one GPU, not a prompt fill), or null.
+diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
+index 959ced3b65..89a77394d2 100644
+--- a/zig/src/families/flashnext/cuda_batch_state.zig
++++ b/zig/src/families/flashnext/cuda_batch_state.zig
+@@ -239,6 +239,9 @@ const partRows = sizes.partRows;
+ /// Device scratch for chunks of up to `cap` rows.
+ pub const Scratch = struct {
+     cap: usize,
++    /// A row's expert slots (the checkpoint's top-k and the shared one) and the widest shared expert it holds.
++    slots: usize = slots,
++    shared_w: usize = moe_w,
+     /// The shared expert's stream (cuda_batch_side.zig); null: it runs after the routed experts on the pass's stream.
+     side: ?shared.Side = null,
+     bufs: std.ArrayList(cuda.DeviceBuffer) = .empty,
+@@ -378,7 +381,7 @@ pub const Scratch = struct {
+     /// Bytes `alloc(cap)` takes on the device.
+     pub fn bytes(cap: usize, z: Sizes) usize {
+         const head_rows = z.head_rows;
+-        const pairs = cap * slots;
++        const pairs = cap * z.slots;
+         const nblk = cdiv(pairs, plan_small);
+         const items = cdiv(pairs, tile) + experts_n + 1;
+         var n: usize = 0;
+@@ -392,8 +395,8 @@ pub const Scratch = struct {
+         n += att_rows * nch * q_heads * (head_dim + 2) * 4 + cap * out_k * 2 * 2 + cap * (out_k / 32) * 4;
+         n += fused_rows * (idw + 2) * 4 + lanes_bytes;
+         n += cap * (experts_n + 1) * 4 + pairs * 4 * 2 + pairs * 4 + items * 3 * 4 + 8 + pairs * 4 + nblk * (experts_n + 1) * 4 + pairs * 4;
+-        n += cap * moe_w * 6 + cap * dims * 4;
+-        n += pairs * moe_w * 2 + (pairs + slots) * dims * 4 + cap * dims * 2;
++        n += cap * z.shared * 6 + cap * dims * 4;
++        n += pairs * moe_w * 2 + (pairs + z.slots) * dims * 4 + cap * dims * 2;
+         n += cap * dims * 2 + cap * (dims / 32) * 4 + cap * wide * 2 + cap * dims * 2 + 4 * cap * dims * 4;
+         n += cap * wide * 2 * 2 + cap * streams * 4 + vocab * 2 + head_rows * vocab + half * 4 + 4096;
+         n += (cap + 1) * dims * 4 + cap * pocket_stride * 4;
+@@ -403,12 +406,12 @@ pub const Scratch = struct {
+ 
+     pub fn alloc(gpa: std.mem.Allocator, d: *const cuda.Driver, stream: cuda.Stream, cap: usize, z: Sizes) !Scratch {
+         const head_rows = z.head_rows;
+-        var s: Scratch = .{ .cap = cap, .head_rows = head_rows };
++        var s: Scratch = .{ .cap = cap, .head_rows = head_rows, .slots = z.slots, .shared_w = z.shared };
+         errdefer {
+             cuda.completion.drain(d, stream, "Flash Next scratch work did not drain before rollback");
+             s.free(gpa);
+         }
+-        const pairs = cap * slots;
++        const pairs = cap * z.slots;
+         const nblk = cdiv(pairs, plan_small);
+         const items = cdiv(pairs, tile) + experts_n + 1;
+         s.ids = try s.add(gpa, d, cap * 4);
+@@ -464,12 +467,12 @@ pub const Scratch = struct {
+         s.counts = try s.add(gpa, d, 8);
+         s.rank = try s.add(gpa, d, pairs * 4);
+         s.hist = try s.add(gpa, d, nblk * (experts_n + 1) * 4);
+-        s.shared_gate = try s.add(gpa, d, cap * moe_w * 2);
+-        s.shared_up = try s.add(gpa, d, cap * moe_w * 2);
+-        s.shared_act = try s.add(gpa, d, cap * moe_w * 2);
++        s.shared_gate = try s.add(gpa, d, cap * z.shared * 2);
++        s.shared_up = try s.add(gpa, d, cap * z.shared * 2);
++        s.shared_act = try s.add(gpa, d, cap * z.shared * 2);
+         s.shared_out = try s.add(gpa, d, cap * dims * 4);
+         s.moe_act = try s.add(gpa, d, pairs * moe_w * 2);
+-        s.y = try s.add(gpa, d, (pairs + slots) * dims * 4); // a spare row: the exchange's odd-row pad
++        s.y = try s.add(gpa, d, (pairs + z.slots) * dims * 4); // a spare row: the exchange's odd-row pad
+         s.branch = try s.add(gpa, d, cap * dims * 2);
+         s.moe_f32 = try s.add(gpa, d, (cap + 1) * dims * 4);
+         s.pocket_act = try s.add(gpa, d, cap * pocket_stride * 4);
+diff --git a/zig/src/families/flashnext/cuda_config.zig b/zig/src/families/flashnext/cuda_config.zig
+index 1054083b32..782bb6e196 100644
+--- a/zig/src/families/flashnext/cuda_config.zig
++++ b/zig/src/families/flashnext/cuda_config.zig
+@@ -3,6 +3,7 @@
+ const std = @import("std");
+ const wt = @import("cuda_prompt_wt.zig");
+ const gdn = @import("cuda_gdn.zig");
++const widths = @import("cuda_widths.zig");
+ 
+ /// One config field and the value the kernels and buffers assume.
+ const Want = struct { name: []const u8, value: i64 };
+@@ -17,9 +18,7 @@ const shapes = [_]Want{
+     .{ .name = "num_key_value_heads", .value = wt.kv_heads },
+     .{ .name = "head_dim", .value = wt.head_dim },
+     .{ .name = "num_experts", .value = wt.experts_n },
+-    .{ .name = "num_experts_per_tok", .value = wt.slots - 1 },
+     .{ .name = "moe_intermediate_size", .value = wt.moe_w },
+-    .{ .name = "shared_expert_intermediate_size", .value = wt.moe_w },
+     .{ .name = "hc_count", .value = wt.streams },
+     .{ .name = "hc_lowrank", .value = wt.low },
+     .{ .name = "linear_num_key_heads", .value = gdn.nk },
+@@ -97,16 +96,24 @@ pub fn mismatch(text: std.json.ObjectMap, quant: ?std.json.ObjectMap) ?[]const u
+     if (int(q, "bits") != 4) return "quantization.bits";
+     if (int(q, "group_size") != 32) return "quantization.group_size";
+     if (q.get("mode")) |m| if (m != .string or !std.mem.eql(u8, m.string, "affine")) return "quantization.mode";
+-    return geometry(text);
++    if (geometry(text)) |field| return field;
++    // the MLX path's experts and captured kernels route top-10 with a 640-wide shared expert only
++    return if (widthsOf(text).widths.isDefault()) null else "num_experts_per_tok";
++}
++
++/// The routing and shared widths `text` names: a supported shape, or the field whose value has none.
++pub fn widthsOf(text: std.json.ObjectMap) widths.Selected {
++    return widths.select(int(text, "num_experts_per_tok"), int(text, "shared_expert_intermediate_size"), int(text, learned_key) orelse 0);
+ }
+ 
+ fn geometry(text: std.json.ObjectMap) ?[]const u8 {
+     // a folder Living Weights taught widens the shared expert by its pocket (a whole number of groups, 128 at most)
+     const learned = int(text, learned_key) orelse 0;
+     if (learned < 0 or learned > 128 or @mod(learned, 32) != 0) return learned_key;
+-    for (shapes) |w| {
+-        const want = if (std.mem.eql(u8, w.name, "shared_expert_intermediate_size")) w.value + learned else w.value;
+-        if (int(text, w.name) != want) return w.name;
++    for (shapes) |w| if (int(text, w.name) != w.value) return w.name;
++    switch (widthsOf(text)) {
++        .field => |field| return field,
++        .widths => {},
+     }
+     return semantics(text);
+ }
+@@ -200,32 +207,67 @@ fn rope(text: std.json.ObjectMap) ?[]const u8 {
+ 
+ /// Reads `dir`/config.json; error.UnsupportedCheckpoint names the field in a log line when one differs.
+ pub fn check(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !void {
+-    _ = try mode(gpa, io, dir);
++    _ = try read(gpa, io, dir);
+ }
+ 
+ pub fn mode(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !Mode {
+-    const path = try std.fs.path.join(gpa, &.{ dir, "config.json" });
+-    defer gpa.free(path);
+-    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 24));
+-    defer gpa.free(bytes);
+-    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{});
++    return (try read(gpa, io, dir)).mode;
++}
++
++/// What a checked config.json selects: the quantization's mode and the routing and shared widths.
++pub const Checked = struct { mode: Mode, widths: widths.Widths };
++
++pub fn read(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !Checked {
++    const parsed = try parse(gpa, io, dir);
+     defer parsed.deinit();
+-    if (parsed.value != .object) return error.UnsupportedCheckpoint;
+     const root = parsed.value.object;
+-    const text = if (root.get("text_config")) |v| (if (v == .object) v.object else root) else root;
++    const text = textOf(root);
+     const quant = if (root.get("quantization")) |v| (if (v == .object) v.object else null) else null;
+     const selected: Mode = if (quant != null) .affine else .modelopt;
+     var field = if (selected == .affine) mismatch(text, quant) else if (object(root, "quantization_config")) |q| modeloptMismatch(text, q) else "quantization";
+     if (field == null) if (given(root, "tie_word_embeddings")) |v| if (!holds(v, .{ .flag = false })) {
+         field = "tie_word_embeddings";
+     };
+-    std.log.err("flashnext: config.json's {s} differs from the supported Flash Next CUDA layout", .{field orelse return selected});
++    if (field == null) return .{ .mode = selected, .widths = widthsOf(text).widths };
++    std.log.err("flashnext: config.json's {s} differs from the supported Flash Next CUDA layout", .{field.?});
+     return error.UnsupportedCheckpoint;
+ }
+ 
++/// The routing and shared widths `dir`/config.json selects; a width outside the supported list is refused by name.
++pub fn widthsIn(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !widths.Widths {
++    const parsed = try parse(gpa, io, dir);
++    defer parsed.deinit();
++    switch (widthsOf(textOf(parsed.value.object))) {
++        .widths => |w| return w,
++        .field => |field| {
++            std.log.err("flashnext: config.json's {s} differs from the supported Flash Next CUDA layout", .{field});
++            return error.UnsupportedCheckpoint;
++        },
++    }
++}
++
++fn parse(gpa: std.mem.Allocator, io: std.Io, dir: []const u8) !std.json.Parsed(std.json.Value) {
++    const path = try std.fs.path.join(gpa, &.{ dir, "config.json" });
++    defer gpa.free(path);
++    const bytes = try std.Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(1 << 24));
++    defer gpa.free(bytes);
++    const parsed = try std.json.parseFromSlice(std.json.Value, gpa, bytes, .{});
++    if (parsed.value != .object) {
++        parsed.deinit();
++        return error.UnsupportedCheckpoint;
++    }
++    return parsed;
++}
++
++fn textOf(root: std.json.ObjectMap) std.json.ObjectMap {
++    return if (root.get("text_config")) |v| (if (v == .object) v.object else root) else root;
++}
++
+ /// The served config's text fields, as the checked-in checkpoint has them (a test's base to change one at a time).
+ fn served(gpa: std.mem.Allocator, text: *std.json.ObjectMap, rope_params: *std.json.ObjectMap, mtp: *std.json.ObjectMap, kinds: *std.json.Array, ple: *std.json.Array) !void {
+     for (shapes) |w| try text.put(gpa, w.name, .{ .integer = w.value });
++    try text.put(gpa, "num_experts_per_tok", .{ .integer = @intCast(widths.default.top_k) });
++    try text.put(gpa, "shared_expert_intermediate_size", .{ .integer = @intCast(widths.default.shared) });
+     try text.put(gpa, "rms_norm_eps", .{ .float = 1e-06 });
+     try text.put(gpa, "output_gate_type", .{ .string = "sigmoid" });
+     try text.put(gpa, "hidden_act", .{ .string = "silu" });
+@@ -268,6 +310,31 @@ test "the served shapes pass and a 6-bit checkpoint or another width is named" {
+     try std.testing.expectEqualStrings("quantization", mismatch(text, null).?);
+ }
+ 
++test "a top-5 config with a 1280-wide shared expert selects that shape, and the MLX path refuses it by name" {
++    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
++    defer arena.deinit();
++    const gpa = arena.allocator();
++    var text: std.json.ObjectMap = .empty;
++    var rope_params: std.json.ObjectMap = .empty;
++    var mtp: std.json.ObjectMap = .empty;
++    var kinds: std.json.Array = .init(gpa);
++    var ple: std.json.Array = .init(gpa);
++    try served(gpa, &text, &rope_params, &mtp, &kinds, &ple);
++    try std.testing.expectEqual(widths.default, widthsOf(text).widths);
++    try text.put(gpa, "num_experts_per_tok", .{ .integer = 5 });
++    try text.put(gpa, "shared_expert_intermediate_size", .{ .integer = 1280 });
++    try std.testing.expectEqual(@as(?[]const u8, null), geometry(text));
++    try std.testing.expectEqual(widths.Widths{ .top_k = 5, .shared = 1280 }, widthsOf(text).widths);
++    var quant: std.json.ObjectMap = .empty;
++    try quant.put(gpa, "bits", .{ .integer = 4 });
++    try quant.put(gpa, "group_size", .{ .integer = 32 });
++    try std.testing.expectEqualStrings("num_experts_per_tok", mismatch(text, quant).?);
++    try text.put(gpa, "shared_expert_intermediate_size", .{ .integer = 640 });
++    try std.testing.expectEqualStrings("shared_expert_intermediate_size", geometry(text).?);
++    try text.put(gpa, "num_experts_per_tok", .{ .integer = 8 });
++    try std.testing.expectEqualStrings("num_experts_per_tok", geometry(text).?);
++}
++
+ test "a taught folder's wider shared expert passes with its pocket's count, and not without it" {
+     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+     defer arena.deinit();
+@@ -478,3 +545,7 @@ fn addMxfp8(a: std.mem.Allocator, entries: *std.json.ObjectMap, layer: usize, pr
+     const name = try std.fmt.allocPrint(a, "model.language_model.layers.{d}.{s}.{s}", .{ layer, prefix, part });
+     try entries.put(a, name, .{ .object = p });
+ }
++
++test {
++    _ = @import("cuda_widths.zig");
++}
+diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
+index 9a1b01c41f..764aea34ac 100644
+--- a/zig/src/families/flashnext/cuda_glue.zig
++++ b/zig/src/families/flashnext/cuda_glue.zig
+@@ -537,9 +537,9 @@ pub const Glue = struct {
+         try g.route.logits(s, x, x_stride, w, out, rows, wt.dims, wt.experts_n + 1);
+     }
+ 
+-    /// Each row's ten experts and the shared one: picks and weights [rows, 11] (core route rows).
+-    pub fn topkMany(g: *const Glue, s: cuda.Stream, logits: u64, pick: u64, wts: u64, rows: usize) !void {
+-        try g.route.topk(s, logits, wt.experts_n + 1, wt.experts_n, wt.slots - 1, pick, wts, wt.slots, rows, true);
++    /// Each row's top-k experts and the shared one: picks and weights [rows, slots] (core route rows).
++    pub fn topkMany(g: *const Glue, s: cuda.Stream, logits: u64, pick: u64, wts: u64, rows: usize, slots: usize) !void {
++        try g.route.topk(s, logits, wt.experts_n + 1, wt.experts_n, slots - 1, pick, wts, slots, rows, true);
+     }
+ };
+ 
+diff --git a/zig/src/families/flashnext/cuda_lanes_load.zig b/zig/src/families/flashnext/cuda_lanes_load.zig
+index 1e53ebfafb..825bd05084 100644
+--- a/zig/src/families/flashnext/cuda_lanes_load.zig
++++ b/zig/src/families/flashnext/cuda_lanes_load.zig
+@@ -22,7 +22,12 @@ pub fn open(comptime F: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const cu
+     // refused before the stream, the glue or a captured set loads: the largest pass, wider at --parallel 1 on one rank
+     const chunk = try @import("cuda_chunk.zig").soloRows(try prompt.chunkRows(), o.one_stream and o.tp == 1);
+     _ = try @import("cuda_modelopt_threads.zig").configured(); // TF_FLASHNEXT_LOAD_THREADS, refused before any load
+-    const mode = try config.mode(gpa, io, dir);
++    const checked = try config.read(gpa, io, dir);
++    const mode = checked.mode;
++    if (captured != null and !@import("cuda_widths.zig").capturedServes(checked.widths)) {
++        std.log.err("flashnext: config.json's num_experts_per_tok is {d}; a captured kernel set routes top-10 only", .{checked.widths.top_k});
++        return error.FlashNextWidthsOnCapturedGlue;
++    }
+     if (o.tp != 1 and mode != .modelopt) return error.FlashNextRanksNeedModelopt;
+     if (o.tp != 1 and captured != null) return error.FlashNextRanksOnCapturedGlue;
+     // the decode graph captures each layer's collectives; the dense split adds its own until a later stage qualifies it
+diff --git a/zig/src/families/flashnext/cuda_launch.zig b/zig/src/families/flashnext/cuda_launch.zig
+index 061d30ddfe..045d259bd4 100644
+--- a/zig/src/families/flashnext/cuda_launch.zig
++++ b/zig/src/families/flashnext/cuda_launch.zig
+@@ -419,12 +419,13 @@ pub const Tri = struct {
+ 
+     /// moe._topk_rows: one program, the row's 10 experts and the shared expert.
+     pub fn topkRows(t: Tri, logits: u64, pick: u64, wts: u64) !void {
+-        try t.topkMany(logits, pick, wts, 1);
++        try t.topkMany(logits, pick, wts, 1, @import("cuda_widths.zig").default.slots());
+     }
+ 
+-    /// moe._topk_rows over `rows` rows of [rows, 513] logits: picks and weights [rows, 11].
+-    pub fn topkMany(t: Tri, logits: u64, pick: u64, wts: u64, rows: usize) !void {
+-        if (t.glue("_topk_rows")) |g| return g.topkMany(t.s, logits, pick, wts, rows);
++    /// moe._topk_rows over `rows` rows of [rows, 513] logits: picks and weights [rows, slots]; a captured set takes 11.
++    pub fn topkMany(t: Tri, logits: u64, pick: u64, wts: u64, rows: usize, slots: usize) !void {
++        if (t.glue("_topk_rows")) |g| return g.topkMany(t.s, logits, pick, wts, rows, slots);
++        if (slots != @import("cuda_widths.zig").default.slots()) return error.CapturedSetTopK;
+         try t.run("_topk_rows", .{ u(rows), 1, 1 }, &.{
+             p("L", "*fp32", logits),
+             p("PICK", "*i32", pick),
+diff --git a/zig/src/families/flashnext/cuda_mixed_experts.zig b/zig/src/families/flashnext/cuda_mixed_experts.zig
+index bf6efb0f1f..ab151d7e43 100644
+--- a/zig/src/families/flashnext/cuda_mixed_experts.zig
++++ b/zig/src/families/flashnext/cuda_mixed_experts.zig
+@@ -11,6 +11,8 @@ pub const Owned = struct {
+     rank: usize,
+     world: usize,
+     split_shared: bool = false,
++    /// The shared expert's intermediate width: its gate_proj's rows (cuda_widths.zig's supported shared widths).
++    shared_width: usize = wt.moe_w,
+ 
+     pub fn free(self: *Owned) void {
+         self.experts.free();
+@@ -23,16 +25,22 @@ pub fn load(a: std.mem.Allocator, d: *cuda.Driver, store: *wt.Store, prefix: []c
+     errdefer e.free();
+     var shared: [3]wt.Q4 = @splat(wt.Q4.empty(d));
+     errdefer for (&shared) |*p| p.free();
++    var buf: [256]u8 = undefined;
++    const gate = try std.fmt.bufPrint(&buf, "{s}.shared_expert.gate_proj.weight", .{prefix});
++    const width = (try store.tensor(gate)).dim(0);
++    if (!@import("cuda_widths.zig").sharedSupported(width)) {
++        std.log.err("flashnext: {s} has {d} rows; the supported shared expert widths are 640 and 1280", .{ gate, width });
++        return error.UnexpectedTensor;
++    }
+     // The shared branch participates exactly once in the sum across ranks.
+     if (rank == 0 or split) {
+-        var buf: [256]u8 = undefined;
+         for ([_][]const u8{ "gate_proj", "up_proj", "down_proj" }, 0..) |name, i| {
+-            const n = if (i == 2) wt.dims else wt.moe_w;
+-            const k = if (i == 2) wt.moe_w else wt.dims;
++            const n = if (i == 2) wt.dims else width;
++            const k = if (i == 2) width else wt.dims;
+             const key = try std.fmt.bufPrint(&buf, "{s}.shared_expert.{s}", .{ prefix, name });
+             shared[i] = if (split) try projections.loadCut(a, d, store, key, n, k, try routed.Cut.init(n, world, rank), .rows) else try projections.load(a, d, store, key, n, k);
+             if (shared[i].native == null) return error.UnsupportedQuantization;
+         }
+     }
+-    return .{ .experts = e, .shared = shared, .rank = rank, .world = world, .split_shared = split };
++    return .{ .experts = e, .shared = shared, .rank = rank, .world = world, .split_shared = split, .shared_width = width };
+ }
+diff --git a/zig/src/families/flashnext/cuda_moe_exchange.zig b/zig/src/families/flashnext/cuda_moe_exchange.zig
+index f1ca6c5e75..c1b857e255 100644
+--- a/zig/src/families/flashnext/cuda_moe_exchange.zig
++++ b/zig/src/families/flashnext/cuda_moe_exchange.zig
+@@ -5,7 +5,6 @@ const mtp = @import("cuda_mtp.zig");
+ const moe = @import("cuda_batch_moe.zig");
+ 
+ const dims = wt.dims;
+-const slots = wt.slots;
+ const share = cuda.rank_scatter.share;
+ 
+ /// Rows past any decode round or verify window: `world` and `n` are what both ranks' passes agree on.
+@@ -28,7 +27,7 @@ pub fn run(pass: anytype, c: anytype, n: usize) !void {
+     const s = pass.s;
+     const h = block(n);
+     const own = share(n, 2, c.rank);
+-    try c.sumBlock(pass.stream, s.y, h * slots * dims);
++    try c.sumBlock(pass.stream, s.y, h * s.slots * dims);
+     try moe.sumSlots(pass, own[0], own[1] - own[0]);
+     try c.gatherF32(pass.stream, s.moe_f32 + own[0] * dims * 4, s.moe_f32, h * dims);
+     pass.pending_f32 = true;
+diff --git a/zig/src/families/flashnext/cuda_moe_exchange_test.zig b/zig/src/families/flashnext/cuda_moe_exchange_test.zig
+index 7af7371174..efb56d6481 100644
+--- a/zig/src/families/flashnext/cuda_moe_exchange_test.zig
++++ b/zig/src/families/flashnext/cuda_moe_exchange_test.zig
+@@ -65,7 +65,7 @@ const Fake = struct {
+     }
+ };
+ 
+-const Bufs = struct { y: u64 = 0x1000_0000, wts: u64 = 0x2000_0000, moe_f32: u64 = 0x3000_0000 };
++const Bufs = struct { y: u64 = 0x1000_0000, wts: u64 = 0x2000_0000, moe_f32: u64 = 0x3000_0000, slots: usize = slots };
+ 
+ const Pass = struct {
+     s: *const Bufs,
+diff --git a/zig/src/families/flashnext/cuda_moe_native.zig b/zig/src/families/flashnext/cuda_moe_native.zig
+index 5498da8e0c..1146863ff9 100644
+--- a/zig/src/families/flashnext/cuda_moe_native.zig
++++ b/zig/src/families/flashnext/cuda_moe_native.zig
+@@ -10,7 +10,6 @@ const Kernels = @import("cuda_batch_kernels.zig").Kernels;
+ 
+ const dims = wt.dims;
+ const experts_n = wt.experts_n;
+-const slots = wt.slots;
+ 
+ /// moeBlockKeep's native layer: each routed pair's fp32 row into y [pairs, dims], the shared slot's on rank 0.
+ pub fn run(self: anytype, native: *const mixed.Owned, n: usize, pairs: usize, plan: cuda.grouped.Plan) !void {
+@@ -20,7 +19,7 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize, pairs: usize, pl
+     const e = owned.count + 1;
+     const skip: i32 = @intCast(owned.count);
+     const picks = if (native.world == 1) s.picks else try ownPicks(self, s.picks, s.picks_ep, pairs, owned.first, owned.count);
+-    const y_bytes = exchange.clearedRows(native.world, n) * slots * dims * 4;
++    const y_bytes = exchange.clearedRows(native.world, n) * s.slots * dims * 4;
+     if (zs.clearsY(native.world, native.rank)) try self.stream.d.check(self.stream.d.api.cuMemsetD8Async(s.y, 0, y_bytes, self.stream.handle), "cuMemsetD8Async");
+     const side = try shared.fork(self, native, n);
+     switch (owned.format) {
+@@ -28,10 +27,10 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize, pairs: usize, pl
+             const pt = nvfp4_tile.size(self.k, n);
+             try self.k.router.route(self.stream, picks, pairs, e, pt, plan);
+             const items = cuda.grouped.maxItems(pairs, e, pt);
+-            try nvfp4_tile.run(self.k, pt, self.stream, .up, .{ .x = s.mixed, .stride = dims, .slots = slots }, owned.view(), plan, s.moe_act, items, skip);
++            try nvfp4_tile.run(self.k, pt, self.stream, .up, .{ .x = s.mixed, .stride = dims, .slots = s.slots }, owned.view(), plan, s.moe_act, items, skip);
+             try nvfp4_tile.run(self.k, pt, self.stream, .down_f32, .{ .x = s.moe_act, .stride = owned.width }, owned.view(), plan, s.y, items, skip);
+         },
+-        .fp8g => try fp8(self.k, self.stream, s.picks, s.mixed, owned.view(), plan, pairs, n, s.y, s.moe_act),
++        .fp8g => try fp8(self.k, self.stream, s.picks, s.mixed, owned.view(), plan, pairs, n, s.y, s.moe_act, s.slots),
+         else => return error.UnsupportedQuantization,
+     }
+     if (side != null) try shared.join(self, side, native, n) else try @import("cuda_shared_split.zig").run(self, native, n);
+@@ -53,13 +52,13 @@ fn ownPicks(self: anytype, picks: u64, out: u64, pairs: usize, first: usize, cou
+ }
+ 
+ /// Block-FP8 pairs (W8A16) at NVFP4's decode/prompt tile: `act` bf16, `out` fp32; the shared slot is skipped.
+-pub fn fp8(k: *const Kernels, stream: cuda.Stream, picks: u64, x: u64, layer: cuda.experts.Layer, plan: cuda.grouped.Plan, pairs: usize, n: usize, out: u64, act: u64) !void {
++pub fn fp8(k: *const Kernels, stream: cuda.Stream, picks: u64, x: u64, layer: cuda.experts.Layer, plan: cuda.grouped.Plan, pairs: usize, n: usize, out: u64, act: u64, slot_n: usize) !void {
+     if (layer.format != .fp8g) return error.UnsupportedQuantization;
+     const e = experts_n + 1;
+     const prompt = nvfp4_tile.size(k, n) != 16;
+     const tile: usize = if (prompt) cuda.experts.promptTile(.fp8g) else 16;
+     try k.router.route(stream, picks, pairs, e, tile, plan);
+     const items = cuda.grouped.maxItems(pairs, e, tile);
+-    try k.fp8.run(stream, .up, .{ .x = x, .stride = layer.dims, .slots = slots }, layer, plan, prompt, act, items, experts_n);
++    try k.fp8.run(stream, .up, .{ .x = x, .stride = layer.dims, .slots = slot_n }, layer, plan, prompt, act, items, experts_n);
+     try k.fp8.run(stream, .down_f32, .{ .x = act, .stride = layer.width }, layer, plan, prompt, out, items, experts_n);
+ }
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 4d6f0424b4..679fc8b7d1 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -248,6 +248,11 @@ pub const Head = struct {
+         }
+         store.dropStaging(); // the head's experts are on the device
+         errdefer h.layer.free(gpa);
++        // the MTP layer: the main layers' top-k (config.json gives it none) and the shared width its own tensor has
++        if (h.layer.native_experts) |moe| if (@import("cuda_widths.zig").mtp(try @import("cuda_config.zig").widthsIn(gpa, io, dir), moe.shared_width) == null) {
++            std.log.err("flashnext: mtp.layers.0.mlp.shared_expert.gate_proj has {d} rows; neither the main layers' width nor the routed width", .{moe.shared_width});
++            return error.UnexpectedTensor;
++        };
+         const ids = try draftIds(gpa);
+         defer gpa.free(ids);
+         const head_load = @import("cuda_mtp_load.zig");
+diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
+index e3aa3a0a58..a656f9543b 100644
+--- a/zig/src/families/flashnext/cuda_prompt.zig
++++ b/zig/src/families/flashnext/cuda_prompt.zig
+@@ -17,7 +17,6 @@ const streams = weights.streams;
+ const wide = weights.wide;
+ const vocab = weights.vocab;
+ const experts_n = weights.experts_n;
+-const slots = weights.slots;
+ const moe_w = weights.moe_w;
+ const proj_n = weights.proj_n;
+ const out_k = weights.out_k;
+@@ -133,6 +132,8 @@ pub const Engine = struct {
+     pockets: pocket.Pockets = .{},
+     /// During a round of taught and untaught streams: its rows' pocket scales (0 on an untaught row); 0: none.
+     taught_rows: u64 = 0,
++    /// The routing and shared widths config.json selects (cuda_widths.zig); the scratch is sized and laid out by them.
++    widths: @import("cuda_widths.zig").Widths = @import("cuda_widths.zig").default,
+     pub fn init(gpa: std.mem.Allocator, io: std.Io, driver: *cuda.Driver, stream: *cuda.Stream, model_dir: []const u8) !*Engine {
+         return initRank(gpa, io, driver, stream, model_dir, 1, 0);
+     }
+@@ -158,6 +159,7 @@ pub const Engine = struct {
+         errdefer gpa.free(e.model_dir);
+         e.store = try Store.open(gpa, io, e.model_dir);
+         errdefer e.store.deinit();
++        e.widths = try @import("cuda_config.zig").widthsIn(gpa, io, e.model_dir);
+         try e.store.detectNorms();
+         const weight = try e.store.tensor(embed.weight_name);
+         if (weight.dtype == .bf16) {
+@@ -199,6 +201,10 @@ pub const Engine = struct {
+             var pk: load.Pocket = .{ .gate = rows[0..cap], .up = rows[cap..][0..cap], .down = rows[2 * cap ..][0..cap] };
+             e.layers[i] = try load.loadLayerRank(gpa, driver, stream, &e.store, pack_fn, i, world, rank, &pk);
+             e.n_layers += 1;
++            if (e.layers[i].native_experts) |ne| if (ne.shared_width != e.widths.shared) {
++                std.log.err("flashnext: layer {d}'s shared expert has {d} rows; config.json's shared_expert_intermediate_size is {d}", .{ i, ne.shared_width, e.widths.shared });
++                return error.UnexpectedTensor;
++            };
+             std.log.info("flashnext: rank {d}/{d} loaded layer {d}/{d}", .{ rank + 1, world, i + 1, layers_n });
+             if (pk.n == 0) continue;
+             const used = pocket.usedOf(pk.up, pk.n);
+@@ -261,7 +267,7 @@ pub const Engine = struct {
+         const e: *Engine = @ptrCast(@alignCast(ctx));
+         var pk = e.pocketOf(layer) orelse return;
+         pk.scale = e.taught_rows;
+-        try e.pocketOps().?.pocketRows(pk, .{ .x = x, .ids = ids, .wts = wts }, out, true, rows, dims, slots - 1);
++        try e.pocketOps().?.pocketRows(pk, .{ .x = x, .ids = ids, .wts = wts }, out, true, rows, dims, e.widths.top_k);
+     }
+ 
+     /// The resident weights a pass reads, with the taught layers' pockets.
+@@ -377,7 +383,7 @@ pub const Engine = struct {
+         }
+         // head_local: the draft head's lanes on one GPU, a pass's rows split; native_part only where the lane reduces
+         const parts = @import("cuda_batch_state.zig");
+-        const z: parts.Sizes = .{ .head_rows = if (e.collective != null) @max(rows, parts.head_rows_one) else parts.head_rows_one, .lane_reduce = !e.batch_k.native_lane.clusters };
++        const z: parts.Sizes = .{ .head_rows = if (e.collective != null) @max(rows, parts.head_rows_one) else parts.head_rows_one, .lane_reduce = !e.batch_k.native_lane.clusters, .slots = e.widths.slots(), .shared = e.widths.shared };
+         e.batch_s = try batch.Scratch.alloc(e.gpa, e.driver, e.stream.*, rows, z);
+         return &e.batch_s.?;
+     }
+diff --git a/zig/src/families/flashnext/cuda_prompt_step.zig b/zig/src/families/flashnext/cuda_prompt_step.zig
+index ddef6e6fdd..10bd121843 100644
+--- a/zig/src/families/flashnext/cuda_prompt_step.zig
++++ b/zig/src/families/flashnext/cuda_prompt_step.zig
+@@ -195,7 +195,7 @@ pub fn writeback(tri: anytype, s: *Scratch, h: u64, mode: usize, inj: u64, y: u6
+     if (mode == 0) {
+         try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", dummy, dummy, "*bf16", dummy, "*bf16", dims, 1, dims, streams, 0, 1, 1, 1);
+     } else if (mode == 2) {
+-        try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", dims, 1, dims, streams, 2, 10, 11, 1);
++        try tri.hcWriteback(h, h, s.pss.ptr, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", dims, 1, dims, streams, 2, slots - 1, slots, 1);
+     } else if (mode == 4) {
+         try tri.hcWriteback(h, h, s.pss.ptr, s.part.ptr, "*fp32", inj, dummy, "*bf16", dummy, "*bf16", dims, 1, dims, streams, 4, 1, 1, out_sk);
+     } else return error.UnexpectedTensor;
+diff --git a/zig/src/families/flashnext/cuda_scratch_sizes.zig b/zig/src/families/flashnext/cuda_scratch_sizes.zig
+index 315655b7a5..19e5be2974 100644
+--- a/zig/src/families/flashnext/cuda_scratch_sizes.zig
++++ b/zig/src/families/flashnext/cuda_scratch_sizes.zig
+@@ -8,8 +8,8 @@ const att_rows = @import("cuda_batch_state.zig").att_rows;
+ /// head_local's rows on one GPU: the draft head's lanes (<= 16) times its ids; a split head needs a pass's rows.
+ pub const head_rows_one: usize = 32;
+ 
+-/// head_local's rows, and whether the lane reduces K slices through native_part (with clusters it never does).
+-pub const Sizes = struct { head_rows: usize = head_rows_one, lane_reduce: bool = true };
++/// head_local's rows, the lane's K-slice reduce, a row's expert slots and the widest shared expert (cuda_widths.zig).
++pub const Sizes = struct { head_rows: usize = head_rows_one, lane_reduce: bool = true, slots: usize = wt.slots, shared: usize = wt.moe_w };
+ 
+ /// hc_part's rows of (low + 4) floats: hc_sk slices below 64 rows (legacy kernel), <= 8 below 256 (lane), one beyond.
+ pub fn hcPartRows(cap: usize) usize {
+diff --git a/zig/src/families/flashnext/cuda_shared_split.zig b/zig/src/families/flashnext/cuda_shared_split.zig
+index 2ec348b635..76e40de7e7 100644
+--- a/zig/src/families/flashnext/cuda_shared_split.zig
++++ b/zig/src/families/flashnext/cuda_shared_split.zig
+@@ -8,7 +8,7 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize) !void {
+     const s = self.s;
+     const dims = wt.dims;
+     const glue = self.tri.own orelse return error.NativeGlueRequired;
+-    const width = if (native.split_shared) wt.moe_w / 2 else wt.moe_w;
++    const width = if (native.split_shared) native.shared_width / 2 else native.shared_width;
+     try self.k.native_lane.matmul(self.stream, s.mixed, dims, n, native.shared[0].native.?, s.shared_gate, s.native_part);
+     try self.k.native_lane.matmul(self.stream, s.mixed, dims, n, native.shared[1].native.?, s.shared_up, s.native_part);
+     try glue.sharedSwiGLU(self.stream, s.shared_gate, s.shared_up, s.shared_act, n, width);
+@@ -16,12 +16,12 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize) !void {
+     if (native.split_shared) {
+         const c = self.m.collective orelse return error.TensorParallelUnavailable;
+         try c.gather(self.stream, input, s.rank_gather, n * width);
+-        for (0..2) |rank| try ops.copyCols(self.k, self.stream, s.rank_gather + rank * n * width * 2, width, s.rank_input + rank * width * 2, wt.moe_w, width, n);
++        for (0..2) |rank| try ops.copyCols(self.k, self.stream, s.rank_gather + rank * n * width * 2, width, s.rank_input + rank * width * 2, native.shared_width, width, n);
+         input = s.rank_input;
+     }
+     // the whole expert's down goes straight into its slot (cuda_batch_side.down), as on the side stream
+     if (!native.split_shared) return @import("cuda_batch_side.zig").down(self, self.stream, input, native, n);
+-    try self.k.native_lane.matmulF32(self.stream, input, wt.moe_w, n, native.shared[2].native.?, s.shared_out, s.native_part);
++    try self.k.native_lane.matmulF32(self.stream, input, native.shared_width, n, native.shared[2].native.?, s.shared_out, s.native_part);
+     // Every routed slot and the peer's output columns stay at the zeros set before the expert launches.
+-    try ops.copyCols(self.k, self.stream, s.shared_out, dims, s.y + (wt.slots - 1) * dims * 4 + native.rank * dims * 2, wt.slots * dims * 2, dims, n);
++    try ops.copyCols(self.k, self.stream, s.shared_out, dims, s.y + (s.slots - 1) * dims * 4 + native.rank * dims * 2, s.slots * dims * 2, dims, n);
+ }
+diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
+index bd83147cc2..5f48d41081 100644
+--- a/zig/src/families/flashnext/cuda_split_lane_test.zig
++++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
+@@ -111,6 +111,8 @@ const Rig = struct {
+         r.k.native_lane.prompt = null;
+         r.s = undefined;
+         r.s.cap = 256;
++        r.s.slots = wt.slots;
++        r.s.shared_w = wt.moe_w;
+         r.s.part = part_at;
+         r.s.native_part = native_part_at;
+         r.s.dummy = 0x99;
+@@ -276,6 +278,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
+         var native: @import("cuda_mixed_experts.zig").Owned = undefined;
+         native.rank = rank;
+         native.split_shared = split;
++        native.shared_width = wt.moe_w;
+         const width: usize = if (split) wt.moe_w / 2 else wt.moe_w;
+         const columns: usize = if (split) dims / 2 else dims;
+         for (0..3) |i| native.shared[i].native = cuda.modelopt.bf16Weight(0x2000, if (i == 2) columns else width, if (i == 2) wt.moe_w else dims);
+@@ -325,6 +328,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
+     var native: @import("cuda_mixed_experts.zig").Owned = undefined;
+     native.rank = 0;
+     native.split_shared = false;
++    native.shared_width = wt.moe_w;
+     for (0..3) |i| native.shared[i].native = cuda.modelopt.bf16Weight(0x2000, if (i == 2) dims else wt.moe_w, if (i == 2) wt.moe_w else dims);
+     native.shared[2].native.?.npad += 1;
+     var self: Self = .{ .k = &r.k, .s = &r.s, .m = r.pass(64, true).m, .stream = .{ .d = &r.d, .handle = null }, .tri = .{ .own = &glue } };
+diff --git a/zig/src/families/flashnext/cuda_widths.zig b/zig/src/families/flashnext/cuda_widths.zig
+new file mode 100644
+index 0000000000..02e37f1ea9
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_widths.zig
+@@ -0,0 +1,100 @@
++//! The routing width (experts a token takes) and the shared expert's width, chosen on load from config.json.
++const std = @import("std");
++const wt = @import("cuda_prompt_wt.zig");
++
++/// One supported shape: the routed experts a token takes and the shared expert's intermediate width.
++pub const Widths = struct {
++    top_k: usize,
++    shared: usize,
++
++    /// A row's slots in the expert outputs and their weights: the routed experts, then the shared expert.
++    pub fn slots(w: Widths) usize {
++        return w.top_k + 1;
++    }
++
++    pub fn isDefault(w: Widths) bool {
++        return w.top_k == default.top_k and w.shared == default.shared;
++    }
++};
++
++/// The shape the cuda_prompt_wt.zig constants hold: top-10 routing and a 640-wide shared expert.
++pub const default: Widths = .{ .top_k = wt.slots - 1, .shared = wt.moe_w };
++
++/// Every shape the CUDA path serves: the default, and top-5 routing with a 1280-wide shared expert.
++pub const supported = [_]Widths{ default, .{ .top_k = 5, .shared = 2 * wt.moe_w } };
++
++/// A selection's result: the supported shape, or the name of the config field that has no supported value.
++pub const Selected = union(enum) { widths: Widths, field: []const u8 };
++
++/// The supported shape of `num_experts_per_tok` and `shared_expert_intermediate_size` (less `learned` pocket neurons).
++pub fn select(top_k: ?i64, shared: ?i64, learned: i64) Selected {
++    for (supported) |w| {
++        if (top_k != @as(i64, @intCast(w.top_k))) continue;
++        if (shared != @as(i64, @intCast(w.shared)) + learned) return .{ .field = "shared_expert_intermediate_size" };
++        return .{ .widths = w };
++    }
++    return .{ .field = "num_experts_per_tok" };
++}
++
++/// Whether a shared expert of `rows` rows has a supported width (its gate_proj's rows).
++pub fn sharedSupported(rows: usize) bool {
++    for (supported) |w| if (w.shared == rows) return true;
++    return false;
++}
++
++/// The MTP layer's widths: the main layers' top-k, and its shared expert's rows if they are the main or routed width.
++pub fn mtp(main: Widths, shared_rows: usize) ?Widths {
++    if (shared_rows != main.shared and shared_rows != wt.moe_w) return null;
++    return .{ .top_k = main.top_k, .shared = shared_rows };
++}
++
++/// Whether a captured kernel set can serve the shape: its `_topk_rows` is built for the default only.
++pub fn capturedServes(w: Widths) bool {
++    return w.isDefault();
++}
++
++test "the default shape is the constants' and a top-5 checkpoint selects a 1280-wide shared expert" {
++    try std.testing.expectEqual(@as(usize, 11), default.slots());
++    try std.testing.expectEqual(Selected{ .widths = default }, select(10, 640, 0));
++    const five = select(5, 1280, 0).widths;
++    try std.testing.expectEqual(Widths{ .top_k = 5, .shared = 1280 }, five);
++    try std.testing.expectEqual(@as(usize, 6), five.slots());
++    try std.testing.expect(!five.isDefault());
++    try std.testing.expectEqual(Selected{ .widths = default }, select(10, 640 + 64, 64));
++}
++
++test "a width outside the supported list is refused by its field's name" {
++    const Case = struct { top_k: ?i64, shared: ?i64, field: []const u8 };
++    for ([_]Case{
++        .{ .top_k = 7, .shared = 640, .field = "num_experts_per_tok" },
++        .{ .top_k = null, .shared = 640, .field = "num_experts_per_tok" },
++        .{ .top_k = 5, .shared = 640, .field = "shared_expert_intermediate_size" },
++        .{ .top_k = 10, .shared = 1280, .field = "shared_expert_intermediate_size" },
++        .{ .top_k = 5, .shared = null, .field = "shared_expert_intermediate_size" },
++    }) |c| try std.testing.expectEqualStrings(c.field, select(c.top_k, c.shared, 0).field);
++    try std.testing.expect(sharedSupported(640) and sharedSupported(1280));
++    try std.testing.expect(!sharedSupported(960) and !sharedSupported(704));
++}
++
++test "the MTP layer routes at the main layers' top-k with its own shared width, and another width is refused" {
++    const five: Widths = .{ .top_k = 5, .shared = 1280 };
++    try std.testing.expectEqual(Widths{ .top_k = 5, .shared = 640 }, mtp(five, 640).?);
++    try std.testing.expectEqual(five, mtp(five, 1280).?);
++    try std.testing.expectEqual(default, mtp(default, 640).?);
++    try std.testing.expectEqual(@as(?Widths, null), mtp(five, 960));
++    try std.testing.expectEqual(@as(?Widths, null), mtp(default, 1280));
++}
++
++test "a captured kernel set serves the default shape only" {
++    try std.testing.expect(capturedServes(default));
++    try std.testing.expect(!capturedServes(supported[1]));
++}
++
++test "the scratch is sized by the shape: a wider shared expert's three buffers, fewer slots' pairs" {
++    const Scratch = @import("cuda_batch_state.zig").Scratch;
++    const cap = 64;
++    const base = Scratch.bytes(cap, .{ .slots = default.slots(), .shared = default.shared });
++    try std.testing.expectEqual(Scratch.bytes(cap, .{}), base);
++    try std.testing.expectEqual(base + cap * (1280 - 640) * 2 * 3, Scratch.bytes(cap, .{ .slots = default.slots(), .shared = 1280 }));
++    try std.testing.expect(Scratch.bytes(cap, .{ .slots = supported[1].slots(), .shared = default.shared }) < base);
++}
+diff --git a/zig/tests/cuda/flashnext_exchange_tests.zig b/zig/tests/cuda/flashnext_exchange_tests.zig
+index 79a381a908..46b5df50c0 100644
+--- a/zig/tests/cuda/flashnext_exchange_tests.zig
++++ b/zig/tests/cuda/flashnext_exchange_tests.zig
+@@ -77,7 +77,7 @@ fn planted(gpu: check.Gpu, c: *Collective, stream: cuda.Stream, rank: usize) !vo
+ }
+ 
+ const Kernels = struct { moe_sum: cuda.Function };
+-const Bufs = struct { y: u64, wts: u64, moe_f32: u64 };
++const Bufs = struct { y: u64, wts: u64, moe_f32: u64, slots: usize = slots };
+ const Pass = struct { s: *const Bufs, k: Kernels, stream: cuda.Stream, pending_f32: bool = false };
+ 
+ /// A writeback's outputs over the pass's rows and the spare one, poisoned so a row no launch writes shows.
+diff --git a/zig/tests/cuda/flashnext_fp8_experts_tests.zig b/zig/tests/cuda/flashnext_fp8_experts_tests.zig
+index 8ec27578b4..c7f4b0740d 100644
+--- a/zig/tests/cuda/flashnext_fp8_experts_tests.zig
++++ b/zig/tests/cuda/flashnext_fp8_experts_tests.zig
+@@ -184,7 +184,7 @@ pub fn run(gpu: check.Gpu) !void {
+         // every byte 0xff: a pair the call writes changes, the shared slot's must not
+         const act = try r.out(pairs * NI * 2);
+         const y = try r.out(pairs * D * 4);
+-        try flash.moe_native.fp8(&k, r.s, try r.dev(std.mem.sliceAsBytes(picks)), dx, layer, plan, pairs, rows, y, act);
++        try flash.moe_native.fp8(&k, r.s, try r.dev(std.mem.sliceAsBytes(picks)), dx, layer, plan, pairs, rows, y, act, slots);
+         const got_act = try r.back(u16, act, pairs * NI);
+         const got_y = try r.back(f32, y, pairs * D);
+         for (picks, 0..) |e, p| if (e == experts) {
