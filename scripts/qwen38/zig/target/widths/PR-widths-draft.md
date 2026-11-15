@@ -8,9 +8,9 @@ top-10 with a 640-wide shared expert, the only shape main loads, or top-5 with a
 shape and the same launches. The top-5 checkpoint behind #3368 is GPTQ int4, which this step does not load.
 
 - Issue: Refs #3368 (step 1 of the series agreed there).
-- Stacked on: main at `41a72fd2578dfbdd73b25663da78d5fc0047bd95`. The receipt below was measured on main at
-  `2ba55ec7d3`; of the 14 commits since, the Flash Next ones touch `cuda_draw_batch.zig` and its test, and the only
-  file they share with this change is the changelog's Unreleased section.
+- Stacked on: main at `41a72fd2578dfbdd73b25663da78d5fc0047bd95`. The receipt below was measured with this change on
+  main at `2ba55ec7d3`, its 23 Zig files byte-identical to this head's; of the 14 commits since, the Flash Next ones
+  touch `cuda_draw_batch.zig` and its test, and the only file they share with this change is the changelog.
 - `atc overlap --json`: incomplete (it reached its time and pull-request limits). Of the pull requests it
   test-merged, four conflict: #1879, #1924 and #2279 share only `CHANGELOG.md` with this change (the Unreleased
   section), and #1767's file list shares no file with it. Main has since moved to `cc8f2889e7`; this commit merges
