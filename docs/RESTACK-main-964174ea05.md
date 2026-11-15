@@ -178,8 +178,11 @@ own local cache so every test runs again. "clean" has no `TF_` or `TENSORFOLD_` 
   `restack2-receipts/mutants-summary.txt`): unmutated, the package fails only main's two; M1, the old rounding, fails
   it ("expected 2, found 0" at `cuda_ple_cache_test.zig:123`); M2, `create` without its two-slot guard, crashes it
   (`std.math.isPowerOfTwo` asserts); M3, the MiB count shifted instead of saturated, fails its saturation check. The
-  M1 run also failed `cuda_disk_test` "kept states written to disk read back byte-equal after a restart" once; it
-  passed in the unmutated, M2 and M3 runs and is not 0004's, and it was not looked into further.
+  M1 run also failed `qwen3_5/cuda_disk_test.zig` "kept states written to disk read back byte-equal after a restart"
+  once (line 198, 0 kept states read back where 2 were written): that is the qwen3_5 family's disk tier, which no
+  patch of ours touches and which has no path to `slotsFor`; it re-ran in M1 only because its test binary links the
+  changed module, and it passed in the other 7 runs today (base and package, clean and serve's shell, unmutated, M2,
+  M3), so it is an upstream flake, not this change.
 - The served path is unchanged: the same `init`, `fill`, `row` and read-ahead code. `deinit` now joins the prompt
   read-ahead and closes the cache before it stops the gather pool rather than after; both are idle at that point.
 - Laptop note: the first host run (WSL) also caught a real 0004 re-seat defect, a third `draftMany` call site upstream
