@@ -1,17 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index eae90f5e83..09be612056 100644
+index 9a8bb17fcf..87a25d48b0 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -41,6 +41,9 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -41,6 +41,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Flash Next: a shared pass gathers every stream's n-gram rows in one pool call (TF_FLASHNEXT_GATHER_EARLY=1, at most 64 lanes), can lock the tables' scale arrays in memory at load (TF_FLASHNEXT_GATHER_LOCK_SCALES=1, NVFP4), and TF_FLASHNEXT_GATHER_LOG=1 prints what the pass launched ahead and waited; every gathered row is the per-stream call's (#9999).
  
 +- Flash Next on CUDA: a prompt pass fills its chunks without draining the stream between them on one rank (`TF_FLASHNEXT_PROMPT_SYNC=1` restores the drain; ranks above one keep it), takes 3,072-row chunks by default, and can point MXFP8 projections of N columns or more at a relaxed 128 x 128 prompt tile (opt-in, `TF_FLASHNEXT_PROMPT_MX128=N`; default off, the exact kernels everywhere) whose UE8M0 block scales ride in the mma B fragment over one fp32 chain per K; a row's sums keep their order whatever the chunk holds, but they are not the exact kernels' bits (#9999).
 +
-+
- 
- 
  ## 1.2.9
+ 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
 index 25c091c178..8c924e8828 100644
 --- a/zig/kernels/cuda/qmmf.cu
@@ -363,7 +362,7 @@ index 1a7d265a81..a9630daaef 100644
  
  test "CUDA startup: Flash Next chunk 4096 reports the stored pass" {
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 469b77b958..5899e7258a 100644
+index 65cb458f6e..01639c560b 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -59,6 +59,8 @@ pub const rules = [_]Rule{

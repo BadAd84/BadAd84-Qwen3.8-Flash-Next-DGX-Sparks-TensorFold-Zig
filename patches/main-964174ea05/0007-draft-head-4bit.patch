@@ -1,18 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index ccc9aa3535..3f79ff6ec8 100644
+index b90ec7a933..379da05906 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -46,6 +46,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
- - Internal: a CUDA family's disk module may declare its own host staging permit for kept states, so a family whose kept state is larger than 1 GiB can be written to disk; families that declare none keep the fixed 1 GiB permit, and every family on main today is unchanged (#2337, refs #850). Thanks to @ajensenwaud.
+@@ -45,6 +45,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
  - Flash Next on CUDA: the relaxed 128 x 128 prompt tile also runs as a two-stage, two-blocks-an-SM variant (`TF_FLASHNEXT_PROMPT_GEMM2=1`) with the same arithmetic and bits: one block's output stores and pipeline fill overlap the other block's K loop (#9999).
  
 +- Flash Next on CUDA: the MTP draft head's rows load as 4-bit affine rows by default, like the GLM family's head, with `TF_FLASHNEXT_DRAFT_HEAD=bf16` for the exact rows (#9999).
-+- Flash Next on CUDA: the NVFP4 n-gram table's rows can be read through a direct-mapped row cache by up to 128 parked readers (`TF_FLASHNEXT_GATHER_READ=pread`, `TF_FLASHNEXT_GATHER_THREADS`, `TF_FLASHNEXT_GATHER_CACHE_MIB`, 256 MiB of address space by default, resident only where used) instead of a positional read a row on the gather's thread, with a drafted token's rows asked for while the head drafts the next (`TF_FLASHNEXT_DRAFT_AHEAD=1`) and a prompt chunk's rows asked for while the chunk before it runs (`TF_FLASHNEXT_WARM_AHEAD=1`); the rows are the mapping's bytes, so the dequantized rows and every reply are unchanged. A prompt's last chunk that would fall under `TF_FLASHNEXT_PREFILL_TAIL` rows takes about half of what remains instead, so the final two chunks are of about equal rows and both past the prompt expert tiles' 1,024. Adapts MiaAI-Lab's MIT recipe patch0013 (#9999).
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
 index 5498efbb13..63f44656c8 100644
 --- a/zig/src/families/flashnext/cuda_mtp_draft.zig

@@ -83,22 +83,18 @@ retired**, so no cell was run with one dropped.
 
 ## Host suite on spark6 (native aarch64, Zig 0.17.0, `zig build test-cuda-host -j8`, 2026-11-15)
 
-Run on the box, not the laptop: pristine `964174ea05` against the same tree with this package applied, the toolchain
-the image builds use (`~/qwen-zig/scripts/config.sh`, sha-checked).
+Pristine `964174ea05` against the same tree with this package applied, each in a clean environment (no `TF_` or
+`TENSORFOLD_` variable) and in the serve's (the 25 variables `~/qwen-zig/scripts/config.sh` exports,
+`TF_FLASHNEXT_GATHER_READ=pread` among them); `scripts/qwen38/zig/target/restack2-host.sh`:
 
-| tree | steps | tests | failed |
-|---|---|---|---|
-| base `964174ea05` | 406 of 408 | 6,724 of 6,759 passed, 33 skipped | 2 |
-| base + this package, every `TF_`/`TENSORFOLD_` variable unset | 406 of 408 | 6,766 of 6,802 passed, 34 skipped | 2, the same two |
+| tree | clean | serve's environment |
+|---|---|---|
+| base `964174ea05` | 6,724 of 6,759 passed, 33 skipped, 2 failed | the same |
+| base + this package | 6,767 of 6,803 passed, 34 skipped, 2 failed | the same |
 
-- **Inherited from main (both trees):** the two DeepSeek-V4.1 encoder fixture hashes in
-  `zig/src/server/fixtures/deepseek_v41_encoder/` (`recorded_prompt_sha256` `b4cfdbdc...` and `d8e86eef...` do not
-  match the rendered prompts). None of our patches touches the server or that family.
-- **No failure is ours.** A first run of the patched tree failed three of 0004's row-cache tests
-  (`cuda_ple_cache_test.zig:17` `expect(g.cache == null)`, a 4-allocation leak, `cuda_ple_nvfp4_test.zig:171`
-  `expected error.PleShortRead`), but that run sourced `~/qwen-zig/scripts/config.sh`, which exports the serve's knobs,
-  `TF_FLASHNEXT_GATHER_READ=pread` among them, so `Ngram.init` opened the row cache (`cuda_ple.zig:430`) that those
-  tests assume is closed. With every `TF_` and `TENSORFOLD_` variable unset the same tree fails only the two inherited
-  tests. 0004's tests read the ambient environment, as they did on 1.2.7; run the suite with those variables unset.
-- Laptop note: the first host run (WSL) also caught a real 0004 re-seat defect, a third `draftMany` call site upstream
-  added in `cuda_mtp_nonfinite_more_test.zig`; fixed in the package (commit `8399d80`).
+The two failures are main's own and the box's: `cli_config_test` (umask 0002 makes the test's config file group
+writable, which `--config` refuses) and `listener` (spark6 has no IPv6). Nothing of ours fails in either shell. The
+first spark6 run had failed three of 0004's row-cache tests because it sourced `config.sh`: `Ngram.init` opens the row
+cache on `TF_FLASHNEXT_GATHER_READ=pread`, and those tests assumed the variable unset. 0004 was re-seated so its tests
+set the cache's state themselves (and so upstream's short-read test closes the cache before it poisons the positional
+readers); see `RECORD.md` and `docs/RESTACK-main-964174ea05.md`, "Host suite".

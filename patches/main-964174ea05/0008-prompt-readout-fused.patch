@@ -1,3 +1,16 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 379da05906..bc996a0df4 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -47,6 +47,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - Flash Next on CUDA: the MTP draft head's rows load as 4-bit affine rows by default, like the GLM family's head, with `TF_FLASHNEXT_DRAFT_HEAD=bf16` for the exact rows (#9999).
+ 
++- Flash Next on CUDA: a prompt pass's native hyper-connection read-out (the norm, the down projection, the reduce, the up projection and the mix as five launches) runs as two fused kernels (`TF_FLASHNEXT_PROMPT_HC2=1`, from `TF_FLASHNEXT_HC2_MIN` rows; `TF_FLASHNEXT_HC2_DN` and `TF_FLASHNEXT_HC2_UP` pick a CTA's row tile), with the streams normed in the down tile's shared memory and the up rows mixed in its epilogue, so no normed rows travel through memory; every output byte is the five-launch chain's (`hc-fuse`), and a prompt pass's MoE write-back reads the shared expert's fp32 output in place instead of a copy of it in y's last slot (`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1`). A prompt chunk's MTP head pass takes at most `TF_FLASHNEXT_HEAD_PIECE` rows (256, the decode rounds' piece), and from 1024 rows its experts take the shared-memory row tiles (#9999).
++
+ ## 1.2.9
+ 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/build/cuda_kernels.zig b/zig/build/cuda_kernels.zig
 index 63519848f5..9da7823b5a 100644
 --- a/zig/build/cuda_kernels.zig
@@ -1040,7 +1053,7 @@ index 3fb1866832..951869bd9a 100644
  pub fn experts(stream: cuda.Stream, f: cuda.Function, wn: usize, x: u64, x_stride: usize, slot_n: usize, w: u64, kg: usize, nb: usize, plan: cuda.grouped.Plan, out: u64, n: usize, items: usize) !void {
      var a = cuda.experts.Affine4Experts.argsOf(x, x_stride, slot_n, w, kg, nb, plan, out, n);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 8c2574acca..363196d0e4 100644
+index a10f9fb3d4..67c6842bfe 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -64,6 +64,12 @@ pub const rules = [_]Rule{

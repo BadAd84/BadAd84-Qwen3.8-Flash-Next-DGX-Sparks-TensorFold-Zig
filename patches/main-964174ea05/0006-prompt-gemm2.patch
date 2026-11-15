@@ -1,18 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 09be612056..ccc9aa3535 100644
+index 87a25d48b0..b90ec7a933 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -43,6 +43,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -43,6 +43,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Flash Next on CUDA: a prompt pass fills its chunks without draining the stream between them on one rank (`TF_FLASHNEXT_PROMPT_SYNC=1` restores the drain; ranks above one keep it), takes 3,072-row chunks by default, and can point MXFP8 projections of N columns or more at a relaxed 128 x 128 prompt tile (opt-in, `TF_FLASHNEXT_PROMPT_MX128=N`; default off, the exact kernels everywhere) whose UE8M0 block scales ride in the mma B fragment over one fp32 chain per K; a row's sums keep their order whatever the chunk holds, but they are not the exact kernels' bits (#9999).
  
-+- Internal: a CUDA family's disk module may declare its own host staging permit for kept states, so a family whose kept state is larger than 1 GiB can be written to disk; families that declare none keep the fixed 1 GiB permit, and every family on main today is unchanged (#2337, refs #850). Thanks to @ajensenwaud.
 +- Flash Next on CUDA: the relaxed 128 x 128 prompt tile also runs as a two-stage, two-blocks-an-SM variant (`TF_FLASHNEXT_PROMPT_GEMM2=1`) with the same arithmetic and bits: one block's output stores and pipeline fill overlap the other block's K loop (#9999).
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
 index 8c924e8828..63169761b8 100644
 --- a/zig/kernels/cuda/qmmf.cu
@@ -194,7 +192,7 @@ index 5b78236359..e2a86eb18b 100644
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 5899e7258a..8c2574acca 100644
+index 01639c560b..a10f9fb3d4 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -61,6 +61,7 @@ pub const rules = [_]Rule{

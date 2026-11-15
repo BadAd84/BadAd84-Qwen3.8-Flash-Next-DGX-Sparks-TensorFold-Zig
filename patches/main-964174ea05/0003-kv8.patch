@@ -1,8 +1,8 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index fc4f64aa32..5e619e377d 100644
+index fc4f64aa32..6402ceebe3 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -30,6 +30,14 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -30,6 +30,13 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Flash Next on CUDA: a lone stream's copy window grows past the MTP chain's drafts to the boot self-check's largest row-exact width (#9999); on GB10 that is 48 rows against the 32-row upstream default, and a verify window carrying a pending-row log takes the row-by-row DeltaNet path, which the fused kernel it replaced does not serve.
  
@@ -12,7 +12,6 @@ index fc4f64aa32..5e619e377d 100644
 +  one rank, our own glue, not with `--slide`, a captured set, the KV pages or `--learn-conversations`. The indexer's keys,
 +  pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
 +  kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
-+
 +
  ## 1.2.9
  

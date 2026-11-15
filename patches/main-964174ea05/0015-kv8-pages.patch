@@ -1,17 +1,25 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index f9f85c94ec..0a4967c83a 100644
+index 88e1ffbfb0..f858663b97 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -55,6 +55,9 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
- - Flash Next on CUDA: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` re-codes the drafter's BF16 linears to MXFP8 as they load (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes; `bf16`, the default, keeps the checkpoint's rows (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move, the same as for the draft head's 4-bit rows.
- - Flash Next on CUDA: the NVFP4 n-gram table's rows can be read through a direct-mapped row cache by up to 128 parked readers (`TF_FLASHNEXT_GATHER_READ=pread`, `TF_FLASHNEXT_GATHER_THREADS`, `TF_FLASHNEXT_GATHER_CACHE_MIB`, 256 MiB of address space by default, resident only where used) instead of a positional read a row on the gather's thread, with a drafted token's rows asked for while the head drafts the next (`TF_FLASHNEXT_DRAFT_AHEAD=1`) and a prompt chunk's rows asked for while the chunk before it runs (`TF_FLASHNEXT_WARM_AHEAD=1`); the rows are the mapping's bytes, so the dequantized rows and every reply are unchanged. A prompt's last chunk that would fall under `TF_FLASHNEXT_PREFILL_TAIL` rows takes about half of what remains instead, so the final two chunks are of about equal rows and both past the prompt expert tiles' 1,024. Adapts MiaAI-Lab's MIT recipe patch0013 (#9999).
- 
+@@ -33,7 +33,7 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ - Qwen3.8-Flash-Next on CUDA: `--kv-cache fp8` keeps keys and values as e4m3 codes with a power-of-two scale a row (#9999). 1,056 bytes a position and layer instead of 2,048, so a token's caches take
+   about 18.4 KiB instead of 30 KiB (the draft head's cache stays bf16) and a Spark's sequence memory admits four
+   full-window streams where bf16 admits three;
+-  one rank, our own glue, not with `--slide`, a captured set, the KV pages or `--learn-conversations`. The indexer's keys,
 +  one rank, our own glue, not with `--slide`, a captured set or `--learn-conversations`. The indexer's keys,
+   pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
+   kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
+ 
+@@ -55,6 +55,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - Flash Next on CUDA: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` re-codes the drafter's BF16 linears to MXFP8 as they load (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes; `bf16`, the default, keeps the checkpoint's rows (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move, the same as for the draft head's 4-bit rows.
+ 
++- Qwen3.8-Flash-Next on CUDA: `--kv-cache fp8` reaches every served stream and the shared page pool (#9999). A stream made from the lane parts or a pool lane keeps the engine's format, where both kept bf16 rows the memory check had priced as fp8; the fp8 attention staging takes the KV head and the head count in the order its slot needs; and with `TF_FLASHNEXT_KV_PAGES=n` the pool's pages hold the 12 layers' rows as e4m3 codes (18,880 bytes a token with the draft head's bf16 layer, against 30,784), read through each stream's page table with the contiguous kernels' sums. bf16 stays the default and the pool stays off unless set.
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/docs/recipes/flash-next-cuda.md b/docs/recipes/flash-next-cuda.md
 index 26d57da78d..533e0474f9 100644
 --- a/docs/recipes/flash-next-cuda.md

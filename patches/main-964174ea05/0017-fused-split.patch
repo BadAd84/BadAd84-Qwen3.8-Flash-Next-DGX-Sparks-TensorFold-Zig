@@ -112,7 +112,7 @@ index 0d041c6be8..84c5a377fc 100644
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index bb7a6dc51f..72e493af93 100644
+index 14a6811315..10a979939c 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -65,6 +65,7 @@ pub const rules = [_]Rule{

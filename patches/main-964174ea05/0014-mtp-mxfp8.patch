@@ -1,18 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index bae09e98f5..f9f85c94ec 100644
+index 1c0bd9c65a..88e1ffbfb0 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -52,6 +52,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -53,6 +53,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
  - Qwen3.8-Flash-Next on CUDA: `--vision` serves the FP4 checkpoint's tower - ModelOpt's MXFP8 and NVFP4 linears decode to bf16 on the host at load, so the tower runs bf16 as ever - and a request's image rows may reach 16,384 (#9999).
  
 +- Flash Next on CUDA: `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` re-codes the drafter's BF16 linears to MXFP8 as they load (E4M3 codes and one power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes; `bf16`, the default, keeps the checkpoint's rows (#9999). On an FP4 checkpoint the backbone is quantized and the drafter is not, which leaves about 181 MB of BF16 weights read on every draft pass. A draft is a proposal the verify forward checks, so a reply's tokens are unchanged and only the rounds it takes move, the same as for the draft head's 4-bit rows.
-+- Flash Next on CUDA: the NVFP4 n-gram table's rows can be read through a direct-mapped row cache by up to 128 parked readers (`TF_FLASHNEXT_GATHER_READ=pread`, `TF_FLASHNEXT_GATHER_THREADS`, `TF_FLASHNEXT_GATHER_CACHE_MIB`, 256 MiB of address space by default, resident only where used) instead of a positional read a row on the gather's thread, with a drafted token's rows asked for while the head drafts the next (`TF_FLASHNEXT_DRAFT_AHEAD=1`) and a prompt chunk's rows asked for while the chunk before it runs (`TF_FLASHNEXT_WARM_AHEAD=1`); the rows are the mapping's bytes, so the dequantized rows and every reply are unchanged. A prompt's last chunk that would fall under `TF_FLASHNEXT_PREFILL_TAIL` rows takes about half of what remains instead, so the final two chunks are of about equal rows and both past the prompt expert tiles' 1,024. Adapts MiaAI-Lab's MIT recipe patch0013 (#9999).
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
 index f2c3ddb758..6687efb79a 100644
 --- a/zig/src/families/flashnext/cuda_mtp.zig

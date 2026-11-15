@@ -1,27 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 3f79ff6ec8..c3d699fd69 100644
+index bc996a0df4..93eafa9951 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -39,8 +39,6 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
-   pooled blocks and DeltaNet states stay bf16; attention reads the codes widened to bf16 exactly, so its sums are the bf16
-   kernels' on the dequantized rows, and a repeated prompt's reply is deterministic. bf16 stays the default.
+@@ -49,6 +49,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
  
--- Flash Next: a shared pass gathers every stream's n-gram rows in one pool call (TF_FLASHNEXT_GATHER_EARLY=1, at most 64 lanes), can lock the tables' scale arrays in memory at load (TF_FLASHNEXT_GATHER_LOCK_SCALES=1, NVFP4), and TF_FLASHNEXT_GATHER_LOG=1 prints what the pass launched ahead and waited; every gathered row is the per-stream call's (#9999).
--
- - Flash Next on CUDA: a prompt pass fills its chunks without draining the stream between them on one rank (`TF_FLASHNEXT_PROMPT_SYNC=1` restores the drain; ranks above one keep it), takes 3,072-row chunks by default, and can point MXFP8 projections of N columns or more at a relaxed 128 x 128 prompt tile (opt-in, `TF_FLASHNEXT_PROMPT_MX128=N`; default off, the exact kernels everywhere) whose UE8M0 block scales ride in the mma B fragment over one fp32 chain per K; a row's sums keep their order whatever the chunk holds, but they are not the exact kernels' bits (#9999).
- 
- - Internal: a CUDA family's disk module may declare its own host staging permit for kept states, so a family whose kept state is larger than 1 GiB can be written to disk; families that declare none keep the fixed 1 GiB permit, and every family on main today is unchanged (#2337, refs #850). Thanks to @ajensenwaud.
-@@ -49,6 +47,10 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
- - Flash Next on CUDA: the MTP draft head's rows load as 4-bit affine rows by default, like the GLM family's head, with `TF_FLASHNEXT_DRAFT_HEAD=bf16` for the exact rows (#9999).
- - Flash Next on CUDA: the NVFP4 n-gram table's rows can be read through a direct-mapped row cache by up to 128 parked readers (`TF_FLASHNEXT_GATHER_READ=pread`, `TF_FLASHNEXT_GATHER_THREADS`, `TF_FLASHNEXT_GATHER_CACHE_MIB`, 256 MiB of address space by default, resident only where used) instead of a positional read a row on the gather's thread, with a drafted token's rows asked for while the head drafts the next (`TF_FLASHNEXT_DRAFT_AHEAD=1`) and a prompt chunk's rows asked for while the chunk before it runs (`TF_FLASHNEXT_WARM_AHEAD=1`); the rows are the mapping's bytes, so the dequantized rows and every reply are unchanged. A prompt's last chunk that would fall under `TF_FLASHNEXT_PREFILL_TAIL` rows takes about half of what remains instead, so the final two chunks are of about equal rows and both past the prompt expert tiles' 1,024. Adapts MiaAI-Lab's MIT recipe patch0013 (#9999).
+ - Flash Next on CUDA: a prompt pass's native hyper-connection read-out (the norm, the down projection, the reduce, the up projection and the mix as five launches) runs as two fused kernels (`TF_FLASHNEXT_PROMPT_HC2=1`, from `TF_FLASHNEXT_HC2_MIN` rows; `TF_FLASHNEXT_HC2_DN` and `TF_FLASHNEXT_HC2_UP` pick a CTA's row tile), with the streams normed in the down tile's shared memory and the up rows mixed in its epilogue, so no normed rows travel through memory; every output byte is the five-launch chain's (`hc-fuse`), and a prompt pass's MoE write-back reads the shared expert's fp32 output in place instead of a copy of it in y's last slot (`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1`). A prompt chunk's MTP head pass takes at most `TF_FLASHNEXT_HEAD_PIECE` rows (256, the decode rounds' piece), and from 1024 rows its experts take the shared-memory row tiles (#9999).
  
 +- Flash Next on CUDA: a shared round can be priced from the environment where nothing is timed at load. `TF_FLASHNEXT_ROUND_MS` names the forward ms by rows (an `a+b` line, or a comma list from rows 1 that the core interpolates and extends), so the core trims a round's drafts to the rows that pay and measures each round's time past the forward as its overhead; `TF_FLASHNEXT_DRAFT_ROW_MS` prices a draft row apart from the streams' rows (a stream's further rows share its experts and cost less). Unset, rounds stay unpriced as before, and no reply changes (#9999).
-+- Flash Next on CUDA: a prompt pass's native hyper-connection read-out (the norm, the down projection, the reduce, the up projection and the mix as five launches) runs as two fused kernels (`TF_FLASHNEXT_PROMPT_HC2=1`, from `TF_FLASHNEXT_HC2_MIN` rows; `TF_FLASHNEXT_HC2_DN` and `TF_FLASHNEXT_HC2_UP` pick a CTA's row tile), with the streams normed in the down tile's shared memory and the up rows mixed in its epilogue, so no normed rows travel through memory; every output byte is the five-launch chain's (`hc-fuse`), and a prompt pass's MoE write-back reads the shared expert's fp32 output in place instead of a copy of it in y's last slot (`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1`). A prompt chunk's MTP head pass takes at most `TF_FLASHNEXT_HEAD_PIECE` rows (256, the decode rounds' piece), and from 1024 rows its experts take the shared-memory row tiles (#9999).
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/zig/src/core/lanes/allocate.zig b/zig/src/core/lanes/allocate.zig
 index 99426b5a0f..75453d6b11 100644
 --- a/zig/src/core/lanes/allocate.zig
@@ -517,7 +506,7 @@ index 0000000000..af3403f2b9
 +    try std.testing.expectEqual(@as(f64, 0), draftRowMs()); // a split of a table that is not there
 +}
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 363196d0e4..78f8213a4f 100644
+index 67c6842bfe..c7b8da21c3 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -4,7 +4,7 @@ const sys = @import("sys.zig");

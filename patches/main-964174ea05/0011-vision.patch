@@ -1,17 +1,16 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index c3d699fd69..bae09e98f5 100644
+index 93eafa9951..1c0bd9c65a 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
-@@ -50,6 +50,9 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+@@ -51,6 +51,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
  - Flash Next on CUDA: a shared round can be priced from the environment where nothing is timed at load. `TF_FLASHNEXT_ROUND_MS` names the forward ms by rows (an `a+b` line, or a comma list from rows 1 that the core interpolates and extends), so the core trims a round's drafts to the rows that pay and measures each round's time past the forward as its overhead; `TF_FLASHNEXT_DRAFT_ROW_MS` prices a draft row apart from the streams' rows (a stream's further rows share its experts and cost less). Unset, rounds stay unpriced as before, and no reply changes (#9999).
- - Flash Next on CUDA: a prompt pass's native hyper-connection read-out (the norm, the down projection, the reduce, the up projection and the mix as five launches) runs as two fused kernels (`TF_FLASHNEXT_PROMPT_HC2=1`, from `TF_FLASHNEXT_HC2_MIN` rows; `TF_FLASHNEXT_HC2_DN` and `TF_FLASHNEXT_HC2_UP` pick a CTA's row tile), with the streams normed in the down tile's shared memory and the up rows mixed in its epilogue, so no normed rows travel through memory; every output byte is the five-launch chain's (`hc-fuse`), and a prompt pass's MoE write-back reads the shared expert's fp32 output in place instead of a copy of it in y's last slot (`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1`). A prompt chunk's MTP head pass takes at most `TF_FLASHNEXT_HEAD_PIECE` rows (256, the decode rounds' piece), and from 1024 rows its experts take the shared-memory row tiles (#9999).
  
 +- Qwen3.8-Flash-Next on CUDA: `--vision` serves the FP4 checkpoint's tower - ModelOpt's MXFP8 and NVFP4 linears decode to bf16 on the host at load, so the tower runs bf16 as ever - and a request's image rows may reach 16,384 (#9999).
 +
-+
+ ## 1.2.9
  
- 
- 
+ - Flash Next on CUDA: a lone stream draws on its own path again; the batched draws #2927 added now run only when two or more streams share a step, so one sampled stream no longer pays the group's whole-buffer download each step. Tokens are unchanged (#3391, after #2927).
 diff --git a/docs/vision.md b/docs/vision.md
 index af7c17c475..db226edc7d 100644
 --- a/docs/vision.md

@@ -3,6 +3,12 @@
 Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; agents ran
 overnight; see section 4.
 
+Last updated: 2026-11-15 17:10 UTC, 0004 re-seated on `964174ea05`.
+
+- **0004 re-seated, host suite green in any shell:** its three spark6 failures came from the run's shell (`config.sh` exported `TF_FLASHNEXT_GATHER_READ=pread`, so `Ngram.init` opened the row cache the tests assumed closed; one test leaked the reader it overwrote; upstream's short-read test read through the cache). 0004's tests now set the cache themselves, `GATHER_CACHE_MIB=0` no longer asserts, every `CHANGELOG.md` hunk of the package is rebuilt; base and package fail only main's own 2 (umask 0002, no IPv6) in a clean and in the serve's shell (6,724/6,759 and 6,767/6,803).
+- **0004 keep/drop A/B (spark6, A = all 19, B = without 0004 and 0012, A B B A at 1-8 streams, fp8 262,144):** running unattended as `~/work/restack2/chain.sh`; verdict and table land in `docs/RESTACK-main-964174ea05.md`.
+- **Package:** `patches/main-964174ea05/` regenerated (apply `--check` 19/19, reverts 89/89 allowed); the earlier note that main's 2 failures were DeepSeek encoder fixtures was wrong (those hashes print from a passing test).
+
 Last updated: 2026-11-15 13:30 UTC, the stack re-seated onto upstream main `964174ea05`.
 
 - **Restack done and gated:** `patches/main-964174ea05/` (19 patches) applies on `964174ea05` in order, the applied tree is byte-identical to the staged one, the aarch64 type-check is rc 0 (1021 s; the base's own is rc 0, 856 s) and 89/89 revert findings are the 1.2.7 set. **No patch is retired: upstream absorbed none** (per-patch evidence in its `RECORD.md`); 0014 (#3218) and 0008 (#3413) are still OPEN upstream.

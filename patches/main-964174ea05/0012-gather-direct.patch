@@ -33,7 +33,7 @@ index f08f8e85ba..134a8e5f68 100644
  pub fn gatherThreads() sys.environment.Error!usize {
      return sys.environment.read(usize, "TF_FLASHNEXT_GATHER_THREADS", 128);
 diff --git a/zig/src/families/flashnext/cuda_ple_cache.zig b/zig/src/families/flashnext/cuda_ple_cache.zig
-index ca70d12dcc..303f9aa498 100644
+index 8c0b19f7ab..1107ed98d9 100644
 --- a/zig/src/families/flashnext/cuda_ple_cache.zig
 +++ b/zig/src/families/flashnext/cuda_ple_cache.zig
 @@ -72,8 +72,9 @@ pub const Reader = struct {
@@ -48,7 +48,7 @@ index ca70d12dcc..303f9aa498 100644
          }
          const own_shards = try gpa.dupe(Shard, shards);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 78f8213a4f..bb7a6dc51f 100644
+index c7b8da21c3..14a6811315 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -54,6 +54,7 @@ pub const rules = [_]Rule{
@@ -57,7 +57,7 @@ index 78f8213a4f..bb7a6dc51f 100644
      .{ .name = "TF_FLASHNEXT_GATHER_READ", .scope = .cuda, .kind = .word, .words = &.{ "0", "pread" }, .forms = "pread (the n-gram table's rows through a row cache and parked readers) or 0 (the plain reader)" },
 +    .{ .name = "TF_FLASHNEXT_GATHER_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1 (0 reads the n-gram row cache through the page cache instead of O_DIRECT)" },
      .{ .name = "TF_FLASHNEXT_GATHER_THREADS", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size reader count (0 disables read-ahead; capped at 128)" },
-     .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to one slot)" },
+     .{ .name = "TF_FLASHNEXT_GATHER_CACHE_MIB", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to two slots)" },
      .{ .name = "TF_FLASHNEXT_DRAFT_AHEAD", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
 index bf6579698b..8186c4c7f9 100644
