@@ -56,8 +56,9 @@ Decisions (none blocks running work):
 6. **Strict refusal in #3218.** I posted that a CUDA drafter already stored as MXFP8 also refuses `mxfp8`. Tell me if you want it accepted instead (a new commit).
 7. **Old Gitea repos.** Delete `ots/tensorfold-fp4port`, `ots/ai-engine`, `ots/tensorfold-gb10` and `tf-1.2.6-parity`? Salvage bundles exist for the first two; ownership of `tensorfold-gb10` is unknown.
 
-Waiting on others, not you: the maintainer (his agent said it will run its own device check of unset/checkpoint/mxfp8 on #3218 and compare acceptance, resident memory, prompt and decode speed before merging; CI has not run; PR shows CONFLICTING on CHANGELOG.md, maintainers rebase at landing, force-push only if he asks).
-Running now: `Fp4Confirm` (items 2 and 5). Production on spark6 is serving between windows.
+Waiting on others, not you: the maintainer on #3218 (his agent will run its own device check of unset/checkpoint/mxfp8 and compare acceptance, resident memory, prompt and decode speed before merging) and on #3413 (he held it on a misread of CI; the reply is up, CI was green on `3d2a267747`, and he may ask for the final merged source checked). Maintainers rebase at landing; force-push only if he asks.
+Open and mine: PR #3475 (`TF_FLASHNEXT_FUSED_SPLIT`, no issue) is open; its body still names head `62b28178d5` and says CI not run, and is corrected to head `8ebb88cc1` and the real CI result as soon as CI ends (text shown to you first). Ready for your "post": the config-driven widths PR (INT4 step 1, `Refs #3368`, branch `flashnext-config-widths`, head `ea11e31570`). `DraftHeadPr` (Refs #1870) is still on its Spark gates.
+Running now: `DraftHeadPr` and CI on #3475. Production on spark6 is serving between windows.
 
 ## 1. Status log, newest first (older entries superseded)
 
