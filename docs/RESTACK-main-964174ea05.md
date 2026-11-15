@@ -147,3 +147,30 @@ Every `rs96` and `rq7` boot logs "window self-check: 1176 of 2080 rows byte-equa
 1-64)". One run an arm, so no cell meets the noise rule's two-runs condition for a slowdown; the counters are the
 same to the digit in every pair, which is the stronger statement: the two stacks do the same work. **No patch is
 retired**, so no cell was run with one dropped.
+
+## Host suite on spark6 (native aarch64, Zig 0.17.0, `zig build test-cuda-host -j8`, 2026-11-15)
+
+Run on the box, not the laptop: pristine `964174ea05` against the same tree with this package applied, the toolchain
+the image builds use (`~/qwen-zig/scripts/config.sh`, sha-checked).
+
+| tree | steps | tests | failed |
+|---|---|---|---|
+| base `964174ea05` | 406 of 408 | 6,724 of 6,759 passed, 33 skipped | 2 |
+| base + this package | 405 of 408 | 6,764 of 6,802 passed, 34 skipped | 4, and 1 leak |
+
+- **Inherited from main (both trees):** the two DeepSeek-V4.1 encoder fixture hashes in
+  `zig/src/server/fixtures/deepseek_v41_encoder/` (`recorded_prompt_sha256` `b4cfdbdc...` and `d8e86eef...` do not
+  match the rendered prompts). None of our patches touches the server or that family.
+- **Ours, patch 0004 (the n-gram row cache), NOT fixed in this run:**
+  - `cuda_ple_cache_test`: "NVFP4 rows read by pread equal the mapped rows, cold, ahead and after eviction" fails at
+    `cuda_ple_cache_test.zig:17`, `try std.testing.expect(g.cache == null);`
+  - `cuda_ple_cache_test`: "NVFP4 rows read by pread stay exact when slots collide" leaks 4 allocations
+  - `cuda_ple_nvfp4_test`: "PLE positional reads: mapped bytes, pool callers and short reads preserve history and
+    destination" fails at `cuda_ple_nvfp4_test.zig:171`, `expected error.PleShortRead, found void`
+  The re-seated 0004 applies and the served path measured exact (golden 6/6 in every cell, counters identical to the
+  1.2.7 package's), but upstream reworked the same reader and pool (`host_pool.zig`, page advice `1bbc79e391`,
+  `32ef95dbad`, the cold-gather pool `28f03c23c8`) and 0004's own tests no longer hold on this base. The package is not
+  green until 0004 is re-seated against that work; its test expectations and the reader's short-read path are where to
+  start.
+- Laptop note: the first host run (WSL) also caught a fourth 0004 defect, a third `draftMany` call site upstream added
+  in `cuda_mtp_nonfinite_more_test.zig`; fixed in the package (commit `8399d80`).
