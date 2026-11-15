@@ -3,6 +3,13 @@
 Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; agents ran
 overnight; see section 4.
 
+Last updated: 2026-11-15 13:30 UTC, the stack re-seated onto upstream main `964174ea05`.
+
+- **Restack done and gated:** `patches/main-964174ea05/` (19 patches) applies on `964174ea05` in order, the applied tree is byte-identical to the staged one, the aarch64 type-check is rc 0 (1021 s; the base's own is rc 0, 856 s) and 89/89 revert findings are the 1.2.7 set. **No patch is retired: upstream absorbed none** (per-patch evidence in its `RECORD.md`); 0014 (#3218) and 0008 (#3413) are still OPEN upstream.
+- **INT4 port** re-seated as `patches/main-964174ea05-int4/` (text only, not built or served on this base); two hunks decided, both in its `RECORD.md`.
+- **GPU receipts not obtained yet:** images `um96` (upstream alone), `rs96` (the re-seated stack) and `rq7` (the 1.2.7 stack) are built on spark6 and a 16-cell window is queued behind `widths/receiptW.sh`'s lock; spark6 SSH then went down with `agent refused operation` on the YubiKey agent, so the window is running unattended and unverified: **check `~/work/restack/win1.log` and `/health` on :8888**.
+- Everything below is the 2026-11-14 state and still stands except where this block says otherwise.
+
 Last updated: 2026-11-14, after the INT4 port, drafter and multi-stream settings work. Nothing is running now. Nothing is posted anywhere outside our own repo.
 
 ## GAME PLAN (owner, 2026-11-14): "submit whatever we can as upstream issues/PRs, that's the entire game plan"
