@@ -1,0 +1,20 @@
+== .zig-cache-clean/o/4fca1e40fb1b0642aaf714dcd51a3c05/test (17969488 bytes)
+-- clean: rc=0 304 passed; 1 skipped; 0 failed.
+cuda_ple_cache_test.test.NVFP4 rows read by pread equal the mapped rows, cold, ahead and after eviction...OK
+cuda_ple_cache_test.test.NVFP4 rows read by pread stay exact when slots collide...OK
+cuda_ple_cache_test.test.the row cache's address space is a power of two of slots, two at the fewest...OK
+cuda_ple_cache_test.test.real checkpoint: pread rows equal the mapped rows...SKIP
+cuda_ple_nvfp4_test.test.NVFP4 mapped PLE rows equal token decode across prompt chunks and threaded gathers...OK
+cuda_ple_nvfp4_test.test.NVFP4 PLE requires its global table scale...OK
+cuda_ple_nvfp4_test.test.PLE gather: NVFP4 pool and caller preserve every output byte at partition edges...OK
+cuda_ple_nvfp4_test.test.PLE positional reads: mapped bytes, pool callers and short reads preserve history and destination...OK
+TF_FLASHNEXT_GATHER_READ=pread
+-- prod: rc=0 304 passed; 1 skipped; 0 failed.
+cuda_ple_cache_test.test.NVFP4 rows read by pread equal the mapped rows, cold, ahead and after eviction...OK
+cuda_ple_cache_test.test.NVFP4 rows read by pread stay exact when slots collide...OK
+cuda_ple_cache_test.test.the row cache's address space is a power of two of slots, two at the fewest...OK
+cuda_ple_cache_test.test.real checkpoint: pread rows equal the mapped rows...SKIP
+cuda_ple_nvfp4_test.test.NVFP4 mapped PLE rows equal token decode across prompt chunks and threaded gathers...OK
+cuda_ple_nvfp4_test.test.NVFP4 PLE requires its global table scale...OK
+cuda_ple_nvfp4_test.test.PLE gather: NVFP4 pool and caller preserve every output byte at partition edges...OK
+cuda_ple_nvfp4_test.test.PLE positional reads: mapped bytes, pool callers and short reads preserve history and destination...OK

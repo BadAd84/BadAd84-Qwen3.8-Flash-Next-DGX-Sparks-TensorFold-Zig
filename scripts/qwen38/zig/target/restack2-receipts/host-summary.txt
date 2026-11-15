@@ -1,0 +1,22 @@
+zig 0.17.0 (sha256 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8), umask 0002
+head: 19 patches, sha256 of the series cbabf52b675794b8
+== base clean rc=1 315s 
+Build Summary: 406/408 steps succeeded (1 failed); 6724/6759 tests passed (33 skipped, 2 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+error lines: 2
+== head clean rc=1 280s 
+Build Summary: 406/408 steps succeeded (1 failed); 6767/6803 tests passed (34 skipped, 2 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+error lines: 2
+== head prod rc=1 244s prod env: 25 TF_/TENSORFOLD_ variables, TF_FLASHNEXT_GATHER_READ=pread
+Build Summary: 406/408 steps succeeded (1 failed); 6767/6803 tests passed (34 skipped, 2 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+error lines: 2
+== base prod rc=1 227s prod env: 25 TF_/TENSORFOLD_ variables, TF_FLASHNEXT_GATHER_READ=pread
+Build Summary: 406/408 steps succeeded (1 failed); 6724/6759 tests passed (33 skipped, 2 failed)
+error: 'cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read' failed
+error: 'listener.test.accepted IPv4 and IPv6 TCP streams disable Nagle for incremental responses' failed
+error lines: 2

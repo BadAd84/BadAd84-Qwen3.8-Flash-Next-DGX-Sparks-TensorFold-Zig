@@ -1,0 +1,120 @@
+=== queued 2026-11-15T17:08:52+00:00
+=== lock 2026-11-15T17:08:52+00:00
+=== A1 C=1 gpu 50, 2398 MHz 2026-11-15T17:08:52+00:00
+=== A1 r2a C=1 boot 62s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A1-c1/zgold.json: 6/6 identical
+DEC r2-A1-c1 C=1 prose pass0: per-stream med 62.58 min 62.58 agg 62.6 tok/wall 61.7 tokens 512 rounds 143 drafted 574 accepted 369
+DEC r2-A1-c1 C=1 code pass0: per-stream med 84.51 min 84.51 agg 84.5 tok/wall 83.2 tokens 512 rounds 88 drafted 628 accepted 423
+=== B1 C=1 gpu 53, 208 MHz 2026-11-15T17:10:22+00:00
+=== B1 r2b C=1 boot 55s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B1-c1/zgold.json: 6/6 identical
+DEC r2-B1-c1 C=1 prose pass0: per-stream med 56.03 min 56.03 agg 56.0 tok/wall 55.2 tokens 512 rounds 143 drafted 574 accepted 369
+DEC r2-B1-c1 C=1 code pass0: per-stream med 76.57 min 76.57 agg 76.6 tok/wall 75.4 tokens 512 rounds 88 drafted 628 accepted 423
+=== B2 C=1 gpu 55, 208 MHz 2026-11-15T17:11:47+00:00
+=== B2 r2b C=1 boot 74s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B2-c1/zgold.json: 6/6 identical
+DEC r2-B2-c1 C=1 prose pass0: per-stream med 62.17 min 62.17 agg 62.2 tok/wall 61.3 tokens 512 rounds 143 drafted 574 accepted 369
+DEC r2-B2-c1 C=1 code pass0: per-stream med 83.03 min 83.03 agg 83.0 tok/wall 81.7 tokens 512 rounds 88 drafted 628 accepted 423
+=== A2 C=1 gpu 57, 208 MHz 2026-11-15T17:13:29+00:00
+=== A2 r2a C=1 boot 62s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A2-c1/zgold.json: 6/6 identical
+DEC r2-A2-c1 C=1 prose pass0: per-stream med 61.48 min 61.48 agg 61.5 tok/wall 60.7 tokens 512 rounds 143 drafted 574 accepted 369
+DEC r2-A2-c1 C=1 code pass0: per-stream med 82.77 min 82.77 agg 82.8 tok/wall 81.3 tokens 512 rounds 88 drafted 628 accepted 423
+=== A1 C=2 gpu 57, 208 MHz 2026-11-15T17:14:59+00:00
+=== A1 r2a C=2 boot 64s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A1-c2/zgold.json: 6/6 identical
+DEC r2-A1-c2 C=2 prose pass0: per-stream med 43.82 min 41.65 agg 87.6 tok/wall 82.4 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC r2-A1-c2 C=2 code pass0: per-stream med 61.98 min 61.71 agg 124.0 tok/wall 121.4 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== B1 C=2 gpu 59, 208 MHz 2026-11-15T17:16:37+00:00
+=== B1 r2b C=2 boot 65s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B1-c2/zgold.json: 6/6 identical
+DEC r2-B1-c2 C=2 prose pass0: per-stream med 41.16 min 39.69 agg 82.3 tok/wall 77.4 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC r2-B1-c2 C=2 code pass0: per-stream med 60.18 min 59.94 agg 120.4 tok/wall 117.8 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== B2 C=2 gpu 58, 208 MHz 2026-11-15T17:18:17+00:00
+=== B2 r2b C=2 boot 65s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B2-c2/zgold.json: 6/6 identical
+DEC r2-B2-c2 C=2 prose pass0: per-stream med 40.51 min 39.09 agg 81.0 tok/wall 76.2 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC r2-B2-c2 C=2 code pass0: per-stream med 58.67 min 58.10 agg 117.3 tok/wall 114.8 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== A2 C=2 gpu 60, 208 MHz 2026-11-15T17:19:57+00:00
+=== A2 r2a C=2 boot 65s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A2-c2/zgold.json: 6/6 identical
+DEC r2-A2-c2 C=2 prose pass0: per-stream med 42.59 min 41.09 agg 85.2 tok/wall 80.4 tokens 1024 rounds 321 drafted 1089 accepted 702
+DEC r2-A2-c2 C=2 code pass0: per-stream med 61.75 min 61.16 agg 123.5 tok/wall 120.9 tokens 1024 rounds 177 drafted 1169 accepted 845
+=== A1 C=4 gpu 58, 208 MHz 2026-11-15T17:21:36+00:00
+=== A1 r2a C=4 boot 59s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A1-c4/zgold.json: 6/6 identical
+DEC r2-A1-c4 C=4 prose pass0: per-stream med 29.04 min 23.94 agg 114.5 tok/wall 104.5 tokens 1980 rounds 697 drafted 2092 accepted 1285
+DEC r2-A1-c4 C=4 code pass0: per-stream med 42.15 min 37.39 agg 166.2 tok/wall 144.9 tokens 2048 rounds 400 drafted 2384 accepted 1644
+=== B1 C=4 gpu 58, 208 MHz 2026-11-15T17:23:21+00:00
+=== B1 r2b C=4 boot 58s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== B1 C=4 DID NOT SERVE
+=== B2 C=4 gpu 56, 208 MHz 2026-11-15T17:24:24+00:00
+=== B2 r2b C=4 boot 58s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== B2 C=4 DID NOT SERVE
+=== A2 C=4 gpu 55, 208 MHz 2026-11-15T17:25:28+00:00
+=== A2 r2a C=4 boot 55s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A2-c4/zgold.json: 6/6 identical
+DEC r2-A2-c4 C=4 prose pass0: per-stream med 29.47 min 24.32 agg 116.3 tok/wall 106.2 tokens 1980 rounds 697 drafted 2092 accepted 1285
+DEC r2-A2-c4 C=4 code pass0: per-stream med 43.34 min 36.92 agg 168.8 tok/wall 146.7 tokens 2048 rounds 400 drafted 2384 accepted 1644
+=== A1 C=6 gpu 55, 208 MHz 2026-11-15T17:27:08+00:00
+=== A1 r2a C=6 boot 55s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A1-c6/zgold.json: 6/6 identical
+DEC r2-A1-c6 C=6 prose pass0: per-stream med 25.77 min 20.41 agg 151.1 tok/wall 134.3 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC r2-A1-c6 C=6 code pass0: per-stream med 36.59 min 32.07 agg 216.0 tok/wall 187.5 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== B1 C=6 gpu 54, 208 MHz 2026-11-15T17:28:55+00:00
+=== B1 r2b C=6 boot 55s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B1-c6/zgold.json: 6/6 identical
+DEC r2-B1-c6 C=6 prose pass0: per-stream med 22.99 min 18.23 agg 134.3 tok/wall 120.0 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC r2-B1-c6 C=6 code pass0: per-stream med 33.84 min 29.98 agg 199.9 tok/wall 174.4 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== B2 C=6 gpu 59, 208 MHz 2026-11-15T17:30:46+00:00
+=== B2 r2b C=6 boot 59s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B2-c6/zgold.json: 6/6 identical
+DEC r2-B2-c6 C=6 prose pass0: per-stream med 22.98 min 18.08 agg 134.1 tok/wall 119.8 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC r2-B2-c6 C=6 code pass0: per-stream med 34.16 min 30.57 agg 202.5 tok/wall 176.5 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== A2 C=6 gpu 56, 208 MHz 2026-11-15T17:32:40+00:00
+=== A2 r2a C=6 boot 56s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A2-c6/zgold.json: 6/6 identical
+DEC r2-A2-c6 C=6 prose pass0: per-stream med 25.53 min 19.96 agg 148.4 tok/wall 132.3 tokens 3004 rounds 994 drafted 3160 accepted 2010
+DEC r2-A2-c6 C=6 code pass0: per-stream med 36.13 min 32.27 agg 214.2 tok/wall 185.9 tokens 3072 rounds 582 drafted 3534 accepted 2484
+=== A1 C=8 gpu 56, 208 MHz 2026-11-15T17:34:28+00:00
+=== A1 r2a C=8 boot 58s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A1-c8/zgold.json: 6/6 identical
+DEC r2-A1-c8 C=8 prose pass0: per-stream med 21.06 min 16.35 agg 168.2 tok/wall 150.3 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC r2-A1-c8 C=8 code pass0: per-stream med 32.21 min 26.68 agg 250.3 tok/wall 212.6 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== B1 C=8 gpu 55, 208 MHz 2026-11-15T17:36:24+00:00
+=== B1 r2b C=8 boot 55s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B1-c8/zgold.json: 6/6 identical
+DEC r2-B1-c8 C=8 prose pass0: per-stream med 18.81 min 14.65 agg 149.9 tok/wall 134.7 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC r2-B1-c8 C=8 code pass0: per-stream med 29.88 min 25.77 agg 234.2 tok/wall 199.8 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== B2 C=8 gpu 54, 208 MHz 2026-11-15T17:38:22+00:00
+=== B2 r2b C=8 boot 58s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/B2-c8/zgold.json: 6/6 identical
+DEC r2-B2-c8 C=8 prose pass0: per-stream med 18.64 min 14.45 agg 148.6 tok/wall 133.5 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC r2-B2-c8 C=8 code pass0: per-stream med 29.81 min 25.67 agg 233.3 tok/wall 199.0 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== A2 C=8 gpu 54, 208 MHz 2026-11-15T17:40:26+00:00
+=== A2 r2a C=8 boot 60s
+info: flashnext: window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)
+=== golden /home/adam/work/restack2/win/w1/A2-c8/zgold.json: 6/6 identical
+DEC r2-A2-c8 C=8 prose pass0: per-stream med 20.99 min 16.20 agg 166.5 tok/wall 149.1 tokens 3905 rounds 1356 drafted 4128 accepted 2546
+DEC r2-A2-c8 C=8 code pass0: per-stream med 31.66 min 26.87 agg 246.0 tok/wall 209.1 tokens 4096 rounds 802 drafted 4646 accepted 3286
+=== restored 2026-11-15T17:44:18+00:00 health 200
+=== window done 2026-11-15T17:44:18+00:00

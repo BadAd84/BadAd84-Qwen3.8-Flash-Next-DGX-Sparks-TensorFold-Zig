@@ -90,8 +90,45 @@ family, so the like-for-like arm is bf16):
 
 Every `rs96` and `rq7` boot logs "window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths
 1-64)". One run an arm, so no cell meets the noise rule's two-runs condition for a slowdown; the counters are the
-same to the digit in every pair, which is the stronger statement: the two stacks do the same work. **No patch is
-retired**, so no cell was run with one dropped.
+same to the digit in every pair, which is the stronger statement: the two stacks do the same work. That window ran no
+patch dropped; the one patch put to that test since is 0004, below.
+
+## 0004 keep or retire: A/B on spark6 (2026-11-15)
+
+Arms built from pristine `964174ea05` by `build_patches.sh` and relabelled `tf.kernels=embedded`: **A** (`r2a`) = the
+re-seated package, all 19 patches; **B** (`r2b`) = the package without 0004 and without 0012, which only lets 0004's
+cache read through the page cache and cannot stand alone (`0001-0003` plus one patch carrying `0005-0011` and
+`0013-0019` re-cut without them; its tree is the A tree minus exactly 0004's and 0012's files and lines,
+`restack2-checkb.py`). Both arms ran the recipe's settings with the FP4 launcher block, fp8 KV at 262,144
+(`TF_FLASHNEXT_KV_PAGES=4096` at 6 and 8 streams), a fresh boot a cell bound to 127.0.0.1, golden 6/6 against the
+previous window's replies, one decode pass of 512-token prose and code replies; A B B A at 1, 2, 4, 6 and 8 streams in
+one window (`restack2-win.sh` through `restack2-chain.sh`, spark6 `~/work/restack2/win/w1`). The noise rule: an arm
+is slower in a cell when both its runs are under both of the other's and the means differ by more than 1 percent.
+
+Aggregate tok/s, prose / code, both runs of each arm (window 17:08 to 17:44 UTC; receipts in
+`scripts/qwen38/zig/target/restack2-receipts/`):
+
+| streams | A, with 0004 | B, without 0004 and 0012 | B against A, means | noise rule |
+|---:|---|---|---|---|
+| 1 | 62.6, 61.5 / 84.5, 82.8 | 56.0, 62.2 / 76.6, 83.0 | -4.8% / -4.6% | same (B's second run is over A's) |
+| 2 | 87.6, 85.2 / 124.0, 123.5 | 82.3, 81.0 / 120.4, 117.3 | -5.5% / -4.0% | B slower, prose and code |
+| 4 | 114.5, 116.3 / 166.2, 168.8 | did not boot, both runs | - | B refuses 4 full-window streams |
+| 6 | 151.1, 148.4 / 216.0, 214.2 | 134.3, 134.1 / 199.9, 202.5 | -10.4% / -6.5% | B slower, prose and code |
+| 8 | 168.2, 166.5 / 250.3, 246.0 | 149.9, 148.6 / 234.2, 233.3 | -10.8% / -5.8% | B slower, prose and code |
+
+- **Exactness:** golden 6/6 identical to the previous window's replies in all 18 cells that served, A and B; every one
+  of the 20 boots logs "window self-check: 1176 of 2080 rows byte-equal to their one-token steps (widths 1-64)"; the
+  counters (rounds / drafted / accepted) are the same to the digit between the arms in every cell, so B does the same
+  work, only slower.
+- **B at 4 streams:** `--parallel 4 needs 20.15 GiB for its streams at a 262144-token window, and the CUDA memory
+  budget leaves 17.79 GiB`, twice; A at 4 streams had 25.6 GiB left after the reserve (5.04 GiB a stream). Without
+  0004 the n-gram rows are read through the page cache (0004's cache reads them `O_DIRECT`, leaving the page cache to
+  the weights), which is the likely reason the budget at boot is 7.8 GiB smaller; not measured further.
+- **Verdict: 0004 stays (re-seated).** Retiring it needs B exact and slower nowhere; B is exact, but slower at 2, 6
+  and 8 streams in both passes by 4.0% to 10.8% (both its runs under both of A's) and cannot serve 4 streams at all.
+  The noise rule's rerun confirms a loss before it is counted against a kept arm; it was not run, because no rerun
+  result could make B serve 4 streams or meet the retirement condition. 0012 stays with it. Production was restored
+  at 17:44:18 UTC, `/health` 200, and the arm images were removed.
 
 ## Host suite on spark6 (native aarch64, Zig 0.17.0, `zig build test-cuda-host -j8`, 2026-11-15)
 

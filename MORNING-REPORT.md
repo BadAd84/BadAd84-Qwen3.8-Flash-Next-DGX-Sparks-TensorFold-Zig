@@ -3,10 +3,10 @@
 Ask for it by name. Newest status first. Everything below is current as of the "last updated" line; agents ran
 overnight; see section 4.
 
-Last updated: 2026-11-15 17:10 UTC, 0004 re-seated on `964174ea05`.
+Last updated: 2026-11-15 17:46 UTC, 0004 re-seated on `964174ea05` and kept by its A/B.
 
 - **0004 re-seated, host suite green in any shell:** its three spark6 failures came from the run's shell (`config.sh` exported `TF_FLASHNEXT_GATHER_READ=pread`, so `Ngram.init` opened the row cache the tests assumed closed; one test leaked the reader it overwrote; upstream's short-read test read through the cache). 0004's tests now set the cache themselves, `GATHER_CACHE_MIB=0` no longer asserts, every `CHANGELOG.md` hunk of the package is rebuilt; base and package fail only main's own 2 (umask 0002, no IPv6) in a clean and in the serve's shell (6,724/6,759 and 6,767/6,803).
-- **0004 keep/drop A/B (spark6, A = all 19, B = without 0004 and 0012, A B B A at 1-8 streams, fp8 262,144):** running unattended as `~/work/restack2/chain.sh`; verdict and table land in `docs/RESTACK-main-964174ea05.md`.
+- **0004 stays (A/B on spark6, 17:08-17:44 UTC, A = all 19, B = without 0004 and 0012, A B B A, fp8 262,144):** B is exact (golden 6/6 in all 18 served cells, self-check 1176/2080 at every boot, identical counters) but slower at 2, 6 and 8 streams by 4.0-10.8% (both runs under both of A's) and does not boot 4 streams (17.79 GiB left against 20.15 needed); production restored, `/health` 200, arm images removed.
 - **Package:** `patches/main-964174ea05/` regenerated (apply `--check` 19/19, reverts 89/89 allowed); the earlier note that main's 2 failures were DeepSeek encoder fixtures was wrong (those hashes print from a passing test).
 
 Last updated: 2026-11-15 13:30 UTC, the stack re-seated onto upstream main `964174ea05`.
