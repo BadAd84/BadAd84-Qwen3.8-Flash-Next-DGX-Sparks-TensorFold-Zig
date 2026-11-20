@@ -186,24 +186,28 @@ def solo_vs_concurrent(out, arms):
             data = read_json(os.path.join(d, "conc_t1.json"))
             if not data:
                 continue
+            # Request i of a cell carries seed + i when sampled and the same seed when greedy
+            # (tools/bench_concurrent.py), so only request 0 of each rep is comparable between a
+            # one-stream cell and an N-stream one; the rest are different draws by construction.
             per = {}
             for c in data.get("cells") or []:
                 key = (c.get("prompt") or "", float(c.get("temperature") or 0.0))
-                shas = []
+                reps = []
                 for rep in c.get("reps") or []:
-                    for ev in rep.get("evidence") or []:
-                        shas.append(ev.get("token_sha256"))
-                per.setdefault(key, {})[int(c.get("streams") or 1)] = shas
+                    ev = rep.get("evidence") or []
+                    reps.append(ev[0].get("token_sha256") if ev else None)
+                per.setdefault(key, {})[int(c.get("streams") or 1)] = reps
             for key, by_stream in per.items():
                 solo = by_stream.get(1)
                 if not solo:
                     continue
-                for streams, shas in by_stream.items():
+                for streams, reps in by_stream.items():
                     if streams == 1:
                         continue
-                    same = sum(1 for a, b in zip(solo, shas) if a and a == b)
+                    pairs = [(a, b) for a, b in zip(solo, reps) if a and b]
+                    same = sum(1 for a, b in pairs if a == b)
                     rows.append({"arm": arm, "prompt": os.path.basename(d) + "/" + key[0], "temperature": key[1], "streams": streams,
-                                 "equal": same, "total": min(len(solo), len(shas))})
+                                 "equal": same, "total": len(pairs)})
     return rows
 
 

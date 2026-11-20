@@ -120,6 +120,14 @@ container's binary reports `tensorfold-native 1.3.0` and `docker run --rm --entr
 The raw readers behind every "reaches" and "not reachable" cell are in `APPENDIX-reachability.md` (file and line per
 setting, tests and the value table excluded), and the pull requests are in `prs.json`.
 
+### An instrument defect found before it could lie
+
+The first version of the cross-level comparison paired every evidence row of a one-stream cell with every row of an
+N-stream cell, and reported 1 of 2 equal at temperature 1.0 on M1. The tool gives request i seed + i when sampled
+(`tools/bench_concurrent.py`), so only request 0 of each rep is comparable across levels and the rest are different
+draws by design. Comparing request 0 per rep, M1's contract is 2 of 2 at 2, 4 and 6 streams for both prompts and both
+temperatures. Recorded because a wrong instrument here would have reported a knob as changing tokens.
+
 ## Measured so far: the base arm of window 1
 
 The first boot of the base arm (`M1`, production's environment, main's own defaults) is complete and its decode
