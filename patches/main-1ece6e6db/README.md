@@ -73,9 +73,8 @@ Host, x86-64, on a `git archive` of `1ece6e6db` with the series applied:
 | `zig fmt --check build.zig zig` | rc 0 on the final series (Zig 0.17.0 formatter) |
 | `zig build test-environment-host` | rc 0 on Paperclip for the series before the two compile fixes; the run on the final series was queued on the host lock |
 | `zig build -Dfixed-cpu test-gradient-serving test-qwen-serving-host` | rc 0 on the same pre-fix series, and `pincheck.py` reads `files 169 failing 0` on the final tree |
-| `zig build -Dfixed-cpu test-kernel-contract` | queued on the host lock when this package was cut (another lane's builds held it); the pre-fix run stopped only on the duplicated `.cluster` field the doc records |
-| `zig build compile-config-server -Dtarget=aarch64-linux-gnu` (cross-compile) | queued the same way; the first run on the pre-fix series failed on two re-seat defects, both fixed and re-seated (doc, "Gates") |
-| `zig build compile-cuda-tests -Dtarget=aarch64-linux-gnu` (cross-compile) | queued the same way |
+| `zig build -Dfixed-cpu test-kernel-contract` | rc 0 on the final series (259/259 compiled tests pass; the run's `N/A ... not served there` lines are the chip map's own) |
+| `zig build compile-config-server -Dtarget=aarch64-linux-gnu` and `compile-cuda-tests -Dtarget=aarch64-linux-gnu` (cross-compiles) | **not observed**: both were re-launched detached behind `~/work/host.lock`, which another lane's `box/runall.sh` held continuously through this session. The one run that did start (on the pre-fix series) failed only on the two defects the doc records, both fixed; the native kernel-contract gate compiles the whole engine here |
 
 Not run here: anything with a GPU (golden replies, decode timing, `tf-cuda-test` execution). The next Spark window
 runs those on this base.
