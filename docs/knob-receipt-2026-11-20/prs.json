@@ -1,0 +1,1223 @@
+{
+ "TENSORFOLD_DEVICE_CHECK": [
+  {
+   "number": 3107,
+   "title": "cli: tensorfold device says what this machine runs, saved in ~/.tensorfold/device.json",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-13T01:46:59Z"
+  }
+ ],
+ "TENSORFOLD_HIP_MEMORY_LIMIT_GB": [
+  {
+   "number": 490,
+   "title": "HIP: native Zig engine for Qwen3.5 MLX affine on RDNA2 / RDNA3",
+   "author": "BlivionIaG",
+   "state": "closed",
+   "created": "2026-10-07T22:42:56Z"
+  },
+  {
+   "number": 812,
+   "title": "refactor(hip): shared HIP pieces out of Qwen3.5: the memory budget, the routed MoE and tp reduce, the token draw",
+   "author": "BlivionIaG",
+   "state": "merged",
+   "created": "2026-10-14T03:33:09Z"
+  },
+  {
+   "number": 3419,
+   "title": "flashnext hip: the chunk fallback measures room after the window plan slots",
+   "author": "gilby",
+   "state": "merged",
+   "created": "2026-11-15T11:23:01Z"
+  },
+  {
+   "number": 3520,
+   "title": "qwen3_5: CUDA and HIP settings through environment.zig, refused at startup by name",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-16T08:08:16Z"
+  },
+  {
+   "number": 4207,
+   "title": "perf(hip): Qwen prompts take the policy's prompt step on a lone RDNA 3.5 iGPU",
+   "author": "AbrahamCete",
+   "state": "open",
+   "created": "2026-11-20T13:18:02Z"
+  }
+ ],
+ "TENSORFOLD_LFM2_KV_PAGES": [
+  {
+   "number": 1503,
+   "title": "lfm2_moe CUDA: attention pages from the shared KV pool, and the prompt cache (stacked on #1492)",
+   "author": "jschmied",
+   "state": "closed",
+   "created": "2026-10-27T20:41:28Z"
+  },
+  {
+   "number": 1508,
+   "title": "lfm3: serve LFM3-1.7B on CUDA: NVFP4 and FP8 weight-only, MLX 4-bit (stacked on #1513, #1492 and #1503)",
+   "author": "jschmied",
+   "state": "open",
+   "created": "2026-10-27T22:45:40Z"
+  },
+  {
+   "number": 2107,
+   "title": "CUDA admission: an integrated GPU under WSL2 reads the CUDA pool (RTX Spark N1X), plus an N1X receipt",
+   "author": "drowzeys",
+   "state": "merged",
+   "created": "2026-11-04T12:51:28Z"
+  },
+  {
+   "number": 2989,
+   "title": "LFM2.5-24B-A2B on CUDA: one helper for every prompt-stream write a keep reads, and a test that fails if a writer skips the wait",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-12T06:52:38Z"
+  }
+ ],
+ "TENSORFOLD_MEMORY_RESERVE_GIB": [
+  {
+   "number": 133,
+   "title": "feat(cuda): TENSORFOLD_MEMORY_RESERVE_GIB sets what the startup budget leaves free",
+   "author": "MiaAI-Lab",
+   "state": "closed",
+   "created": "2026-09-30T10:48:32Z"
+  },
+  {
+   "number": 165,
+   "title": "Let users size the CUDA memory budget with TENSORFOLD_MEMORY_RESERVE_GIB and TENSORFOLD_CUDA_MEMORY_LIMIT_GB",
+   "author": "eleqtrizit",
+   "state": "closed",
+   "created": "2026-09-30T23:17:13Z"
+  },
+  {
+   "number": 187,
+   "title": "feat(vision): --vision-offload keeps the CUDA image tower in host RAM between images",
+   "author": "barelyworkingcode",
+   "state": "closed",
+   "created": "2026-10-01T12:53:51Z"
+  },
+  {
+   "number": 1319,
+   "title": "cli: tensorfold plan, the serve startup budget before weights load (#840)",
+   "author": "javierbits",
+   "state": "closed",
+   "created": "2026-10-25T21:31:49Z"
+  },
+  {
+   "number": 1956,
+   "title": "fix(hip): an integrated GPU's budget counts its firmware VRAM carve-out",
+   "author": "llstrk",
+   "state": "closed",
+   "created": "2026-11-02T19:12:43Z"
+  },
+  {
+   "number": 1963,
+   "title": "fix(hip): an integrated GPU counts its own memory only when sysfs says it is dedicated VRAM",
+   "author": "llstrk",
+   "state": "merged",
+   "created": "2026-11-02T20:13:39Z"
+  },
+  {
+   "number": 2337,
+   "title": "cuda disk: a family's host staging permit for kept states",
+   "author": "ajensenwaud",
+   "state": "merged",
+   "created": "2026-11-06T09:38:25Z"
+  },
+  {
+   "number": 3192,
+   "title": "CUDA on GB10: the memory budget is at most CUDA's free memory, after the checkpoint's cached pages are dropped",
+   "author": "ashhart",
+   "state": "open",
+   "created": "2026-11-13T12:15:07Z"
+  },
+  {
+   "number": 3219,
+   "title": "Flash Next on CUDA: warm turns, so the next turn resumes past the reply",
+   "author": "ashhart",
+   "state": "open",
+   "created": "2026-11-13T13:59:13Z"
+  },
+  {
+   "number": 3467,
+   "title": "flashnext cuda: the mixed PLE shard and the nested shards leave the page cache after load",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-15T20:49:15Z"
+  },
+  {
+   "number": 3520,
+   "title": "qwen3_5: CUDA and HIP settings through environment.zig, refused at startup by name",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-16T08:08:16Z"
+  },
+  {
+   "number": 3613,
+   "title": "nemotron/hip: opt-in --mtp-drafts up to 15 on a lone stream",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-16T22:02:08Z"
+  }
+ ],
+ "TENSORFOLD_UNIFIED_HOST_COUNTS": [
+  {
+   "number": 1508,
+   "title": "lfm3: serve LFM3-1.7B on CUDA: NVFP4 and FP8 weight-only, MLX 4-bit (stacked on #1513, #1492 and #1503)",
+   "author": "jschmied",
+   "state": "open",
+   "created": "2026-10-27T22:45:40Z"
+  },
+  {
+   "number": 2107,
+   "title": "CUDA admission: an integrated GPU under WSL2 reads the CUDA pool (RTX Spark N1X), plus an N1X receipt",
+   "author": "drowzeys",
+   "state": "merged",
+   "created": "2026-11-04T12:51:28Z"
+  }
+ ],
+ "TF_CACHE_EVICT": [
+  {
+   "number": 3258,
+   "title": "Prompt cache: TF_CACHE_EVICT=decayed_resume, up to 34% fewer rebuilt rows on agent traces (opt-in)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-13T18:19:54Z"
+  },
+  {
+   "number": 3263,
+   "title": "Bench: a served A/B client for prompt-cache eviction on agent traffic (#3241)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-13T19:25:00Z"
+  }
+ ],
+ "TF_COST_KEY_TRACE": [],
+ "TF_DSV41_PREFILL_PIECES": [
+  {
+   "number": 2950,
+   "title": "dsv41 metal: prompts in pieces between the other streams' rounds (stacked on #1720)",
+   "author": "gilby",
+   "state": "merged",
+   "created": "2026-11-11T22:47:47Z"
+  },
+  {
+   "number": 3566,
+   "title": "deepseek_v41 export: replay-mode and piece-wise prefill are exported at their cut",
+   "author": "BlivionIaG",
+   "state": "open",
+   "created": "2026-11-16T13:14:33Z"
+  }
+ ],
+ "TF_DSV41_ROUND_PROF": [
+  {
+   "number": 1720,
+   "title": "dsv41 metal: the lane target, the prompt cache and the native server over Metal",
+   "author": "gilby",
+   "state": "merged",
+   "created": "2026-10-30T22:56:17Z"
+  },
+  {
+   "number": 2951,
+   "title": "dsv41 metal: TF_DSV41_ROUND_PROF times each decode round and the drafter's passes (stacked on #1720)",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-11T23:00:22Z"
+  },
+  {
+   "number": 2952,
+   "title": "DeepSeek-V4.1 on Metal: opt-in draft cost table timed at start, default pricing unchanged (stacked on #2983)",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-11T23:00:27Z"
+  },
+  {
+   "number": 3296,
+   "title": "dsv41 metal: the DSpark drafter on an FP8 head, a concurrent propose and resident buffers",
+   "author": "ashhart",
+   "state": "open",
+   "created": "2026-11-14T03:36:01Z"
+  },
+  {
+   "number": 3374,
+   "title": "Metal 4 backend in the Metal wrapper; DeepSeek-V4.1 on Metal 4 by default (bit-identical)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-14T18:11:08Z"
+  }
+ ],
+ "TF_FLASHNEXT_CHUNK": [
+  {
+   "number": 1046,
+   "title": "Flash Next CUDA: prompt processing 1.4-1.8x faster on GB10, bit for bit with 1.1.0",
+   "author": "Mirrdhyn",
+   "state": "closed",
+   "created": "2026-10-18T20:14:55Z"
+  },
+  {
+   "number": 1441,
+   "title": "EXL3 Flash Next on CUDA: one rank, offloaded experts, sm_120 gate (1/8)",
+   "author": "BlivionIaG",
+   "state": "open",
+   "created": "2026-10-27T08:55:30Z"
+  },
+  {
+   "number": 1525,
+   "title": "NVFP4 fact tiles: fact_swiglu reads each mma A quad in one 16-byte load",
+   "author": "jschmied",
+   "state": "closed",
+   "created": "2026-10-28T10:19:17Z"
+  },
+  {
+   "number": 1553,
+   "title": "docs: Flash Next CUDA recipe, what TF_FLASHNEXT_CHUNK trades: faster prompts against longer decode waits",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-10-28T18:27:00Z"
+  },
+  {
+   "number": 1733,
+   "title": "flashnext cuda: TF_FLASHNEXT_CHUNK_SOLO, a pass's rows chosen as it starts (#1554 option C)",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-10-31T00:45:49Z"
+  },
+  {
+   "number": 1763,
+   "title": "flashnext cuda: pending DeltaNet rows, reused lane buffers and the shared expert on a side stream",
+   "author": "Arminova",
+   "state": "merged",
+   "created": "2026-10-31T18:24:11Z"
+  },
+  {
+   "number": 1764,
+   "title": "flashnext cuda: prompt passes with the same bits and less work, and a prompt scratch sized by use",
+   "author": "Arminova",
+   "state": "merged",
+   "created": "2026-10-31T18:24:22Z"
+  },
+  {
+   "number": 2977,
+   "title": "flashnext cuda: at --tp 2 a prompt pass reduce-scatters its routed experts' slots by rows and gathers their sums",
+   "author": "swbiggart",
+   "state": "merged",
+   "created": "2026-11-12T04:11:50Z"
+  },
+  {
+   "number": 2980,
+   "title": "flashnext cuda: the opt-in --tp 2 decode graph (TF_FLASHNEXT_DECODE_GRAPH=1) serves again instead of failing its first plain round",
+   "author": "swbiggart",
+   "state": "open",
+   "created": "2026-11-12T04:20:56Z"
+  },
+  {
+   "number": 3512,
+   "title": "flashnext: settings through environment.zig, refused at startup by name",
+   "author": "ashhart",
+   "state": "open",
+   "created": "2026-11-16T06:49:14Z"
+  },
+  {
+   "number": 3591,
+   "title": "feat(flashnext): read the chunk settings through the startup parser",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-16T18:46:14Z"
+  },
+  {
+   "number": 3762,
+   "title": "qwen35: TF_QWEN35_CHUNK env knob for the Metal prefill chunk",
+   "author": "joshuaswarren",
+   "state": "open",
+   "created": "2026-11-18T04:44:18Z"
+  }
+ ],
+ "TF_FLASHNEXT_CHUNK_SOLO": [
+  {
+   "number": 1441,
+   "title": "EXL3 Flash Next on CUDA: one rank, offloaded experts, sm_120 gate (1/8)",
+   "author": "BlivionIaG",
+   "state": "open",
+   "created": "2026-10-27T08:55:30Z"
+  },
+  {
+   "number": 1733,
+   "title": "flashnext cuda: TF_FLASHNEXT_CHUNK_SOLO, a pass's rows chosen as it starts (#1554 option C)",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-10-31T00:45:49Z"
+  },
+  {
+   "number": 2246,
+   "title": "Flash Next on CUDA: prompts 15-23% faster at --parallel 1 on one GPU",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-05T11:10:32Z"
+  },
+  {
+   "number": 2391,
+   "title": "gemma4 cuda: TF_GEMMA4_CHUNK_SOLO, on a solo-chunk rule shared in lanes (#1554 option C)",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-06T20:04:29Z"
+  },
+  {
+   "number": 2585,
+   "title": "flashnext: refuse a malformed TF_FLASHNEXT_* setting by name before device work",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-08T16:54:22Z"
+  },
+  {
+   "number": 2587,
+   "title": "Settings: TF_GEMMA4_CHUNK_SOLO is read through the shared table, not a direct getenv",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-08T17:19:08Z"
+  },
+  {
+   "number": 3591,
+   "title": "feat(flashnext): read the chunk settings through the startup parser",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-16T18:46:14Z"
+  },
+  {
+   "number": 3726,
+   "title": "Flash Next on CUDA: a prompt pass holds 3,072 rows",
+   "author": "BadAd84",
+   "state": "merged",
+   "created": "2026-11-17T19:56:44Z"
+  }
+ ],
+ "TF_FLASHNEXT_READOUT_FUSED": [
+  {
+   "number": 3413,
+   "title": "Flash Next CUDA: TF_FLASHNEXT_READOUT_FUSED, a prompt pass's BF16 read-out on two fused tiles",
+   "author": "BadAd84",
+   "state": "merged",
+   "created": "2026-11-15T08:57:21Z"
+  },
+  {
+   "number": 3475,
+   "title": "Flash Next on CUDA: TF_FLASHNEXT_FUSED_SPLIT runs wide split-K decode calls on the fused form",
+   "author": "BadAd84",
+   "state": "open",
+   "created": "2026-11-15T21:51:27Z"
+  }
+ ],
+ "TF_FLASHNEXT_SHARD_HEAD": [
+  {
+   "number": 1441,
+   "title": "EXL3 Flash Next on CUDA: one rank, offloaded experts, sm_120 gate (1/8)",
+   "author": "BlivionIaG",
+   "state": "open",
+   "created": "2026-10-27T08:55:30Z"
+  },
+  {
+   "number": 1442,
+   "title": "EXL3 Flash Next: expert-parallel TP=2 (same tokens as TP=1) and MTP drafts (2/8)",
+   "author": "BlivionIaG",
+   "state": "open",
+   "created": "2026-10-27T08:58:43Z"
+  },
+  {
+   "number": 2982,
+   "title": "flashnext cuda: the opt-in --tp 2 decode graph takes the dense split and keeps its graph across drafted verifies",
+   "author": "swbiggart",
+   "state": "open",
+   "created": "2026-11-12T04:29:23Z"
+  },
+  {
+   "number": 3749,
+   "title": "flashnext: check TF_FLASHNEXT_SPLIT_DENSE and TF_FLASHNEXT_SHARD_HEAD at load",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-18T01:50:14Z"
+  }
+ ],
+ "TF_FLASHNEXT_SPLIT_DENSE": [
+  {
+   "number": 2980,
+   "title": "flashnext cuda: the opt-in --tp 2 decode graph (TF_FLASHNEXT_DECODE_GRAPH=1) serves again instead of failing its first plain round",
+   "author": "swbiggart",
+   "state": "open",
+   "created": "2026-11-12T04:20:56Z"
+  },
+  {
+   "number": 2982,
+   "title": "flashnext cuda: the opt-in --tp 2 decode graph takes the dense split and keeps its graph across drafted verifies",
+   "author": "swbiggart",
+   "state": "open",
+   "created": "2026-11-12T04:29:23Z"
+  },
+  {
+   "number": 3749,
+   "title": "flashnext: check TF_FLASHNEXT_SPLIT_DENSE and TF_FLASHNEXT_SHARD_HEAD at load",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-18T01:50:14Z"
+  }
+ ],
+ "TF_GLM_EXPERT_FORM": [
+  {
+   "number": 3151,
+   "title": "glm cuda: TF_GLM_EXPERT_FORM names the expert form, so launches compare at one form",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-13T04:26:12Z"
+  },
+  {
+   "number": 3249,
+   "title": "glm cuda: each decode window width keeps its faster expert form",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-13T17:15:56Z"
+  },
+  {
+   "number": 3807,
+   "title": "core: a Checkpoint reads bf16 weights stored in DFloat11's lossless form, decoded at load; GLM on CUDA attaches it",
+   "author": "Bizuayeu",
+   "state": "open",
+   "created": "2026-11-18T12:44:50Z"
+  }
+ ],
+ "TF_GLM_INDEX_CUDA": [
+  {
+   "number": 1352,
+   "title": "lane host: a long prompt's step owed to decoders ends on its device",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-26T05:31:39Z"
+  },
+  {
+   "number": 1404,
+   "title": "glm cuda: a prompt chunk's indexer rows split across the ranks, their picks all-gathered",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-26T13:48:23Z"
+  },
+  {
+   "number": 1411,
+   "title": "GLM-5.3-Flash on CUDA keeps conversation states on disk, every rank's part (--learn-conversations)",
+   "author": "wojo",
+   "state": "open",
+   "created": "2026-10-26T17:48:31Z"
+  },
+  {
+   "number": 1424,
+   "title": "glm cuda: a decode step's select gives each row a 1,024-thread block",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-26T21:50:06Z"
+  },
+  {
+   "number": 1449,
+   "title": "glm cuda: a prompt chunk's DSA indexer in two CUDA kernels, byte-equal to tf_glm_scores and tf_glm_select_rows (TF_GLM_INDEX_CUDA), 1M-token first token 1,223 -> 1,033 s",
+   "author": "wojo",
+   "state": "closed",
+   "created": "2026-10-27T09:51:06Z"
+  },
+  {
+   "number": 1545,
+   "title": "glm cuda: TF_GLM_KDA_PAD packs the fused KDA input at TP=3 (opt-in, default off)",
+   "author": "BadAd84",
+   "state": "merged",
+   "created": "2026-10-28T16:29:54Z"
+  },
+  {
+   "number": 1576,
+   "title": "glm cuda: prompt chunks of 4,096 rows, and the DFlash2 context buffers sized to match",
+   "author": "gilby",
+   "state": "closed",
+   "created": "2026-10-29T02:13:31Z"
+  },
+  {
+   "number": 1577,
+   "title": "glm cuda: a prompt chunk's MTP pass runs its last row past the caches",
+   "author": "gilby",
+   "state": "merged",
+   "created": "2026-10-29T02:14:17Z"
+  },
+  {
+   "number": 2938,
+   "title": "GLM on CUDA: kept states, carries and prompt twins under the latent split (TF_GLM_KV_SPLIT, #1431 part 4; stacked on #2937)",
+   "author": "wojo",
+   "state": "open",
+   "created": "2026-11-11T19:14:42Z"
+  },
+  {
+   "number": 2981,
+   "title": "README: GLM-5.3-Flash Jammed XSFP4 NZ5 in Pick a model",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-12T04:26:17Z"
+  },
+  {
+   "number": 3159,
+   "title": "glm cuda: TF_GLM_INDEX_CUDA's kernels by default, 0 keeps tf_glm_scores",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-13T07:23:49Z"
+  },
+  {
+   "number": 3249,
+   "title": "glm cuda: each decode window width keeps its faster expert form",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-13T17:15:56Z"
+  }
+ ],
+ "TF_GLM_KV_HOST_GIB": [
+  {
+   "number": 1795,
+   "title": "glm cuda: TF_GLM_KV_HOST keeps the KV pages' latent rows in pinned host memory",
+   "author": "russellmm",
+   "state": "merged",
+   "created": "2026-11-01T00:05:47Z"
+  },
+  {
+   "number": 2177,
+   "title": "feat(profile): register GLM's host KV switches and one name lookup for readers",
+   "author": "devopsfortunato",
+   "state": "merged",
+   "created": "2026-11-04T22:06:24Z"
+  },
+  {
+   "number": 2578,
+   "title": "GLM: its switches, DFlash2 log count and draft cut as glm rows of the shared table, refused by name at its open",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-08T14:14:52Z"
+  },
+  {
+   "number": 2636,
+   "title": "glm cuda: Settings.read reads an empty or whitespace-only setting as unset",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-09T01:34:39Z"
+  },
+  {
+   "number": 3558,
+   "title": "families: Nemotron, GLM, Qwen 27B, MiniMax and Dory settings through environment.zig",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-16T13:02:05Z"
+  }
+ ],
+ "TF_GLM_RANK": [
+  {
+   "number": 804,
+   "title": "glm: GLM-5.3-Flash (NVIDIA's NVFP4 checkpoint) as a CUDA family at TP over hosts",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-13T20:52:49Z"
+  },
+  {
+   "number": 899,
+   "title": "glm: a split start checks that every pair of ranks can exchange, before the weights load",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-15T22:18:18Z"
+  },
+  {
+   "number": 900,
+   "title": "core: nemotron's checkpoint identity moves to core, and GLM's ranks compare the checkpoint by it",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-15T22:18:26Z"
+  },
+  {
+   "number": 1053,
+   "title": "GLM CUDA: the waiting ranks sleep while rank 0 has no stream (#1033)",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-19T01:34:15Z"
+  },
+  {
+   "number": 1062,
+   "title": "Flash Next CUDA: structured output and required tool calls",
+   "author": "Mirrdhyn",
+   "state": "closed",
+   "created": "2026-10-19T08:38:06Z"
+  },
+  {
+   "number": 1178,
+   "title": "glm cuda: rank 0's NCCL id goes over the ranks' lines, so a /32 ring's followers bootstrap on NCCL_SOCKET_IFNAME",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-22T00:57:14Z"
+  },
+  {
+   "number": 1224,
+   "title": "Docs: GLM-5.3-Flash on CUDA, a native page for its ranks, linked from the pages that said it had no CUDA backend",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-24T01:36:03Z"
+  },
+  {
+   "number": 1323,
+   "title": "cuda: the start-up budget counts the free pages parked on the kernel's per-CPU lists",
+   "author": "wojo",
+   "state": "closed",
+   "created": "2026-10-25T22:48:10Z"
+  },
+  {
+   "number": 2227,
+   "title": "docs: align CUDA support claims with native code",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-05T04:59:25Z"
+  },
+  {
+   "number": 2578,
+   "title": "GLM: its switches, DFlash2 log count and draft cut as glm rows of the shared table, refused by name at its open",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-08T14:14:52Z"
+  },
+  {
+   "number": 2919,
+   "title": "cuda: GLM, MiniMax and Nemotron placed from one launch, by flags or aliases (T1b of #2560)",
+   "author": "laudney",
+   "state": "open",
+   "created": "2026-11-11T16:15:40Z"
+  }
+ ],
+ "TF_GLM_WORLD": [
+  {
+   "number": 804,
+   "title": "glm: GLM-5.3-Flash (NVIDIA's NVFP4 checkpoint) as a CUDA family at TP over hosts",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-13T20:52:49Z"
+  },
+  {
+   "number": 899,
+   "title": "glm: a split start checks that every pair of ranks can exchange, before the weights load",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-10-15T22:18:18Z"
+  },
+  {
+   "number": 900,
+   "title": "core: nemotron's checkpoint identity moves to core, and GLM's ranks compare the checkpoint by it",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-15T22:18:26Z"
+  },
+  {
+   "number": 1053,
+   "title": "GLM CUDA: the waiting ranks sleep while rank 0 has no stream (#1033)",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-19T01:34:15Z"
+  },
+  {
+   "number": 1178,
+   "title": "glm cuda: rank 0's NCCL id goes over the ranks' lines, so a /32 ring's followers bootstrap on NCCL_SOCKET_IFNAME",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-22T00:57:14Z"
+  },
+  {
+   "number": 1224,
+   "title": "Docs: GLM-5.3-Flash on CUDA, a native page for its ranks, linked from the pages that said it had no CUDA backend",
+   "author": "Bizuayeu",
+   "state": "closed",
+   "created": "2026-10-24T01:36:03Z"
+  },
+  {
+   "number": 1411,
+   "title": "GLM-5.3-Flash on CUDA keeps conversation states on disk, every rank's part (--learn-conversations)",
+   "author": "wojo",
+   "state": "open",
+   "created": "2026-10-26T17:48:31Z"
+  },
+  {
+   "number": 2116,
+   "title": "glm cuda: TF_GLM_OVERLAP_PIECES defaults to 8 under solo on the wire",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-04T15:27:25Z"
+  },
+  {
+   "number": 2227,
+   "title": "docs: align CUDA support claims with native code",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-05T04:59:25Z"
+  },
+  {
+   "number": 2578,
+   "title": "GLM: its switches, DFlash2 log count and draft cut as glm rows of the shared table, refused by name at its open",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-08T14:14:52Z"
+  },
+  {
+   "number": 2636,
+   "title": "glm cuda: Settings.read reads an empty or whitespace-only setting as unset",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-09T01:34:39Z"
+  },
+  {
+   "number": 2919,
+   "title": "cuda: GLM, MiniMax and Nemotron placed from one launch, by flags or aliases (T1b of #2560)",
+   "author": "laudney",
+   "state": "open",
+   "created": "2026-11-11T16:15:40Z"
+  }
+ ],
+ "TF_METAL4": [
+  {
+   "number": 3374,
+   "title": "Metal 4 backend in the Metal wrapper; DeepSeek-V4.1 on Metal 4 by default (bit-identical)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-14T18:11:08Z"
+  }
+ ],
+ "TF_METAL4_TIMELINE": [
+  {
+   "number": 3374,
+   "title": "Metal 4 backend in the Metal wrapper; DeepSeek-V4.1 on Metal 4 by default (bit-identical)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-14T18:11:08Z"
+  }
+ ],
+ "TF_MINIMAX_RANK": [],
+ "TF_MINIMAX_WORLD": [
+  {
+   "number": 3249,
+   "title": "glm cuda: each decode window width keeps its faster expert form",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-13T17:15:56Z"
+  }
+ ],
+ "TF_MTP_BATCH": [
+  {
+   "number": 1562,
+   "title": "Qwen3.6 MTP drafter on CUDA: draft a shared round's streams together",
+   "author": "laudney",
+   "state": "merged",
+   "created": "2026-10-28T21:05:20Z"
+  }
+ ],
+ "TF_MTP_TREES": [
+  {
+   "number": 856,
+   "title": "Qwen3.6-35B-A3B on CUDA: routed experts and its MTP layer drafting chains (on #836)",
+   "author": "BobClawblaw",
+   "state": "closed",
+   "created": "2026-10-14T20:47:15Z"
+  },
+  {
+   "number": 2951,
+   "title": "dsv41 metal: TF_DSV41_ROUND_PROF times each decode round and the drafter's passes (stacked on #1720)",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-11T23:00:22Z"
+  },
+  {
+   "number": 2952,
+   "title": "DeepSeek-V4.1 on Metal: opt-in draft cost table timed at start, default pricing unchanged (stacked on #2983)",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-11T23:00:27Z"
+  },
+  {
+   "number": 3582,
+   "title": "qwen3.5 CUDA: enable dense MTP drafting",
+   "author": "tacosta",
+   "state": "open",
+   "created": "2026-11-16T15:06:56Z"
+  }
+ ],
+ "TF_NEMOTRON_RANK": [
+  {
+   "number": 1062,
+   "title": "Flash Next CUDA: structured output and required tool calls",
+   "author": "Mirrdhyn",
+   "state": "closed",
+   "created": "2026-10-19T08:38:06Z"
+  },
+  {
+   "number": 2919,
+   "title": "cuda: GLM, MiniMax and Nemotron placed from one launch, by flags or aliases (T1b of #2560)",
+   "author": "laudney",
+   "state": "open",
+   "created": "2026-11-11T16:15:40Z"
+  },
+  {
+   "number": 3558,
+   "title": "families: Nemotron, GLM, Qwen 27B, MiniMax and Dory settings through environment.zig",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-16T13:02:05Z"
+  }
+ ],
+ "TF_NEMOTRON_WORLD": [
+  {
+   "number": 980,
+   "title": "benchmark: attached runs read a server manifest, so a two-rank CUDA run can be ranked",
+   "author": "easthambuilds",
+   "state": "merged",
+   "created": "2026-10-17T01:49:26Z"
+  }
+ ],
+ "TF_NO_TREES": [
+  {
+   "number": 978,
+   "title": "Qwen3.5/3.8 on CUDA: decode 37-73% faster on #836's engine, bits unchanged (on #836)",
+   "author": "BobClawblaw",
+   "state": "closed",
+   "created": "2026-10-17T00:41:35Z"
+  },
+  {
+   "number": 2705,
+   "title": "qwen3_5 cuda: TF_DSPINE_WINDOW narrows a DSpine drafter's sliding window, unset keeps the checkpoint's",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-09T21:19:30Z"
+  }
+ ],
+ "TF_Q27_GEMM": [],
+ "TF_Q27_POCKET_OFF": {
+  "error": "HTTP 403: API rate limit exceeded for user ID 598804. If you reach out to GitHub Support for help, please include the request ID F8D8:A94F1:1105166:1A16692:6B004DAF and timestamp 2026-11-20 13:39:59 U"
+ },
+ "TF_Q27_TAIL": [],
+ "TF_QWEN27_JOIN": [
+  {
+   "number": 3661,
+   "title": "qwen27 metal: drafted window rows share the decode tail attention in pairs, before M5",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-17T06:14:42Z"
+  },
+  {
+   "number": 3677,
+   "title": "qwen27 metal: before M5, decode rounds read cached keys through the prefix kernels, their results in the simdgroup-matrix layout",
+   "author": "hobbesd",
+   "state": "merged",
+   "created": "2026-11-17T08:59:52Z"
+  }
+ ],
+ "TF_QWEN27_METAL_KV_PAGES": [
+  {
+   "number": 2283,
+   "title": "qwen27 metal: keys and values in core pool pages behind TF_QWEN27_METAL_KV_PAGES=1 (#1293)",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-05T21:09:25Z"
+  },
+  {
+   "number": 2436,
+   "title": "Qwen3.8-27B on Metal: a prompt pass that keeps no row writes only its last layer's keys and values",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-07T11:22:31Z"
+  },
+  {
+   "number": 2464,
+   "title": "Qwen3.8-27B on Macs without tensor units: --mtp-drafts drafts with the checkpoint's MTP head, through the lane core's drafter as on CUDA",
+   "author": "jschmied",
+   "state": "open",
+   "created": "2026-11-07T18:28:28Z"
+  },
+  {
+   "number": 3018,
+   "title": "environment: Metal Qwen paging, slot resume and slide checks refused by name (#2370)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-12T14:06:31Z"
+  },
+  {
+   "number": 3180,
+   "title": "qwen27 metal: M5 takes TF_QWEN27_METAL_KV_PAGES; a paged prompt chunk finds its two pages once",
+   "author": "CodingEmil",
+   "state": "open",
+   "created": "2026-11-13T11:38:15Z"
+  },
+  {
+   "number": 3377,
+   "title": "qwen27 metal pages: a stream promises its pages as its rows come and gives them back when it leaves",
+   "author": "CodingEmil",
+   "state": "open",
+   "created": "2026-11-14T18:56:23Z"
+  },
+  {
+   "number": 3378,
+   "title": "lanes: a stream whose next rows find no memory ends with length; the round's other streams run on",
+   "author": "CodingEmil",
+   "state": "open",
+   "created": "2026-11-14T18:56:30Z"
+  },
+  {
+   "number": 3677,
+   "title": "qwen27 metal: before M5, decode rounds read cached keys through the prefix kernels, their results in the simdgroup-matrix layout",
+   "author": "hobbesd",
+   "state": "merged",
+   "created": "2026-11-17T08:59:52Z"
+  }
+ ],
+ "TF_QWEN27_SHARED_PREFIX": [
+  {
+   "number": 3677,
+   "title": "qwen27 metal: before M5, decode rounds read cached keys through the prefix kernels, their results in the simdgroup-matrix layout",
+   "author": "hobbesd",
+   "state": "merged",
+   "created": "2026-11-17T08:59:52Z"
+  }
+ ],
+ "TF_QWEN27_SLOT_RESUME": [
+  {
+   "number": 1434,
+   "title": "qwen27: serve the 27B pair, refuse what a pair cannot keep, and die with the peer",
+   "author": "akol1",
+   "state": "open",
+   "created": "2026-10-27T02:56:25Z"
+  },
+  {
+   "number": 1437,
+   "title": "qwen27: document two-Mac 27B serving and the row split's exactness",
+   "author": "akol1",
+   "state": "closed",
+   "created": "2026-10-27T02:56:34Z"
+  },
+  {
+   "number": 1841,
+   "title": "Metal: the 27B verifies 32 rows a pass on pre-M5 Macs",
+   "author": "ashhart",
+   "state": "closed",
+   "created": "2026-11-01T12:28:58Z"
+  },
+  {
+   "number": 2612,
+   "title": "conformance: a Qwen3.8-27B Metal profile, and a fresh_env the cache-off server starts with",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-08T20:39:11Z"
+  },
+  {
+   "number": 2677,
+   "title": "conformance: a Qwen3.8-27B XPU profile for the Arc Pro B70",
+   "author": "Mirrdhyn",
+   "state": "closed",
+   "created": "2026-11-09T14:32:24Z"
+  },
+  {
+   "number": 3299,
+   "title": "qwen27: TF_QWEN27_SLOT_RESUME reads through the environment table and refuses a bad value by name",
+   "author": "ashhart",
+   "state": "closed",
+   "created": "2026-11-14T05:19:41Z"
+  },
+  {
+   "number": 3859,
+   "title": "qwen27 metal: serve SenseNova-Loop-9B natively (BF16 and AWQ g128, 512K YaRN, images)",
+   "author": "gilby",
+   "state": "open",
+   "created": "2026-11-18T18:49:35Z"
+  }
+ ],
+ "TF_QWEN35_CHUNK_SOLO": [
+  {
+   "number": 3060,
+   "title": "qwen3_5 cuda: a prompt chunk nothing reads stops its last layer at its keys",
+   "author": "javierbits",
+   "state": "open",
+   "created": "2026-11-12T17:43:59Z"
+  },
+  {
+   "number": 3294,
+   "title": "qwen3_5 cuda: `TF_QWEN35_CHUNK_SOLO=8192`, solo prompt passes for Qwen 3.5/3.6/3.8",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-14T03:18:28Z"
+  }
+ ],
+ "TF_QWEN35_METAL_KV_PAGES": [
+  {
+   "number": 1294,
+   "title": "Metal: KV pages from the core pool, piloted on Qwen3.5-2B behind TF_QWEN35_METAL_KV_PAGES=1",
+   "author": "jschmied",
+   "state": "closed",
+   "created": "2026-10-25T11:42:31Z"
+  },
+  {
+   "number": 2283,
+   "title": "qwen27 metal: keys and values in core pool pages behind TF_QWEN27_METAL_KV_PAGES=1 (#1293)",
+   "author": "jschmied",
+   "state": "merged",
+   "created": "2026-11-05T21:09:25Z"
+  }
+ ],
+ "TF_QWEN_KEEP_LATE": [
+  {
+   "number": 1824,
+   "title": "perf(qwen3_5 cuda): kept DeltaNet rows replay in the next slot scan instead of a full-state keep (+1 to +8 %, same bits)",
+   "author": "jrb-ai",
+   "state": "merged",
+   "created": "2026-11-01T07:45:07Z"
+  },
+  {
+   "number": 1958,
+   "title": "qwen3_5 cuda: deferred keeps opt-in until their copy's INVALID_VALUE is fixed (#1824)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-02T19:30:45Z"
+  },
+  {
+   "number": 1982,
+   "title": "qwen3_5 cuda: a kept path longer than pend_cap lands at once instead of overrunning the pending buffer",
+   "author": "jrb-ai",
+   "state": "merged",
+   "created": "2026-11-03T02:56:24Z"
+  },
+  {
+   "number": 2620,
+   "title": "qwen3_5 cuda: the GDN kernels read the state, its rollback copy and the log through a stream's state table (#2444 P3)",
+   "author": "jschmied",
+   "state": "open",
+   "created": "2026-11-08T22:40:12Z"
+  }
+ ],
+ "TF_QWEN_KV_PAGE_TEST": [],
+ "TF_QWEN_POOL_LOG": [],
+ "TF_SHARED_PRICE_LOG": [
+  {
+   "number": 2687,
+   "title": "lanes: shared rounds price plain overhead apart from drafted rows (refs #2605)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-09T16:28:56Z"
+  },
+  {
+   "number": 3590,
+   "title": "kolibri1: the published EAGLE-3 drafter behind --drafter on CUDA (don't land yet: 8 streams 1.2 % slower)",
+   "author": "jschmied",
+   "state": "open",
+   "created": "2026-11-16T18:16:19Z"
+  },
+  {
+   "number": 3918,
+   "title": "perf(hip): DFlash2 holds run only the rows their drafts need",
+   "author": "AbrahamCete",
+   "state": "open",
+   "created": "2026-11-19T05:15:49Z"
+  }
+ ],
+ "TF_SLIDE_TAKE_OUT_CHECK": [
+  {
+   "number": 877,
+   "title": "Living Weights: every earlier fact asked again after a lesson, and a take-out that puts the pocket back bit for bit",
+   "author": "ZackSample",
+   "state": "merged",
+   "created": "2026-10-15T10:38:44Z"
+  },
+  {
+   "number": 3018,
+   "title": "environment: Metal Qwen paging, slot resume and slide checks refused by name (#2370)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-12T14:06:31Z"
+  }
+ ],
+ "TF_SLIDE_TAP_CHECK": [
+  {
+   "number": 891,
+   "title": "Living Weights: facts learned and checked in conversation, not only asked cold",
+   "author": "ZackSample",
+   "state": "merged",
+   "created": "2026-10-15T18:25:31Z"
+  },
+  {
+   "number": 3018,
+   "title": "environment: Metal Qwen paging, slot resume and slide checks refused by name (#2370)",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-12T14:06:31Z"
+  }
+ ],
+ "TF_TIMING": [
+  {
+   "number": 836,
+   "title": "Windows: the native CUDA server, and Qwen3.5-2B and Qwen3.8-27B on CUDA",
+   "author": "BobClawblaw",
+   "state": "merged",
+   "created": "2026-10-14T12:42:09Z"
+  }
+ ],
+ "TF_GLM_PDL": [
+  {
+   "number": 2578,
+   "title": "GLM: its switches, DFlash2 log count and draft cut as glm rows of the shared table, refused by name at its open",
+   "author": "Bizuayeu",
+   "state": "merged",
+   "created": "2026-11-08T14:14:52Z"
+  },
+  {
+   "number": 3333,
+   "title": "glm cuda: TF_GLM_COPY_SHARE=1 lets shared rounds' copies take the lone ramp, to a stream's share of the rows",
+   "author": "Bizuayeu",
+   "state": "open",
+   "created": "2026-11-14T12:01:01Z"
+  },
+  {
+   "number": 3495,
+   "title": "glm/cuda: key the window-cost cache by TF_GLM_KDA_PAD, TF_ROCE, TF_GLM_PDL and TF_GLM_DSEL",
+   "author": "ultradaoto",
+   "state": "merged",
+   "created": "2026-11-16T01:23:35Z"
+  },
+  {
+   "number": 3673,
+   "title": "glm cuda: decode kernels as dependent launches, +6.8% decode at TP=2, same tokens",
+   "author": "laudney",
+   "state": "closed",
+   "created": "2026-11-17T08:25:03Z"
+  },
+  {
+   "number": 3776,
+   "title": "glm cuda: decode kernels as dependent launches (carries #3673), +3.7% decode at TP=3, same tokens",
+   "author": "ultradaoto",
+   "state": "merged",
+   "created": "2026-11-18T07:16:48Z"
+  }
+ ],
+ "TF_FLASHNEXT_SCALE_INDEX": [
+  {
+   "number": 2760,
+   "title": "Flash Next on Metal: TF_FLASHNEXT_SCALE_INDEX, the 4-bit expert kernels read scales and biases through a 16-bit index",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-10T15:11:59Z"
+  },
+  {
+   "number": 2784,
+   "title": "flash next metal: a decode window of five rows or more runs its 4-bit experts grouped by expert",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-10T17:53:19Z"
+  },
+  {
+   "number": 2805,
+   "title": "Flash Next on Metal: the scale index is the default; prompt gathers and grouped experts read it, routed arrays are released",
+   "author": "ashhart",
+   "state": "merged",
+   "created": "2026-11-10T21:57:41Z"
+  },
+  {
+   "number": 3277,
+   "title": "flash next metal: TF_FLASHNEXT_SCALE_INDEX on M5 too",
+   "author": "ashhart",
+   "state": "open",
+   "created": "2026-11-13T23:46:21Z"
+  }
+ ]
+}

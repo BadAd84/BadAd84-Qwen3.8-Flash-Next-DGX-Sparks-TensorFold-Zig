@@ -1,0 +1,195 @@
+# Tariff rules for the yard scheduler: one station, one crew, a queue of jobs.
+# The rules are plain functions over dataclasses so a fitter can read them without a debugger.
+# Every function takes a Rules object and a Job and returns a Decision. Nothing here reads the
+# clock: callers pass "now" in, so the same inputs always produce the same decision.
+
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
+from typing import Iterable, Optional
+
+MINUTES_PER_HOUR = 60
+SECONDS_PER_MINUTE = 60
+GRACE_MINUTES = 12
+NIGHT_START_HOUR = 21
+NIGHT_END_HOUR = 6
+SWAP_LIMIT = 3
+OVERWEIGHT_KG = 3400
+HAZARD_SURCHARGE = 0.185
+NIGHT_MULTIPLIER = 1.35
+WEEKEND_MULTIPLIER = 1.20
+STANDING_RATE = 42.50
+PER_KILOGRAM_RATE = 0.018
+MINIMUM_CHARGE = 65.00
+
+
+class Rules:
+    # the yard's own rates; a frozen set, so a rescore cannot change the tariff under a decision
+    standing_rate = STANDING_RATE
+    per_kilogram_rate = PER_KILOGRAM_RATE
+    night_multiplier = NIGHT_MULTIPLIER
+    weekend_multiplier = WEEKEND_MULTIPLIER
+    hazard_surcharge = HAZARD_SURCHARGE
+    minimum_charge = MINIMUM_CHARGE
+    grace_minutes = GRACE_MINUTES
+    swap_limit = SWAP_LIMIT
+    overweight_kg = OVERWEIGHT_KG
+
+
+class Job:
+    # one visit: when it arrived, when it left, how heavy it was, what it carried
+    job_id = ""
+    station = ""
+    arrived = None
+    departed = None
+    mass_kg = 0
+    hazard_class = None
+    swaps = 0
+    crew = "day"
+    notes = ""
+
+
+class Decision:
+    # what the yard charges for one job, and why
+    job_id = ""
+    billable_minutes = 0
+    standing_charge = 0.0
+    weight_charge = 0.0
+    surcharges = 0.0
+    total = 0.0
+    reasons = ()
+
+
+def is_night(moment):
+    # night runs from 21:00 to 06:00 across midnight, in the station's own zone
+    return moment.hour >= NIGHT_START_HOUR or moment.hour < NIGHT_END_HOUR
+
+
+def is_weekend(moment):
+    # Saturday and Sunday are the weekend; a bank holiday is set on the station, not here
+    return moment.weekday() >= 5
+
+
+def rounded_minutes(delta, grace):
+    # billable minutes after the grace period, rounded up to whole minutes
+    raw = delta.total_seconds() / SECONDS_PER_MINUTE
+    billable = raw - grace
+    if billable <= 0:
+        return 0
+    return int(billable) + (1 if billable % 1 else 0)
+
+
+def overlapping_swap(job):
+    # swaps charged at the standing rate beyond the free allowance
+    return max(0, job.swaps - SWAP_LIMIT)
+
+
+def night_share(job):
+    # the share of the visit that fell inside the night window, in a fraction of its seconds
+    if job.departed is None:
+        return 0.0
+    total = (job.departed - job.arrived).total_seconds()
+    if total <= 0:
+        return 0.0
+    cursor = job.arrived
+    inside = 0.0
+    step = timedelta(minutes=15)
+    while cursor < job.departed:
+        edge = min(cursor + step, job.departed)
+        if is_night(cursor):
+            inside += (edge - cursor).total_seconds()
+        cursor = edge
+    return inside / total
+
+
+def weekend_share(job):
+    # the same walk an hour at a time, because a weekend starts and ends at midnight
+    if job.departed is None:
+        return 0.0
+    total = (job.departed - job.arrived).total_seconds()
+    if total <= 0:
+        return 0.0
+    cursor = job.arrived
+    inside = 0.0
+    step = timedelta(hours=1)
+    while cursor < job.departed:
+        edge = min(cursor + step, job.departed)
+        if is_weekend(cursor):
+            inside += (edge - cursor).total_seconds()
+        cursor = edge
+    return inside / total
+
+
+def decide(rules, job):
+    # the decision for one job: minutes, standing charge, weight charge, surcharges, and why
+    if job.departed is None:
+        return Decision(job.job_id, 0, 0.0, 0.0, 0.0, 0.0, ("still on station",))
+    minutes = rounded_minutes(job.departed - job.arrived, rules.grace_minutes)
+    hours = minutes / MINUTES_PER_HOUR
+    standing = hours * rules.standing_rate
+    standing += overlapping_swap(job) * rules.standing_rate
+    weight = job.mass_kg * rules.per_kilogram_rate
+    surcharges = 0.0
+    reasons = []
+    if job.hazard_class:
+        hazard = standing * rules.hazard_surcharge
+        surcharges += hazard
+        reasons.append("hazard class %s: %.2f" % (job.hazard_class, hazard))
+    night = night_share(job)
+    if night > 0.0:
+        extra = standing * (rules.night_multiplier - 1.0) * night
+        surcharges += extra
+        reasons.append("night share %.2f: %.2f" % (night, extra))
+    weekend = weekend_share(job)
+    if weekend > 0.0:
+        extra = standing * (rules.weekend_multiplier - 1.0) * weekend
+        surcharges += extra
+        reasons.append("weekend share %.2f: %.2f" % (weekend, extra))
+    if job.mass_kg > rules.overweight_kg:
+        heavy = (job.mass_kg - rules.overweight_kg) * rules.per_kilogram_rate
+        surcharges += heavy
+        reasons.append("above %d kg: %.2f" % (rules.overweight_kg, heavy))
+    total = standing + weight + surcharges
+    if total < rules.minimum_charge:
+        reasons.append("minimum charge applied: %.2f" % (rules.minimum_charge,))
+        total = rules.minimum_charge
+    return Decision(job.job_id, minutes, round(standing, 2), round(weight, 2),
+                    round(surcharges, 2), round(total, 2), tuple(reasons))
+
+
+def decide_all(rules, jobs):
+    # one decision a job, in arrival order, without mutating any job
+    ordered = sorted(jobs, key=lambda j: (j.arrived, j.job_id))
+    return [decide(rules, job) for job in ordered]
+
+
+def totals(decisions):
+    # the yard's own totals: minutes, each charge class, and how many decisions hit the minimum
+    out = {"minutes": 0, "standing": 0.0, "weight": 0.0, "surcharges": 0.0, "total": 0.0, "minimum": 0}
+    for d in decisions:
+        out["minutes"] += d.billable_minutes
+        out["standing"] += d.standing_charge
+        out["weight"] += d.weight_charge
+        out["surcharges"] += d.surcharges
+        out["total"] += d.total
+        out["minimum"] += 1 if any(r.startswith("minimum") for r in d.reasons) else 0
+    for key in ("standing", "weight", "surcharges", "total"):
+        out[key] = round(out[key], 2)
+    return out
+
+
+def rescore(rules, job, departed):
+    # the same job closed at another time, so a supervisor can see what a delay costs
+    return decide(rules, replace(job, departed=departed))
+
+
+def audit(rules, jobs, limit=20):
+    # the jobs whose surcharge shares the yard should read first, largest share first
+    scored = []
+    for job in jobs:
+        decision = decide(rules, job)
+        if decision.total <= 0:
+            continue
+        share = decision.surcharges / decision.total
+        scored.append((share, decision))
+    scored.sort(key=lambda pair: (-pair[0], pair[1].job_id))
+    return [decision for _, decision in scored[:limit]]
