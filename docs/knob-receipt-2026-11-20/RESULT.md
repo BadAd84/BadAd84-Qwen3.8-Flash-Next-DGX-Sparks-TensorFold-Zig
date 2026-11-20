@@ -138,6 +138,10 @@ noise-ruled:
 | code | 6 | 307.8 | 306.0 | -0.58% |
 | code | 8 | 372.7 | 370.0 | -0.72% |
 
+Its greedy replies are identical to main's: `token_sha256` equal 1 of 1 at one stream, 2 of 2 at two, 4 of 4 at
+four and 6 of 6 at six (the `chat` prompt; `code` the same), so the setting is token-neutral on the decode path, as
+the family's own rule says.
+
 Every decode cell is level within 0.72 percent, which is what the setting should do: the chunk sizes a prompt pass,
 not a decode round, so the cell that can move is the cold TTFT one, which was still running. The receipt keeps the two
 apart rather than calling a prompt knob a decode knob.
