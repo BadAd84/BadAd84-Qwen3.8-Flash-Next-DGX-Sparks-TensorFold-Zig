@@ -135,9 +135,12 @@ numbers are parsed from `out/w1/M1/a/openai_t0.json` and `out/w1/M1/a/conc_t0.js
 | chat, 1 stream (greedy) | 41.7 | 41.7 | 3.012 |
 | chat, 8 streams | 256.5 | 33.1 | 2.51 |
 
-Its cold TTFT (pass B, cache off, `--parallel 4`, 131,072-token window), medians of three from `ttft.out`:
-2k **1.009 s**, 8k **3.732 s**, 32k **15.049 s** (the 64k cell was still running when this was written). Pass A's
-boot-to-boot wall time was 13 minutes, and the boot itself 37.1 s.
+Its cold TTFT (pass B, cache off, `--parallel 4`, 131,072-token window), medians of three from `ttft.out` and
+`ttft64.out`: 2k **1.009 s**, 8k **3.732 s**, 32k **15.049 s**, 64k **30.606 s**. Its cache-off checks: `fresh` **7 of
+7** clean (each resumed reply equal to the fresh plain and drafted ones by `token_ids`), and `bench_cache`
+`qualified: true` with every request cold (0 cached tokens). Pass A's boot-to-boot wall time was 13 minutes, pass B
+about 4, and the boot itself 37.1 s. **The base arm is therefore measured end to end**, so the baseline exists even if
+a later window slips.
 
 Its exactness contracts, parsed from `out/w1/M1/a/drafts.json` and `out/w1/M1/a/turns.json`: drafted equals
 `"draft": false` **8 of 8** (basis `token_ids`), and **7 of 7** turns resumed from cached prompt tokens
@@ -156,7 +159,7 @@ running its arms.
 
 | window | arms | state |
 | --- | --- | --- |
-| w1 | base pair M1/M2 around `TF_FLASHNEXT_CHUNK=1536` (twice) and `TF_FLASHNEXT_READOUT_FUSED=1` (twice) | running: M1 pass A complete and clean (13 min), pass B next |
+| w1 | base pair M1/M2 around `TF_FLASHNEXT_CHUNK=1536` (twice) and `TF_FLASHNEXT_READOUT_FUSED=1` (twice) | running: M1 complete (all 11 probes rc 0, exactness clean), C1536 next |
 | w2 | base pair around `CHUNK=4096`, `CHUNK=6144`, `CHUNK_SOLO=3072` (each twice), plus `TF_SHARED_PRICE_LOG=1`, `TENSORFOLD_DEVICE_CHECK=0`, `TENSORFOLD_UNIFIED_HOST_COUNTS=0`, `TENSORFOLD_MEMORY_RESERVE_GIB` unset (each twice, pass A only) | queued |
 | w3 | base pair around `TF_CACHE_EVICT=decayed_resume` (resume bench plus decode 1/2) and the one-stream solo arms: `CHUNK_SOLO` unset (8,192 rows), 3,072, 16,384 | queued |
 
