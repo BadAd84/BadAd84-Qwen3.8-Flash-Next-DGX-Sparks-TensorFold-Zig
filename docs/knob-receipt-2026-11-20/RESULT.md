@@ -30,7 +30,10 @@ container's binary reports `tensorfold-native 1.3.0` and `docker run --rm --entr
 
 - One image, many boots. Settings vary by environment only, so a difference between arms is the setting.
 - The base environment is production's own 52 `TENSORFOLD_*`/`TF_FLASHNEXT_*` lines from
-  `~/qwen6-start-prod.sh`, printed per arm from the container's inspect. Upstream main READS seven of those 52
+  `~/qwen6-start-prod.sh`, printed per arm from the container's inspect. Checked against M1's `env.txt`: all 52 names
+  are present, **no value differs from production's export**, and the recipe's `start.sh` adds its own 18 names
+  (`TENSORFOLD_CUDA_KERNELS`, `TF_FLASHNEXT_DRAFTS`, `TF_FLASHNEXT_WARM_AHEAD`, ...), so an arm carries the same 70
+  variables production's serve gets, plus the one knob it is testing. Upstream main READS seven of those 52
   (`TENSORFOLD_MEMORY_RESERVE_GIB`, `TENSORFOLD_VIDEO_TOKENS`, `TENSORFOLD_NO_UPDATE_CHECK` (benchmark server only),
   `TF_FLASHNEXT_BATCH_DRAWS`, `TF_FLASHNEXT_CONFIDENCE`, `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW`) and ignores the
   other 45, which are this fork's own levers. `prod-readers.tsv` is the per-name evidence. So the baseline is main's
