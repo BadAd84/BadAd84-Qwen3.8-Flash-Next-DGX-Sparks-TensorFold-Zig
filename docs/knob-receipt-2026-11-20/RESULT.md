@@ -120,6 +120,28 @@ container's binary reports `tensorfold-native 1.3.0` and `docker run --rm --entr
 The raw readers behind every "reaches" and "not reachable" cell are in `APPENDIX-reachability.md` (file and line per
 setting, tests and the value table excluded), and the pull requests are in `prs.json`.
 
+### First knob cells: `TF_FLASHNEXT_CHUNK=1536` against the base arm
+
+Parsed from `out/w1/C1536/a/conc_t0.json` and `openai_t0.json` against M1's, one run a side so these are not yet
+noise-ruled:
+
+| prompt | streams | main tok/s | chunk1536 tok/s | gap |
+| --- | --- | --- | --- | --- |
+| chat | 1 | 41.7 | 41.6 | -0.24% |
+| chat | 2 | 86.4 | 86.0 | -0.46% |
+| chat | 4 | 155.8 | 155.7 | -0.06% |
+| chat | 6 | 210.3 | 209.1 | -0.57% |
+| chat | 8 | 256.5 | 256.6 | +0.04% |
+| code | 1 | 72.9 | 72.6 | -0.41% |
+| code | 2 | 137.1 | 137.3 | +0.15% |
+| code | 4 | 242.9 | 242.2 | -0.29% |
+| code | 6 | 307.8 | 306.0 | -0.58% |
+| code | 8 | 372.7 | 370.0 | -0.72% |
+
+Every decode cell is level within 0.72 percent, which is what the setting should do: the chunk sizes a prompt pass,
+not a decode round, so the cell that can move is the cold TTFT one, which was still running. The receipt keeps the two
+apart rather than calling a prompt knob a decode knob.
+
 ### An instrument defect found before it could lie
 
 The first version of the cross-level comparison paired every evidence row of a one-stream cell with every row of an
