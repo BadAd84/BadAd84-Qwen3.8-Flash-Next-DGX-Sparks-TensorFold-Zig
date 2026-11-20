@@ -34,7 +34,10 @@ def verdict(values, base, after, higher_is_worse=False):
         if m and b:
             gap = (fmean(b) - fmean(m)) / fmean(m) * 100
         return gap, "unmeasured"
-    gap = (fmean(b) - fmean(m)) / fmean(m) * 100
+    mm, bb = fmean(m), fmean(b)
+    if not mm:
+        return None, "unmeasured"
+    gap = (bb - mm) / mm * 100
     if higher_is_worse:
         if min(b) > max(m) and gap > 1.0:
             return gap, "slower"

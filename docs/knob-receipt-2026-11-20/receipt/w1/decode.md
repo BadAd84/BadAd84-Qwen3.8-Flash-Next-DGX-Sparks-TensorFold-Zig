@@ -1,0 +1,35 @@
+# Decode cells, window w1, image tensorfold-qwen38:knob-m-1ece6e6d
+
+Counts per treatment over the decode and TTFT cells (faster / slower / level / unmeasured):
+
+- C1536: 0 faster, 4 slower, 12 level, 0 unmeasured, of 16
+- F1: 4 faster, 0 slower, 12 level, 0 unmeasured, of 16
+
+Cell, treatment, runs, treatment tok/s, main tok/s, gap %, verdict.
+
+| cell | treatment | runs | tok/s | main | gap | verdict | tpr |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| a/conc_t0/chat/0.0/1 | C1536 | 2 | 41.650000000000006 | 41.75 | -0.24 | level | 3.012 |
+| a/conc_t0/chat/0.0/1 | F1 | 2 | 41.7 | 41.75 | -0.12 | level | 3.012 |
+| a/conc_t0/chat/0.0/2 | C1536 | 2 | 86.15 | 86.55000000000001 | -0.46 | level | 2.51 |
+| a/conc_t0/chat/0.0/2 | F1 | 2 | 86.55000000000001 | 86.55000000000001 | 0.0 | level | 2.51 |
+| a/conc_t0/chat/0.0/4 | C1536 | 2 | 155.6 | 156.10000000000002 | -0.32 | level | 2.51 |
+| a/conc_t0/chat/0.0/4 | F1 | 2 | 155.85 | 156.10000000000002 | -0.16 | level | 2.51 |
+| a/conc_t0/chat/0.0/6 | C1536 | 2 | 209.6 | 210.5 | -0.43 | level | 2.51 |
+| a/conc_t0/chat/0.0/6 | F1 | 2 | 210.65 | 210.5 | 0.07 | level | 2.51 |
+| a/conc_t0/chat/0.0/8 | C1536 | 2 | 257.0 | 257.15 | -0.06 | level | 2.51 |
+| a/conc_t0/chat/0.0/8 | F1 | 2 | 257.25 | 257.15 | 0.04 | level | 2.51 |
+| a/conc_t0/code/0.0/1 | C1536 | 2 | 72.6 | 72.9 | -0.41 | level | 5.689 |
+| a/conc_t0/code/0.0/1 | F1 | 2 | 72.8 | 72.9 | -0.14 | level | 5.689 |
+| a/conc_t0/code/0.0/2 | C1536 | 2 | 137.4 | 137.25 | 0.11 | level | 4.83 |
+| a/conc_t0/code/0.0/2 | F1 | 2 | 137.85 | 137.25 | 0.44 | level | 4.83 |
+| a/conc_t0/code/0.0/4 | C1536 | 2 | 241.85 | 243.0 | -0.47 | level | 4.83 |
+| a/conc_t0/code/0.0/4 | F1 | 2 | 242.25 | 243.0 | -0.31 | level | 4.83 |
+| a/conc_t0/code/0.0/6 | C1536 | 2 | 306.25 | 307.45000000000005 | -0.39 | level | 4.491 |
+| a/conc_t0/code/0.0/6 | F1 | 2 | 306.85 | 307.45000000000005 | -0.2 | level | 4.491 |
+| a/conc_t0/code/0.0/8 | C1536 | 2 | 370.25 | 373.04999999999995 | -0.75 | level | 4.491 |
+| a/conc_t0/code/0.0/8 | F1 | 2 | 371.55 | 373.04999999999995 | -0.4 | level | 4.491 |
+| a/openai_t0/fibonacci-raw/0.0/1 | C1536 | 2 | 72.78056604984386 | 73.0455554052425 | -0.36 | level | 5.689 |
+| a/openai_t0/fibonacci-raw/0.0/1 | F1 | 2 | 72.84422435426862 | 73.0455554052425 | -0.28 | level | 5.689 |
+| a/openai_t0/gpu-chat-no-think/0.0/1 | C1536 | 2 | 41.76141444110144 | 41.86538397178505 | -0.25 | level | 3.012 |
+| a/openai_t0/gpu-chat-no-think/0.0/1 | F1 | 2 | 41.810040174745566 | 41.86538397178505 | -0.13 | level | 3.012 |

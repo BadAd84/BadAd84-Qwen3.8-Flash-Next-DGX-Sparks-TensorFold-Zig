@@ -1,0 +1,30 @@
+# Cross-arm greedy equality (token_sha256), window w3
+
+| cell | arm | against | equal | total |
+| --- | --- | --- | --- | --- |
+| d/conc_t0/chat/1 | EVICT | M1 | 1 | 1 |
+| d/conc_t0/chat/1 | EVICTb | M1 | 1 | 1 |
+| d/conc_t0/chat/1 | M2 | M1 | 1 | 1 |
+| d/conc_t0/chat/2 | EVICT | M1 | 2 | 2 |
+| d/conc_t0/chat/2 | EVICTb | M1 | 2 | 2 |
+| d/conc_t0/chat/2 | M2 | M1 | 2 | 2 |
+| d/conc_t0/code/1 | EVICT | M1 | 1 | 1 |
+| d/conc_t0/code/1 | EVICTb | M1 | 1 | 1 |
+| d/conc_t0/code/1 | M2 | M1 | 1 | 1 |
+| d/conc_t0/code/2 | EVICT | M1 | 2 | 2 |
+| d/conc_t0/code/2 | EVICTb | M1 | 2 | 2 |
+| d/conc_t0/code/2 | M2 | M1 | 2 | 2 |
+| p/conc_t0/chat/1 | M2 | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_16384 | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_16384b | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_3072 | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_3072b | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_UNSET | M1 | 1 | 1 |
+| p/conc_t0/chat/1 | P_UNSETb | M1 | 1 | 1 |
+| p/conc_t0/code/1 | M2 | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_16384 | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_16384b | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_3072 | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_3072b | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_UNSET | M1 | 1 | 1 |
+| p/conc_t0/code/1 | P_UNSETb | M1 | 1 | 1 |

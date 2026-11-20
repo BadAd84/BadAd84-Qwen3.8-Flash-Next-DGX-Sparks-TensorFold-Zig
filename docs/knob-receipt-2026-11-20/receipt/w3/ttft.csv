@@ -1,0 +1,17 @@
+case,load,treatment,runs,ttft_s,base_ttft_s,gap_pct,verdict
+p/cold2k-off,idle,EVICT,0,,0.972,,unmeasured
+p/cold2k-off,idle,P_16384,2,0.966,0.972,-0.51,level
+p/cold2k-off,idle,P_3072,2,0.976,0.972,0.51,level
+p/cold2k-off,idle,P_UNSET,2,0.993,0.972,2.21,slower
+p/cold32k-off,idle,EVICT,0,,14.062,,unmeasured
+p/cold32k-off,idle,P_16384,2,13.867,14.062,-1.39,faster
+p/cold32k-off,idle,P_3072,2,15.029,14.062,6.88,slower
+p/cold32k-off,idle,P_UNSET,2,14.197,14.062,0.95,level
+p/cold64k-off,idle,EVICT,0,,28.901,,unmeasured
+p/cold64k-off,idle,P_16384,2,28.577,28.901,-1.12,faster
+p/cold64k-off,idle,P_3072,2,30.722,28.901,6.3,slower
+p/cold64k-off,idle,P_UNSET,2,29.229,28.901,1.14,slower
+p/cold8k-off,idle,EVICT,0,,3.427,,unmeasured
+p/cold8k-off,idle,P_16384,2,3.405,3.427,-0.63,level
+p/cold8k-off,idle,P_3072,2,3.678,3.427,7.31,slower
+p/cold8k-off,idle,P_UNSET,2,3.446,3.427,0.55,level

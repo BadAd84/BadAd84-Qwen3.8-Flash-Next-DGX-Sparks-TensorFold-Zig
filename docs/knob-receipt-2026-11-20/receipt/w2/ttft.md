@@ -1,0 +1,28 @@
+# TTFT cells, window w2
+
+| case | load | treatment | runs | ttft s | main s | gap | verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| b/cold2k-off | idle | C4096 | 2 | 0.962 | 0.961 | 0.1 | level |
+| b/cold2k-off | idle | C6144 | 2 | 0.955 | 0.961 | -0.62 | level |
+| b/cold2k-off | idle | DEVCK | 0 | None | 0.961 | None | unmeasured |
+| b/cold2k-off | idle | PRICE | 0 | None | 0.961 | None | unmeasured |
+| b/cold2k-off | idle | RESERVE | 0 | None | 0.961 | None | unmeasured |
+| b/cold2k-off | idle | S3072 | 2 | 0.974 | 0.961 | 1.3 | level |
+| b/cold32k-off | idle | C4096 | 2 | 14.41 | 14.971 | -3.74 | faster |
+| b/cold32k-off | idle | C6144 | 2 | 14.258 | 14.971 | -4.77 | faster |
+| b/cold32k-off | idle | DEVCK | 0 | None | 14.971 | None | unmeasured |
+| b/cold32k-off | idle | PRICE | 0 | None | 14.971 | None | unmeasured |
+| b/cold32k-off | idle | RESERVE | 0 | None | 14.971 | None | unmeasured |
+| b/cold32k-off | idle | S3072 | 2 | 15.026 | 14.971 | 0.36 | level |
+| b/cold64k-off | idle | C4096 | 2 | 29.742 | 30.642 | -2.94 | faster |
+| b/cold64k-off | idle | C6144 | 2 | 29.139 | 30.642 | -4.9 | faster |
+| b/cold64k-off | idle | DEVCK | 0 | None | 30.642 | None | unmeasured |
+| b/cold64k-off | idle | PRICE | 0 | None | 30.642 | None | unmeasured |
+| b/cold64k-off | idle | RESERVE | 0 | None | 30.642 | None | unmeasured |
+| b/cold64k-off | idle | S3072 | 2 | 30.721 | 30.642 | 0.26 | level |
+| b/cold8k-off | idle | C4096 | 2 | 3.521 | 3.67 | -4.06 | faster |
+| b/cold8k-off | idle | C6144 | 2 | 3.509 | 3.67 | -4.4 | faster |
+| b/cold8k-off | idle | DEVCK | 0 | None | 3.67 | None | unmeasured |
+| b/cold8k-off | idle | PRICE | 0 | None | 3.67 | None | unmeasured |
+| b/cold8k-off | idle | RESERVE | 0 | None | 3.67 | None | unmeasured |
+| b/cold8k-off | idle | S3072 | 2 | 3.681 | 3.67 | 0.27 | level |

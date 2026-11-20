@@ -1,0 +1,6249 @@
+{
+ "counts": {
+  "C4096": {
+   "faster": 3,
+   "slower": 0,
+   "level": 13,
+   "unmeasured": 0,
+   "cells": 16
+  },
+  "C6144": {
+   "faster": 6,
+   "slower": 0,
+   "level": 10,
+   "unmeasured": 0,
+   "cells": 16
+  },
+  "DEVCK": {
+   "faster": 0,
+   "slower": 0,
+   "level": 12,
+   "unmeasured": 4,
+   "cells": 16
+  },
+  "PRICE": {
+   "faster": 0,
+   "slower": 0,
+   "level": 12,
+   "unmeasured": 4,
+   "cells": 16
+  },
+  "RESERVE": {
+   "faster": 0,
+   "slower": 0,
+   "level": 12,
+   "unmeasured": 4,
+   "cells": 16
+  },
+  "S3072": {
+   "faster": 0,
+   "slower": 0,
+   "level": 16,
+   "unmeasured": 0,
+   "cells": 16
+  }
+ },
+ "window": "w2",
+ "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+ "base_arms": [
+  "M1",
+  "M2"
+ ],
+ "arms": [
+  "C4096",
+  "C4096b",
+  "C6144",
+  "C6144b",
+  "DEVCK",
+  "DEVCKb",
+  "M1",
+  "M2",
+  "PRICE",
+  "PRICEb",
+  "RESERVE",
+  "RESERVEb",
+  "S3072",
+  "S3072b"
+ ],
+ "treatments": {
+  "C4096": [
+   "C4096",
+   "C4096b"
+  ],
+  "C6144": [
+   "C6144",
+   "C6144b"
+  ],
+  "DEVCK": [
+   "DEVCK",
+   "DEVCKb"
+  ],
+  "M1": [
+   "M1"
+  ],
+  "M2": [
+   "M2"
+  ],
+  "PRICE": [
+   "PRICE",
+   "PRICEb"
+  ],
+  "RESERVE": [
+   "RESERVE",
+   "RESERVEb"
+  ],
+  "S3072": [
+   "S3072",
+   "S3072b"
+  ]
+ },
+ "decode_cells": [
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 41.75,
+   "base_tps": 41.55,
+   "gap_pct": 0.48,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 42.05,
+   "base_tps": 41.55,
+   "gap_pct": 1.2,
+   "verdict": "faster",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 41.65,
+   "base_tps": 41.55,
+   "gap_pct": 0.24,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 41.25,
+   "base_tps": 41.55,
+   "gap_pct": -0.72,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 41.25,
+   "base_tps": 41.55,
+   "gap_pct": -0.72,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/1",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 41.5,
+   "base_tps": 41.55,
+   "gap_pct": -0.12,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 86.5,
+   "base_tps": 86.0,
+   "gap_pct": 0.58,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 86.80000000000001,
+   "base_tps": 86.0,
+   "gap_pct": 0.93,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 86.30000000000001,
+   "base_tps": 86.0,
+   "gap_pct": 0.35,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 85.7,
+   "base_tps": 86.0,
+   "gap_pct": -0.35,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 85.55000000000001,
+   "base_tps": 86.0,
+   "gap_pct": -0.52,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/2",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 85.9,
+   "base_tps": 86.0,
+   "gap_pct": -0.12,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 156.1,
+   "base_tps": 155.39999999999998,
+   "gap_pct": 0.45,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 156.5,
+   "base_tps": 155.39999999999998,
+   "gap_pct": 0.71,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 155.60000000000002,
+   "base_tps": 155.39999999999998,
+   "gap_pct": 0.13,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 154.65,
+   "base_tps": 155.39999999999998,
+   "gap_pct": -0.48,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 154.6,
+   "base_tps": 155.39999999999998,
+   "gap_pct": -0.51,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/4",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 155.1,
+   "base_tps": 155.39999999999998,
+   "gap_pct": -0.19,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 210.39999999999998,
+   "base_tps": 209.35000000000002,
+   "gap_pct": 0.5,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 210.85,
+   "base_tps": 209.35000000000002,
+   "gap_pct": 0.72,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 209.55,
+   "base_tps": 209.35000000000002,
+   "gap_pct": 0.1,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 208.75,
+   "base_tps": 209.35000000000002,
+   "gap_pct": -0.29,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 208.65,
+   "base_tps": 209.35000000000002,
+   "gap_pct": -0.33,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/6",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 208.85000000000002,
+   "base_tps": 209.35000000000002,
+   "gap_pct": -0.24,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 257.29999999999995,
+   "base_tps": 256.6,
+   "gap_pct": 0.27,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 257.9,
+   "base_tps": 256.6,
+   "gap_pct": 0.51,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 257.20000000000005,
+   "base_tps": 256.6,
+   "gap_pct": 0.23,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 255.4,
+   "base_tps": 256.6,
+   "gap_pct": -0.47,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 254.89999999999998,
+   "base_tps": 256.6,
+   "gap_pct": -0.66,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/chat/0.0/8",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 255.8,
+   "base_tps": 256.6,
+   "gap_pct": -0.31,
+   "verdict": "level",
+   "tokens_per_round": 2.51
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 72.85,
+   "base_tps": 72.5,
+   "gap_pct": 0.48,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 73.44999999999999,
+   "base_tps": 72.5,
+   "gap_pct": 1.31,
+   "verdict": "faster",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 72.44999999999999,
+   "base_tps": 72.5,
+   "gap_pct": -0.07,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 72.1,
+   "base_tps": 72.5,
+   "gap_pct": -0.55,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 72.35,
+   "base_tps": 72.5,
+   "gap_pct": -0.21,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/1",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 72.25,
+   "base_tps": 72.5,
+   "gap_pct": -0.34,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 137.95,
+   "base_tps": 137.35000000000002,
+   "gap_pct": 0.44,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 138.7,
+   "base_tps": 137.35000000000002,
+   "gap_pct": 0.98,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 137.7,
+   "base_tps": 137.35000000000002,
+   "gap_pct": 0.25,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 136.35000000000002,
+   "base_tps": 137.35000000000002,
+   "gap_pct": -0.73,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 136.95,
+   "base_tps": 137.35000000000002,
+   "gap_pct": -0.29,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/2",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 137.0,
+   "base_tps": 137.35000000000002,
+   "gap_pct": -0.25,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 242.8,
+   "base_tps": 241.9,
+   "gap_pct": 0.37,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 243.9,
+   "base_tps": 241.9,
+   "gap_pct": 0.83,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 241.9,
+   "base_tps": 241.9,
+   "gap_pct": 0.0,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 240.39999999999998,
+   "base_tps": 241.9,
+   "gap_pct": -0.62,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 241.25,
+   "base_tps": 241.9,
+   "gap_pct": -0.27,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/4",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 240.60000000000002,
+   "base_tps": 241.9,
+   "gap_pct": -0.54,
+   "verdict": "level",
+   "tokens_per_round": 4.83
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 307.20000000000005,
+   "base_tps": 305.75,
+   "gap_pct": 0.47,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 308.75,
+   "base_tps": 305.75,
+   "gap_pct": 0.98,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 307.1,
+   "base_tps": 305.75,
+   "gap_pct": 0.44,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 305.20000000000005,
+   "base_tps": 305.75,
+   "gap_pct": -0.18,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 305.0,
+   "base_tps": 305.75,
+   "gap_pct": -0.25,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/6",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 305.2,
+   "base_tps": 305.75,
+   "gap_pct": -0.18,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 371.75,
+   "base_tps": 370.0,
+   "gap_pct": 0.47,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 372.75,
+   "base_tps": 370.0,
+   "gap_pct": 0.74,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 371.05,
+   "base_tps": 370.0,
+   "gap_pct": 0.28,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 368.4,
+   "base_tps": 370.0,
+   "gap_pct": -0.43,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 368.0,
+   "base_tps": 370.0,
+   "gap_pct": -0.54,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/conc_t0/code/0.0/8",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 368.95,
+   "base_tps": 370.0,
+   "gap_pct": -0.28,
+   "verdict": "level",
+   "tokens_per_round": 4.491
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 72.9251791626966,
+   "base_tps": 72.62398571738491,
+   "gap_pct": 0.41,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 73.48545026817155,
+   "base_tps": 72.62398571738491,
+   "gap_pct": 1.19,
+   "verdict": "faster",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 72.76208135884309,
+   "base_tps": 72.62398571738491,
+   "gap_pct": 0.19,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 72.11297243954809,
+   "base_tps": 72.62398571738491,
+   "gap_pct": -0.7,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 72.3895397549094,
+   "base_tps": 72.62398571738491,
+   "gap_pct": -0.32,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/0.0/1",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 72.7761137365143,
+   "base_tps": 72.62398571738491,
+   "gap_pct": 0.21,
+   "verdict": "level",
+   "tokens_per_round": 5.689
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "C4096",
+   "runs": 2,
+   "tps": 41.935749771306405,
+   "base_tps": 41.67959264964674,
+   "gap_pct": 0.61,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "C6144",
+   "runs": 2,
+   "tps": 42.117841839674256,
+   "base_tps": 41.67959264964674,
+   "gap_pct": 1.05,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "DEVCK",
+   "runs": 2,
+   "tps": 41.69946056703398,
+   "base_tps": 41.67959264964674,
+   "gap_pct": 0.05,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "PRICE",
+   "runs": 2,
+   "tps": 41.42406496215591,
+   "base_tps": 41.67959264964674,
+   "gap_pct": -0.61,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "RESERVE",
+   "runs": 2,
+   "tps": 41.56452228521343,
+   "base_tps": 41.67959264964674,
+   "gap_pct": -0.28,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/0.0/1",
+   "treatment": "S3072",
+   "runs": 2,
+   "tps": 41.7069343607902,
+   "base_tps": 41.67959264964674,
+   "gap_pct": 0.07,
+   "verdict": "level",
+   "tokens_per_round": 3.012
+  }
+ ],
+ "ttft_cells": [
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "C4096",
+   "runs": 2,
+   "ttft_s": 0.962,
+   "base_ttft_s": 0.961,
+   "gap_pct": 0.1,
+   "verdict": "level"
+  },
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "C6144",
+   "runs": 2,
+   "ttft_s": 0.955,
+   "base_ttft_s": 0.961,
+   "gap_pct": -0.62,
+   "verdict": "level"
+  },
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "DEVCK",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 0.961,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "PRICE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 0.961,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "RESERVE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 0.961,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold2k-off",
+   "load": "idle",
+   "treatment": "S3072",
+   "runs": 2,
+   "ttft_s": 0.974,
+   "base_ttft_s": 0.961,
+   "gap_pct": 1.3,
+   "verdict": "level"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "C4096",
+   "runs": 2,
+   "ttft_s": 14.41,
+   "base_ttft_s": 14.971,
+   "gap_pct": -3.74,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "C6144",
+   "runs": 2,
+   "ttft_s": 14.258,
+   "base_ttft_s": 14.971,
+   "gap_pct": -4.77,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "DEVCK",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 14.971,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "PRICE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 14.971,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "RESERVE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 14.971,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold32k-off",
+   "load": "idle",
+   "treatment": "S3072",
+   "runs": 2,
+   "ttft_s": 15.026,
+   "base_ttft_s": 14.971,
+   "gap_pct": 0.36,
+   "verdict": "level"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "C4096",
+   "runs": 2,
+   "ttft_s": 29.742,
+   "base_ttft_s": 30.642,
+   "gap_pct": -2.94,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "C6144",
+   "runs": 2,
+   "ttft_s": 29.139,
+   "base_ttft_s": 30.642,
+   "gap_pct": -4.9,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "DEVCK",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 30.642,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "PRICE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 30.642,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "RESERVE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 30.642,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold64k-off",
+   "load": "idle",
+   "treatment": "S3072",
+   "runs": 2,
+   "ttft_s": 30.721,
+   "base_ttft_s": 30.642,
+   "gap_pct": 0.26,
+   "verdict": "level"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "C4096",
+   "runs": 2,
+   "ttft_s": 3.521,
+   "base_ttft_s": 3.67,
+   "gap_pct": -4.06,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "C6144",
+   "runs": 2,
+   "ttft_s": 3.509,
+   "base_ttft_s": 3.67,
+   "gap_pct": -4.4,
+   "verdict": "faster"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "DEVCK",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 3.67,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "PRICE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 3.67,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "RESERVE",
+   "runs": 0,
+   "ttft_s": null,
+   "base_ttft_s": 3.67,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "case": "b/cold8k-off",
+   "load": "idle",
+   "treatment": "S3072",
+   "runs": 2,
+   "ttft_s": 3.681,
+   "base_ttft_s": 3.67,
+   "gap_pct": 0.27,
+   "verdict": "level"
+  }
+ ],
+ "resume_cells": [
+  {
+   "cell": "cache/first_ttft_s",
+   "treatment": "C4096",
+   "runs": 2,
+   "value": 1.136,
+   "base_value": 1.145,
+   "gap_pct": -0.77,
+   "verdict": "level"
+  },
+  {
+   "cell": "cache/first_ttft_s",
+   "treatment": "C6144",
+   "runs": 2,
+   "value": 1.14,
+   "base_value": 1.145,
+   "gap_pct": -0.45,
+   "verdict": "level"
+  },
+  {
+   "cell": "cache/first_ttft_s",
+   "treatment": "S3072",
+   "runs": 2,
+   "value": 1.146,
+   "base_value": 1.145,
+   "gap_pct": 0.05,
+   "verdict": "level"
+  },
+  {
+   "cell": "cache/repeated_cached_tokens",
+   "treatment": "C4096",
+   "runs": 2,
+   "value": 0.0,
+   "base_value": 0.0,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "cell": "cache/repeated_cached_tokens",
+   "treatment": "C6144",
+   "runs": 2,
+   "value": 0.0,
+   "base_value": 0.0,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "cell": "cache/repeated_cached_tokens",
+   "treatment": "S3072",
+   "runs": 2,
+   "value": 0.0,
+   "base_value": 0.0,
+   "gap_pct": null,
+   "verdict": "unmeasured"
+  },
+  {
+   "cell": "cache/repeated_ttft_s",
+   "treatment": "C4096",
+   "runs": 2,
+   "value": 1.125,
+   "base_value": 1.128,
+   "gap_pct": -0.27,
+   "verdict": "level"
+  },
+  {
+   "cell": "cache/repeated_ttft_s",
+   "treatment": "C6144",
+   "runs": 2,
+   "value": 1.127,
+   "base_value": 1.128,
+   "gap_pct": -0.07,
+   "verdict": "level"
+  },
+  {
+   "cell": "cache/repeated_ttft_s",
+   "treatment": "S3072",
+   "runs": 2,
+   "value": 1.13,
+   "base_value": 1.128,
+   "gap_pct": 0.16,
+   "verdict": "level"
+  }
+ ],
+ "exactness": [
+  {
+   "arm": "C4096",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C4096",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "C4096",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C4096",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C4096b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C4096b",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "C4096b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C4096b",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "C6144",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144b",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "C6144b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "C6144b",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "DEVCK",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "DEVCK",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "DEVCKb",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "DEVCKb",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "M1",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "M1",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "M1",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "M1",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "M2",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "M2",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "M2",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "M2",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "PRICE",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "PRICE",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "PRICEb",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "PRICEb",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "RESERVE",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "RESERVE",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "RESERVEb",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "RESERVEb",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "S3072",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "S3072",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "S3072",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "S3072",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "S3072b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "S3072b",
+   "cell": "turns",
+   "equal": 7,
+   "total": 7,
+   "basis": "resumed_from_cache"
+  },
+  {
+   "arm": "S3072b",
+   "cell": "drafts",
+   "equal": 8,
+   "total": 8,
+   "basis": "token_ids"
+  },
+  {
+   "arm": "S3072b",
+   "cell": "fresh",
+   "equal": 7,
+   "total": 7,
+   "basis": "token_ids"
+  }
+ ],
+ "solo_vs_concurrent": [
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C4096b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "C6144b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCK",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "DEVCKb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M1",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "M2",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "PRICEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVE",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "RESERVEb",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 1.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/code",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 2,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 4,
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "arm": "S3072b",
+   "prompt": "a/chat",
+   "temperature": 0.0,
+   "streams": 6,
+   "equal": 2,
+   "total": 2
+  }
+ ],
+ "cross_arm_hashes": [
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/1",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/2",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/4",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/6",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/chat/8",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/1",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/2",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/4",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/6",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/conc_t0/code/8",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 8,
+   "total": 8
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/1",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 1,
+   "total": 1
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/2",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 2,
+   "total": 2
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/4",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 4,
+   "total": 4
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/golden/distinct/6",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 6,
+   "total": 6
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/fibonacci-raw/1",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "C4096",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "C4096b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "C6144",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "C6144b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "DEVCK",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "DEVCKb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "M2",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "PRICE",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "PRICEb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "RESERVE",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "RESERVEb",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "S3072",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  },
+  {
+   "cell": "a/openai_t0/gpu-chat-no-think/1",
+   "arm": "S3072b",
+   "ref": "M1",
+   "equal": 0,
+   "total": 3
+  }
+ ],
+ "foreign": [
+  {
+   "arm": "C4096",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "C4096",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "C4096b",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "C4096b",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "C6144",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "C6144",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "C6144b",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "C6144b",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "DEVCK",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "DEVCKb",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "M1",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "M1",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "M2",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "M2",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "PRICE",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "PRICEb",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "RESERVE",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "RESERVEb",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "S3072",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "S3072",
+   "pass": "b",
+   "foreign": 0
+  },
+  {
+   "arm": "S3072b",
+   "pass": "a",
+   "foreign": 0
+  },
+  {
+   "arm": "S3072b",
+   "pass": "b",
+   "foreign": 0
+  }
+ ],
+ "boots": [
+  {
+   "arm": "C4096",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK=4096",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=4096",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=4096"
+   ]
+  },
+  {
+   "arm": "C4096",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK=4096",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=4096",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=4096"
+   ]
+  },
+  {
+   "arm": "C4096b",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.03",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK=4096",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=4096",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=4096"
+   ]
+  },
+  {
+   "arm": "C4096b",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK=4096",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=4096",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=4096"
+   ]
+  },
+  {
+   "arm": "C6144",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK=6144",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=6144",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=6144"
+   ]
+  },
+  {
+   "arm": "C6144",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.00",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK=6144",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=6144",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=6144"
+   ]
+  },
+  {
+   "arm": "C6144b",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.03",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK=6144",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=6144",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=6144"
+   ]
+  },
+  {
+   "arm": "C6144b",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.04",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK=6144",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK=6144",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK=6144"
+   ]
+  },
+  {
+   "arm": "DEVCK",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.02",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TENSORFOLD_DEVICE_CHECK=0",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_DEVICE_CHECK=0",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TENSORFOLD_DEVICE_CHECK=0"
+   ]
+  },
+  {
+   "arm": "DEVCKb",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.00",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TENSORFOLD_DEVICE_CHECK=0",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_DEVICE_CHECK=0",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TENSORFOLD_DEVICE_CHECK=0"
+   ]
+  },
+  {
+   "arm": "M1",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.04",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "none",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "M1",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.02",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "none",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "M2",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "none",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "M2",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "36.99",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "none",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "PRICE",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "36.99",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_SHARED_PRICE_LOG=1",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "PRICEb",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.02",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_SHARED_PRICE_LOG=1",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": []
+  },
+  {
+   "arm": "RESERVE",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.04",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TENSORFOLD_MEMORY_RESERVE_GIB=",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=9",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=9"
+   ]
+  },
+  {
+   "arm": "RESERVEb",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "36.99",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TENSORFOLD_MEMORY_RESERVE_GIB=",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=9",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=9"
+   ]
+  },
+  {
+   "arm": "S3072",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.03",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK_SOLO=3072",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK_SOLO=3072",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK_SOLO=3072"
+   ]
+  },
+  {
+   "arm": "S3072",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "36.98",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK_SOLO=3072",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK_SOLO=3072",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK_SOLO=3072"
+   ]
+  },
+  {
+   "arm": "S3072b",
+   "pass": "a",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "8",
+   "ctx": "32768",
+   "overrides": "TF_FLASHNEXT_CHUNK_SOLO=3072",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK_SOLO=3072",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK_SOLO=3072"
+   ]
+  },
+  {
+   "arm": "S3072b",
+   "pass": "b",
+   "rc": "0",
+   "wall_s": "37.01",
+   "par": "4",
+   "ctx": "131072",
+   "overrides": "TF_FLASHNEXT_CHUNK_SOLO=3072",
+   "env": [
+    "TENSORFOLD_CUDA_KERNELS=native",
+    "TENSORFOLD_IMAGE_TOKENS=16384",
+    "TENSORFOLD_MAX_IMAGES=50",
+    "TENSORFOLD_MEMORY_RESERVE_GIB=10",
+    "TENSORFOLD_NO_UPDATE_CHECK=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE=1",
+    "TENSORFOLD_PROMPT_CACHE_WHOLE_MIN=1024",
+    "TENSORFOLD_VIDEO_TOKENS=16384",
+    "TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python",
+    "TENSORFOLD_VISION_WORKSPACE_MIB=2048",
+    "TENSORFOLD_WARM_TURNS=0",
+    "TF_FLASHNEXT_BATCH_DRAWS=1",
+    "TF_FLASHNEXT_BATCH_WINDOWS=1",
+    "TF_FLASHNEXT_CHUNK_SOLO=3072",
+    "TF_FLASHNEXT_CONFIDENCE=-0.15",
+    "TF_FLASHNEXT_COPY_MISS=keep",
+    "TF_FLASHNEXT_COPY_RAMP=jump",
+    "TF_FLASHNEXT_COPY_RESYNC=1",
+    "TF_FLASHNEXT_COPY_SHARED=1",
+    "TF_FLASHNEXT_COST_RETIME=4",
+    "TF_FLASHNEXT_DEPTH=15",
+    "TF_FLASHNEXT_DRAFTS=6",
+    "TF_FLASHNEXT_DRAFT_AHEAD=1",
+    "TF_FLASHNEXT_DRAFT_CONTINUE=0.20",
+    "TF_FLASHNEXT_DRAFT_DEPTH_SHARED=7",
+    "TF_FLASHNEXT_DRAFT_INT4=1",
+    "TF_FLASHNEXT_DRAFT_PROPOSE=0.05",
+    "TF_FLASHNEXT_EARLY_DRAW=1",
+    "TF_FLASHNEXT_FP8_FUSED_SPLIT=4",
+    "TF_FLASHNEXT_FP8_PROMPT_TILES=1",
+    "TF_FLASHNEXT_GATHER_EARLY=1",
+    "TF_FLASHNEXT_GATHER_READ=pread",
+    "TF_FLASHNEXT_GDN_LANES=1",
+    "TF_FLASHNEXT_HC_Q12=1",
+    "TF_FLASHNEXT_HEAD_PIECE=1536",
+    "TF_FLASHNEXT_HEAD_ROW_TILES=2",
+    "TF_FLASHNEXT_HOST_DRAW_THREADS=7",
+    "TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1",
+    "TF_FLASHNEXT_KEEP_LATE=1",
+    "TF_FLASHNEXT_MTP_FP8=/root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd",
+    "TF_FLASHNEXT_MULTI_LRU=1",
+    "TF_FLASHNEXT_MULTI_MAX=192",
+    "TF_FLASHNEXT_MULTI_VERIFY=1",
+    "TF_FLASHNEXT_NGRAM_LATE=1",
+    "TF_FLASHNEXT_NGRAM_PREFETCH=1",
+    "TF_FLASHNEXT_NGRAM_RANDOM=1",
+    "TF_FLASHNEXT_NGRAM_THREADS=32",
+    "TF_FLASHNEXT_PREFILL_ROWS=4096",
+    "TF_FLASHNEXT_PREFILL_TAIL=512",
+    "TF_FLASHNEXT_PRODUCT_STREAMS=8",
+    "TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256",
+    "TF_FLASHNEXT_PROMPT_GEMM2=1",
+    "TF_FLASHNEXT_PROMPT_HC2=1",
+    "TF_FLASHNEXT_PROMPT_HEAD_SKIP=1",
+    "TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1",
+    "TF_FLASHNEXT_QSA_SELECT=1",
+    "TF_FLASHNEXT_QSA_TILE=4",
+    "TF_FLASHNEXT_REDUCE_ACT=1",
+    "TF_FLASHNEXT_SAMPLED_HEADS=1",
+    "TF_FLASHNEXT_SAMPLE_CAND=1",
+    "TF_FLASHNEXT_SEQ_POOL=8",
+    "TF_FLASHNEXT_SHARED_COST_LEVELS=0",
+    "TF_FLASHNEXT_SHARED_EARLY_ROWS=6",
+    "TF_FLASHNEXT_SHARED_SIDE=1",
+    "TF_FLASHNEXT_SHARED_SLOT_LD=1",
+    "TF_FLASHNEXT_SOLO_MAX=1024",
+    "TF_FLASHNEXT_UPMIX_DECODE=1",
+    "TF_FLASHNEXT_WARM_AHEAD=1",
+    "TF_FLASHNEXT_WARM_POOL=8",
+    "TF_FLASHNEXT_WINDOW=64",
+    "TF_FLASHNEXT_YARN=0"
+   ],
+   "image": "tensorfold-qwen38:knob-m-1ece6e6d",
+   "differs_by": [
+    "TF_FLASHNEXT_CHUNK_SOLO=3072"
+   ]
+  }
+ ]
+}
