@@ -1,6 +1,6 @@
 | setting | verdict |
 | --- | --- |
-| `TF_FLASHNEXT_CHUNK` | not yet measured: window 1 was running its base arm when this report was written; the cells land in `receipt/w1/analysis` |
+| `TF_FLASHNEXT_CHUNK` | 1536 measured: decode level within 0.72 percent, greedy tokens identical at 1/2/4/6 streams, cold TTFT +4.96 to +7.00 percent (loses on prompt time at equal tokens). The 4096 and 6144 arms, which decide whether to raise our own value, are in window 2 |
 | `TF_FLASHNEXT_CHUNK_SOLO` | not yet measured: the `--parallel 8` arm is in window 2, the one-stream arms in window 3 |
 | `TF_FLASHNEXT_READOUT_FUSED` | not yet measured: window 1, after the chunk arms |
 | `TF_CACHE_EVICT` | not yet measured: window 3 (resume bench) |

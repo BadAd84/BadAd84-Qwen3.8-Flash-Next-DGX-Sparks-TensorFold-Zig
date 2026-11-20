@@ -146,6 +146,18 @@ Every decode cell is level within 0.72 percent, which is what the setting should
 not a decode round, so the cell that can move is the cold TTFT one, which was still running. The receipt keeps the two
 apart rather than calling a prompt knob a decode knob.
 
+Its cold TTFT, which is the cell this setting can move (cache off, `--parallel 4`, medians of three):
+
+| prompt | main (3072 rows) | chunk 1536 | gap |
+| --- | --- | --- | --- |
+| 2k | 1.009 s | 1.059 s | +4.96% |
+| 8k | 3.732 s | 3.993 s | +7.00% |
+| 32k | 15.049 s | 16.008 s | +6.37% |
+
+So the smaller chunk costs 5 to 7 percent of cold prompt time at equal tokens, the direction our own #3726
+receipt found when 3,072 replaced 1,536. One run a side so far (the second run and the 4096 and 6144 arms are
+queued), so this is a measured gap and not yet a noise-ruled loss.
+
 ### An instrument defect found before it could lie
 
 The first version of the cross-level comparison paired every evidence row of a one-stream cell with every row of an
