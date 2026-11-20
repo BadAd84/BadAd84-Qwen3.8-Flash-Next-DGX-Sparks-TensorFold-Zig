@@ -85,9 +85,9 @@ package applied to a pristine archive reproducing the series tree exactly.
 | gate | where | result |
 |---|---|---|
 | `apply.sh --check` (20 patches) | pristine worktree at the base | `20 patches apply on 1ece6e6dbb... in order (nothing written)` |
-| `zig fmt --check build.zig zig` | Paperclip, series | rc 0, no files listed |
-| `zig build test-environment-host` | Paperclip, series | rc 0 |
-| `zig build -Dfixed-cpu test-gradient-serving test-qwen-serving-host` | Paperclip, series | rc 0 |
+| `zig fmt --check build.zig zig` | Paperclip for the series before the two fixes, and the final series locally (Zig 0.17.0 formatter) | rc 0 both |
+| `zig build test-environment-host` | Paperclip, series before the two fixes | rc 0; the final series' run was queued on the host lock |
+| `zig build -Dfixed-cpu test-gradient-serving test-qwen-serving-host` | Paperclip, series before the two fixes | rc 0; `pincheck.py` reads `files 169 failing 0` on the final tree |
 | `zig build -Dfixed-cpu test-kernel-contract` | Paperclip, series | queued on the host lock when this record was written (another lane's builds held it); the run on the pre-fix series failed only on the duplicated `.cluster` field below |
 | `zig build compile-config-server -Dtarget=aarch64-linux-gnu` | Paperclip, series (cross-compile) | queued the same way; the pre-fix run failed on the two defects below |
 | `zig build compile-cuda-tests -Dtarget=aarch64-linux-gnu` | Paperclip, series (cross-compile) | queued the same way; the pre-fix run failed on the same two defects |
