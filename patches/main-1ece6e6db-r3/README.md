@@ -54,6 +54,19 @@ PR #3523 (`flashnext-config-widths`, top-k and shared width) and #4183 (`cuda-in
 not patches of this series: #3523 is config widths, #4183 belongs to the experimental INT4 series
 (`patches/main-964174ea05-int4`). GPTQ (PR #3611, merged `0f8e35a1a`) touches `core/quant`, which no patch here edits.
 
+### What the 0020 pins prove
+
+`0020-serving-pins.patch` re-hashes 27 rows of `zig/tests/fixtures/gradient-serving.tsv`, and the only consumer is
+`test-gradient-serving`: `zig/build/gradient_host.zig` copies the fixture in as `manifest.tsv`, and
+`zig/tests/gradient_serving_pin.zig` hashes the tree's own files and compares them to those rows. It is a
+self-consistency gate: it fails when the tree and the fixture disagree, 0020 exists to make them agree, and it cannot
+catch a semantic defect, because a changed file's new hash is exactly what the re-pin blesses. It is also not part of
+the Linux host suite: `zig/build/host_tests.zig:16` lists `test-gradient-serving` in the reviewed exclusions ("red on
+main, #2031 (Flash Next hyper-connection source pin drifted)"), `zig/build/host_ci.zig:334` carries it only in
+`macos_deferred`, and it runs only when a driver names it, which this package's own gate does. The correctness review
+the fixture receives is the row-by-row comparison in `CHANGES.md`. `work/SpeedAudit/REPORT-verify.md` B.1 and E.4
+record the same finding.
+
 ## Recommended launcher block (FP4) (measured on 1.2.7, 2026-11-14)
 
     TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
