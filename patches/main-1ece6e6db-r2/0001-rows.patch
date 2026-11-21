@@ -1,0 +1,306 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index c538e6122bb6626d93a493b409e070359fba2f84..e73862b4b2a2e65bb78a00369a01e82ceb478a64 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -4,6 +4,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ ## Unreleased
+ 
++- Flash Next on CUDA: a lone stream's copy window grows past the MTP chain's drafts to the boot self-check's largest row-exact width (#9999); on GB10 that is 48 rows against the 32-row upstream default, and a verify window carrying a pending-row log takes the row-by-row DeltaNet path, which the fused kernel it replaced does not serve.
++
+ - Tests: the Web startup test imports tensorfold_web's modules on one line, as ruff's import order asks (#4202).
+ - Web: the LibreChat and AnythingLLM Docker Connect examples keep the configured remote engine URL, with its scheme, hostname, port and proxy prefix; local loopback examples still use the Docker host alias and away examples the Web relay (#3843, fixes #3839). Thanks to @AIFlowML.
+ 
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index d0f693fc8587c424010d705c6c2dd3b4b137669e..0d5dc1284cb5af769638def8abcce25aa762564d 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -258,8 +258,8 @@ pub fn Pass(comptime Tri: type) type {
+                 try self.copy(keep.proj, s.proj, n * pw * 2);
+                 try self.copy(keep.hist, self.seq.conv[li].ptr, (gdn.taps - 1) * cd * 2);
+             }
+-            // every row's conv, norms and gates, the recurrence, then the gated norm: the one-block chain's bits
+-            const fused = self.lanes.len == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
++            // the fused kernel writes no pending-row log: a log-carrying window takes the row-by-row path
++            const fused = self.lanes.len == 0 and keep.log == 0 and (n >= 64 or marks.inPass(self)) and self.k.forms.gdn_fused;
+             const cuts = try marks.cuts(self, li, fused);
+             if (fused and keep.log != 0) return error.UnexpectedTensor;
+             if (fused) {
+diff --git a/zig/src/families/flashnext/cuda_lanes.zig b/zig/src/families/flashnext/cuda_lanes.zig
+index fbd6b31b6130a76f91563e1feaa8cd9f4972c74d..4b179fa5609175f29b26fd096f8d7041095f886e 100644
+--- a/zig/src/families/flashnext/cuda_lanes.zig
++++ b/zig/src/families/flashnext/cuda_lanes.zig
+@@ -227,11 +227,11 @@ pub fn Namespace(comptime Tri: type) type {
+                 return .{ .ptr = self, .proposal_head = if (self.head) |h| &h.service else null, .first_before_draft = mtp.firstEarly(), .vtable = if (self.ranks == null) &scoring_table else &ranked_table };
+             }
+ 
+-            /// With the head: chains of up to 16 rows cut by its confidence, copies of up to 32; else one-row rounds.
++            /// With the head: chains of up to 16 rows cut by its confidence, copies of up to 64; else one-row rounds.
+             pub fn facts(self: *const Cuda) lanes.Model {
+                 const drafting = self.head != null;
+                 return .{
+-                    .exact_width = if (drafting) mtp.max_rows else 2,
++                    .exact_width = if (drafting) @intCast(mtp.window()) else 2,
+                     .first_copy_rows = if (drafting) mtp.max_chain + 1 else 0,
+                     .gpu_tokens = false,
+                     .mtp = drafting,
+@@ -476,7 +476,7 @@ pub fn Namespace(comptime Tri: type) type {
+                 const l = try self.lane(w.stream);
+                 const rows = w.rows();
+                 if (l.draft != null) {
+-                    if (rows > mtp.max_rows) return error.WindowTooWide;
++                    if (rows > mtp.window()) return error.WindowTooWide;
+                     for (w.positions, 0..) |p, r| if (p != l.seq.fed + 1 + r) return error.PositionMismatch;
+                     row_ids[wi][0] = w.pending;
+                     @memcpy(row_ids[wi][1..rows], w.tokens);
+diff --git a/zig/src/families/flashnext/cuda_lanes_load.zig b/zig/src/families/flashnext/cuda_lanes_load.zig
+index 9bc26ca994cf472cd151bbaa0462660a9aae506c..ae4da6f147ae67c2a4d977570bb6bcd84d8e7696 100644
+--- a/zig/src/families/flashnext/cuda_lanes_load.zig
++++ b/zig/src/families/flashnext/cuda_lanes_load.zig
+@@ -91,6 +91,16 @@ pub fn open(comptime F: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const cu
+         own.confidence = try @import("sys").environment.read(f64, "TF_FLASHNEXT_CONFIDENCE", mtp.default_confidence);
+     }
+     errdefer if (own.head) |h| h.deinit();
++    // the boot self-check proves the copied continuations' row invariance; TF_FLASHNEXT_WINDOW_CHECK=0 skips it
++    const probe = @import("sys").environment.read(bool, "TF_FLASHNEXT_WINDOW_CHECK", true) catch true;
++    if (own.head != null and o.drafts and o.tp == 1 and probe) {
++        const tri = own.tri();
++        mtp.served_rows = @import("cuda_mtp_check.zig").probeServed(@TypeOf(tri), gpa, driver, &own.stream, tri, own.engine, own.head.?, mtp.max_rows) catch |err| blk: {
++            std.log.warn("flashnext: the window self-check did not run ({s}); serving {d}-row copy windows unprobed", .{ @errorName(err), mtp.max_rows });
++            break :blk mtp.max_rows;
++        };
++        if (mtp.served_rows != mtp.max_rows) std.log.warn("flashnext: serving {d}-row copy windows after the self-check", .{mtp.served_rows});
++    }
+     @import("cuda_prompt_wt.zig").dropPageCache(gpa, io, dir, e.ngram.files.items);
+     const window = @min(o.context + mtp.max_rows, prompt.max_tokens);
+     // and an attention block's block scores at the window (64 MiB at 262,144 tokens)
+@@ -121,7 +131,7 @@ pub fn open(comptime F: type, gpa: std.mem.Allocator, io: std.Io, ctx: *const cu
+         .vision = own.vision,
+         .backend = own.backend(),
+         .facts = own.facts(),
+-        .rows = if (own.head != null) mtp.max_rows else 2,
++        .rows = if (own.head != null) @intCast(mtp.window()) else 2,
+         .prompt_rows = @intCast(own.engine.chunk),
+         .stream_bytes = stream_bytes,
+         .ctx = own,
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 4d6f0424b4ea650b22a1417eb7e5a012d6e6afe2..f2c3ddb758b617f25d0c830bdaff0943fccb0432 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -80,8 +80,15 @@ test "the stop rule: per draft above zero, the running product below it, every d
+     var all: Stop = .{ .c = 0 };
+     try std.testing.expect(all.take(5, 0.01).propose and all.take(6, 0.01).more);
+ }
+-/// A verify window's rows at most: the pending token and a chain, or a copied continuation.
+-pub const max_rows: usize = 32;
++/// A verify window's rows at most: the pending token and up to 63 drafts (the chain keeps `max_chain`).
++pub const max_rows: usize = 64;
++/// The window a load serves: the boot self-check's largest row-exact prefix (buffers hold `max_rows`).
++pub var served_rows: usize = max_rows;
++
++pub fn window() usize {
++    return served_rows;
++}
++
+ /// A drafting round's rows at most: a shared verify's (TF_FLASHNEXT_WINDOW_ROWS lowers it; 0: each alone).
+ pub const round_rows: usize = 64;
+ /// qmm.split_for(2560, 2560): fc_embedding and fc_hidden sum K in four slices, in order.
+@@ -424,7 +431,7 @@ test "a masked row draws only allowed tokens, greedy the best of them" {
+ 
+ test "draft chains fit one verify window while the default stays six" {
+     try std.testing.expectEqual(@as(usize, 16), max_chain + 1);
+-    try std.testing.expectEqual(@as(usize, 32), max_rows);
++    try std.testing.expectEqual(@as(usize, 64), max_rows);
+     try std.testing.expect(max_chain < max_rows and max_rows <= round_rows);
+     try std.testing.expectEqual(@as(usize, 6), default_depth);
+     try std.testing.expect(default_depth <= max_chain);
+diff --git a/zig/src/families/flashnext/cuda_mtp_check.zig b/zig/src/families/flashnext/cuda_mtp_check.zig
+index a5074333375155ba02c1af2c5ed4106e1377c351..2a5e84ebe59d5fbfcbc437cfe58d6e4644cb779e 100644
+--- a/zig/src/families/flashnext/cuda_mtp_check.zig
++++ b/zig/src/families/flashnext/cuda_mtp_check.zig
+@@ -163,6 +163,89 @@ pub fn check(comptime Tri: type, gpa: std.mem.Allocator, io: std.Io, driver: *cu
+     return same;
+ }
+ 
++/// One row's scores read back from the device.
++fn downloadRow(stream: cuda.Stream, dst: []u16, src: u64) !void {
++    try stream.synchronize();
++    try cuda.memory.download(stream.d, src, std.mem.sliceAsBytes(dst));
++}
++
++/// Each width's rows must score byte-equal to their one-token steps; `bad` takes each width's differing count.
++pub fn windowCheck(comptime Tri: type, o: Ops(Tri), seq: *prompt.Seq, d: *Draft, prompt_ids: []const u32, widths: []const usize, bad: []usize) !usize {
++    const gpa = o.e.gpa;
++    const rows = widths[widths.len - 1];
++    var cont: [max_rows]u32 = undefined;
++    var ref = try gpa.alloc(u16, rows * vocab);
++    defer gpa.free(ref);
++    const row = try gpa.alloc(u16, vocab);
++    defer gpa.free(row);
++    const got = try gpa.alloc(u16, vocab);
++    defer gpa.free(got);
++    // the greedy continuation and each row's one-token step's scores
++    try o.e.predict(Tri, o.tri, seq, prompt_ids);
++    for (row, 0..) |*v, i| v.* = std.mem.readInt(u16, seq.logits[2 * i ..][0..2], .little);
++    cont[0] = try drawRow(gpa, row, null, seq.fed, null);
++    for (0..rows) |r| {
++        var one = [_]u32{cont[r]};
++        try o.e.predict(Tri, o.tri, seq, &one);
++        for (row, 0..) |*v, i| v.* = std.mem.readInt(u16, seq.logits[2 * i ..][0..2], .little);
++        @memcpy(ref[r * vocab ..][0..vocab], row);
++        if (r + 1 < rows) cont[r + 1] = try drawRow(gpa, row, null, seq.fed, null);
++    }
++    var total: usize = 0;
++    for (widths, bad) |w, *b| {
++        d.settle(seq); // the last window's spares back to the sequence before its reset
++        seq.fed = 0;
++        seq.history = .{ o.e.eos, o.e.eos };
++        try resetSeq(seq, o.e.stream.*);
++        try o.e.predict(Tri, o.tri, seq, prompt_ids);
++        for (row, 0..) |*v, i| v.* = std.mem.readInt(u16, seq.logits[2 * i ..][0..2], .little);
++        if ((try drawRow(gpa, row, null, seq.fed, null)) != cont[0]) return error.FirstTokenDiffers;
++        try o.verify(seq, d, cont[0..w]);
++        var differ: usize = 0;
++        for (0..w) |r| {
++            try downloadRow(o.e.stream.*, got, d.logits.ptr + r * vocab * 2);
++            total += 1;
++            if (!std.mem.eql(u16, got, ref[r * vocab ..][0..vocab])) differ += 1;
++        }
++        b.* = differ;
++    }
++    return total;
++}
++
++/// The boot self-check: sweeps widths to `rows` on a synthetic prompt; returns the largest row-exact width.
++pub fn probeServed(comptime Tri: type, gpa: std.mem.Allocator, driver: *cuda.Driver, stream: *cuda.Stream, tri: Tri, e: *prompt.Engine, h: *Head, rows: usize) !usize {
++    var ids: [96]u32 = undefined;
++    for (&ids, 0..) |*t, i| t.* = @intCast(1000 + (i * 7919) % 200_000);
++    const cap = ids.len + rows + max_rows;
++    var seq = try e.newSeq(cap);
++    defer seq.deinit(gpa);
++    var d = try Draft.init(gpa, driver, stream.*, cap, h.ids.len, e.chunk, e.heads);
++    defer d.deinit();
++    const o: Ops(Tri) = .{ .e = e, .tri = tri, .h = h };
++    var widths: [max_rows]usize = undefined;
++    for (&widths, 0..) |*w, i| w.* = i + 1;
++    var bad: [max_rows]usize = @splat(0);
++    const compared = try windowCheck(Tri, o, &seq, &d, &ids, widths[0..rows], bad[0..rows]);
++    var differing: usize = 0;
++    var first_bad: usize = 0;
++    for (bad[0..rows], 0..) |b, i| {
++        differing += b;
++        if (b > 0 and first_bad == 0) first_bad = i + 1;
++    }
++    std.log.info("flashnext: window self-check: {d} of {d} rows byte-equal to their one-token steps (widths 1-{d})", .{ compared - differing, compared, rows });
++    if (first_bad > 0) std.log.warn("flashnext: width {d} is the first with rows differing from their one-token steps", .{first_bad});
++    if (differing == 0) return rows;
++    // serve the largest proven-exact prefix: every width to it has all rows byte-equal, past it some differ
++    var run: usize = 0;
++    for (bad[0..rows], 0..) |b, i| {
++        if (b != 0) break;
++        run = i + 1;
++    }
++    const served = @max(@min(run, rows), 32);
++    std.log.info("flashnext: widths 1-{d} are row-equal at every row; serving {d}-row copy windows", .{ run, served });
++    return served;
++}
++
+ /// A sequence's caches back to empty (the check reruns a prompt on one allocation).
+ fn resetSeq(seq: *prompt.Seq, stream: cuda.Stream) !void {
+     for (seq.conv) |*b| try b.fill8(0, stream.handle);
+diff --git a/zig/src/families/flashnext/cuda_mtp_draft.zig b/zig/src/families/flashnext/cuda_mtp_draft.zig
+index c5b032705b636ca03e02f7e760a8e0d1edf32329..5498efbb13aeadbddc03693662dcae684f893a45 100644
+--- a/zig/src/families/flashnext/cuda_mtp_draft.zig
++++ b/zig/src/families/flashnext/cuda_mtp_draft.zig
+@@ -350,18 +350,18 @@ test "a draft at 65,536 tokens and 1,536-row chunks: the head's cache whole, sav
+     const draft_n = 32768;
+     // the head's cache: two KV heads of 256, 128 indexer keys a position, a pooled row a block of 4
+     const head: usize = cap * (2 * 2 * 256 * 2 + 128 * 2) + cap / 4 * 128 * 2;
+-    // streams rows, the head's output row, a window's scores, the draft head's, best values
+-    const buffers: usize = rows * 4 * 2560 * 2 + 4 * 2560 * 2 + 32 * 248320 * 2 + draft_n * 2 + best_bytes;
+-    // saved: 36 conv windows, 36 layers' 32 projection rows, the n-gram tail and 32 n-gram rows; 36 spare states
+-    const tail: usize = 9 * 4 * 2560 * 2 + 32 * 4 * 2560 * 2;
+-    const full: usize = 36 * 3 * 10240 * 2 + 36 * 32 * 16480 * 2 + tail + 36 * 48 * 128 * 128 * 4;
+-    const half: usize = 36 * 3 * 5120 * 2 + 36 * 32 * 8240 * 2 + tail + 36 * 24 * 128 * 128 * 4;
++    // streams rows, the head's output row, a window's scores (max_rows), the draft head's, best values
++    const buffers: usize = rows * 4 * 2560 * 2 + 4 * 2560 * 2 + max_rows * 248320 * 2 + draft_n * 2 + best_bytes;
++    // saved: 36 conv windows, 36 layers' max_rows projection rows, the n-gram tail and max_rows n-gram rows
++    const tail: usize = 9 * 4 * 2560 * 2 + max_rows * 4 * 2560 * 2;
++    const full: usize = 36 * 3 * 10240 * 2 + 36 * max_rows * 16480 * 2 + tail + 36 * 48 * 128 * 128 * 4;
++    const half: usize = 36 * 3 * 5120 * 2 + 36 * max_rows * 8240 * 2 + tail + 36 * 24 * 128 * 128 * 4;
+     try std.testing.expectEqual(head + buffers + full, Draft.bytes(cap, draft_n, rows, .full));
+     try std.testing.expectEqual(head + buffers + half, Draft.bytes(cap, draft_n, rows, .half));
+-    try std.testing.expectEqual(@as(usize, 356_905_472), Draft.bytes(cap, draft_n, rows, .full));
+-    try std.testing.expectEqual(@as(usize, 280_191_488), Draft.bytes(cap, draft_n, rows, .half));
++    try std.testing.expectEqual(@as(usize, 411_436_032), Draft.bytes(cap, draft_n, rows, .full));
++    try std.testing.expectEqual(@as(usize, 315_737_088), Draft.bytes(cap, draft_n, rows, .half));
+     // with the stream's own caches at half the heads
+-    try std.testing.expectEqual(@as(usize, 1_395_069_440), sizes.seqBytes(cap, .half) + Draft.bytes(cap, draft_n, rows, .half));
++    try std.testing.expectEqual(@as(usize, 1_430_615_040), sizes.seqBytes(cap, .half) + Draft.bytes(cap, draft_n, rows, .half));
+ }
+ 
+ test "blank TF_FLASHNEXT_KEEP_LATE: unset, empty or whitespace-only text asks for nothing, 1 and 0 keep their meaning" {
+@@ -392,12 +392,12 @@ test "the saved pieces follow one another at the model's heads, and the spares h
+     for ([_]Heads{ .full, .half }) |h| {
+         const l = Draft.Layout.of(h);
+         try std.testing.expectEqual(@as(usize, 36 * 3 * h.convDim() * 2), l.proj_at);
+-        try std.testing.expectEqual(l.proj_at + 36 * 32 * h.projWidth() * 2, l.tail_at);
++        try std.testing.expectEqual(l.proj_at + 36 * max_rows * h.projWidth() * 2, l.tail_at);
+         try std.testing.expectEqual(l.tail_at + 9 * 4 * 2560 * 2, l.nrow_at);
+-        try std.testing.expectEqual(l.nrow_at + 32 * 4 * 2560 * 2, l.saved);
++        try std.testing.expectEqual(l.nrow_at + max_rows * 4 * 2560 * 2, l.saved);
+         try std.testing.expectEqual(sizes.stateBytes(h), l.state);
+         try std.testing.expect(l.heads.eql(h));
+     }
+-    try std.testing.expectEqual(@as(usize, 41_021_440), Draft.Layout.of(.full).saved);
+-    try std.testing.expectEqual(@as(usize, 20_930_560), Draft.Layout.of(.half).saved);
++    try std.testing.expectEqual(@as(usize, 79_646_720), Draft.Layout.of(.full).saved);
++    try std.testing.expectEqual(@as(usize, 40_570_880), Draft.Layout.of(.half).saved);
+ }
+diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
+index 7f10c6660dc44da36b50e974af1521f237828198..daa897c7d59c5b556265c1cecc19cbcf8b844ac1 100644
+--- a/zig/src/families/flashnext/cuda_mtp_ops.zig
++++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
+@@ -279,7 +279,7 @@ pub fn Ops(comptime Tri: type) type {
+             if (o.main) |m| return m.verify(m.ptr, seq, d, ids);
+             o.e.round_graph.clear();
+             const n = ids.len;
+-            if (n == 0 or n > max_rows) return error.WindowTooWide;
++            if (n == 0 or n > mtp.window()) return error.WindowTooWide;
+             if (seq.fed + n > seq.cap) return error.PromptTooLong;
+             if (!d.layout.heads.eql(seq.heads)) return error.DraftHeads; // its spares swap with the sequence's states
+             d.settle(seq);
+@@ -299,7 +299,7 @@ pub fn Ops(comptime Tri: type) type {
+             if (o.main != null) return error.UnsupportedRankOperation;
+             // every window refused before any stream's state moves
+             for (seqs, idss, ds) |seq, ids, d| {
+-                if (ids.len == 0 or ids.len > max_rows) return error.WindowTooWide;
++                if (ids.len == 0 or ids.len > mtp.window()) return error.WindowTooWide;
+                 if (seq.fed + ids.len > seq.cap) return error.PromptTooLong;
+                 if (!d.layout.heads.eql(seq.heads)) return error.DraftHeads;
+             }
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 40c747683f103a0a5f4e713c5d308cd8223072f4..5410efdd44c1cab39b6c65edc186b15ef0db5ca9 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -61,6 +61,7 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_DSPINE_WINDOW", .scope = .cuda, .kind = .size, .min = 16, .max = 8192, .forms = "a whole row count from 16 to 8192, at most the DSpine drafter's own sliding_window" },
+     .{ .name = "TF_DRAFT_NODES", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size node count (capped by the drafter's window)" },
+     .{ .name = "TF_QMMF_HALF_BELOW", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size block count (0 disables half tiles)" },
++    .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .scope = .cuda, .kind = .flag, .forms = "0 or 1 (0 skips the boot copy-window self-check)" },
+     // Qwen 3.5 CUDA and HIP settings, read through this table:
+     .{ .name = "TENSORFOLD_MEMORY_RESERVE_GIB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission's floor and the memory's size still bound it)" },
+     .{ .name = "TENSORFOLD_HIP_MEMORY_LIMIT_GB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission still fits its byte count in a 64-bit size)" },
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index f817bb59bf01aaf687838a4e3bc5c59abe99905f..bf6b0053c53c186e84127b02f73ca74131835a07 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -97,6 +97,8 @@ const valid = [_]Case{
+     .{ .name = "TF_DRAFT_NODES", .raw = "0", .n = 0 },
+     .{ .name = "TF_DRAFT_NODES", .raw = "64", .n = 64 },
+     .{ .name = "TF_QMMF_HALF_BELOW", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "0", .n = 0 },
++    .{ .name = "TF_FLASHNEXT_WINDOW_CHECK", .raw = "1", .n = 1 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "0", .n = 0 },
+     .{ .name = "TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS", .raw = "1", .n = 1 },
+     .{ .name = "TF_PROMPT_INTERMEDIATE", .raw = "0", .n = 0 },
