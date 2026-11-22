@@ -1,7 +1,7 @@
 # `main-1ece6e6db-r5-kvtier`: what it changes against `main-1ece6e6db-r5`
 
 r5's twenty patches are byte-identical here; this package appends one, `0021-kv-tier-fp8.patch`, cut against r5's
-tree. Four files, +108 / -31:
+tree. Five files at +112 / -31:
 
 | file | what the patch does |
 |---|---|
