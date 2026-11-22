@@ -1,0 +1,285 @@
+diff --git a/zig/src/families/flashnext/cuda_disk.zig b/zig/src/families/flashnext/cuda_disk.zig
+index f2aab14..79a5d1c 100644
+--- a/zig/src/families/flashnext/cuda_disk.zig
++++ b/zig/src/families/flashnext/cuda_disk.zig
+@@ -4,34 +4,47 @@ const cuda = @import("cuda");
+ const api = @import("engine_api");
+ const lanes = @import("lanes");
+ const snap = @import("cuda_snap.zig");
++const Kv = @import("cuda_kv.zig").Kv;
++const Heads = @import("cuda_heads.zig").Heads;
+ const rows = api.prompt_cache.rows;
+ const sh = snap.shape;
+ const Allocator = std.mem.Allocator;
+ 
+ const words = 32; // the n-gram history, the position, whether the MTP head's rows follow
+ 
+-/// The image's parts at `at`: words, then the state's own.
+-pub fn partsOf(at: u32, head: bool, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
++/// The image's parts at `at`, its attention rows in `kv`: words, then the state's own.
++pub fn partsOf(at: u32, head: bool, kv: Kv, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
+     try out.append(a, .{ .bytes = words });
+-    try body(at, head, out, a);
++    try body(at, head, kv, out, a);
+ }
+ 
+ /// DeltaNet tails and states, each attention piece by layer, the tail, the head's.
+-fn body(at: u32, head: bool, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
++fn body(at: u32, head: bool, kv: Kv, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
+     try out.append(a, .{ .bytes = sh.linear * sh.conv });
+     try out.append(a, .{ .bytes = sh.linear * sh.state });
+-    try attention(at, sh.attn, out, a);
++    try attention(at, sh.attn, kv, out, a);
+     try out.append(a, .{ .bytes = sh.tail });
+-    if (head) try attention(at, 1, out, a);
++    if (head) try attention(at, 1, .bf16, out, a); // the MTP head's cache is bf16 in both formats
+ }
+ 
+ /// As cuda_snap.zig's move lays them: every layer's keys, then values, indexer keys, and pooled rows of `ratio`.
+-fn attention(at: u32, layers: usize, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
+-    for (0..2 * layers) |_| try out.append(a, .{ .bytes = @as(u64, at) * sh.kv_row, .row = sh.kv_row });
++fn attention(at: u32, layers: usize, kv: Kv, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
++    const key_row: u32 = @intCast(kv.keyRow(Heads.full));
++    const value_row: u32 = @intCast(kv.valueRow(Heads.full));
++    for (0..layers) |_| try out.append(a, .{ .bytes = @as(u64, at) * key_row, .row = key_row });
++    for (0..layers) |_| try out.append(a, .{ .bytes = @as(u64, at) * value_row, .row = value_row });
+     for (0..layers) |_| try out.append(a, .{ .bytes = @as(u64, at) * sh.index_row, .row = sh.index_row });
+     for (0..layers) |_| try out.append(a, .{ .bytes = @as(u64, at / sh.ratio) * sh.index_row, .row = sh.index_row, .per = sh.ratio });
+ }
+ 
++/// A state's rows differ with the engine's KV format, so states of two formats never share a namespace (View.facts).
++fn kvWord(kv: Kv) u64 {
++    return switch (kv) {
++        .bf16 => 0,
++        .fp8 => 1,
++    };
++}
++
+ /// The disk tier's view of a Flash Next namespace `F` (native/cuda_kept.zig; its Cuda is the prompt cache's target).
+ pub fn View(comptime F: type) type {
+     return struct {
+@@ -61,9 +74,9 @@ pub fn View(comptime F: type) type {
+             return .{ .history = st.history, .at = st.at, .head = @intFromBool(st.head) };
+         }
+ 
+-        /// The kept image's parts are the bf16 rows of snap.shape: an fp8 state cannot go through them.
+-        pub fn copyable(st: *const State) !void {
+-            if (st.kv != .bf16) return error.Fp8KvUnsupported;
++        /// The image's rows are the engine's format: a state of another format cannot go through them.
++        pub fn copyable(c: *const Target, st: *const State) !void {
++            if (st.kv != c.engine.kv) return error.KvFormat;
+         }
+ 
+         /// A state read back stands where it was kept, with the head's rows as kept: else it restores nowhere.
+@@ -73,7 +86,7 @@ pub fn View(comptime F: type) type {
+         }
+ 
+         pub fn parts(c: *const Target, at: u32, out: *std.ArrayList(rows.image.Part), a: Allocator) !void {
+-            try body(at, c.head != null, out, a);
++            try body(at, c.head != null, c.engine.kv, out, a);
+         }
+ 
+         pub fn save(c: *Target, s: *lanes.Stream, at: u32) !*State {
+@@ -84,12 +97,13 @@ pub fn View(comptime F: type) type {
+             F.snap_drop(c, st);
+         }
+ 
+-        /// A device buffer for `at` tokens with the head's rows if this server drafts, filled by `scatter`.
++        /// A buffer for `at` tokens in the engine's format, with the head's rows if it drafts; `scatter` fills it.
+         pub fn blank(c: *Target, at: u32) !*State {
+             const head = c.head != null;
++            const kv = c.engine.kv;
+             const st = try c.gpa.create(snap.Snap);
+             errdefer c.gpa.destroy(st);
+-            st.* = .{ .buf = try cuda.DeviceBuffer.alloc(c.engine.driver, snap.bytes(at, head, .full)), .at = at, .history = .{ 0, 0 }, .head = head };
++            st.* = .{ .buf = try cuda.DeviceBuffer.alloc(c.engine.driver, snap.bytesFor(kv, at, head, .full)), .at = at, .history = .{ 0, 0 }, .head = head, .kv = kv };
+             return st;
+         }
+ 
+@@ -98,9 +112,14 @@ pub fn View(comptime F: type) type {
+             return st.head == (c.head != null) and st.rank_id == 0 and st.heads.eql(.full);
+         }
+ 
+-        /// What else the states depend on: whether the MTP head's rows are part of them.
+-        pub fn facts(c: *const Target) [1]u64 {
+-            return .{@intFromBool(c.head != null)};
++        /// What else the states depend on: whether the MTP head's rows are part of them, and the rows' KV format.
++        pub fn facts(c: *const Target) [2]u64 {
++            return .{ @intFromBool(c.head != null), kvWord(c.engine.kv) };
++        }
++
++        /// The served window: the store prices a state at it for its staging permit (native/cuda_kept.zig longest).
++        pub fn context(c: *const Target) usize {
++            return c.context;
+         }
+ 
+         /// The native key extends with policyOf under this domain (native/cuda_disk.zig keptKey).
+@@ -143,25 +162,25 @@ pub fn policyOf(c: anytype) [13]u64 {
+     };
+ }
+ 
+-test "the image covers a state's device bytes once, its rows split into 256-token blocks, with and without the head" {
++test "the image covers a state's device bytes once in either format, its rows split into 256-token blocks, with and without the head" {
+     const a = std.testing.allocator;
+-    for ([_]bool{ false, true }) |head| for ([_]u32{ 1, 3, 256, 1000, 4137 }) |at| {
++    for ([_]Kv{ .bf16, .fp8 }) |kv| for ([_]bool{ false, true }) |head| for ([_]u32{ 1, 3, 256, 1000, 4137 }) |at| {
+         var parts: std.ArrayList(rows.image.Part) = .empty;
+         defer parts.deinit(a);
+-        try partsOf(at, head, &parts, a);
++        try partsOf(at, head, kv, &parts, a);
+         try std.testing.expect(rows.image.valid(parts.items, at, rows.block_tokens));
+-        try std.testing.expectEqual(words + snap.bytes(at, head, .full), rows.image.imageBytes(parts.items));
++        try std.testing.expectEqual(words + snap.bytesFor(kv, at, head, .full), rows.image.imageBytes(parts.items));
+     };
+ }
+ 
+-test "the image's parts are cuda_snap.move's pieces in its order: sizes, offsets and rows, with and without the head" {
++test "the image's parts are cuda_snap.move's pieces in its order: sizes, offsets and rows, in either format" {
+     const a = std.testing.allocator;
+-    for ([_]bool{ false, true }) |head| for ([_]u32{ 0, 1, 3, 4, 255, 256, 1000, 4136, 4137 }) |at| {
++    for ([_]Kv{ .bf16, .fp8 }) |kv| for ([_]bool{ false, true }) |head| for ([_]u32{ 0, 1, 3, 4, 255, 256, 1000, 4136, 4137 }) |at| {
+         var parts: std.ArrayList(rows.image.Part) = .empty;
+         defer parts.deinit(a);
+-        try partsOf(at, head, &parts, a);
++        try partsOf(at, head, kv, &parts, a);
+         try std.testing.expectEqual(@as(u64, words), parts.items[0].bytes);
+-        const o = snap.order(at, head, .full);
++        const o = snap.orderFor(kv, at, head, .full, .bf16);
+         var i: usize = 1;
+         var off: u64 = words; // the image's offset; move's buffer offset is this less the words
+         var moved: u64 = 0;
+@@ -186,7 +205,24 @@ test "the image's parts are cuda_snap.move's pieces in its order: sizes, offsets
+             }
+         }
+         try std.testing.expectEqual(parts.items.len, i);
+-        try std.testing.expectEqual(@as(u64, snap.bytes(at, head, .full)), moved);
++        try std.testing.expectEqual(@as(u64, snap.bytesFor(kv, at, head, .full)), moved);
+         try std.testing.expectEqual(rows.image.imageBytes(parts.items), off);
+     };
+ }
++
++test "the two formats' images differ, and the namespace's word says which: 1,056 against 2,048 bytes a token" {
++    const a = std.testing.allocator;
++    for ([_]bool{ false, true }) |head| {
++        var bf: std.ArrayList(rows.image.Part) = .empty;
++        defer bf.deinit(a);
++        var f8: std.ArrayList(rows.image.Part) = .empty;
++        defer f8.deinit(a);
++        try partsOf(4096, head, .bf16, &bf, a);
++        try partsOf(4096, head, .fp8, &f8, a);
++        // 12 layers of 992 bytes a token smaller; the head's rows are bf16 in both
++        try std.testing.expectEqual(@as(u64, 4096 * 12 * (2048 - 1056)), rows.image.imageBytes(bf.items) - rows.image.imageBytes(f8.items));
++    }
++    // bf16 and fp8 never share a namespace: the facts' second word names the format
++    try std.testing.expectEqual(@as(u64, 0), kvWord(.bf16));
++    try std.testing.expectEqual(@as(u64, 1), kvWord(.fp8));
++}
+diff --git a/zig/src/native/cuda_kept.zig b/zig/src/native/cuda_kept.zig
+index b147572..b298e35 100644
+--- a/zig/src/native/cuda_kept.zig
++++ b/zig/src/native/cuda_kept.zig
+@@ -88,8 +88,8 @@ pub fn Kept(comptime V: type) type {
+ 
+         /// Image ranges between `host` and the state's buffers; `host` is the store's: every copy lands before return.
+         fn copy(t: *Target, st: *State, ranges: Ranges, host: []u8, out: bool) !void {
+-            // a family whose kept states cannot take this image refuses here (Flash Next's fp8 rows)
+-            if (@hasDecl(V, "copyable")) try V.copyable(st);
++            // a family whose kept states cannot take this image refuses here (Flash Next's state format)
++            if (@hasDecl(V, "copyable")) try V.copyable(t, st);
+             const d = driver(t);
+             const s = stream(t);
+             // a later range's failure leaves earlier copies queued on `host`, which its caller then frees or reuses
+diff --git a/zig/src/native/cuda_kept_test.zig b/zig/src/native/cuda_kept_test.zig
+index 72f8f4c..d5ff6e1 100644
+--- a/zig/src/native/cuda_kept_test.zig
++++ b/zig/src/native/cuda_kept_test.zig
+@@ -184,6 +184,46 @@ test "Flash Next completion: a kept state's copy out or in that fails part way d
+     };
+ }
+ 
++/// A view whose states carry a format their target must match (Flash Next's `copyable`).
++const Formatted = struct {
++    pub const Target = struct { d: *const cuda.Driver, s: cuda.Stream, kv: u64 = 0 };
++    pub const State = struct { at: u32, kv: u64, one: cuda.DeviceBuffer };
++    pub const probe_seed: u64 = 1;
++    pub fn buffers(st: *const State) [2]?cuda.DeviceBuffer {
++        return .{ st.one, null };
++    }
++    pub fn facts(_: *const Target) [1]u64 {
++        return .{0};
++    }
++    pub fn parts(_: *const Target, _: u32, out: anytype, a: std.mem.Allocator) !void {
++        try out.append(a, .{ .bytes = 8, .row = 8 });
++    }
++    pub fn blank(_: *Target, _: u32) !*State {
++        return error.Unexpected;
++    }
++    pub fn copyable(c: *const Target, st: *const State) !void {
++        if (st.kv != c.kv) return error.KvFormat;
++    }
++};
++
++test "CUDA kept: a view's copyable is given its target, so a state of another format is refused before any copy" {
++    var d = Host.driver();
++    const KF = kept.Kept(Formatted);
++    Host.allowed = std.math.maxInt(usize);
++    var a: [8]u8 = undefined;
++    for (&a, 0..) |*x, i| x.* = @intCast(i);
++    var target: Formatted.Target = .{ .d = &d, .s = .{ .d = &d, .handle = @ptrFromInt(331) }, .kv = 1 };
++    var st: Formatted.State = .{ .at = 1, .kv = 0, .one = buffer(&d, &a) };
++    Host.copies = 0;
++    Host.pending = 0;
++    var host: [8]u8 = undefined;
++    try t.expectError(error.KvFormat, KF.image.gather(&target, &st, &.{.{ .off = 16, .len = 8 }}, &host));
++    try t.expectEqual(@as(usize, 0), Host.copies); // refused before any copy: no driver call is made
++    st.kv = 1;
++    try KF.image.gather(&target, &st, &.{.{ .off = 16, .len = 8 }}, &host);
++    try t.expectEqualSlices(u8, &a, &host);
++}
++
+ test "CUDA kept: another tokenizer, template or drafter moves the key, a missing file does not fail" {
+     var arena: std.heap.ArenaAllocator = .init(t.allocator);
+     defer arena.deinit();
+diff --git a/zig/src/native/cuda_disk_policy_test.zig b/zig/src/native/cuda_disk_policy_test.zig
+index 543c3d2..de9347c 100644
+--- a/zig/src/native/cuda_disk_policy_test.zig
++++ b/zig/src/native/cuda_disk_policy_test.zig
+@@ -140,6 +140,7 @@ test "disk identity: Flash Next CUDA resolved prompt rows, kernel forms and expe
+     try x.init();
+     defer x.deinit();
+     var e: @typeInfo(@FieldType(flash.Cuda, "engine")).pointer.child = undefined;
++    e.kv = .bf16; // the attention rows' format, one of the identity's facts beside the head flag
+     e.chunk = 8192;
+     e.busy_chunk = 1536;
+     const k = &e.batch_k;
+@@ -161,6 +162,9 @@ test "disk identity: Flash Next CUDA resolved prompt rows, kernel forms and expe
+     const before = try flashKey(&x, &c);
+     var changed: std.ArrayList(u64) = .empty;
+     defer changed.deinit(t.allocator);
++    e.kv = .fp8; // the same build under the other KV format: the fp8 rows are another state, so another namespace
++    try changed.append(t.allocator, try flashKey(&x, &c));
++    e.kv = .bf16;
+     inline for (.{ "chunk", "busy_chunk" }) |field| { // another chunk height, solo or beside a decoding stream
+         @field(e, field) += 512;
+         try changed.append(t.allocator, try flashKey(&x, &c));
+diff --git a/docs/recipes/flash-next-cuda.md b/docs/recipes/flash-next-cuda.md
+index fe5e150..e42e5ec 100644
+--- a/docs/recipes/flash-next-cuda.md
++++ b/docs/recipes/flash-next-cuda.md
+@@ -104,12 +104,13 @@ its path.
+ - `TF_FLASHNEXT_KV_PAGES=n` with `--kv-cache fp8`: the pool's pages hold the 12 layers' keys and values as the e4m3 rows below
+   (18,880 bytes a token with the MTP head's bf16 layer, against 30,784) and attention reads them through each stream's
+   page table with the contiguous fp8 kernels' sums; a capacity setting, off unless set.
+-- `--kv-cache fp8` (one rank, the engine's own glue; not with `--slide`, a captured set or
+-  `--learn-conversations`) keeps keys and values as e4m3 codes with a power-of-two scale a position and KV head: 1,056 bytes
++- `--kv-cache fp8` (one rank, the engine's own glue; not with `--slide` or a captured set) keeps keys and values as
++  e4m3 codes with a power-of-two scale a position and KV head: 1,056 bytes
+   a position and layer instead of 2,048, so a token's caches take about 18.4 KiB instead of 30 KiB (the 12 layers';
+   the MTP head's cache stays bf16). The indexer's keys, the pooled blocks and the DeltaNet states stay bf16. Attention reads the codes widened to
+   bf16 exactly, so it is the bf16 kernels' arithmetic on rows rounded to e4m3: lossy against a bf16 cache, deterministic
+-  for a given prompt. bf16 stays the default.
++  for a given prompt. bf16 stays the default. `--learn-conversations` keeps fp8 states in their own namespace
++  (the format is one of the identity's facts), so a bf16 boot of the same build never resumes them.
+ - `--no-drafts` serves without the MTP head; `"draft": false` on a request does the same for that request.
+ - `TF_FLASHNEXT_READOUT_ROWS` (default 64, `0` never) is the rows from which the hyper-connection read-out takes the prompt
+   tiles. Same bits either way; `128` keeps 16-stream decode rounds on the row kernels, up to 7% quicker on a GB10.
