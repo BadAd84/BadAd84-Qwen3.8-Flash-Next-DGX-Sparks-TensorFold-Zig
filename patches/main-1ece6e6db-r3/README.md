@@ -113,3 +113,16 @@ Host, x86-64, on a `git archive` of `1ece6e6db` with the series applied:
 
 Not run here: anything with a GPU (golden replies, decode timing, `tf-cuda-test` execution). The next Spark window
 runs those on this base.
+
+## 0008's shared-direct half is unsafe above 512 prompt rows (2026-11-22)
+
+`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1` makes the prompt-pass MoE write-back read the shared expert's output in place.
+With it on, the shared down runs through `qmmf.matmulOut` instead of the strided 64-row kernel, and `matmulOut` takes
+the 128-row prompt tile from `m >= prompt_rows = 512`. Measured on the r2 image with the recipe's own environment:
+the lever off reproduces the 2026-11-19 reference replies 20 of 20 on 20 items of 1,300 to 1,500 prompt tokens, and
+the lever on reproduces the wrong answers byte for byte, 0 of 20; the two boots with it off both read 20 of 20, and
+the environment diff between the arms is empty. Below 512 rows both routes run the same 64-row arithmetic, which is
+why short prompts are unaffected. Decode is flat within noise either way; the cost of turning it off is cold first
+token, about +4.9 percent at 8k and +4.6 percent at 32k. Every text-dependent measurement of an image carrying this
+series before 2026-11-22 is void, including the INT4 quality comparison and the drafted-versus-plain divergence,
+which this defect also produced. The lever stays off in the dev environment until the 128-row tile is fixed.
