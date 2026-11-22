@@ -116,11 +116,14 @@ window, and the CUDA memory budget leaves 27.27 GiB`", i.e. 5.04 GiB a stream. P
 - switching drafting off (`TF_FLASHNEXT_DRAFTS=0`) leaves the estimate at 30.23 GiB, unchanged: the budget is
   computed from the loaded draft head (`cuda_lanes_load.streamBytes` adds `mtp.Draft.bytes(window, head_ids, ...)`
   whenever a head is present), so the drafts flag does not enter it;
-- the sequence alone, from `cuda_seq_bytes.seqBytesFor` at fp8 and 262,144 tokens, is about 3.21 GiB a stream:
+- the sequence alone, from `cuda_seq_bytes.seqBytesFor` at fp8 and 262,144 tokens, is **4.14 GiB** a stream:
   36 DeltaNet layers of conv tails and fp32 states (0.11 GiB), 12 attention layers at 1,056 bytes a position a
-  layer (3.09 GiB), pooled indexer blocks (0.02 GiB).
+  layer for keys and values (3.09 GiB), the indexer's raw key row at 256 bytes a position a layer (0.75 GiB), and
+  the pooled rows, 12 layers of 65,536 rows of 256 bytes (0.19 GiB). An earlier version of this line said 3.21 GiB
+  and 0.02 GiB of pooled rows: it omitted the indexer row and undercounted the pooled rows by ten, and 3.21 GiB is
+  no configuration's figure (corrected 2026-11-22, arithmetic in `work/KvTierRecon/DESIGN.md` section 11).
 
-So of the 5.04 GiB priced a stream, about 3.21 is the sequence and roughly 1.8 is the draft head's caches plus the
+So of the 5.04 GiB priced a stream, about 4.14 is the sequence and roughly 0.90 is the draft head's caches plus the
 draft pass's own arrays (`cuda_mtp_draft.zig`'s `bytes`: two bf16 head caches at the full window, the indexer keys,
 the pooled blocks, the logits, the saved states and the per-layer state). Production does not pay that at bf16: its
 drafter runs the FP8 MTP overlay. Half of 1.8 GiB takes a stream to about 4.1 GiB, and 6 streams to 24.8 GiB, which
