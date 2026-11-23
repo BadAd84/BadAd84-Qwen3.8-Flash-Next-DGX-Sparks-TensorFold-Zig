@@ -15,6 +15,7 @@ import argparse
 import json
 import math
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -147,12 +148,24 @@ def latest_by_id(path: Path) -> dict[str, dict]:
     return rows
 
 
-def score_benchmark(bench: str, arms: list[str], concurrency: int, raw: Path) -> dict:
-    items = {row["id"]: row for row in load_jsonl(WORK / "data" / f"items_{bench}.jsonl")}
-    for row in load_jsonl(WORK / "prompts" / f"prompts_{bench}.jsonl"):
+def raw_file(raw: Path, arm: str, bench: str) -> Path:
+    """The window harness writes arms/<arm>/raw/<bench>.jsonl; a flat <arm>/<bench>.jsonl is also accepted."""
+    for candidate in (raw / arm / f"{bench}.jsonl", raw / arm / "raw" / f"{bench}.jsonl"):
+        if candidate.exists():
+            return candidate
+    raise SystemExit(f"no replies for arm {arm} bench {bench}: tried {raw / arm / (bench + '.jsonl')} and "
+                     f"{raw / arm / 'raw' / (bench + '.jsonl')}")
+
+
+def score_benchmark(bench: str, arms: list[str], concurrency: int, raw: Path,
+                    data_dir: Path | None = None, prompts_dir: Path | None = None) -> dict:
+    data_dir = data_dir or WORK / "data"
+    prompts_dir = prompts_dir or WORK / "prompts"
+    items = {row["id"]: row for row in load_jsonl(data_dir / f"items_{bench}.jsonl")}
+    for row in load_jsonl(prompts_dir / f"prompts_{bench}.jsonl"):
         if row["id"] in items:
             items[row["id"]]["prompt"] = row["prompt"]
-    replies = {arm: latest_by_id(raw / arm / f"{bench}.jsonl") for arm in arms}
+    replies = {arm: latest_by_id(raw_file(raw, arm, bench)) for arm in arms}
 
     outcomes: dict[str, dict[str, dict]] = {arm: {} for arm in arms}
     extract_notes = {arm: {"unparsed": 0, "missing": 0, "truncated": 0, "errors": 0, "fence_stripped": 0,
@@ -299,6 +312,165 @@ def markdown(summary: dict, arms: list[str]) -> str:
     return header + "\n" + "\n".join(rows)
 
 
+HE_ADD = {
+    "id": "h1", "entry_point": "add",
+    "test": "\n\ndef check(candidate):\n    assert candidate(1, 2) == 3\n"}
+HE_MUL = {
+    "id": "h2", "entry_point": "mul",
+    "test": "\n\ndef check(candidate):\n    assert candidate(3, 4) == 12\n"}
+HE_ADD_PROMPT = 'def add(a, b):\n    """Add two ints."""\n'
+HE_MUL_PROMPT = 'def mul(a, b):\n    """Multiply two ints."""\n'
+
+
+def build_corpus(root: Path) -> None:
+    """A tiny corpus with known answers: gsm8k A 2/3 B 2/3, mmlupro A 1/2 B 2/2, humaneval A 2/2 B 1/2."""
+    for sub in ("data", "prompts", "raw/A", "raw/B"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+
+    def dump(path: Path, rows: list[dict]) -> None:
+        path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+    dump(root / "data" / "items_gsm8k.jsonl", [
+        {"id": "g1", "gold": "42"}, {"id": "g2", "gold": "7"}, {"id": "g3", "gold": "3"}])
+    dump(root / "prompts" / "prompts_gsm8k.jsonl", [
+        {"id": i, "prompt": f"Q {i}", "max_tokens": 64} for i in ("g1", "g2", "g3")])
+    dump(root / "raw" / "A" / "gsm8k.jsonl", [
+        {"id": "g1", "text": "so 42\n#### 42", "finish_reason": "stop", "completion_tokens": 9},
+        {"id": "g2", "text": "#### 8", "finish_reason": "stop", "completion_tokens": 4},
+        {"id": "g3", "text": "#### 3", "finish_reason": "stop", "completion_tokens": 4}])
+    dump(root / "raw" / "B" / "gsm8k.jsonl", [
+        {"id": "g1", "text": "#### 1", "finish_reason": "stop", "completion_tokens": 4},
+        {"id": "g2", "text": "#### 7", "finish_reason": "stop", "completion_tokens": 4},
+        {"id": "g3", "text": "#### 3", "finish_reason": "length", "completion_tokens": 64}])
+
+    dump(root / "data" / "items_mmlupro.jsonl", [{"id": "m1", "gold": "B"}, {"id": "m2", "gold": "C"}])
+    dump(root / "prompts" / "prompts_mmlupro.jsonl", [
+        {"id": i, "prompt": f"Q {i}", "max_tokens": 64} for i in ("m1", "m2")])
+    dump(root / "raw" / "A" / "mmlupro.jsonl", [
+        {"id": "m1", "text": "The answer is B.", "finish_reason": "stop", "completion_tokens": 6},
+        {"id": "m2", "text": "The answer is A.", "finish_reason": "stop", "completion_tokens": 6}])
+    dump(root / "raw" / "B" / "mmlupro.jsonl", [
+        {"id": "m1", "text": "The answer is B.", "finish_reason": "stop", "completion_tokens": 6},
+        {"id": "m2", "text": "The answer is C.", "finish_reason": "stop", "completion_tokens": 6}])
+
+    dump(root / "data" / "items_humaneval.jsonl", [HE_ADD, HE_MUL])
+    dump(root / "prompts" / "prompts_humaneval.jsonl", [
+        {"id": "h1", "prompt": HE_ADD_PROMPT, "max_tokens": 128},
+        {"id": "h2", "prompt": HE_MUL_PROMPT, "max_tokens": 128}])
+    dump(root / "raw" / "A" / "humaneval.jsonl", [
+        {"id": "h1", "text": "    return a + b\n", "finish_reason": "stop", "completion_tokens": 8},
+        {"id": "h2", "text": "    return a * b\n", "finish_reason": "stop", "completion_tokens": 8}])
+    dump(root / "raw" / "B" / "humaneval.jsonl", [
+        {"id": "h1", "text": "    return a - b\n", "finish_reason": "stop", "completion_tokens": 8},
+        {"id": "h2", "text": "    return a * b\n", "finish_reason": "stop", "completion_tokens": 8}])
+
+
+def read_raw(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def write_raw(path: Path, rows: list[dict]) -> None:
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+
+def selftest() -> int:
+    """Score a tiny corpus with known answers, then plant five named flips and require each to be caught."""
+    results = []
+
+    def score(root: Path, bench: str) -> dict:
+        return score_benchmark(bench, ["A", "B"], 4, root / "raw", root / "data", root / "prompts")
+
+    with tempfile.TemporaryDirectory(prefix="qs-") as tmp:
+        base = Path(tmp) / "base"
+        build_corpus(base)
+        b_gsm, b_mmlu, b_he = score(base, "gsm8k"), score(base, "mmlupro"), score(base, "humaneval")
+        base_ok = (
+            (b_gsm["arms"]["A"]["correct"], b_gsm["arms"]["B"]["correct"]) == (2, 2)
+            and (b_mmlu["arms"]["A"]["correct"], b_mmlu["arms"]["B"]["correct"]) == (1, 2)
+            and (b_he["arms"]["A"]["correct"], b_he["arms"]["B"]["correct"]) == (2, 1)
+            and b_gsm["paired"]["n_paired"] == 3 and b_gsm["paired"]["only_a"] == 1
+            and b_gsm["paired"]["only_b"] == 1 and b_gsm["arms"]["B"]["truncated"] == 1)
+        print(f"SELFTEST base corpus gsm8k {b_gsm['arms']['A']['correct']}/3 vs {b_gsm['arms']['B']['correct']}/3, "
+              f"mmlupro {b_mmlu['arms']['A']['correct']}/2 vs {b_mmlu['arms']['B']['correct']}/2, "
+              f"humaneval {b_he['arms']['A']['correct']}/2 vs {b_he['arms']['B']['correct']}/2")
+        results.append(("base corpus scores as designed", base_ok))
+        for bench, doc in (("gsm8k", b_gsm), ("mmlupro", b_mmlu), ("humaneval", b_he)):
+            print(f"SELFTEST base {bench}: " + " ".join(
+                f"{arm} {doc['arms'][arm]['correct']}/{doc['arms'][arm]['n_scored']}"
+                for arm in ("A", "B")))
+
+        def fresh() -> Path:
+            root = Path(tempfile.mkdtemp(prefix="qs-flip-", dir=tmp))
+            shutil.copytree(base, root, dirs_exist_ok=True)
+            return root
+
+        # 1. the number after '####' decides the answer: a correct 42 becomes 43
+        root = fresh()
+        rows = read_raw(root / "raw" / "A" / "gsm8k.jsonl")
+        rows[0]["text"] = "so 42\n#### 43"
+        write_raw(root / "raw" / "A" / "gsm8k.jsonl", rows)
+        got = score(root, "gsm8k")["arms"]["A"]["correct"]
+        results.append((f"flip a correct GSM8K answer 42 to 43 (A 2 to 1, got {got})", got == 1))
+        shutil.rmtree(root)
+
+        # 2. the last A-J letter must not override an explicit 'the answer is': trailing distractor letters
+        root = fresh()
+        rows = read_raw(root / "raw" / "A" / "mmlupro.jsonl")
+        rows[0]["text"] = "The answer is B. (Options A and C are both implausible.)"
+        write_raw(root / "raw" / "A" / "mmlupro.jsonl", rows)
+        naive = LAST_WORD.findall(rows[0]["text"])[-1]
+        got = score(root, "mmlupro")["arms"]["A"]["correct"]
+        results.append((f"trailing letters A and C after 'the answer is B' (naive last letter {naive}, A stays 1, got {got})",
+                        naive != "B" and got == 1))
+        shutil.rmtree(root)
+
+        # 3. HumanEval is executed: a wrong body must be incorrect and a right body correct
+        root = fresh()
+        rows = read_raw(root / "raw" / "B" / "humaneval.jsonl")
+        rows[0]["text"] = "    return a + b\n"
+        write_raw(root / "raw" / "B" / "humaneval.jsonl", rows)
+        got = score(root, "humaneval")["arms"]["B"]["correct"]
+        results.append((f"fix one HumanEval body (B 1 to 2, got {got})", got == 2))
+        shutil.rmtree(root)
+
+        # 4. a resumed run's later line wins: an earlier wrong line must not decide the item
+        root = fresh()
+        path = root / "raw" / "A" / "gsm8k.jsonl"
+        rows = read_raw(path)
+        rows = [r for r in rows if r["id"] != "g2"] + [
+            {"id": "g2", "text": "#### 8", "finish_reason": "stop", "completion_tokens": 4}]
+        write_raw(path, rows)
+        with path.open("a", encoding="utf-8") as sink:
+            sink.write(json.dumps({"id": "g2", "text": "#### 7", "finish_reason": "stop",
+                                   "completion_tokens": 4}) + "\n")
+        got = score(root, "gsm8k")["arms"]["A"]["correct"]
+        results.append((f"duplicate g2 line, wrong then right (A 2 to 3, got {got})", got == 3))
+        shutil.rmtree(root)
+
+        # 5. an error row is unscored and reported missing, never counted correct
+        root = fresh()
+        write_raw(root / "raw" / "B" / "gsm8k.jsonl", [
+            {"id": "g1", "text": "#### 1", "finish_reason": "stop", "completion_tokens": 4},
+            {"id": "g2", "text": "#### 7", "finish_reason": "stop", "completion_tokens": 4},
+            {"id": "g3", "error": "http 500", "text": "", "finish_reason": None}])
+        doc = score(root, "gsm8k")["arms"]["B"]
+        results.append((f"an error row for g3 (B 2 to 1, n_scored 3 to {doc['n_scored']}, missing {doc['missing']})",
+                        doc["correct"] == 1 and doc["n_scored"] == 2 and doc["missing"] == 1))
+        shutil.rmtree(root)
+
+        # 6. the two arms are paired by id, and the discordant counts are the ones the test uses
+        only_a, only_b = b_gsm["paired"]["only_a"], b_gsm["paired"]["only_b"]
+        p = b_gsm["paired"]["mcnemar_exact_p"]
+        results.append((f"paired gsm8k only A {only_a} only B {only_b} p {p} matches mcnemar_exact",
+                        (only_a, only_b) == (1, 1) and abs(p - round(mcnemar_exact(1, 1), 6)) < 1e-9))
+
+    ok = all(caught for _, caught in results)
+    for name, caught in results:
+        print(f"SELFTEST {'caught' if caught else 'MISSED'} {name}")
+    print(f"SELFTEST {'ok' if ok else 'FAIL'}: {sum(1 for _, c in results if c)} of {len(results)} checks caught their flip")
+    return 0 if ok else 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--arms", default="A,B")
@@ -306,14 +478,23 @@ def main() -> None:
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--raw", default=str(WORK / "raw"))
     parser.add_argument("--out", default=str(WORK / "scores"))
+    parser.add_argument("--selftest", action="store_true",
+                        help="score a tiny corpus with known answers and require six planted flips to be caught")
     args = parser.parse_args()
+    if args.selftest:
+        sys.exit(selftest())
     arms = args.arms.split(",")
     benches = [bench for bench in args.benches.split(",") if bench]
 
     summary = {"arms": arms, "benches": [], "started": time.time()}
     for bench in benches:
         print(f"scoring {bench} ...", flush=True)
-        summary["benches"].append(score_benchmark(bench, arms, args.concurrency, Path(args.raw)))
+        entry = score_benchmark(bench, arms, args.concurrency, Path(args.raw))
+        for arm in arms:
+            if entry["arms"][arm]["n_scored"] == 0:
+                raise SystemExit(f"REFUSED: {bench} arm {arm} has no scored replies of {entry['items']} items; "
+                                 f"a table of zeros is not a result")
+        summary["benches"].append(entry)
     summary["ended"] = time.time()
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
