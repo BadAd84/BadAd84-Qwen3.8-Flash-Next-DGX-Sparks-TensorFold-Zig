@@ -1,0 +1,11 @@
+--- a/start.sh
++++ b/start.sh
+@@ -170,7 +170,7 @@
+ while IFS='=' read -r name _; do
+   [[ "$name" == TENSORFOLD_API_KEY ]] && continue
+   ENV_ARGS+=(-e "$name=${!name}")
+-done < <(env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+=' || true)
++done < <(env | grep -E '^(TENSORFOLD|TF_)[A-Z0-9_]+=' || true)
+ KEY_ARGS=(); [[ -z "${TENSORFOLD_API_KEY:-}" ]] || { export TENSORFOLD_API_KEY; KEY_ARGS=(-e TENSORFOLD_API_KEY); }
+ 
+ step 3 "Launch: container $CONTAINER_NAME"
