@@ -8,7 +8,7 @@ files and has no private engine fork.
 
 What it is: the port of the production lever stack onto the NVFP4 checkpoint's engine line, from 2026-10-25 to
 2026-11-07 (the recipe's patches 0001-0031 as commits, then our levers as 0032-0050 with their fixups). The record
-of that work is `docs/FP4-PORT-AND-RETEST.md`.
+of that work is in this repository's history.
 
 ## Restore
 

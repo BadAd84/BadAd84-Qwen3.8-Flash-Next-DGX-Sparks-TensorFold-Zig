@@ -75,5 +75,5 @@
   added-line comparison against `patches/main-964174ea05` loses exactly the retired hunks (0005: 4 lines, 0008: 935)
   and the two re-seats' own lines (0003: 2, 0010: 4, 0015: 1 swap), and nothing else.
 - `work/upsubmit/MergeMain2/box/pincheck.py`: base `files 169 failing 0`, series `files 169 failing 0`.
-- Host gates on Paperclip (x86-64, Zig 0.17.0): see `docs/RESEAT-1ece6e6db.md`, "Gates".
+- Host gates on Paperclip (x86-64, Zig 0.17.0): see this package's gates table in `README.md`.
 - `scripts/check-patch-packages.sh` (RECORD.md + SHA256SUMS with every patch listed).

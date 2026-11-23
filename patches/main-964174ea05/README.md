@@ -10,8 +10,7 @@ patch, applied in filename order. Each patch builds on the ones before it and on
 
 `RECORD.md` has the provenance, the per-patch verdict on this base and the resolutions the re-seat needed. This is
 `patches/1.2.7` re-seated: **no patch is retired, because upstream has absorbed none of them** (evidence per patch in
-`RECORD.md`). The numbers below are the 1.2.7 series' own, measured as `patches/1.2.7/README.md` records them; the
-row for this base is in `docs/RESTACK-main-964174ea05.md`.
+`RECORD.md`). The numbers below are the 1.2.7 series' own, measured as `patches/1.2.7/README.md` records them.
 
 ## The levers, one a patch
 
@@ -97,4 +96,4 @@ writable, which `--config` refuses) and `listener` (spark6 has no IPv6). Nothing
 first spark6 run had failed three of 0004's row-cache tests because it sourced `config.sh`: `Ngram.init` opens the row
 cache on `TF_FLASHNEXT_GATHER_READ=pread`, and those tests assumed the variable unset. 0004 was re-seated so its tests
 set the cache's state themselves (and so upstream's short-read test closes the cache before it poisons the positional
-readers); see `RECORD.md` and `docs/RESTACK-main-964174ea05.md`, "Host suite".
+readers); see `RECORD.md`.

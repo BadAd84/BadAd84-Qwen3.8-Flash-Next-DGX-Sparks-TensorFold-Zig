@@ -29,9 +29,9 @@ test.
     ./apply.sh TREE             # apply it
 
 `RECORD.md` has the provenance, the per-patch verdict on this base and every resolution the re-seat needed;
-`RETIRED.md` is the hunk-level record of the two levers upstream has absorbed; `docs/RESEAT-1ece6e6db.md` is the
-study with the evidence and the gate outputs. This is `patches/main-964174ea05` re-seated: **no patch is wholly
-retired**, because upstream has absorbed only parts of two of them (0005's 3,072-row chunk, 0008's fused read-out).
+`RETIRED.md` is the hunk-level record of the two levers upstream has absorbed. This is `patches/main-964174ea05`
+re-seated: **no patch is wholly retired**, because upstream has absorbed only parts of two of them (0005's 3,072-row
+chunk, 0008's fused read-out).
 
 ## The levers, one a patch
 

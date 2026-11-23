@@ -25,9 +25,8 @@
     cache tests open their readers at the default sizes explicitly (`openSized`); upstream's short-read test in
     `cuda_ple_nvfp4_test.zig` closes the cache before it poisons the positional readers (2 lines added). The bug:
     `TF_FLASHNEXT_GATHER_CACHE_MIB=0` gave 0 slots and `std.math.isPowerOfTwo(0)` asserts; `slotsFor` now rounds to two
-    slots at the fewest and saturates, `Reader.create` refuses fewer than two, and the rule's text says two. Why: see
-    `docs/RESTACK-main-964174ea05.md`, "Host suite". Its `cuda_mtp_nonfinite_more_test.zig` index line (stale since the
-    hand fix in `8399d80`) is regenerated with the rest.
+    slots at the fewest and saturates, `Reader.create` refuses fewer than two, and the rule's text says two. The
+    `cuda_mtp_nonfinite_more_test.zig` index line (stale since the hand fix in `8399d80`) is regenerated with the rest.
   - **Every `CHANGELOG.md` hunk, second pass:** rebuilt (`scripts/qwen38/zig/target/restack2-fixlog.py`) so each patch
     adds exactly its own bullets to the end of the base's `## Unreleased` list, one blank line apart, and 0015 edits
     0003's bullet in place. The first re-seat had left 0006 adding a second copy of upstream's own 1.2.6 note
@@ -50,7 +49,7 @@ absorbed" is in the third column.
 | 0001 | a lone copy window to the boot self-check's largest row-exact width; a log-carrying verify window on the row-by-row DeltaNet | B | `cuda_mtp.zig` still has `pub const max_rows: usize = 32`; no `TF_FLASHNEXT_WINDOW_CHECK`, `probeServed` or `windowCheck` in the tree. v1.2.8's #2934 (decode windows of 2 to 8 rows run at 4 or 8) is the batch row padding, not this window |
 | 0002 | copy re-sync past an edit, the copy ramp and miss rules | A | applies cleanly; no `resync` field or `resyncFrom` in `core/lanes` at the base |
 | 0003 | `--kv-cache fp8` for Flash Next (e4m3 rows with a scale a row) | B | `flashnext.Options` has no `kv8` field, so `native/cuda_refusal.zig` refuses `--kv-cache fp8` for this family by name; no `Fp8KvUnsupported` arm and no fp8 attention kernels for it |
-| 0004 | n-gram rows through a direct-mapped row cache with parked readers, draft-ahead and one gather a shared pass | B, re-seated (second pass) and kept by an A/B | no row cache and no `TF_FLASHNEXT_GATHER_READ`; the CUDA reader it sits in front of is v1.2.7's (`cuda_ple_reader.zig`, `cuda_ple_gather.zig`, `core/direct_io.zig` unchanged since `93a2e93ece`); upstream's `cuda_ple_ahead.zig` issues bounded file *hints*, the pool only moved to `host_pool.zig` (`b0a3d76ba1`), and the page advice of `f558a1d5d8`/`1bbc79e391`/`32ef95dbad` is HIP-only. Without 0004 (and 0012) the package is exact but 4.0% to 10.8% slower at 2, 6 and 8 streams and cannot boot 4 full-window fp8 streams (17.79 GiB left against 20.15 needed); `docs/RESTACK-main-964174ea05.md`, "0004 keep or retire" |
+| 0004 | n-gram rows through a direct-mapped row cache with parked readers, draft-ahead and one gather a shared pass | B, re-seated (second pass) and kept by an A/B | no row cache and no `TF_FLASHNEXT_GATHER_READ`; the CUDA reader it sits in front of is v1.2.7's (`cuda_ple_reader.zig`, `cuda_ple_gather.zig`, `core/direct_io.zig` unchanged since `93a2e93ece`); upstream's `cuda_ple_ahead.zig` issues bounded file *hints*, the pool only moved to `host_pool.zig` (`b0a3d76ba1`), and the page advice of `f558a1d5d8`/`1bbc79e391`/`32ef95dbad` is HIP-only. Without 0004 (and 0012) the package is exact but 4.0% to 10.8% slower at 2, 6 and 8 streams and cannot boot 4 full-window fp8 streams (17.79 GiB left against 20.15 needed) |
 | 0005 | prompt chunks without a drain, 3,072-row chunks, the relaxed MX128 prompt tile | B | no `TF_FLASHNEXT_PROMPT_MX128`, no `prompt_mx` kernels in `qmmf.cu` (the base's new prompt tile is an unsplit BF16 K32 one, a different tile) |
 | 0006 | the MX128 tile in two stages, two blocks an SM | B | no `TF_FLASHNEXT_PROMPT_GEMM2`, no `prompt_mx2` instances |
 | 0007 | the draft head's rows 4-bit by default (`TF_FLASHNEXT_DRAFT_HEAD`) | B | the base's `cuda_mtp_load.zig` still reads `else "bf16"`, one line above the `affine4` path it already carries; the issue for this default is not filed yet |
@@ -82,10 +81,9 @@ posted or pushed by this re-seat. Verified read-only on 2026-11-15: both PRs are
 - `scripts/check-patch-reverts.py patches/main-964174ea05`: `19 patches, 89 findings, 89 allowed, 0 open, 0 stale`.
   The allow file is `patches/1.2.7`'s, and the finding set on the new base is exactly that set (88 line findings were
   compared; the 89th is the allow file's own header line), so the re-seat reverted nothing new.
-- `zig build compile-config-server -Dtarget=aarch64-linux-gnu` (Zig 0.17.0, Windows, first pass): see
-  `docs/RESTACK-main-964174ea05.md`. The second pass compiled in the spark6 host suites and in the image build.
+- `zig build compile-config-server -Dtarget=aarch64-linux-gnu` (Zig 0.17.0, Windows, first pass) was run in the
+  restack; the second pass compiled in the spark6 host suites and in the image build.
 - `scripts/check-patch-packages.sh`: `RECORD.md`, `SHA256SUMS` and the hashes.
 - `zig build test-cuda-host` on spark6 (aarch64, second pass), in a clean shell and in the serve's (`config.sh`
   exported): 6,767 of 6,803 passed, 34 skipped, 2 failed in both, the same two the pristine base fails in both
-  (`cli_config_test`, umask 0002; `listener`, no IPv6 on the box). Nothing of ours fails; details in
-  `docs/RESTACK-main-964174ea05.md`.
+  (`cli_config_test`, umask 0002; `listener`, no IPv6 on the box). Nothing of ours fails.

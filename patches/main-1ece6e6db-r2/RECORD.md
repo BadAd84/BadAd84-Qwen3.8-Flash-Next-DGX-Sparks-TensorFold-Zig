@@ -7,7 +7,8 @@ labelled build measured `cuMemsetD8Async@tiles.matmul ... bytes=62914560 m=6144 
 CUDA_ERROR_INVALID_VALUE`. r2 sizes `partRows` for that lane (`2 x streams x (cap / 2)`), returns
 `error.UnexpectedTensor` from both head passes when the requirement is not met, and holds the arithmetic in a host
 test (`cuda_part_rows_test.zig`, `zig build test-flashnext-part-rows-host`). It also fixes main's own overrun for
-prompt caps 128..1,023. Nineteen patches are byte-identical to r1; `CHANGES.md` names every difference. Recipe
+prompt caps 128..1,023. Seventeen patches are byte-identical to r1 (0008, 0010 and 0020 differ); `CHANGES.md` names
+every difference. Recipe
 speed: `TF_FLASHNEXT_HEAD_PIECE=1536` stays the measured setting (option 1 of the bisect's `FIX-NOTES.md`), at a
 measured cost of 62,914,560 bytes more scratch at cap 3,072.
 
@@ -86,5 +87,5 @@ measured cost of 62,914,560 bytes more scratch at cap 3,072.
   added-line comparison against `patches/main-964174ea05` loses exactly the retired hunks (0005: 4 lines, 0008: 935)
   and the two re-seats' own lines (0003: 2, 0010: 4, 0015: 1 swap), and nothing else.
 - `work/upsubmit/MergeMain2/box/pincheck.py`: base `files 169 failing 0`, series `files 169 failing 0`.
-- Host gates on Paperclip (x86-64, Zig 0.17.0): see `docs/RESEAT-1ece6e6db.md`, "Gates".
+- Host gates on Paperclip (x86-64, Zig 0.17.0): see `work/SeriesFix/RESULT.md` section 4.
 - `scripts/check-patch-packages.sh` (RECORD.md + SHA256SUMS with every patch listed).

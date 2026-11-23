@@ -20,5 +20,5 @@ What each reduced patch still carries:
   and the head-piece cap (`TF_FLASHNEXT_HEAD_PIECE`). Main has neither name.
 
 Nothing else of the 19 is absorbed on `1ece6e6db`: the markers of 0001 to 0019 are absent from main except where the
-two rows above say otherwise (`docs/RESEAT-1ece6e6db.md`, table 3), and `git log -S<marker>` over
+two rows above say otherwise (`RECORD.md` has the per-patch verdict), and `git log -S<marker>` over
 `964174ea05..1ece6e6db` finds no commit that added a marker and later removed it.
