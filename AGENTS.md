@@ -20,8 +20,8 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   recipe, `~/work/` for the harnesses); the repo copy is the source.
 - `scripts/qwen38/zig/target/env/` - the environment of record: `dev.env` is our arm (every setting the served tree
   reads, each with the file that measured it; gate `check-dev-env.py`), `prod.env` is the live serve's launcher copy
-  (52 settings, copied 2026-11-20). A setting with no value in the env is a hard stop at a rebase, not a note in the
-  register.
+  (54 settings, read from the running container 2026-11-23). A setting with no value in the env is a hard stop at a
+  rebase, not a note in the register.
 - `scripts/qwen38/README.md` is the SSOT for the serve: the env of record, the series, and each lever's measurements.
   `patches/*/README.md` carries each lever's evidence.
 - `patches/main-1ece6e6db-r5/` - EVERY change we own on upstream main `1ece6e6db` as numbered `.patch` files applied in

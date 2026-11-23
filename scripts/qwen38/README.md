@@ -28,15 +28,14 @@ restored from its own launcher.
 
 ## The environment
 
-`zig/target/env/dev.env` is the arm's environment of record and `prod.env` is the live launcher's copy (52 settings,
-copied 2026-11-20; the live container read 54 names on 2026-11-23, so the copy is two settings behind until it is
-re-taken). The rule (`docs/ENV-REGISTER.md`): **every setting the served tree reads is SET in `dev.env`**,
-because presence is what an upstream rebase silently inherits and a value in the engine's source is invisible to a
-name-level sweep. The file writes the measured settings below with the record that proved each one, then every
-remaining setting the served tree reads at its own read site's default with that read site quoted; a value that is not
-the engine default belongs in the measured list with its cells. `zig/target/env/check-dev-env.py` fails on a missing
-setting, on a value carried only by a note in `register.env`, and on a worklist line; `update-env-register.py
---defaults-from-tree` builds the worklist.
+`zig/target/env/dev.env` is the arm's environment of record and `prod.env` is the live launcher's copy: the 54
+settings read from the running container on 2026-11-23. The rule (`docs/ENV-REGISTER.md`): **every setting the served
+tree reads is SET in `dev.env`**, because presence is what an upstream rebase silently inherits and a value in the
+engine's source is invisible to a name-level sweep. The file writes the measured settings below with the record that
+proved each one, then every remaining setting the served tree reads at its own read site's default with that read
+site quoted; a value that is not the engine default belongs in the measured list with its cells.
+`zig/target/env/check-dev-env.py` fails on a missing setting, on a value carried only by a note in `register.env`, and
+on a worklist line; `update-env-register.py --defaults-from-tree` builds the worklist.
 
 | setting | value | measured or carried | record |
 |---|---|---|---|
