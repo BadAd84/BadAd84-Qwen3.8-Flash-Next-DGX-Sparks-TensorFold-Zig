@@ -84,7 +84,7 @@ def main() -> int:
                          "a NO-VALUE failure, because that says nothing about the container")
     ap.add_argument("--passes", default="",
                     help="regex a setting's NAME must match to be reachable in the container at all (the recipe "
-                         "launcher's own filter, ^(TENSORFOLD|TF_FLASHNEXT)_ here); empty disables the check")
+                         "launcher's own filter, ^(TENSORFOLD|TF_) since 2026-11-23); empty disables the check")
     ap.add_argument("--measured-before", default="# --- explicit defaults",
                     help="the line that starts the defaults section: a value above it is a measured lever, so one "
                          "the launcher cannot carry is PASSAGE-LOST; below it the line is an advisory")

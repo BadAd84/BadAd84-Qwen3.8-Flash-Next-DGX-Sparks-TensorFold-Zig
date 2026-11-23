@@ -18,10 +18,11 @@ six ways, each proven by a stub proof in the box's dry run (`docs/receipts/KnobS
   so a stale `ref/` cannot become a window's base. The previous `ref/dev.env` was a stale copy that predated
   the register correction.
 - **The base is what the recipe launcher can carry.** Its `-e` list comes from
-  `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_'`, so 74 value lines are live and 26 plain `TF_*` lines are
-  not. The 26 are commented in the materialised base, listed in `out/base-not-carried.txt`, and cannot be
-  an arm: `plan_gate` refuses such a row (`PASSAGE-REFUSED`), and the coverage gate now fails the stated
-  value itself (`PASSAGE-LOST`; its output is
+  `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_'` when this kit was built, so 74 value lines were live and 26
+  plain `TF_*` lines were not. The launcher forwards `TF_` too since 2026-11-23, so a re-arm must widen this
+  kit's `plan_gate` filter and its base together; until then the 26 stay commented in the materialised base,
+  listed in `out/base-not-carried.txt`, and cannot be an arm: `plan_gate` refuses such a row
+  (`PASSAGE-REFUSED`), and the coverage gate fails it while the filter is narrow (`PASSAGE-LOST`; its output is
   `docs/receipts/KnobScreen/coverage-passage-2026-11-23.txt`, 26 names, exit 1).
 - **Arm 4 is removed.** `TF_QMMF_HALF_BELOW` is one of those 26; the 15:44Z preflight read it ABSENT and
   the window refused. The screen is eleven arms, not twelve.

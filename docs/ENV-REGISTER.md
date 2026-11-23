@@ -50,7 +50,7 @@ ENV_ARGS=(-e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}")
 while IFS='=' read -r name _; do
   [[ "$name" == TENSORFOLD_API_KEY ]] && continue
   ENV_ARGS+=(-e "$name=${!name}")
-done < <(env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+=' || true)
+done < <(env | grep -E '^(TENSORFOLD|TF_)[A-Z0-9_]+=' || true)
 ...
 here_cmd=(docker run -d --name "$CONTAINER_NAME" ... "${ENV_ARGS[@]}" "${KEY_ARGS[@]}" ... "$IMAGE" ...)
 ```
@@ -203,24 +203,24 @@ can only list them:
 | `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW` | none: production-engine names, carried for parity (`docs/receipts/ProseDraft/POLICY.md`) |
 | `TF_HY4_MEM_FLOOR_GIB` | none: the `hy4_flash` family is not in this tree |
 
-## Stated is not delivered
+## Stated is delivered
 
-The coverage gate fails (`rc 1`, 26 `PASSAGE-LOST`) on every `dev.env` name the launcher cannot carry. The recipe's
-`start.sh:173` forwards only `^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+=`, and the engine's own table declares 26 settings
-with the bare `TF_` prefix (`TF_CACHE_EVICT`, `TF_MTP_DRAFTS`, `TF_CUDA_DEVICE`/`SEGMENTS`/`CARVEOUT`,
-`TF_QWEN35_CHUNK_SOLO` and the rest), so a stated value for one of them never reaches the container and the serve runs
-its default. The DevEnvBoot window measured it: 74 of 74 forwardable names arrived equal and the 26 did not arrive at
-all (`work/DevEnvBoot/RESULT.md`).
+The launcher forwards `^(TENSORFOLD|TF_)[A-Z0-9_]+=`, so every setting the engine's table declares is reachable,
+including the 26 bare `TF_` names the old filter dropped. Two proofs stand behind the change, both measured.
 
-The red gate is the honest state: the file may not claim to be an environment of record while 26 of its settings are
-undeliverable. The repair is packaged at `upstream/recipe-launcher-tf-env/` (one line, the class widened to `TF_`,
-proved to apply against the recipe at `20e15e41`), and the same line is carried by the recipe's two nsys copies and by
-our own `~/qwen-zig/start.sh`. Before it deploys or is proposed upstream, two proofs are required. The first is done: of the 27 statements, 11 equal
-what absence yields, 16 are inert (their only readers are in `families/qwen3_5/`), and 0 differ, so widening is
-behaviour-neutral for the flashnext serve (`docs/receipts/EnvForward/TABLE.md`). The second is a boot on the same
-image, `work/LauncherAB/window.sh`, queued on spark6: all 26 names must arrive at their stated values, the window
-self-check must read 1176 of 1176, and the fixed-prompt reply hashes must equal DevEnvBoot's on the same image.
-Until both hold the gate stays red, the launcher is not deployed, and no text is posted.
+- **It is behaviour-neutral.** Of the 27 statements the old filter dropped, 11 equal what absence yields and 16 are
+  inert because their only readers are in `families/qwen3_5/`; 0 differ, so a widened filter delivers defaults only
+  (`docs/receipts/EnvForward/TABLE.md`).
+- **It delivers on a boot.** On the same image, dev env and shape as the reference boot, a widened launcher carried
+  all 26 names at their stated values, kept all 74 previously forwardable names equal, kept both `unset` lines
+  absent, read `1176 of 1176` on the window self-check, and returned the same three fixed-prompt replies (carried
+  100 equal, 0 differ, 0 absent; beyond-dev-env 48; levers 8/8; hashes 3/3). Production was restored pinned and its
+  drift check read EQUAL (`work/LauncherAB/RESULT.md`).
+
+The change is deployed to all four launchers: the recipe's `start.sh`, its two nsys copies, and `~/qwen-zig/start.sh`.
+With the delivered filter the coverage gate reads `coverage: 95 settings in scope, set 95, missing 0, absent 2,
+annotations 2, worklist markers 0, passage-lost 0`, rc 0. The upstream form is packaged at
+`upstream/recipe-launcher-tf-env/`; its pull-request text is the one item still awaiting the owner's approval.
 
 ## The production copy cannot drift
 
@@ -259,7 +259,7 @@ itself reads 54 equal (rc 0).
    `null` default is appended as `# missing NAME=presence`.
 3. `python scripts/qwen38/zig/target/env/check-env-coverage.py --table <served tree>/zig/src/platform/environment.zig \
   --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env \
-  --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_FLASHNEXT)_'`
+  --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_)'`
    fails while any worklist line remains or a measured value cannot reach the container. `--strict-carried` also fails a `dev.env` export that tree
    does not read, so it is for a serve whose env carries nothing else; here it would name the seven
    classified names above, and it is not part of the standing command.
