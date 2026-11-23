@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 83 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 85 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -40,6 +40,8 @@ listed at the end as deliberately untracked.
 | `docs/receipts/DevEnvBoot/selfcheck-line.txt` | `work/DevEnvBoot/out-fetched/out/DEVENV/selfcheck-line.txt` | `82e728698b2ef224` | `scripts/qwen38/zig/target/env/dev.env`, `docs/ENV-REGISTER.md` |
 | `docs/receipts/DevEnvBoot/cells.txt` | `work/DevEnvBoot/out-fetched/out/CELLS/cells.txt` | `c60d7a012f9bcf2c` | `scripts/qwen38/zig/target/env/dev.env`, `docs/ENV-REGISTER.md` |
 | `docs/receipts/LauncherAB/SUMMARY.txt` | `work/LauncherAB/out-fetched/out/SUMMARY.txt` | `99c9320f231692e9` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
+| `docs/receipts/PagesAudit/RESULT.md` | `work/PagesAudit/RESULT.md` | `8518bd77566621f6` | `scripts/qwen38/README.md` |
+| `docs/receipts/PagesAudit/SUMMARY.md` | `work/PagesAudit/out.fetched/out/SUMMARY.md` | `e0e32d0d114af555` | `scripts/qwen38/README.md` |
 | `docs/receipts/LauncherAB/abenv-verify.txt` | `work/LauncherAB/out-fetched/out/AB/abenv-verify.txt` | `28b60948ab069c64` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
 | `docs/receipts/LauncherAB/envdiff-verify.txt` | `work/LauncherAB/out-fetched/out/AB/envdiff-verify.txt` | `96bb2a49ca1d72d7` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
 | `docs/receipts/LauncherAB/STAGE` | `work/LauncherAB/out-fetched/out/STAGE` | `78811984eff71d15` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |

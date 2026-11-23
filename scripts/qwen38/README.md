@@ -90,6 +90,14 @@ together with `--prompt-cache-disk`, so a window that needs only the in-RAM cach
 - **A rewrite costs a full prefill.** Changing the system message invalidates every state, so that turn pays the cold
   prefill and writes the full row set (`docs/receipts/KvTierW4/RESULT.md`). The tier buys resume time and store bytes, not decode.
 
+- **The page pool's measured value is admission** (`docs/receipts/PagesAudit/RESULT.md`): at 6 and 8 streams the
+  unpaged windows are refused by name (31.60 and 42.14 GiB needed against a 22.42 GiB budget) while the paged plan
+  admits at 238 pages and 17.14 GiB; where both arms admit, at 4 streams, TTFT and decode are level (-0.5% and
+  -0.1% at 32k and 128k, -0.2% prose and -0.4% code, 16 of 16 reply shas identical) and the plan reports 21.47 GiB
+  against the unpaged 21.08, so the upstream ~14 GiB saving is not reproducible on this env. On a 129k resume the
+  3.1 GiB store keeps one state and the appended turn displaces it, while the unpaged 6.0 GiB cache keeps both;
+  the full-ask change is the lever for that.
+
 ## The prose gap
 
 Upstream's hard-coded `shared_stop = 0.6` (`zig/src/families/flashnext/cuda_lanes_draft.zig:26`, applied at `:30`) makes
