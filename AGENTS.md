@@ -144,6 +144,10 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
 
 ## Contributing upstream (`ashhart/TensorFold`)
 
+**`ashhart/TensorFold` main is the only upstream contribution target (owner, 2026-11-23).** No issue,
+pull request or comment goes to the recipe repository (MiaAI-Lab) or any other repo; a change we need in the
+recipe's launcher or scripts is carried in our deployment and recorded under `upstream/` as a local package only.
+
 The same text is in the three serve repos (GLM Zig, Qwen3.8 Flash Next, DeepSeek-V4.1). It was written 2026-11-12
 from upstream `main` at `000b534a2`: `CONTRIBUTING.md`, `AGENTS.md`, the README's "Contributing with agents",
 `docs/atc/SKILL.md`, `docs/pr/SKILL.md`, `docs/recipes/SKILL.md`, `.github/pull_request_template.md` and

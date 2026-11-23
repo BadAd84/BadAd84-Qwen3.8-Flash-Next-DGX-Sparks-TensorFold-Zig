@@ -220,7 +220,8 @@ including the 26 bare `TF_` names the old filter dropped. Two proofs stand behin
 The change is deployed to all four launchers: the recipe's `start.sh`, its two nsys copies, and `~/qwen-zig/start.sh`.
 With the delivered filter the coverage gate reads `coverage: 95 settings in scope, set 95, missing 0, absent 2,
 annotations 2, worklist markers 0, passage-lost 0`, rc 0. The upstream form is packaged at
-`upstream/recipe-launcher-tf-env/`; its pull-request text is the one item still awaiting the owner's approval.
+`upstream/recipe-launcher-tf-env/` as a local record. The recipe repository is not a contribution target (owner,
+2026-11-23), so no pull request is opened there.
 
 ## The production copy cannot drift
 

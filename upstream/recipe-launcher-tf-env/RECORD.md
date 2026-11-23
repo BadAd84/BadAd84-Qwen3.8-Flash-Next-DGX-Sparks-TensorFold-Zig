@@ -12,7 +12,8 @@
 - **Text:** a hand diff of that one line, ours. `TF_FLASHNEXT` is a `TF_` name, so the wider class covers the two
   prefixes the filter already passed.
 - **Base it applies to here:** the recipe at `20e15e41` (`start.sh` unmodified, `git status --short start.sh` clean).
-- **Status: DEPLOYED AND PROVED, PULL-REQUEST TEXT NOT POSTED.** Both proofs are done. The first is the static one,
+- **Status: DEPLOYED AND PROVED, LOCAL ONLY.** Both proofs are done. The recipe repository is not a
+  contribution target (owner, 2026-11-23), so nothing is proposed there. The first is the static one,
   at `docs/receipts/EnvForward/TABLE.md`: of the 27 statements (26 exports and one `unset`), 11 are EQUAL to what
   absence yields (the live one is `TF_QMMF_HALF_BELOW`, 96, the `half_below_default` at `cuda/qmmf.zig:121`),
   16 are INERT (their only readers are in `families/qwen3_5/` or absent from this tree), and 0 DIFFER, so the
