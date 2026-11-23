@@ -1,11 +1,4 @@
 # qwen3.8-flash-next-dev - repo rules, conventions, and gotchas
-- `scripts/qwen38/zig/target/env/check-env-coverage.py --table <tree>/zig/src/platform/environment.zig
-  [--strict-carried]` - every setting the served engine reads carries a verdict: carried in `dev.env` with a
-  measurement, `default-ok`, `debt` (counted) or `unreachable` in `register.env`. A SILENT setting fails, a STALE
-  verdict fails, and `--strict-carried` also fails a `dev.env` export with no reader in the tree being served. Run
-  it against the served tree at every re-seat after `update-env-register.py`, which appends a `debt` line for each
-  new upstream knob. Why: an upstream default in no env file cost 7 to 11 percent for two days
-  (`docs/ENV-REGISTER.md`).
 
 The Qwen3.8 Flash Next serve on spark4 as a development project: our layers on the MiaAI-Lab recipe, their tests and
 benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is glm5.3-flash-dev.
@@ -250,6 +243,14 @@ otherwise.
   brought up to the rule the next time it is touched.
 - `scripts/check-python.sh` - pyflakes over `scripts/` and `upstream/`. GATES on syntax errors and undefined names
   only; style findings are INFO.
+- `scripts/qwen38/zig/target/env/check-env-coverage.py --table <tree>/zig/src/platform/environment.zig
+  --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env
+  --scopes flashnext,cuda,common [--strict-carried]` - every setting the served engine reads carries a verdict: carried in `dev.env` with a
+  measurement, `default-ok`, `debt` (counted) or `unreachable` in `register.env`. A SILENT setting fails, a STALE
+  verdict fails, and `--strict-carried` also fails a `dev.env` export with no reader in the tree being served. Run
+  it against the served tree at every re-seat after `update-env-register.py`, which appends a `debt` line for each
+  new upstream knob. Why: an upstream default in no env file cost 7 to 11 percent for two days
+  (`docs/ENV-REGISTER.md`).
 
 ## Gotchas (each cost real time)
 - `build_qwen_ots.sh` must build from LF files: five layer files once went into the image with CRLF (it strips CRs
