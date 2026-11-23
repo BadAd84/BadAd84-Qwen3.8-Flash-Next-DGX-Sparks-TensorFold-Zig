@@ -29,7 +29,10 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   measured gap: `prod.env` states 54 rows and the production engine's own table is not yet read; of the 40 rows it
   sets that `dev.env` omits, 39 are names the dev engine no longer reads and 1 is plumbing, so they are `retired`
   on the dev side rather than copied; two rows the dev file overturns (`TENSORFOLD_CUDA_KERNELS`,
-  `TF_FLASHNEXT_PRODUCT_STREAMS`) are the real findings, and no launcher sync gate exists yet.
+  `TF_FLASHNEXT_PRODUCT_STREAMS`) are the real findings, and no launcher sync gate exists yet. A knob a patch adds
+  and we know improves the serve enters the env and launcher in the same commit as the patch; when upstream accepts
+  the change, check the upstream name first and adjust ours across both env files, the launcher, the drivers, the
+  register and the patch's read sites, then delete the patch with its absorbing commit recorded.
 - `scripts/qwen38/README.md` is the SSOT for the serve: the env of record, the series, and each lever's measurements.
   `patches/*/README.md` carries each lever's evidence.
 - `patches/main-1ece6e6db-r5/` - EVERY change we own on upstream main `1ece6e6db` as numbered `.patch` files applied in

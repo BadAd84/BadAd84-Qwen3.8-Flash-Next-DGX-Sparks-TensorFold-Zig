@@ -74,7 +74,22 @@ The mechanics, learned the hard way:
   launcher, default 1 in the forwarding driver, the launcher's test rewritten to assert the promoted default, the sync
   gate run, and the promotion recorded. Every later arm inherits it.
 
-## The promotion checklist
+## Knobs that arrive as a patch
+
+A lever we own often lands as a numbered patch first, and the owner's rule is one lifecycle, not two:
+
+1. **When the patch adds a knob we know is an improvement, the knob enters the env file and the launcher in the SAME
+   commit as the patch.** The row is set at the measured value with its cell's evidence, and its register verdict is
+   `measured`. A patch whose knob stays behind a per-arm flag is not promoted, exactly like the launcher case above; the
+   `check-env-coverage.py` gate fails a table row the env does not set, so a new row cannot arrive silently.
+2. **When the change is accepted upstream, check the name before anything else.** Read the upstream table at the merge
+   commit and compare it with the name our patch and env files use. Names do get adjusted in review. If it differs,
+   change the name in both env files, the launcher and every forwarding driver, the register verdict and the patch's
+   read sites, in one commit. If it is identical, say so in the retirement record.
+3. **Then remove the patch.** A patch upstream absorbed is deleted from the series with its absorbing commit recorded in
+   `RETIRED.md`, and the stack is re-tested on the new base rather than assumed. The env row and its verdict stay: they
+   now describe upstream's own knob.
+
 
 1. The cells exist for the full set of stream counts (1, 2, 4, 6 and 8, a fresh boot a level, interleaved arms), and
    replies are equal to the control's unless the change is meant to alter them.

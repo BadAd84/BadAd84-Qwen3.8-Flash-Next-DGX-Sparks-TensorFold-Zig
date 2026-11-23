@@ -55,9 +55,12 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
    counterpart is a default), an addition (production has no such row), or a finding.
 3. Convert the remaining legacy annotations (`default-ok`, `unreachable`) to the rule's kinds where the better word
    is `inert` or `absent`; the checker already accepts both vocabularies.
-4. Make the repo's launcher copies the source of truth, add the sync gate (repo copy sha against the box's), and
+4. For each retired patch, check the upstream name at its absorbing commit against ours and adjust every env row,
+   launcher option, driver, register verdict and read site before deleting the patch (the four re-seat retirements
+   listed in `docs/UPSTREAM-WATCHLIST.md` are the first batch).
+5. Make the repo's launcher copies the source of truth, add the sync gate (repo copy sha against the box's), and
    rewrite the launch test to assert the promoted defaults with explicit off arms.
-5. Re-measure or stamp every speed table whose cells predate a promotion.
+6. Re-measure or stamp every speed table whose cells predate a promotion.
 
 ## What does not change
 
