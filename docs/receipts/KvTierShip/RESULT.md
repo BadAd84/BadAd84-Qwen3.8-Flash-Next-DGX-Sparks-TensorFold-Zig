@@ -44,14 +44,19 @@ Paperclip, x86-64, 16 threads, Zig 0.17.0, nvcc 13.3, one `flock ~/work/host.loc
 
 ## 1. Does the reconciled build admit at 8 x 262,144 with the pool and a cache?
 
-Yes, on both arms, and the plan's number is 3.1 GiB rather than the 6 asked.
+Yes, on both arms. The plan grants the 6 GiB ask in full: naming it moved the pool's pages from 361 (the same shape
+with no ask) to 278, 83 pages x 77,332,480 B = 5.98 GiB. The `3.1 GiB` the startup line prints, and the `3166 MiB`
+the store reports, are `kv_pool.split`'s copied half - 27 snapshot slots of 110.28 MiB (2,977.7 MiB) are set aside for
+slots this family never allocates, and 6,442,450,944 - 3,122,344,800 = 3,320,106,144 B = 3,166.29 MiB is the store's
+budget. `work/TierFollowup/RESULT.md` section 1 has the arithmetic against the printed numbers, and the measured asks.
 
 | cell | boot | the plan's own line (startup) |
 |---|---|---|
 | `levels/off` (control: pool + 6 GiB ask, no tier) | rc 0, 145.7 s, `/health` 200 | `model 69.39 GiB; 8 streams at once, the engine's own at a 262144-token window (4.99 GiB, in the model's), 7 more taking 278 pages of 4096 rows (20.02 GiB) as they need them, 0 MiB fixed each, of 31.0 GiB left after a 10.0 GiB reserve; prompts in passes of up to 3072 rows, a 3.1 GiB prompt cache; own glue kernels` |
 | `levels/on` (the tier) | rc 0, 154.7 s, `/health` 200 | the same line, and the store's own report `prompt cache: 16 tokens, resumed at 0, kept 2; 2 states, 220 MiB and 0 MiB spare of 3166 MiB` |
 
-Both arms therefore serve production's shape with the pool and a 3,166 MiB cache. The tier engaged during the waves:
+Both arms therefore serve production's shape with the pool and a store budget of 3,166 MiB from the 6 GiB ask. The
+tier engaged during the waves:
 `imprint: 9 tokens on disk: 0 new blocks and its own 110 MiB`. The control arm logged no tier lines (`LINES levels/off 0`).
 
 The two refusal cells, which are the other half of this answer:
@@ -82,12 +87,16 @@ do not overlap and the mean gap is over 1 percent; LEVEL otherwise). `out/tables
 | 8 | prose | 227.17 | 227.12 | -0.0% | LEVEL |
 | 8 | code | 404.51 | 404.79 | +0.1% | LEVEL |
 
-**Verdict: LEVEL 10, FASTER 0, SLOWER 0.** No cell's ranges are disjoint, so no cell earns a direction. The largest gaps
-are the control's first wave at one and two streams: its waves read `70.72, 77.86, 78.10` at 1 prose and `80.81, 86.19,
-86.14` at 2 prose, while the tier arm is stable (`77.39, 77.89, 78.06` and `86.04, 85.82, 85.90`), so the 2.9 and 1.8
-percent are a cold first wave on the control rather than a tier effect; from four streams up the two arms' waves
-interleave within 0.2 percent. Ten of ten cells are LEVEL, which is the answer the tier needs: it buys resume time and
-store bytes, not decode.
+**Verdict: LEVEL 10, FASTER 0, SLOWER 0.** No cell's ranges are disjoint, so no cell earns a direction. The rule is
+weak exactly where the tier costs most, and the record says so: ON read slower in 9 of the 10 cells, by 1.4 to 2.9
+percent at 1 to 4 streams, and the reason no cell earned SLOWER is the control's own first wave - its waves read
+`70.72, 77.86, 78.10` at 1 prose and `80.81, 86.19, 86.14` at 2 prose, while the tier arm is stable (`77.39, 77.89,
+78.06` and `86.04, 85.82, 85.90`), so the range stayed wide enough to swallow a 2 percent cost at those widths.
+Dropping the control's cold first wave, the two arms' warm-wave means agree within 0.4 percent (1 prose: 77.98 against
+77.78, -0.3 percent; 2 prose: 86.17 against 85.92, -0.3 percent), and that agreement, not the disjoint-range rule, is
+what supports LEVEL at 1 to 4 streams. From four streams up the two arms' waves interleave within 0.2 percent. Ten of
+ten cells are LEVEL on that rule, which is the answer the tier needs: it buys resume time and store bytes, not decode,
+and a cost under about 2 percent at 1 to 4 streams is not excluded by these cells.
 
 The replies are the same on both arms at every level, checked from the two `dec.jsonl` files rather than from the log:
 all 30 (streams, kind, wave) cells carry identical per-stream `sha` lists and identical `drafted` and `accepted`
@@ -107,9 +116,19 @@ and 103,496 tokens, with TTFT 1.026, 1.014 and 1.019 s), then each append is a f
 
 - **Turn 6 is level with the baseline**: 1.042 s against 1.032 s (+1.0 percent) and 116.16 MiB against 115.1 MiB
   (+0.9 percent), on a different checkpoint (INT4 at eight streams) from the arm the baseline was measured on.
-- **Turn 7 writes one state, not two**: 118.03 MiB, where the baseline arm's boundary case wrote 231.2 MiB for the same
-  position, and its TTFT is 1.226 s against that arm's 1.297 s. Turn 6's reply is 320 tokens, so the rewind sits over
-  `min_gap` and the dedup's boundary rule is what decides; here it kept the endpoint alone.
+- **Turn 7 writes one state because the budget cannot hold two, not because of the dedup's boundary rule**: 118.03 MiB,
+  where the baseline arm's boundary case wrote 231.2 MiB for the same position, and its TTFT is 1.226 s against that
+  arm's 1.297 s. Turn 6's reply is 320 tokens, so the rewind sits 331 tokens above the resume point, past the dedup's
+  `min_gap` of 256: the boundary rule was SATISFIED here, and at the dedup window's 16 GiB budget the same shape kept
+  two states on both arms (`work/KvTierDedup/RESULT.md` 25-28 and 155-172). What stopped the rewind is the 3,166 MiB
+  budget: the store charges a state its rows plus its fixed part, 115,642,400 + 105,631 x 18,880 = 2,109,955,680 B =
+  2,012 MiB at the endpoint (the state read nearest it measured 2,004 MiB), so the endpoint alone leaves
+  3,166 - 2,012 = 1,154 MiB and `prompt_cache.zig:323-324` proposes a rewind only when
+  `rewind_bytes <= s.budget - priority_bytes`; a second ~2.0 GiB state cannot, so no rewind was proposed (the log's
+  `kept 1`, `3 states, 2232 MiB and 0 MiB spare of 3166 MiB ... evicted 1`, and the single
+  `imprint: 105624 tokens on disk` line are the whole of it). The endpoint bytes in that sum are arithmetic over the
+  measured 18,880 B a row and the 110.28 MiB fixed part `[D]`; the 2,004 MiB charge, the 3,166 MiB budget, the 0 MiB
+  spare and the single write are measured `[M]`.
 - **TTFT is the disk read plus the tail's prefill**: 0.728 + 0.306 = 1.034 s against the 1.042 s measured, and
   0.777 + 0.435 = 1.212 s against 1.226 s. The 2 GiB read (728 and 777 ms) is two thirds of the resume; the prefill is
   the 74 and 367 tokens past the resume point.
@@ -132,7 +151,9 @@ Both resumed replies are token for token identical to their no-tier cold twins: 
 not only as hashes, over all 320 and 32 tokens. The two hashes are also the ones `work/KvTierW5/RESULT.md` recorded for
 the same prompts, so the INT4 arm at eight streams reproduces the NVFP4 arm's replies as well. What the tier buys at
 this depth is the time to the first token: 1.042 s and 1.226 s against 44.21 s and 44.31 s of cold prefill, 42 and 36
-times less, with the same output.
+times less, with the same output. Both replies are counts ("OK, then count from ..."), so this equality proves the
+prompt and the instruction survived the disk round trip; it does not prove the restored rows hold the right values,
+which needs a reply that depends on the passage (see the corrected note in `work/KvTierW5/tables.md` section 1).
 
 ## 5. Production after the window
 

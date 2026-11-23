@@ -53,7 +53,7 @@ established by C1 against C2. Then, for each tier cell, three comparisons decide
 | observation | conclusion |
 |---|---|
 | tier ids equal to the cold twin | exact at that depth |
-| differ, and the RAM twin at the SAME resume depth equals the cold twin | the disk state is not byte-equivalent to the RAM state: a store defect, to be named by span and path |
+| differ, and the RAM twin at the SAME resume depth equals the cold twin | the disk state differs from the RAM state in a way the reply exposes: a store defect, to be named by span and path |
 | differ, and the RAM twin at the same depth equals the tier cell | the engine's depth numerics, not the store: exact at equal depth, but the shipping gate "resumed equals fresh" fails |
 | all three differ | both effects, each span named |
 
@@ -117,11 +117,14 @@ reply's ids. A truncated state can therefore never become a reply.
 store at exactly 105,202 tokens (`prompt cache: 105279 tokens, resumed at 105202` in its own log) and produced
 the same 320 ids as X1's disk resume at 105,202 and as the two cold boots; R2 resumed the edited-passage prompt
 from RAM at 100,092 (`prompt cache: 105142 tokens, resumed at 100092`) and produced the same ids as X3's disk
-resume at 100,092 and as C3. So the disk image and the RAM state at the same depth are byte-equivalent, the tier's
-writes and reads preserve the computation rather than approximating it, and every resumed reply this window could
-construct equals the no-tier reply at the same prompt: tails of 34, 77, 1,781 and 5,050 tokens, five cold twins,
-two equal-depth RAM pairs and a damaged state file. `work/KvTierW5/tables.md` section 2 carries all twelve pairs,
-every one EQUAL.
+resume at 100,092 and as C3. So the disk image and the RAM state at the same depth produce the same 320 token ids
+in reply, the tier's writes and reads preserve the computation for the two states this window compared, and every
+resumed reply this window could construct equals the no-tier reply at the same prompt: tails of 34, 77, 1,781 and
+5,050 tokens, five cold twins, two equal-depth RAM pairs and a damaged state file. Byte equality of the stored rows
+themselves is NOT shown: no cell compares a disk state's bytes against the RAM state's, only the replies the two
+produce, and every cell in the table above generates the same 320-token count and shares sha16
+`277412fd297b56aa`, so those ids prove the instruction and the prompt survived, not that the restored rows are
+right. `work/KvTierW5/tables.md` section 2 carries all twelve pairs, every one EQUAL.
 
 A further check on the histories themselves: the RAM twin R1 runs turns 1 to 5 with no tier at all, and its
 replies to those five turns (sha16 `052beccc2fc3c430`, `81adacd4eeead45c`, `b732c5c07f27d37a`, ...) are the ones

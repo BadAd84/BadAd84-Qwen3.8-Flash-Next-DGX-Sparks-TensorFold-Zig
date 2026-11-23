@@ -11,21 +11,25 @@ spark6 against the `kv-w1` image on the same conversation.
 **Headline, measured on spark6 in one GPU-lock hold:**
 
 - **Bytes a turn after the fix: 115.1 MiB** (120,652,172 B, mean of the four deduped appends, turns 6, 8, 9 and
-  10), against **228.1 MiB** (239,147,228 B) for the same four turns on `kv-w1` (0021) and the recorded
-  **227.5 MiB** baseline. Ratio 0.50: the append's bytes are halved.
+  10 - the turns whose previous reply is under 256 tokens), against **228.1 MiB** (239,147,228 B) for the same four
+  turns on `kv-w1` (0021) and the recorded **227.5 MiB** baseline. Ratio 0.50: the append's bytes are halved for
+  replies under 256 tokens, and only there - a turn after a reply of 256 tokens or more writes 231.2 MiB on both
+  arms (next paragraph, and turn 7 in the table below).
 - **TTFT: 1.032 s** at the recorded depth (resumed at 105,202, prefill 0.327 s) against the recorded M1b
   **1.068 s / 0.358 s** and the same-depth `kv-w1` boot's 1.102 s / 0.399 s. The no-tier cold twin of the same
   prompt is 46.716 s.
 - **Exactness: five of five pairs equal.** Every resumed reply's token ids equal its no-tier cold twin's, and the
   two arms' replies are identical to each other, at 320, 32, 32, 29 and 19 generated tokens (sha16
   `277412fd297b56aa`, `af913cc499e378a6`, `1b6cdb6c046cd2c6`, `fadbe9183c3f5d09`, `505b2cc22424a0d7`).
-- **A 60 GiB budget now holds 508 append turns** (was 257), and a 100-turn 100k conversation writes 14.1 GiB
-  (was 25.0 GiB).
+- **A 60 GiB budget now holds 508 append turns** (was 257) when every reply is under 256 tokens, and a 100-turn 100k
+  conversation of that shape writes 14.1 GiB (was 25.0 GiB). The bound is the short-reply shape: replies of 256
+  tokens or more double the write (231.2 MiB a turn, 253 turns in 60 GiB; section 7). A real agent turn's reply length
+  decides which figure applies, and this lane measured only replies of 19 to 320 tokens.
 
 The one shape where the bytes do NOT halve is the boundary the code names: when the previous turn's reply plus the
 new user message is 256 tokens or more (`min_gap`), the rewind point is far enough from the resumed state that the
 rewind state is genuinely useful, and both arms keep it. Measured on turn 7 after a 320-token reply: **231.2 MiB on
-both arms**, identical to the byte, because there the fix correctly does nothing.
+both arms** (242,454,924 B each), because there the fix correctly does nothing.
 
 ## 1. The change and the package
 

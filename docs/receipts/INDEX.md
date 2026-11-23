@@ -51,13 +51,13 @@ listed at the end as deliberately untracked.
 | `docs/receipts/KnobTest/RESULT.md` | `work/KnobTest/RESULT.md` | `713df8851412821c` | `docs/KNOB-COVERAGE.md` |
 | `docs/receipts/KnobTest/VERDICTS.md` | `work/KnobTest/VERDICTS.md` | `f96b2cad6ff8af1f` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/KvTierDedup/ev/out/new/seed/env.txt` | `work/KvTierDedup/ev/out/new/seed/env.txt` | `55137353817ca766` | `docs/ENV-REGISTER.md`, `scripts/qwen38/zig/target/env/dev.env` |
-| `docs/receipts/KvTierDedup/RESULT.md` | `work/KvTierDedup/RESULT.md` | `75d9a74bb911b351` | `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/KvTierDedup/RESULT.md` | `work/KvTierDedup/RESULT.md` | `04b597f71b7ed166` | `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/KvTierShip/ev2.tgz` | `work/KvTierShip/ev2.tgz` | `d871f5d24c0c13bb` | `scripts/qwen38/README.md` |
-| `docs/receipts/KvTierShip/RESULT.md` | `work/KvTierShip/RESULT.md` | `35399b30f32cafd5` | `docs/ENV-REGISTER.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
-| `docs/receipts/KvTierShip/SHAPES.md` | `work/KvTierShip/SHAPES.md` | `5adb687a4987842b` | `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
-| `docs/receipts/KvTierW4/RESULT.md` | `work/KvTierW4/RESULT.md` | `dafe2ea2b8267656` | `scripts/qwen38/README.md` |
-| `docs/receipts/KvTierW5/RESULT.md` | `work/KvTierW5/RESULT.md` | `657e9e51f93674d4` | `scripts/qwen38/README.md` |
-| `docs/receipts/KvTierW5/tables.md` | `work/KvTierW5/tables.md` | `2872c7ed37a9b188` | (index only) |
+| `docs/receipts/KvTierShip/RESULT.md` | `work/KvTierShip/RESULT.md` | `a5d286b20abbfd43` | `docs/ENV-REGISTER.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/KvTierShip/SHAPES.md` | `work/KvTierShip/SHAPES.md` | `ac5597fe4efdf4c3` | `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/KvTierW4/RESULT.md` | `work/KvTierW4/RESULT.md` | `720fc3a8a349bdab` | `scripts/qwen38/README.md` |
+| `docs/receipts/KvTierW5/RESULT.md` | `work/KvTierW5/RESULT.md` | `0a75f4ed82f2e9b9` | `scripts/qwen38/README.md` |
+| `docs/receipts/KvTierW5/tables.md` | `work/KvTierW5/tables.md` | `f5f767e52ad99a8a` | (index only) |
 | `docs/receipts/P5Gpu/CLOSED.md` | `work/P5Gpu/CLOSED.md` | `ab53790599920ac5` | `docs/KNOB-COVERAGE.md` |
 | `docs/receipts/PartFix/REBASE.md` | `work/PartFix/REBASE.md` | `6004e77ff8308f4b` | `docs/OPEN-PR-COVERAGE.md` |
 | `docs/receipts/PatchBisect/RESULT.md` | `work/PatchBisect/RESULT.md` | `4f1a5698ed8313f1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |

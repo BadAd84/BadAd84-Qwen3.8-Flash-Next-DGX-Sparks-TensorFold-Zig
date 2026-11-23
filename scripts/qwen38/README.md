@@ -62,9 +62,11 @@ names (no reader here) and `MTP_WEIGHTS=mxfp8` (not re-measured on r5).
 
 Shape: 8 streams at a 262,144-token window with the page pool (`TF_FLASHNEXT_KV_PAGES=4096`), `--prompt-cache-gib 6`
 and the launcher's `--prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20`. The
-planner grants 3,166 MiB of the 6 GiB asked, so a 100k state (2.0 GiB) fits and a 261k state (4.7 GiB) does not. On the
-shipped r5int4 image, whose engine has no tier patch, the argument check refuses `--learn-conversations` together with
-`--prompt-cache-disk`, so a window that needs only the in-RAM cache passes `--prompt-cache-gib 6` alone.
+plan honours the 6 GiB ask (naming it takes 6.0 GiB out of the pool's pages: 361 pages without it, 278 with), and the
+store's budget is the 3,166 MiB `kv_pool.split` hands it - half the ask, the rest set aside for snapshot slots this
+family declares no `snap_slots` for. At that budget a 100k state (2.0 GiB) fits and a 261k state (4.7 GiB) does not.
+On the shipped r5int4 image, whose engine has no tier patch, the argument check refuses `--learn-conversations`
+together with `--prompt-cache-disk`, so a window that needs only the in-RAM cache passes `--prompt-cache-gib 6` alone.
 
 - **Resume.** An appended agent turn resumes instead of re-prefilling: 1.042 and 1.226 s TTFT against 44.206 and
   44.305 s cold, 116.16 and 118.03 MiB a turn. Decode was level in all ten cells (prose and code at 1, 2, 4, 6 and

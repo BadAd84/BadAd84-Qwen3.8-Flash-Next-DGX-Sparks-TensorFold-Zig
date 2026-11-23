@@ -296,8 +296,10 @@ cell above is the record.
   read-back verification ran (`verified 0`), and that is the one exactness instrument left unused.
 - **What this means for shipping**: the tier's claim must be "the same computation, resumed", and a gate
   must compare a cold full-prefill reply with a resumed reply at the SAME depth; this window's data does
-  not support byte equality for arbitrary long answers across arbitrary depths. The short-answer cells do
-  support it.
+  not support byte equality for arbitrary long answers across arbitrary depths. The short-answer cells
+  support ids equality (the same greedy token ids, at the same prompt), which is what was compared; no cell
+  in this window compares a stored state's bytes against another's, and the short-answer replies are counts
+  that would survive a passage-level error.
 
 ## 7. The shipping setting
 

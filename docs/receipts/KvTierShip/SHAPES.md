@@ -17,17 +17,33 @@ measured lines from window 4 (NVFP4 image `kv-w1`, `work/KvTierW4/RESULT.md` sec
 So a stream at a window `W` costs `W x 18,880 B + 0.38 GiB`, and the same 0.38 GiB appears at both windows, which is
 what makes the arithmetic below safe. `[D]`, from the two `[M]` lines.
 
-**The cache line.** The plan reports the cache it grants, which is not always the `--prompt-cache-gib` asked:
+**The cache line.** On the pooled shape the cache comes out of the page plan, not out of `cacheBytes`'s room formula,
+and on this family's shape it is not a host cache at all:
 
-- `cacheBytes(asked, room, streams)` returns `min(room - streams, asked)` (`zig/src/native/cuda_memory.zig:210-216`):
-  the cache cannot take room the streams need.
-- on a unified-memory box (a GB10) `hostCacheBudget(asked, ...)` returns `min(asked, available / 2)`
-  (`cuda_memory.zig:106-116`): the cache can take at most half of what the host reports available at plan time.
+- Flash Next (`qwen4_exp`) declares no `snap_host` and its `Loaded` carries no `host_snaps`, so
+  `kv_pages.placeHost` is false, `cuda.zig` never computes a host budget, and `hostCacheBudget`'s
+  `min(asked, available / 2)` (`cuda_memory.zig:106-116`) is not in this path. The startup line says so itself: it
+  prints a plain `a 3.1 GiB prompt cache`, never the `in host memory` or `budgeted as host memory` forms
+  `kv_pages.text` prints for a host cache. The earlier reading of this file, that the grant was capped either by the
+  room or by `available / 2`, named a function this shape never calls.
+- With `TF_FLASHNEXT_KV_PAGES`, `budgetOf` sets the plan's cache to the ask itself
+  (`cacheBytes(asked, maxInt, 0)` = `asked`), and `kv_pool.plan` clamps it at `min(ask, rest - held)`: `rest` is the
+  room past the engine's own stream and `held` is one page plus one run for each other stream, because an asked cache
+  comes before the other streams' windows (`windows()` returns 1 when `asked`). At the eight-slot shape that clamp is
+  about 25 GiB, so the ask is granted, not trimmed: naming the 6 GiB ask moved the pool's pages from 361 in the same
+  shape with no ask (`refuse/nocache`, 26.0 GiB of pages) to 278 (`levels/on`), 83 pages x 77,332,480 B = 5.98 GiB.
+- The store's budget is then `kv_pool.split`'s copied half. `split` sets `snaps = min(64, cache / 2 / snap_bytes)`
+  slots of `snap_bytes` aside and hands the remainder to the store; at the 262,144 window `snap_bytes` is 115,642,400 B
+  (110.28 MiB, the state's fixed part), so a 6 GiB ask keeps 27 x 115,642,400 = 3,122,344,800 B as slots and
+  6,442,450,944 - 3,122,344,800 = 3,320,106,144 B as the budget - the boot's `/stats` reports
+  `3,320,107,008 B` (3,166.29 MiB), 32 bytes a slot from that arithmetic. Flash Next declares no `snap_slots`, so
+  nothing allocates those 2,977.7 MiB: the plan already took the whole 6 GiB out of the pages, and the slot half is
+  then neither used by the store nor available to the streams.
 
-At the eight-slot production shape the measured grant was 3,166 MiB for a 6 GiB ask `[M]`, and the measured plan line
-prices 278 pages past it in a 31.0 GiB room; 3,166 MiB sits in the same range as the room the streams leave after
-those pages, so which of the two caps bound is not established here. The consequence the owner needs does not depend
-on it: on this box, **raising the ask past what the shape leaves does not buy cache**; the shape is the ceiling.
+The consequence the owner needs: **raising the ask does buy store budget, at about half the increase** - the budget is
+`ask - floor(ask / 2 / snap_bytes) x snap_bytes`, so 8, 9 and 10 GiB asks are worth about 4.1, 4.7 and 5.2 GiB of it.
+A 4.70 to 4.72 GiB full-window state needs a budget above about 4.8 GiB, so it needs a 10 GiB ask; the plan's 25 GiB
+room cap is not in the way. `work/TierFollowup/RESULT.md` section 1 carries the derivation and section 1b the boots.
 
 ## 2. The state sizes, measured
 
@@ -53,7 +69,7 @@ above. A conversation costs one endpoint state; a prompt that keeps several stat
 
 | shape | slots x window | pool | cache the plan grants | states that fit: 32k / 100k / 131k / 261k | conversations at once |
 |---|---|---|---:|---|---|
-| **(a)** measured | 8 x 262,144 | `TF_FLASHNEXT_KV_PAGES=4096`, ask 6 GiB | **3,166 MiB (3.09 GiB)** `[M]`; the plan line prints `a 3.1 GiB prompt cache` | 4 / 1 / 1 / **0** | 8 streams; one 100k conversation, or a 100k one plus its two small states (2,226 MiB of 3,166 after turn 6 `[M]`) |
+| **(a)** measured | 8 x 262,144 | `TF_FLASHNEXT_KV_PAGES=4096`, ask 6 GiB | the **6 GiB ask honoured in full** `[M]`; the **store's budget 3,166 MiB (3.09 GiB)** `[M]`, `split`'s copied half (the plan line prints `a 3.1 GiB prompt cache`) | 4 / 1 / 1 / **0** | 8 streams; one 100k conversation, or a 100k one plus its two small states (2,226 MiB of 3,166 after turn 6 `[M]`) |
 | **(b)** measured on the NVFP4 arm, derived on INT4 | 4 x 262,144 | off | **5.14 GiB** `[M]` (line prints `a 5.1 GiB prompt cache`); on the INT4 arm `[D]`: 31.0 - 4 x 4.99 = **11.0 GiB** | measured 5.14: 8 / 2 / 2 / **1**; derived 11.0: 17 / 5 / 4 / **2** | 4 streams; one full-window conversation (two would need 9.4 GiB) |
 | **(c)** measured on the NVFP4 arm, derived on INT4 | 8 x 131,072 | off (optional at this window) | **3.66 GiB** `[M]` (line prints `a 3.6 GiB prompt cache`); on the INT4 arm `[D]`: room 33.31 - 8 x 2.68 = **11.87 GiB** | measured 3.66: 5 / 1 / 1 / **0**; derived 11.87: 18 / 6 / 4 / **2** | 8 streams; one 131k conversation, or five 32k ones at the measured figure |
 | **(d)** production today | 8 x 262,144 | none (production's own plan) | **6,361 MiB (6.21 GiB)** `[M]`, production's own cache line | 9 / 3 / 2 / **1** `[D]`, with this lane's state sizes; in-RAM only, inside one boot | 8 streams; up to three 100k conversations while the boot lives |
@@ -81,7 +97,7 @@ resume is 1.931 s against 127.854 s cold (`work/KvTierW4/RESULT.md` section 3, k
 
 | shape | an appended turn gains | it loses |
 |---|---|---|
-| **(a)** 8 x 262,144, pool, 3.09 GiB | a 100k append resumes in **1.042 s / 1.226 s** and writes **116.16 / 118.03 MiB**, against 44.206 / 44.305 s cold `[M]`; decode is LEVEL at 1, 2, 4, 6 and 8 streams `[M]`; the shape keeps production's concurrency and window | the **full-window resume**: a 4.70 to 4.72 GiB state cannot fit 3.09 GiB, so a 261k conversation is never kept `[D]` (`prompt_cache_keep.zig:38` keeps nothing over the budget, and the log's own line is `kept nothing at {d} tokens: {d} MiB passes the {d} MiB budget`), and its next turn pays the full cold prefill (127.854 s measured at 261k, `work/KvTierW4/RESULT.md` section 3) `[M]`; one 100k conversation fills the cache, so a second evicts the first `[D from 2,226 of 3,166]` |
+| **(a)** 8 x 262,144, pool, 3.09 GiB store budget | a 100k append resumes in **1.042 s / 1.226 s** and writes **116.16 / 118.03 MiB**, against 44.206 / 44.305 s cold `[M]`; decode is LEVEL at 1, 2, 4, 6 and 8 streams `[M]`; the shape keeps production's concurrency and window | the **full-window resume at that 6 GiB ask**: a 4.70 to 4.72 GiB state cannot fit 3,166 MiB, so at the 6 GiB ask a 261k conversation is never kept `[D]`; a larger ask buys budget at about half the increase and a 10 GiB ask keeps one `[D]`; below that the refusal is `prompt_cache_keep.zig:38` (its line is `kept nothing at {d} tokens: {d} MiB passes the {d} MiB budget`) and the next turn pays the full cold prefill (127.854 s measured at 261k, `work/KvTierW4/RESULT.md` section 3) `[M]`; one 100k conversation fills the cache, so a second evicts the first `[D from 2,226 of 3,166]` |
 | **(b)** 4 x 262,144, 5.14 GiB measured | the **full-window resume** fits: a 261k state resumes in **1.931 s against 127.854 s** cold `[M]`; a 100k append is the 1.04 s case `[M]`; two 100k conversations fit (5.14 / 1.87) `[D]` | **half the streams**: 4 at once instead of 8; only one full-window conversation (two need 9.4 GiB) `[D]`; at 4 streams the measured aggregate decode cells read 95.75 to 95.95 prose and 174.76 to 175.20 code tokens a second (`work/KvTierW4/RESULT.md` section 1) `[M]` |
 | **(c)** 8 x 131,072, 3.66 GiB measured | several states fit at agent sizes: **5 x 32k** (0.635 GiB each) at the measured 3.66 GiB, and one 131k state; 8 streams stay; decode LEVEL in all 60 cells window 4 ran at 131,072, eight slots busy `[M]` | the **window itself**: 131,072 tokens a stream, so a conversation past ~131k cannot be served at that shape at all; the full-window resume is gone by construction; two 131k states need 4.82 GiB and do not fit 3.66 `[D]`; a 131k resume's speed is not measured in this lane (a 100k resume is 1.04 s, a 261k one 1.93 s, so 1.1 to 1.5 s is the derived band) `[D]` |
 | **(d)** production today | within one boot, production's own cache serves a warm 2k turn on a kept 100k conversation in **1.123 s** mean (1.254 / 1.074 / 1.041 s, `work/DevVsProd/RESULT.md` section 4, measured on production only) `[M]` | **nothing across a boot**: every fresh-boot append is a full prefill, measured at 44.206 and 44.305 s at 100k in this window's twins `[M]` and 44.420 to 45.067 s across window 4's seven-turn agent shape `[M]`; a restart pays the prefill again, which is the case the tier exists for |
@@ -90,7 +106,7 @@ resume is 1.931 s against 127.854 s cold (`work/KvTierW4/RESULT.md` section 3, k
 
 | figure | measured | arithmetic | source |
 |---|---|---|---|
-| (a) cache 3,166 MiB | yes | no | the store's own line, this window's `levels/on` and turn 6 records |
+| (a) ask 6 GiB honoured; store budget 3,166 MiB | yes | no | the store's own line, this window's `levels/on` and turn 6 records; the ask's effect on pages, 361 to 278, from `refuse/nocache` and `levels/on` |
 | (a) plan line 278 pages, 20.02 GiB, 31.0 GiB room | yes | no | this window's boot line, both level arms |
 | (b) cache 5.14 GiB, 4 x 4.99 GiB, 25.1 GiB room | yes, NVFP4 arm | 25.1 - 19.96 = 5.14 | `work/KvTierW4/RESULT.md` section 0 |
 | (b) cache 11.0 GiB | no | yes | 31.0 - 4 x 4.99 |
