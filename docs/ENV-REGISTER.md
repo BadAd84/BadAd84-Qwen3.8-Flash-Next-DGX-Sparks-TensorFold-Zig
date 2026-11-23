@@ -203,6 +203,23 @@ can only list them:
 | `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW` | none: production-engine names, carried for parity (`docs/receipts/ProseDraft/POLICY.md`) |
 | `TF_HY4_MEM_FLOOR_GIB` | none: the `hy4_flash` family is not in this tree |
 
+## Stated is not delivered
+
+The coverage gate fails (`rc 1`, 26 `PASSAGE-LOST`) on every `dev.env` name the launcher cannot carry. The recipe's
+`start.sh:173` forwards only `^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+=`, and the engine's own table declares 26 settings
+with the bare `TF_` prefix (`TF_CACHE_EVICT`, `TF_MTP_DRAFTS`, `TF_CUDA_DEVICE`/`SEGMENTS`/`CARVEOUT`,
+`TF_QWEN35_CHUNK_SOLO` and the rest), so a stated value for one of them never reaches the container and the serve runs
+its default. The DevEnvBoot window measured it: 74 of 74 forwardable names arrived equal and the 26 did not arrive at
+all (`work/DevEnvBoot/RESULT.md`).
+
+The red gate is the honest state: the file may not claim to be an environment of record while 26 of its settings are
+undeliverable. The repair is packaged at `upstream/recipe-launcher-tf-env/` (one line, the class widened to `TF_`,
+proved to apply against the recipe at `20e15e41`), and the same line is carried by the recipe's two nsys copies and by
+our own `~/qwen-zig/start.sh`. Before it deploys or is proposed upstream, two proofs are required: every stated value
+in the 26 equals what absence yields (otherwise the explicit value changes the serve), and one boot on the same image
+shows the container's environment differing only by those names, the window self-check equal and fixed-prompt replies
+identical. Until then the gate stays red and no text is posted.
+
 ## The production copy cannot drift
 
 `prod.env` is a hand copy of the production launcher's environment, taken from `docker inspect` of
