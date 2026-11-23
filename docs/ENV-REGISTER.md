@@ -46,7 +46,7 @@ Two rows have a default that no value can express, because their reader tests wh
 
 | setting | why absence is the value |
 |---|---|
-| `TENSORFOLD_CUDA_KERNELS` | `zig/src/cuda/aot.zig:15-22` loads the installed `share/tensorfold/cuda/sm<cap>` set when the variable is unset, and `native` forces the engine's own kernels; any other text is a folder and a blank one is refused (`docs/environment.md:119`). |
+| `TENSORFOLD_CUDA_KERNELS` | `zig/src/cuda/aot.zig:15-22` loads the installed `share/tensorfold/cuda/sm<cap>` set when the variable is unset, and `native` forces the engine's own kernels; any other text is a folder and a blank one is refused (`docs/environment.md:116`). |
 | `TF_ROCE_GID_INDEX` | `zig/src/cuda/roce.zig` searches the GID table for a RoCE v2 IPv4 entry only when the variable is unset; any text, blank included, is parsed as an index (`zig/src/cuda/roce_verbs.zig:146-160`). |
 
 A presence-tested setting has exactly two honest forms, and `export NAME` with no value is neither:
