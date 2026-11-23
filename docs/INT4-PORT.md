@@ -8,6 +8,19 @@ block-FP8 reader (#2892, `1bc80c5f78`) and the scratch estimate keeps upstream's
 package's `RECORD.md`. The phases below report the v1.2.7 package's numbers (image `int4d`), which is where each
 mechanism was found.
 
+## Port status: the directive is open until every step closes
+
+A green table for one step is evidence INSIDE that step, never the port. The steps and where each stands:
+
+| step | what it is | state | evidence or blocking item |
+|---|---|---|---|
+| 2 | block-FP8 projections, upstream draft #4449 | OPEN | parent orphaned by #3523's rebuild to `37d99a8a`; the five commits re-apply with one fixtures conflict, re-cut in progress |
+| 3 | core-gptq-reader, upstream #3611 | OPEN until merged | PR opened and reviewed |
+| 4 | the int4 W4A16 kernel, upstream #4183 | DONE pending their review | head `984556bf` on `7bd7081e0`; host table PASS; device `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed`; gate 3 bit-equal on the bf16, fp32 and gate/up prompt forms; the reply waits on the owner's post |
+| 5 | admission and loading as stored | OPEN | head `987de0084` with its chain orphaned by the same rebuild; device receipt and the float64 fidelity reference unrun |
+| 6 | as-stored MTP | HOLD | needs a new design, not a port |
+| promotion | production serving this stack | OPEN | production still runs its own engine; the int4 plus KV-tier image is not promoted |
+
 Owner directive: our engine serves the checkpoint production serves,
 `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` (spark6 HF cache, revision
 `1464274120d36a4d8fcaa934552334a7d83ce0fd`), so the serving gap splits into engine and checkpoint. The work is a
