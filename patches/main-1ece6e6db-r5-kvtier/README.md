@@ -1,15 +1,16 @@
-# TensorFold main `1ece6e6db` + r5 + the persistent KV tier's fp8 image (window 1)
+# TensorFold main `1ece6e6db` + r5 + the persistent KV tier (fp8 image, then the append dedup)
 
 Applied on top of `patches/main-1ece6e6db-r5` (0001 to 0020) on a pristine checkout of upstream main at
-`1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. One patch, `0021-kv-tier-fp8.patch`, carries the five correctness
+`1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. Two patches: `0021-kv-tier-fp8.patch` carries the five correctness
 prerequisites window 1 of the NVMe KV tier design
 (`work/KvTierRecon/DESIGN.md` section 11.5, items 1 to 5 and item 7) and the recipe sentence that named fp8's
-`--learn-conversations` refusal.
+`--learn-conversations` refusal; `0022-kv-tier-dedup.patch` is cut on top of 0021 and stops a fresh-boot append from
+keeping a second state beside the endpoint (window 5's write amplification).
 
-    ./apply.sh --check TREE     # r5's twenty and this one apply in order, nothing written
+    ./apply.sh --check TREE     # r5's twenty and these two apply in order, nothing written
     ./apply.sh TREE             # apply them
 
-The numbers sort after r5's 0020, so one directory holding r5's twenty patches and this one applies in glob order.
+The numbers sort after r5's 0020, so one directory holding r5's twenty patches and these two applies in glob order.
 
 ## What the patch carries
 
@@ -42,3 +43,14 @@ state above the ring is `StagingFull`, which is today's behaviour at 1 GiB), and
 262,144-token cell is attempted, or the cell silently tests a skipped save. This package takes the second and leaves
 the first to window 2, where the design's measurement decides whether the ring or the in-tree sliced writer
 (`TENSORFOLD_ROWS_SYNC=1`) is the answer.
+
+## What 0022 carries
+
+Window 5 attributed the append write amplification: on a fresh boot the rewind keep is judged by `keptNear`
+(`core/prompt_cache.zig`), which scans the RAM store only, BEFORE `rows.read.recall` reads a disk state back, so the
+state the pass is about to resume from is invisible and a second, nearly identical state is written beside the
+endpoint (227.5 MiB a turn against 116.3 MiB for the boundary-only shape, `work/KvTierW5/RESULT.md` section 2).
+0022 lets the disk recall take part in that deduplication: a recalled state at or under the rewind point and less
+than `min_gap` below it is the rewind state, so the pass keeps the endpoint alone. One test file pins it: a fresh
+boot recalls a state two tokens under the rewind and the plan keeps one state (`{13}`) rather than the endpoint and
+the rewind (`{8, 13}`).

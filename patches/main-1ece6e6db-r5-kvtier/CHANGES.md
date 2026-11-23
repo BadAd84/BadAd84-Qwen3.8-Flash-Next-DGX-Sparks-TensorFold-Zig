@@ -47,3 +47,30 @@ Both were mine, both in the new code, and both are exactly what the gates exist 
   the only `lean_new` finding of the round. Reworded to 115.
 
 The second round's gate lines are in `RECORD.md`; nothing else in the package moved.
+
+## `0022-kv-tier-dedup.patch`: the append turn keeps one state, not two
+
+Window 5 attributed the append write amplification (`work/KvTierW5/RESULT.md` section 2): `lookupUserAt` decides the
+rewind keep by asking `keptNear`, which scans the RAM store only, BEFORE `rows.read.recall` reads a state back from
+disk. On a fresh boot the state the pass is about to resume from is therefore invisible at that decision, so an
+append keeps a second, nearly identical state beside the endpoint: measured 227.5 MiB a turn against 116.3 MiB for
+the boundary-only shape, at the same resume depth and with the same reply, at the cost of 0.17 s of extra prefill on
+a last-message edit turn.
+
+Two files at +52 / -2:
+
+| file | what the patch does |
+|---|---|
+| `zig/src/core/prompt_cache.zig` | the RAM `find` is named, the recall keeps it as its floor, and after the recall a state that is not that RAM entry, sits at or under `active_rewind_at` and less than `min_gap` below it is made the rewind state: `rewind` tagged, `active_rewind_at` re-pointed, `active_rewind_key` recomputed, `keptNear`'s rule applied to the disk state. With no disk tier the recall returns the RAM find and nothing changes |
+| `zig/src/core/prompt_cache_rewind_test.zig` | a fresh boot that recalls a state two tokens under the rewind point (min_gap 4) plans ONE keep: `marks {13}`, `counts.kept 1`, the recalled entry tagged `rewind`. Against the 0021 code the same test plans `{8, 13}` |
+
+The test is the before/after witness: it fails on the 0021 tree (`slices differ ... instead found [0]: 8 [1]: 13`,
+706 of 707 passing) and passes on the 0022 tree, so the fix is load-bearing and the failure is the measured defect
+shape rather than a compile error.
+
+Measured on spark6 (`work/KvTierDedup/RESULT.md`): the same 100k conversation seeded once and then appended to in
+fresh boots writes **115.1 MiB a turn** (120,652,172 B) on the four appends whose previous reply is under
+`min_gap`, against **228.1 MiB** (239,147,228 B) on the 0021 image `kv-w1` and the recorded **227.5 MiB** baseline;
+TTFT at the recorded depth is 1.032 s against the recorded 1.068 s; all five resumed replies equal their no-tier
+cold twins' token ids; a 60 GiB budget goes from 257 to **508** append turns. An append after a 320-token reply
+sits over `min_gap` and correctly keeps both states (231.2 MiB on both arms).
