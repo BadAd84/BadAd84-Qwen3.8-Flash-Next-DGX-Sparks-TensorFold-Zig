@@ -1,18 +1,19 @@
 # TensorFold main `1ece6e6db` + r5 + INT4-AutoRound + the persistent KV tier + the pool's cache refusal
 
 The combined directory: upstream main at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then `patches/main-1ece6e6db-r5`
-0001 to 0020, then five patches in filename order. It exists because a device window builds one image from one
+0001 to 0020, then six patches in filename order. It exists because a device window builds one image from one
 directory, and this is the tree it gated: the INT4 port that serves production's checkpoint, the KV tier that keeps
-conversation states, and the plan-time refusal that stops the tier from being silently inert.
+conversation states, the plan-time refusal that stops the tier from being silently inert, and the store's budget when
+a family declares no snapshot slots.
 
-    ./apply.sh --check TREE     # the series and the five apply in order, nothing written
+    ./apply.sh --check TREE     # the series and the six apply in order, nothing written
     ./apply.sh TREE             # apply them
 
 An image of this series serves `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` only: the routing width is a
 build-time constant (`slots = 6`, `shared_w = 1280` in `cuda_prompt_wt.zig`) and the config check refuses the FP4
 checkpoint by name (`num_experts_per_tok`).
 
-## The five patches, each byte-identical to the package it came from
+## The six patches, each byte-identical to the package it came from
 
 | patch | source | sha256 |
 |---|---|---|
@@ -21,12 +22,15 @@ checkpoint by name (`num_experts_per_tok`).
 | `0023-kv-tier-fp8.patch` | `patches/main-1ece6e6db-r5-kvtier/0021` | `47d90e3b5f71cd9a0404bb6f1ce836e09f709ebea44851308e8440e65d479dc7` |
 | `0024-kv-tier-dedup.patch` | `patches/main-1ece6e6db-r5-kvtier/0022` | `cd5a336200f7c218fa53e52fdc11d51f2ee2b34a4010fcb4dda297e15ebda864` |
 | `0025-kv-tier-pool.patch` | `patches/main-1ece6e6db-r5-kvtier-pool/0023` | `e6a4872ed53041d3e5e4b850a3733dadba764b15c54941420bd4b480a9032589` |
+| `0028-kv-tier-full-ask.patch` | `patches/main-1ece6e6db-r5-kvtier-pool/0024` | `cfec2bb31c847fed1523812639125b6a6267ceee4e85970d1918f513768272db` |
 
 There is no code of this directory's own: it is the four packages composed, with the tier's `0021` and `0022` and the
-pool's `0023` renumbered to sort after the INT4 pair. Each patch's own documentation is the package it came from,
+pool's `0023` and `0024` renumbered to sort after the INT4 pair. `0028` skips `0026` and `0027`: those numbers are the
+bf16 draft-head package's (`patches/main-1ece6e6db-r5-drafthead-bf16`), and no two patches of alternative
+compositions of this series share a number. Each patch's own documentation is the package it came from,
 `README.md` and `CHANGES.md` beside its source: the INT4 port's shape and its upstream gap
 (`patches/main-1ece6e6db-r5-int4`), the fp8 image and the append dedup (`patches/main-1ece6e6db-r5-kvtier`), and the
-refusal's predicate and text (`patches/main-1ece6e6db-r5-kvtier-pool`).
+refusal's predicate and text and the whole-ask split (`patches/main-1ece6e6db-r5-kvtier-pool`).
 
 ## Why these four together, and in this order
 
@@ -35,12 +39,15 @@ refusal's predicate and text (`patches/main-1ece6e6db-r5-kvtier-pool`).
 - The tier's fp8 image next, because the served shape is fp8 KV; `--kv-cache fp8` with `--learn-conversations` was
   refused at the image (`copyable` accepted bf16 only) until `0023`.
 - The append dedup after it, because the dedup is measured on the fp8 image and depends on it.
-- The refusal last, because it is a predicate over the finished plan, which only exists once the pages, the cache and
+- The refusal next, because it is a predicate over the finished plan, which only exists once the pages, the cache and
   the store's slots are all decided.
+- The whole-ask split last, because it is the same plan: it decides which family's cache reserves a slot half, and its
+  two witnesses read the plan the other five patches make.
 
 Nothing between them conflicts: the INT4 pair touches the port and the serving fixture, the tier touches
-`cuda_disk.zig`, `cuda_kept.zig` and `prompt_cache.zig`, and the refusal touches `cuda_streams.zig` and one call site in
-`cuda.zig`. The gate run applied all five in order on a pristine base and recorded the file counts.
+`cuda_disk.zig`, `cuda_kept.zig` and `prompt_cache.zig`, the refusal touches `cuda_streams.zig` and one call site in
+`cuda.zig`, and the whole-ask split touches `kv_pool.zig`, one line of `cuda_kv_pool.zig` and two test files. The gate
+run applied all six in order on a pristine base and recorded the file counts.
 
 ## The served shape this directory was gated at
 
@@ -54,9 +61,10 @@ the KV tier on its own budget rather than the plan's leftovers:
 
 with the INT4 drafter arm the INT4 package measured (`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`,
 `TF_FLASHNEXT_DRAFTS_GREEDY=15`, `TF_FLASHNEXT_SHARED_DRAFTS=0`, `TF_FLASHNEXT_GREEDY_WIDE=8`). `--prompt-cache-gib 6`
-is an ask rather than a grant: the plan's own startup line at this shape reports a 3.1 GiB prompt cache, which holds a
-100,000-token state (about 1.9 GiB) and not a full 262,144-token one (about 4.7 GiB), because the streams' pages take
-the rest of the room.
+is the store's budget: the streams' pages take their 278 pages of the room first, and the store is then budgeted the
+whole 6 GiB ask (`0028`), which holds a 100,000-token state (about 1.9 GiB) twice over and a full 262,144-token one
+(about 4.7 GiB). On the five-patch head the same line read a 3.1 GiB prompt cache and the store was budgeted
+3,320,107,008 B (`work/KvTierShip/RESULT.md`).
 
 The block belongs in `scripts/qwen38/zig/target/env/dev.env` only once it is measured on this engine; `prod.env` stays
 production's.
@@ -67,4 +75,5 @@ It adds no behaviour and no setting of its own. The INT4 port is still a dev rou
 steps on issue #3368 (`patches/main-1ece6e6db-r5-int4/README.md` has the table, carried from the r2-int4 package and
 true at 2026-11-21). The tier still has no staging ring, no store pin and no block-name lineage (the design's items 8
 to 10); the refusal is not a sizing change, and a shape whose plan leaves the cache no bytes is refused rather than
-served with a dead tier.
+served with a dead tier. The one sizing change here is `0028`'s, and it is the pool package's: the store's share of an
+ask is the whole ask for a family that declares no snapshot slots.

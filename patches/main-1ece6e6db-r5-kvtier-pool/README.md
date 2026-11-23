@@ -1,14 +1,17 @@
-# TensorFold main `1ece6e6db` + r5 + the persistent KV tier + the plan's cache refusal
+# TensorFold main `1ece6e6db` + r5 + the persistent KV tier + the plan's cache refusal + the whole ask as the store's
 
 Applied on top of `patches/main-1ece6e6db-r5` (0001 to 0020) and `patches/main-1ece6e6db-r5-kvtier` (0021, 0022) on a
-pristine checkout of upstream main at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. One patch,
-`0023-kv-tier-pool.patch`: it makes a plan that leaves the prompt cache no bytes refuse by name instead of serving
-with `--prompt-cache-disk` accepted and the tier doing nothing.
+pristine checkout of upstream main at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. Two patches:
 
-    ./apply.sh --check TREE     # the series, the KV tier and this patch apply in order, nothing written
+- `0023-kv-tier-pool.patch` makes a plan that leaves the prompt cache no bytes refuse by name instead of serving with
+  `--prompt-cache-disk` accepted and the tier doing nothing.
+- `0024-kv-tier-full-ask.patch` budgets a family that declares no snapshot slots its whole `--prompt-cache-gib` ask:
+  the split's slot half is set aside only for a family that declares `snap_slots`.
+
+    ./apply.sh --check TREE     # the series, the KV tier and the two apply in order, nothing written
     ./apply.sh TREE             # apply them
 
-The numbers sort after the tier's 0022, so one directory holding r5's twenty, the tier's two and this one applies in
+The numbers sort after the tier's 0022, so one directory holding r5's twenty, the tier's two and these two applies in
 glob order.
 
 ## Why: the flag was a no-op at production's shape
@@ -70,8 +73,9 @@ that widened its condition fails the test rather than the operator.
 
 ## What it does not do
 
-- It does not size anything. The plan, the page count and the cache figure are unchanged; when the plan leaves zero
-  bytes the serve stops instead of running with a dead tier.
+- `0023` does not size anything: the plan, the page count and the cache figure are unchanged, and when the plan leaves
+  zero bytes the serve stops instead of running with a dead tier. The one sizing change in this package is `0024`'s
+  (the store's share of an ask, below).
 - It does not refuse a budget that is merely too small for one full-window state. A nonzero cache keeps what fits and
   says so per turn (`kept nothing at {d} tokens: {d} MiB passes the {d} MiB budget`), so that shape is a tuning answer
   rather than a dead flag.
@@ -80,30 +84,62 @@ that widened its condition fails the test rather than the operator.
   at the window instead of the 1 GiB default, and a state above the ring is skipped as `StagingFull`; the ring is
   window 2's measurement, on the design's own terms (`work/KvTierRecon/DESIGN.md`).
 
+## The slot half a family without `snap_slots` never allocated (`0024`)
+
+`kv_pool.split` (`zig/src/core/kv_pool.zig:120`) divides the prompt cache into snapshot slots and copied rows:
+`snaps = @min(most_snaps, named orelse cache / 2 / snap_bytes, cache / snap_bytes)`. A null `named` is "half the cache
+in slots", and `cuda_kv_pool.budgetOf` (`zig/src/native/cuda_kv_pool.zig:165`) passed `slots orelse named(o)` - the
+TF_KV_SHARE count or `--keep`'s - and both are null at the served shape. So a family that declares no `snap_slots`
+still had the half set aside: at the 262,144-token window `snap_bytes` is 115,642,368 B, so a 6 GiB ask reserved
+27 x 115,642,368 = 3,122,343,936 B (2,977.65 MiB) and handed the store 6,442,450,944 - 3,122,343,936 = 3,320,107,008 B,
+the figure the shipped store's `/stats` reported.
+Flash Next (`qwen4_exp`) declares `snap_bytes`, `snap_save`, `snap_restore`, `snap_drop` and `kept_view` and no
+`snap_slots` (`zig/src/families/flashnext/cuda_lanes.zig`), so nothing allocated that half: `cuda_kv_pool.store`
+returns before `s.most = k.snaps` and `F.snap_slots(...)`, and the pages come out of the room anyway (`kv_pool.plan`
+subtracts `snaps * snap_bytes + copied` from `left`), so those 2.98 GiB were neither the store's nor the streams'.
+
+`0024` passes the count the family declares - `if (comptime @hasDecl(F, "snap_slots")) slots orelse named(o) else 0` -
+and `split` returns the whole cache as copies when no slot is named or none fits (`snaps == 0`). A family that declares
+slots keeps every behaviour: a null name is still half the cache, a named count is still that many, and `holds()`
+reads no slots at all. A family without `snap_slots` that is given TF_KV_SHARE now makes its whole cache pool pages -
+`share_kept_ppm`'s documented "all of it" - where before the null name left the store half of it; and
+`--learn-conversations` with TF_KV_SHARE is already refused by name (`cuda.zig`), so no tier reads that half. The pages
+are unchanged, because the plan already spent the whole cache before this patch; only the store's share of it changes
+hands. Two witness tests pin it, both collected by existing steps: `kv_pool_test`'s
+"a cache whose family declares no slots reserves none: the whole ask is copies and the pages are unchanged" (6 GiB ->
+6,442,450,944 B copied; 27 slots -> 3,320,107,008 B; the same page count either way) and
+`cuda_cache_capacity_test`'s "CUDA cache default: a family without snapshot slots budgets its whole ask, one that
+declares them still half" (`zig build -Dfixed-cpu test-kv-pool` and `test-cuda-cache-budget-host`). The finding it
+answers is `docs/receipts/Glm54Review/REPORT.md` F2: at 3,166 MiB a 261k state (4.70 GiB) "is never kept and pays
+127.854 s cold", a second 100k conversation's fate was unmeasured, and "at 3,166 MiB the budget refused the rewind".
+
 ## What the plan grants when the flag is named
 
 `--prompt-cache-gib N` is an ask. At `--parallel 8 --context 262144` on the INT4 checkpoint asking 6 GiB, the plan's
-own startup line reports **a 3.1 GiB prompt cache** and the pages take the rest of the room: `the engine's own at a
-262144-token window (4.99 GiB, in the model's), 7 more taking 278 pages of 4096 rows (20.02 GiB) ... of 31.0 GiB left
-after a 10.0 GiB reserve ... a 3.1 GiB prompt cache` (measured in `work/KvTierShip/RESULT.md`). 3.1 GiB holds a
-100,000-token state, about 1.9 GiB by the layout's 18,880 bytes a token, and not a full 262,144-token one at about
-4.7 GiB, so a serve that must resume full-window conversations trades pages, streams or window for the cache until the
-plan's own line reports enough. The refusal's message quotes the state's cost for exactly that arithmetic.
+arithmetic gives the same 278 pages it gives without `0024` (the pages never included the slot half) and the whole
+6,442,450,944 B to the store, so the startup line's cache figure is the ask and `/stats`'s `prompt_cache.budget_bytes`
+is the ask itself; the boot line and the two figures are quoted in `docs/receipts/FullAsk/RESULT.md`. On the same tree
+without `0024` the line read **a 3.1 GiB prompt cache** with a 3,320,107,008 B budget (measured in
+`work/KvTierShip/RESULT.md`, the `kvtier-pool` window), which held a 100,000-token state (about 1.9 GiB by the
+layout's 18,880 bytes a token) and not a full 262,144-token one (about 4.7 GiB).
 
-## The witness test
+## The witness tests
 
-The test is named `CUDA cache default: a tier whose plan leaves the cache no bytes is refused by name`, so the
-repository's existing step `test-cuda-cache-budget-host` (`zig/build/cuda.zig:310`, the native module with
-`--test-filter "CUDA cache default"`) collects it and runs it with no GPU: `zig build -Dfixed-cpu
-test-cuda-cache-budget-host`. No build change is needed, and the gate script requires the test's own phrase in the
-step's log, so a test that stops being collected fails the run.
+Two tests, each collected by an existing step and named for its filter: `CUDA cache default: a tier whose plan leaves
+the cache no bytes is refused by name` (`0023`'s), and `CUDA cache default: a family without snapshot slots budgets
+its whole ask, one that declares them still half` (`0024`'s, in `zig/src/native/cuda_cache_capacity_test.zig`). Both
+are collected by `zig build -Dfixed-cpu test-cuda-cache-budget-host` (`zig/build/cuda.zig:310`, the native module with
+`--test-filter "CUDA cache default"`); `0024`'s core-level witness is collected by `zig build -Dfixed-cpu test-kv-pool`.
+No build change is needed. The gate run proves collection twice: it requires the core witness's own name in the
+`zig test` log of its module, and it requires the cuda step's test count to rise above the five-patch head's 21, so a
+test that stops being collected fails the run.
 
 ## Serve settings this package is measured with
 
 The INT4 checkpoint's own environment (`patches/main-1ece6e6db-r5-int4/README.md`), plus the pool beside the tier:
 
     TF_FLASHNEXT_KV_PAGES=4096          # 6 and 8 streams at a 262,144-token window with fp8 KV (r5 0015)
-    --prompt-cache-gib 6                # the ask: the plan grants a 3.1 GiB cache at this shape (see above)
+    --prompt-cache-gib 6                # the ask: the store's budget at this shape with 0024 (3.1 GiB without it)
     --prompt-cache-disk <root> --learn-conversations --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20
 
 The block belongs in `scripts/qwen38/zig/target/env/dev.env` only once it is measured on this engine; `prod.env` stays

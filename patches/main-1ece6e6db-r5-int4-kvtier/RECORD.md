@@ -3,7 +3,7 @@
 ## What this is
 
 The combined directory: upstream TensorFold `main` at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then
-`patches/main-1ece6e6db-r5` 0001 to 0020, then five patches in filename order. It is the tree the gate run and the
+`patches/main-1ece6e6db-r5` 0001 to 0020, then six patches in filename order. It is the tree the gate run and the
 device window used, built as one directory because `scripts/qwen38/zig/target/build_patches.sh` applies a directory in
 glob order and a device build reads one tarball of the result.
 
@@ -11,15 +11,15 @@ glob order and a device build reads one tarball of the result.
   0001 to 0020 first. `apply.sh` checks this package's `SHA256SUMS`, the series' own `--check`, and refuses any other
   HEAD.
 - **Where the text comes from**: `patches/main-1ece6e6db-r5-int4` for 0021 and 0022 and `patches/main-1ece6e6db-r5-kvtier`
-  for 0023 and 0024 and `patches/main-1ece6e6db-r5-kvtier-pool` for 0025, each byte for byte. Those packages record
+  for 0023 and 0024 and `patches/main-1ece6e6db-r5-kvtier-pool` for 0025 and 0028, each byte for byte. Those packages record
   their own provenance: the INT4 port re-seated from the r2 series with one hand-resolved conflict
   (`main-1ece6e6db-r5-int4/RECORD.md`), the fp8 image and the append dedup attributed to the two tier windows
-  (`main-1ece6e6db-r5-kvtier/RECORD.md`), and the pool refusal attributed to the measured plan at production's shape
-  (`main-1ece6e6db-r5-kvtier-pool/RECORD.md`).
+  (`main-1ece6e6db-r5-kvtier/RECORD.md`), and the pool refusal and the whole-ask split attributed to the measured plan
+  at production's shape (`main-1ece6e6db-r5-kvtier-pool/RECORD.md`).
 - **Whether we edited it**: the composition adds no line of its own. The only change is the renumbering of the tier's
   and the pool's patches so they sort after the INT4 pair; `sha256sum` proves each patch is the source package's file
   (`CHANGES.md` has the table).
-- **Base for a rebuild**: apply the five to a pristine checkout at the base above, or extract the gated tree the host
+- **Base for a rebuild**: apply the six to a pristine checkout at the base above, or extract the gated tree the host
   proved (`head.tgz`, sha256 `dba3520a2f12f7c86141660f61eac120b096aa848a5ccfb13422c8c917bcc46e`, 13,319 files).
 
 ## Checks

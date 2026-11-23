@@ -1,6 +1,6 @@
 # `main-1ece6e6db-r5-int4-kvtier`: what it changes against the packages it composes
 
-No source line is written here that is not in one of the four packages: the five patches are those packages' patches,
+No source line is written here that is not in one of the four packages: the six patches are those packages' patches,
 byte for byte, with the tier's and the pool's numbers moved after the INT4 pair. This file records what the
 composition changes in behaviour, and which of the recorded numbers still apply to the arm it builds.
 
@@ -27,6 +27,17 @@ pages are sized first and leave the prompt cache zero, so the tier would write a
 accepted. The INT4 shape is exactly where that was measured (`no prompt cache` beside `389 pages of 4096 rows`,
 2026-11-19). `0025` refuses that shape by name.
 
+## The sixth patch: the store's budget is the whole ask
+
+`0028-kv-tier-full-ask.patch` is `patches/main-1ece6e6db-r5-kvtier-pool/0024` byte for byte
+(sha256 `cfec2bb31c847fed1523812639125b6a6267ceee4e85970d1918f513768272db`). At this directory's shape the five-patch
+head budgeted the store half of the 6 GiB ask - `kv_pool.split`'s null name reserves half the cache in snapshot slots,
+and Flash Next (`qwen4_exp`) declares no `snap_slots`, so nothing spent that half - and the `/stats` budget was
+3,320,107,008 B. With the sixth it is the ask: 6,442,450,944 B. No other number this file records moves: the pages,
+the streams, the refusals and the tier's measured writes are the same plan, and a family that declares `snap_slots`
+still reserves the half (a null name) or exactly the count it names. The mechanism is in
+`patches/main-1ece6e6db-r5-kvtier-pool/README.md`; this directory's gate rows are in `RECORD.md`.
+
 ## Against `patches/main-1ece6e6db-r5-kvtier` (the tier alone)
 
 The arm gains the INT4 port: production's checkpoint admitted and served by this engine, with the GPTQ reader read
@@ -39,7 +50,7 @@ writeback-with-normalize call and the INT4 `slots - 1, slots` widths kept togeth
 
 The tier's own code is untouched by that port: the two packages meet at `cuda.zig` (the port's loader arm and the
 tier's store creation are separate blocks) and at the FP8 split of the checkpoint's experts, which the INT4 port keeps
-as its own loader arm. The gate run is what proves it: five patches apply in order, the file counts are the INT4
+as its own loader arm. The gate run is what proves it: six patches apply in order, the file counts are the INT4
 package's base plus the tier's and the pool's files, and every test step of both packages passes on the result.
 
 ## What the composition does not change

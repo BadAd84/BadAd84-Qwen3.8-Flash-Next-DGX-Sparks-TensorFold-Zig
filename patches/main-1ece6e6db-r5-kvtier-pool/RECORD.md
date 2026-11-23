@@ -2,20 +2,29 @@
 
 ## What this is
 
-One patch, `0023-kv-tier-pool.patch` (sha256
-`e6a4872ed53041d3e5e4b850a3733dadba764b15c54941420bd4b480a9032589`), added on top of
-`patches/main-1ece6e6db-r5` (0001 to 0020) and `patches/main-1ece6e6db-r5-kvtier` (0021, 0022). It is cut against
-the tier's tree, so those twenty-two patches are byte-identical here and the whole set applies in filename order.
+Two patches, added on top of `patches/main-1ece6e6db-r5` (0001 to 0020) and `patches/main-1ece6e6db-r5-kvtier`
+(0021, 0022):
+
+| patch | sha256 | what |
+|---|---|---|
+| `0023-kv-tier-pool.patch` | `e6a4872ed53041d3e5e4b850a3733dadba764b15c54941420bd4b480a9032589` | a plan that leaves the prompt cache no bytes refuses by name |
+| `0024-kv-tier-full-ask.patch` | `cfec2bb31c847fed1523812639125b6a6267ceee4e85970d1918f513768272db` | a family that declares no `snap_slots` is budgeted its whole ask |
+
+Both are cut against the tier's tree, so those twenty-two patches are byte-identical here and the whole set applies in
+filename order.
 
 - **Repository and base**: upstream TensorFold `main`, `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, plus
   `patches/main-1ece6e6db-r5` 0001 to 0020 and `patches/main-1ece6e6db-r5-kvtier` 0021 and 0022.
-- **Source of the change**: our own work, not an upstream import. The attribution is the measured plan at production's
-  shape (`work/KvTierShip/STATUS.md` records the `int4-c8` line of 2026-11-19 and the three inert sites) and the tier
-  design (`work/KvTierRecon/DESIGN.md`). The code is written by us against the tier's tree.
-- **We edited**: yes, all three files, by us.
-- **Base for a rebuild**: apply r5, then the tier, then this patch to a pristine checkout at the base above, or
-  extract the gated tree the host proved (`head.tgz`, sha256
-  `dba3520a2f12f7c86141660f61eac120b096aa848a5ccfb13422c8c917bcc46e`, 13,319 files).
+- **Source of the change**: our own work, not an upstream import. `0023`'s attribution is the measured plan at
+  production's shape (`work/KvTierShip/STATUS.md` records the `int4-c8` line of 2026-11-19 and the three inert sites)
+  and the tier design (`work/KvTierRecon/DESIGN.md`). `0024`'s is the same plan's other half, measured in
+  `work/TierFollowup/RESULT.md` and `docs/receipts/KvTierShip/SHAPES.md`: a 6 GiB ask at the served shape gave the
+  store 3,320,107,008 B, of which the 27 x 115,642,400 B slot half was allocated by nothing, and the review that named
+  the consequences is `docs/receipts/Glm54Review/REPORT.md` F2. Both are written by us
+  against the tier's tree, with no upstream text.
+- **We edited**: yes: `0023`'s three files and `0024`'s four, all by us.
+- **Base for a rebuild**: apply r5, then the tier, then these two to a pristine checkout at the base above, or
+  extract the gated tree the host proved (`head.tgz`, sha256 in `docs/receipts/FullAsk/RESULT.md`, 13,319 files).
 
 ## The patch's shape
 

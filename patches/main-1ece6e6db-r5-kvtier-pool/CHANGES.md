@@ -1,8 +1,26 @@
 # `main-1ece6e6db-r5-kvtier-pool`: what it changes against the packages it sits on
 
+## The second patch: a family that declares no snapshot slots is budgeted its whole ask
+
+`0024-kv-tier-full-ask.patch` (sha256 `cfec2bb31c847fed1523812639125b6a6267ceee4e85970d1918f513768272db`), four
+files, +51 / -4:
+
+| file | + / - | what |
+|---|---:|---|
+| `zig/src/core/kv_pool.zig` | +4 / -3 | `split` hands the whole cache to the copies when no slot is named or none fits (`snaps == 0`), and the two doc lines say so |
+| `zig/src/native/cuda_kv_pool.zig` | +1 / -1 | `budgetOf` passes the count the family declares - `slots orelse named(o)`, and 0 for a family without `snap_slots` - instead of a null that `split` reads as half the cache |
+| `zig/src/core/kv_pool_test.zig` | +20 / -0 | the core witness: 6 GiB -> 6,442,450,944 B of copies, 27 slots -> 3,320,107,008 B (the /stats figure), the same page count either way |
+| `zig/src/native/cuda_cache_capacity_test.zig` | +26 / -0 | the budget witness: a family without `snap_slots` gets the whole ask, one that declares them still the half, and a named count still that many |
+
+Nothing in `0023` changes, and no family that declares `snap_slots` changes: a null name is still half the cache there,
+and a named count still reserves exactly that many slots. At the served shape the store's budget goes from
+3,320,106,144 B to 6,442,450,944 B for a 6 GiB ask, and the plan's pages do not move (the plan already took the whole
+cache out of the room). The mechanism, the arithmetic and the two witness tests are in `README.md`; the gates and the
+device receipt are in `RECORD.md`.
+
 ## Against `patches/main-1ece6e6db-r5-kvtier` (0021 fp8, 0022 dedup)
 
-One patch is added after the tier's two; nothing in the tier's two changes.
+Two patches are added after the tier's two; nothing in the tier's two changes.
 
 | file | sha256 |
 |---|---|
@@ -17,7 +35,7 @@ refusal at plan time.
 ## Against `patches/main-1ece6e6db-r5-int4` (0021 autoround, 0022 serving pins)
 
 The INT4 package's two are carried byte-identical, the tier's two follow them, and this one is last. The combined
-package is `patches/main-1ece6e6db-r5-int4-kvtier`, whose five patches are the four above renamed in place:
+package is `patches/main-1ece6e6db-r5-int4-kvtier`, whose six patches are the four above renamed in place:
 
 | combined patch | source | sha256 |
 |---|---|---|
@@ -26,6 +44,7 @@ package is `patches/main-1ece6e6db-r5-int4-kvtier`, whose five patches are the f
 | `0023-kv-tier-fp8.patch` | `main-1ece6e6db-r5-kvtier/0021` | `47d90e3b5f71cd9a0404bb6f1ce836e09f709ebea44851308e8440e65d479dc7` |
 | `0024-kv-tier-dedup.patch` | `main-1ece6e6db-r5-kvtier/0022` | `cd5a336200f7c218fa53e52fdc11d51f2ee2b34a4010fcb4dda297e15ebda864` |
 | `0025-kv-tier-pool.patch` | this package's `0023` | `e6a4872ed53041d3e5e4b850a3733dadba764b15c54941420bd4b480a9032589` |
+| `0028-kv-tier-full-ask.patch` | this package's `0024` | `cfec2bb31c847fed1523812639125b6a6267ceee4e85970d1918f513768272db` |
 
 The rename is the whole difference: the combined directory applies in glob order onto r5's twenty, which is how
 `scripts/qwen38/zig/target/build_patches.sh` applies a directory, and it is the tree the device window builds.
