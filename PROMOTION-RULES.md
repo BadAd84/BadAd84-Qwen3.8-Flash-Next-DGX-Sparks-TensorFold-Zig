@@ -14,7 +14,15 @@ them says so.
 
 ## Env rows
 
-- **Complete.** Every row of the served engine's settings table whose scope this serve reads is SET in both env files
+**Scope when two engines are served.** This repo serves a production engine and a dev engine from different
+trees (different base, different patch set). Then "every row set in both files" means every row of EACH file's own
+tree, and the cross-file test applies only to names both trees read. A name the target tree no longer reads is
+*retired*, not copied: it leaves that tree's env file with a `retired NAME=` verdict naming the engine version that
+dropped it. Copying a dead name into a live env file states a setting nothing reads, which is the same class of lie
+as leaving a live setting unset.
+
+- **Complete.** Every row of each served engine's settings table whose scope it reads is SET in that engine's env
+  file (both files when both serve one engine); see the scope paragraph above for two engines.
   (`prod.env` and `dev.env`, or whatever they are called here), at a measured value or at the engine's own default
   written down. "Unset" is not a value: the engine's default may change in a rebase and take the serve with it.
 - **One verdict a row**, in the register, with an evidence path on every line:
@@ -28,6 +36,8 @@ them says so.
     the launcher.
   - `absent NAME=` - no value is the decision (no key file, no ceiling), and the register says what the absence means.
   - `candidate NAME=VALUE` - a dev-only override, see below.
+  - `retired NAME=` - the engine this file serves no longer reads the name; the verdict names the version that dropped it
+    and the other engine that still sets it, if any.
 - **`dev.env` is `prod.env` plus candidates.** A candidate may only raise a row that `prod.env` keeps at the engine's
   default, and it may not repeat prod's value (that decides nothing). A candidate that overturns a measured line is a
   finding, not a test.

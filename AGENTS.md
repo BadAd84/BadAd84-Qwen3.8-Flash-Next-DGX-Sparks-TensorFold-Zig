@@ -26,8 +26,10 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   engine's table set in BOTH env files, `dev.env` being `prod.env` plus candidates that only raise a default,
   one verdict a row in the register with its evidence, and a measured winner promoted into the launcher and
   every forwarding driver in the commit that carries its cells. `docs/PROMOTION-COMPLIANCE.md` holds the
-  measured gap: `prod.env` states 54 rows and the production engine's table is not yet read, `dev.env` omits
-  40 rows `prod.env` sets and overturns 2, and no launcher sync gate exists yet.
+  measured gap: `prod.env` states 54 rows and the production engine's own table is not yet read; of the 40 rows it
+  sets that `dev.env` omits, 39 are names the dev engine no longer reads and 1 is plumbing, so they are `retired`
+  on the dev side rather than copied; two rows the dev file overturns (`TENSORFOLD_CUDA_KERNELS`,
+  `TF_FLASHNEXT_PRODUCT_STREAMS`) are the real findings, and no launcher sync gate exists yet.
 - `scripts/qwen38/README.md` is the SSOT for the serve: the env of record, the series, and each lever's measurements.
   `patches/*/README.md` carries each lever's evidence.
 - `patches/main-1ece6e6db-r5/` - EVERY change we own on upstream main `1ece6e6db` as numbered `.patch` files applied in

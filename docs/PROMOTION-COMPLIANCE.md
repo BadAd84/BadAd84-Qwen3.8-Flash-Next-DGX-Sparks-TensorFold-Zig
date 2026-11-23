@@ -17,17 +17,19 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
    `production/Dockerfile.zmerge8k` with `SRCIMG=tensorfold-qwen38:zmerge8`, so its engine table lives in that
    image's source stage. Completing `prod.env` means reading that tree's `zig/src/platform/environment.zig`,
    then stating every row at the production launcher's value or at the engine default written down.
-2. **`dev.env` is `prod.env` plus candidates.** Not met. Measured by name:
-   - **40 rows `prod.env` states and `dev.env` omits** (for example `TF_FLASHNEXT_COPY_MISS`, `COPY_RAMP`,
-     `MULTI_LRU`, `NGRAM_THREADS`, `TF_FLASHNEXT_MTP_FP8`, `TF_FLASHNEXT_PREFILL_ROWS`, `PROMPT_HEAD_SKIP`,
-     `QSA_SELECT`, `SOLO_MAX`, `YARN`, `TENSORFOLD_PROMPT_CACHE_WHOLE`). A dev boot therefore drops settings the
-     production launcher sets and runs the image ENV or the engine default instead, which is the drift the rule
-     names.
-   - **94 rows only `dev.env` states.** Allowed only where `prod.env` keeps the same row at the engine default;
-     until the production table is read, that cannot be shown row by row.
+2. **`dev.env` is `prod.env` plus candidates**, applied to names both engines read. Measured by name:
+   - **40 rows `prod.env` states and `dev.env` omits. They are not a dev gap:** checked against the dev tree, **0** are
+     in its settings table, **1** is read by dev code (`TF_FLASHNEXT_HC_Q12`, plumbing), and **39 appear nowhere in
+     the dev tree**. Those 39 are names the newer engine dropped or renamed, so stating them in `dev.env` would
+     configure nothing; under the scoped rule they are `retired` on the dev side, with the production engine still
+     setting them.
+   - **94 rows only `dev.env` states:** candidates on the dev engine. Whether each has a production counterpart is
+     unknown until the production table is read; the ones with no production reader are dev-engine additions, not
+     candidates.
    - **2 rows `dev.env` overturns that `prod.env` sets:** `TENSORFOLD_CUDA_KERNELS` (production launcher
      `/opt/tensorfold/share/tensorfold/cuda/sm121`, dev `native`) and `TF_FLASHNEXT_PRODUCT_STREAMS`
-     (production `8`, dev `5`). Under the rule each is a finding, not a test.
+     (production `8`, dev `5`). These two are real findings: each is a dev choice made against a name the production
+     engine reads, and each needs either its own measurement or a per-engine verdict.
 3. **One verdict a row, in the register, with evidence.** Not met in the rule's vocabulary. The register annotates
    rows, but the six verdicts (`measured`, `inert`, `debt`, `raw`, `launcher`, `absent`, `candidate`) and their
    evidence lines are not yet the register's form; two rows carry annotations rather than a verdict.
