@@ -14,6 +14,17 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   harnesses, the measurements. It follows upstream: on each release the series is re-seated
   (`scripts/qwen38/zig/target/reseat.py`) and every lever re-tested. When `main` matches or beats
   `production/SPEED-TARGET.md` at 1, 2, 4, 6 and 8 streams, production is retired and replaced from here.
+- **Work branches are temporary; `main` is the integration point (owner 2026-11-23).** A lever gets a short-lived
+  branch: a branch of `BadAd84/TensorFold` cut from upstream `main` when the leverage is to be upstreamed, or a local
+  test branch when it is only ours. It is developed and measured there. The moment the measurement says it is
+  beneficial, it JOINS `main`: its content is added to the single dev composition
+  (`patches/main-1ece6e6db-r5-dev/`) as a numbered patch, its env row and launcher default are promoted in the same
+  commit (`PROMOTION-RULES.md`), and the branch is deleted with its sha recorded in the package RECORD. No measured
+  win may live only on a branch: five patches that never run together are worth nothing. When upstream merges an
+  upstream branch, the patch retires and the name check runs before deletion.
+- **The composition is what replaces production.** `main` carries the one composition as the dev engine; when it
+  matches or beats `production/SPEED-TARGET.md` at 1, 2, 4, 6 and 8 streams, that composition becomes the production
+  replacement and `production` is retired.
 
 ## Layout
 - `scripts/qwen38/` - the serve's files, AUTHORED here and COPIED to spark6 (`~/qwen6-start.sh`, `~/qwen-zig` for the
