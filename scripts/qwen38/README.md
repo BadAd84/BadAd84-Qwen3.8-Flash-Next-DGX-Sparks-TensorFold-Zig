@@ -19,12 +19,12 @@ restored from its own launcher.
 - **At production's shape** (8 x 262,144, fp8 KV, production's 54 names plus the page pool) the INT4 arm reads 0.79 of
   production on prose and 0.95 on code at eight streams, level on code at one, two and four; cold prefill is level at 1k
   and 19 to 22 percent behind at 8k and 32k (`work/DevVsProd/RESULT.md`).
-- **Quality: an open defect.** The 2026-11-22 window on the r2 tree scored GSM8K at 8.8 percent (FP4) and 28.6 percent
-  (INT4) against 96.8 and 96.4 on 2026-11-19, because the build answered a few-shot example instead of the question (166
-  of 500 GSM8K replies on FP4 and 145 of 500 on INT4 name the jelly-beans example, against 0 and 1). The 0008
-  shared-direct write-back is the prime suspect and its r4 fix is in the series, but no r5 or r5-int4 prompt-following
-  run exists yet and the re-run is queued: internal exactness is no evidence here (`work/Int4Window/QUALITY-DEFECT.md`,
-  and `docs/INT4-PORT.md` has the full reading).
+- **Quality: the r2 prompt-following defect does not reproduce on r5.** The 2026-11-22 window on the r2 tree
+  scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the build answered a few-shot example instead
+  of the question. Measured on 2026-11-23 over all 1,664 items on both r5 arms: echo 1 of 500 each, GSM8K 96.8
+  percent on both, MMLU-Pro 75.2 and 75.1, HumanEval 87.2 and 82.3, recitation 82.5 and 82.0, and r5 FP4 is
+  byte-identical to the 2026-11-19 FP4 build on all 1,664 replies, so the r4 fix closed it
+  (`work/EnvBoot/RESULT.md`, and `docs/INT4-PORT.md` has the table).
 
 ## The environment
 

@@ -290,16 +290,26 @@ six and -18% / -11% at eight. What remains at eight streams on prose is drafting
 round: at four streams the round costs 51.1 ms against production's 51.5 while tokens a round read 3.01 against 3.28,
 with acceptance 0.718 against 0.750 (`work/ProseDraft/RESULT.md`).
 
-## Quality: an open defect
+## Quality: the r2 defect does not reproduce on r5
 
-The 2026-11-22 quality window on the r2 tree scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the
-build answered a few-shot example instead of the question (`work/Int4Window/QUALITY-DEFECT.md`): 166 of 500 GSM8K
-replies on FP4 and 145 of 500 on INT4 name the prompt's jelly-beans example, against 0 and 1 in the 2026-11-19 run, and
-1,654 of 1,664 items sit in the prompt-length band where the build diverges. The 0008 shared-direct write-back is the
-prime suspect: the same lever produced a 0 of 20 answer set on the r2 image, and its r4 fix (the mode-3
-`hc_writeback_norm`, gated byte for byte against mode 2) is in the r5 series. No r5 or r5-int4 prompt-following run
-exists yet; the re-run of all 1,664 items is queued, and until it lands treat internal exactness (drafted equals
-`"draft": false`) as no evidence about prompt following and make no quality claim for either arm.
+The 2026-11-22 window on the r2 tree scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the build
+answered a few-shot example instead of the question (`work/Int4Window/QUALITY-DEFECT.md`): 166 of 500 GSM8K replies
+on FP4 and 145 of 500 on INT4 named the prompt's jelly-beans example. The 0008 shared-direct write-back was the
+suspect, and its r4 fix (the mode-3 `hc_writeback_norm`, gated byte for byte against mode 2) is in the r5 series.
+
+**Measured 2026-11-23 on both r5 arms, all 1,664 items, the same harness and item set** (`work/EnvBoot/RESULT.md`):
+
+| arm | echo | GSM8K | MMLU-Pro | HumanEval | MMLU recitation |
+|---|---|---|---|---|---|
+| r5 FP4 | 1 of 500 | 484/500 = 96.8 percent | 75.2 percent | 87.2 percent | 82.5 percent |
+| r5 INT4 | 1 of 500 | 484/500 = 96.8 percent | 75.1 percent | 82.3 percent | 82.0 percent |
+| 2026-11-19 FP4 baseline | 1 of 500 | 96.8 percent | 75.2 percent | 87.2 percent | 82.5 percent |
+| 2026-11-19 INT4 | 0 of 500 | 96.4 percent | 75.9 percent | 81.1 percent | 82.6 percent |
+
+The one echo on each arm is `gsm8k-test-31`, whose own question is about jelly beans, and r5 FP4 is byte-identical
+to the 2026-11-19 FP4 build on all 1,664 replies. The instrument was controlled by reproducing the defect report's
+own counters first (echo 166 and 145 on r2, recitation 51.1 and 54.9 percent). So the defect is closed for r5 and
+r5-int4: prompt following matches the pre-defect baseline, and the exactness tests were never the evidence for it.
 
 ## PR #4183, state
 
