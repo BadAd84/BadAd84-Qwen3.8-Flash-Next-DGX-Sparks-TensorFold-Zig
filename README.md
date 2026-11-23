@@ -37,7 +37,6 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`ots-
 - **`GB10-THERMAL-BENCHMARK-METHODOLOGY.md`** - the GB10 sustained clock/power/thermal envelope: clocks sag ~4% in
   50 s and settle ~2170-2200 MHz at 80-83 C with no throttle bits, so benchmarks interleave arms, record start temps
   and never compare differently-hot boxes; also why `nvidia-smi -lgc` is not a speed lever.
-- **`AFFINE3-TILE-MISPICK-2026-11-06.md`** - the affine-3 routed expert kernel's decode-tile mis-pick at 4 rows.
 
 ## scripts/qwen38/
 The serve: the MiaAI-Lab recipe on spark6, our levers as numbered patches (`patches/main-1ece6e6db-r5*`), the

@@ -66,15 +66,24 @@ shipped r5int4 image, whose engine has no tier patch, the argument check refuses
 `--prompt-cache-disk`, so a window that needs only the in-RAM cache passes `--prompt-cache-gib 6` alone.
 
 - **Resume.** An appended agent turn resumes instead of re-prefilling: 1.042 and 1.226 s TTFT against 44.206 and
-  44.305 s cold, 116.16 and 118.03 MiB a turn, every reply byte-equal to its no-tier twin, decode level in all 30 cells
-  at 1, 2, 4, 6 and 8 streams (`work/KvTierShip/RESULT.md`, `work/KvTierShip/SHAPES.md`).
+  44.305 s cold, 116.16 and 118.03 MiB a turn. Decode was level in all ten cells (prose and code at 1, 2, 4, 6 and
+  8 streams, three timed waves each) under the window's disjoint-range rule; with the control's cold first wave
+  excluded, the two arms' warm-wave means agree within 0.4 percent (`docs/receipts/KvTierShip/ev2.tgz`, its
+  `tables.md` section 3b), and that rule could not have detected a 2 percent cost
+  (`docs/receipts/KvTierShip/RESULT.md` section 2, `docs/receipts/KvTierShip/SHAPES.md`). The replies carry
+  identical per-stream sha lists and identical drafted and accepted totals in all 30 wave cells on both arms.
 - **Exactness at equal depth** holds at four depths (tails 34, 77, 1,781 and 5,050 tokens at 100k), and five of five
-  resume pairs in the dedup lane (`work/KvTierW5/RESULT.md`, `work/KvTierDedup/RESULT.md`). A depth difference is the
-  engine's own numerics, not the store: the RAM twin at the same depth equals the tier cell.
+  resume pairs in the dedup lane (`docs/receipts/KvTierW5/RESULT.md`, `docs/receipts/KvTierDedup/RESULT.md`). Two of the four depths also
+  have a strict RAM twin (tails 77 and 5,050), which equals the tier cell; the other two (tails 34 and 1,781) are
+  ids-equal to their cold twins only, with no RAM twin run. In that table every cell's reply is 320 tokens of the same
+  count and shares sha16 `277412fd297b56aa`, including a cold twin whose passage was replaced, so ids-equal shows the
+  instruction survived, not that the stored rows are right. A depth difference is the engine's own numerics, not the
+  store.
 - **Append dedup** (`0022-kv-tier-dedup.patch` of `patches/main-1ece6e6db-r5-kvtier`): 115.1 MiB a turn against 228.1
-  before it, so a 60 GiB budget holds 508 append turns and a 100-turn 100k conversation writes 14.1 GiB instead of
-  25.0. The one shape where the bytes do not halve is a reply plus message of 256 tokens or more, where the rewind state
-  is genuinely useful and both arms keep it (231.2 MiB on both).
+  for replies under 256 tokens (the mean of turns 6, 8, 9 and 10), so a 60 GiB budget holds 508 such append turns and
+  a 100-turn 100k conversation writes 14.1 GiB instead of 25.0. The one shape where the bytes do not halve is a reply
+  plus message of 256 tokens or more, where the rewind state is genuinely useful and both arms keep it: turn 7, after
+  a 320-token reply, wrote 231.2 MiB on both arms.
 - **A rewrite costs a full prefill.** Changing the system message invalidates every state, so that turn pays the cold
   prefill and writes the full row set (`work/KvTierW4/RESULT.md`). The tier buys resume time and store bytes, not decode.
 
@@ -93,10 +102,10 @@ and the difference read as an engine gap. `TF_FLASHNEXT_SHARED_DRAFTS=0` restore
 | ms a round | 46.2 | **51.1** | 51.5 |
 | decode, tokens a second | 207.8 | **229.0** | 247.0 |
 
-That is +10.2 percent on prose at four streams and 54 percent of the gap to production, exact on every arm (drafted
-equals `"draft": false`, concurrent equals solo, resumed equals fresh) and 7 to 11 percent at two to eight streams. The
-residual is drafting volume left in the drafter, not the round: 2.8 drafted a round against production's 3.03 with
-acceptance 0.718 against 0.750 (`work/ProseDraft/RESULT.md`).
+That is +10.2 percent on prose at four streams and 54 percent of the four-stream prose gap to production, exact
+on every arm (drafted equals `"draft": false`, concurrent equals solo, resumed equals fresh) and 7 to 11 percent at
+two to eight streams. The residual is drafting volume left in the drafter, not the round: 2.8 drafted a round against
+production's 3.03 with acceptance 0.718 against 0.750 (`docs/receipts/ProseDraft/RESULT.md`).
 
 ## RigMark + TTFT: `zig/bench/`
 
