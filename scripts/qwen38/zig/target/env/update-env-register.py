@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Refresh the env register against the engine's own settings table.
 
-Run at every re-seat, pointing --table at the new tree's `zig/src/platform/environment.zig`. It
-keeps every existing verdict line as written, and appends a `debt` line for each setting the table
-now has that the launcher env does not set and the register does not name. That is what turns a new
-upstream knob into a visible entry instead of a silently inherited default; the coverage gate then
-fails if anyone skips the step.
+Run at every re-seat, pointing --table at the new tree's `zig/src/platform/environment.zig`. It keeps
+every existing annotation as written, and appends a temporary `# missing NAME=<default>` worklist line
+for each setting the table now has that the launcher env does not set and the register does not
+already name. The worklist is what turns a new upstream knob into a visible entry instead of a silently
+inherited default; the coverage gate then fails until each line is moved into the launcher env, with its
+citation, and deleted here. The verdict classes are annotations on values that are set, never a
+substitute for setting one.
 """
 import argparse
 import re
@@ -29,6 +31,7 @@ def main() -> int:
     ap.add_argument("--carried-pattern", default=r"^export ([A-Z0-9_]+)=")
     ap.add_argument("--evidence", default="docs/ENV-REGISTER.md")
     ap.add_argument("--source", default="", help="the tree label to record (default: the table's git sha)")
+    ap.add_argument("--defaults-from-tree", default="", help="a tree whose zig/src read sites supply each setting's literal default")
     args = ap.parse_args()
 
     scopes = {s.strip() for s in args.scopes.split(",") if s.strip()}
@@ -58,25 +61,54 @@ def main() -> int:
     sha = args.source or (subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
                                         capture_output=True, text=True).stdout.strip() or "unknown")
 
+    defaults = {}
+    if args.defaults_from_tree:
+        import re as _re
+        pat = _re.compile(r'environment\.read\(\s*[A-Za-z0-9_?.]+\s*,\s*"([A-Z0-9_]+)"\s*,\s*([^)]+)\)')
+        for f in Path(args.defaults_from_tree, "zig", "src").rglob("*.zig"):
+            txt = f.read_text(encoding="utf-8", errors="replace")
+            for m in pat.finditer(txt):
+                defaults.setdefault(m.group(1), (m.group(2).strip(), str(f).split("zig/src/")[-1]))
+
     added = []
     for name, scope, forms in rows:
         if name in carried or name in known:
             continue
-        added.append(f"# debt {name}: new in the table at {sha[:9]}, not measured on this stack; forms {forms};"
-                     f" evidence {args.evidence}")
+        if name in defaults:
+            value, where = defaults[name]
+            how = ("literal" if value in ("true", "false") or value.replace("-", "").isdigit()
+                   else "expression: " + value)
+            added.append(f"# missing {name}={value}  # {how}, read at {where}; forms {forms}")
+        else:
+            added.append(f"# missing {name}=???  # no literal default found in the tree; forms {forms}")
         known.add(name)
 
-    header = (f"# {HEADER}: a verdict for every setting this serve reads, from the engine's own table.\n"
-              f"# One line per setting the launcher does not set: default-ok (with its measurement),\n"
-              f"# debt (explicit and counted, to be measured) or unreachable (with the reason).\n"
-              f"# check-env-coverage.py fails on any setting with no line and on any line with no setting.\n")
-    body = [l for l in old if not l.startswith(f"# {HEADER}")]
+    header = (f"# {HEADER}: annotations on settings dev.env sets, never a substitute for setting one.\n"
+              f"# The rule (owner, 2026-11-23): no setting may be unset. Every setting the served table has is set in\n"
+              f"# dev.env at a stated value, and choosing the engine default means writing that default out with its\n"
+              f"# read site. A rebase that adds a row fails check-env-coverage.py until its value is written in dev.env\n"
+              f"# and the worklist line this script added is deleted. A `# missing NAME=` line is temporary work,\n"
+              f"# never a resting state; a `# default-ok|debt|unreachable NAME:` line annotates a value that is already\n"
+              f"# set and must cite its evidence.\n")
+    # Drop the old header as one contiguous comment block: matching its first line alone left its own
+    # continuation lines in the body, so they accumulated one re-seat at a time. An annotation line ends
+    # the block even when someone writes it straight under the header.
+    body = list(old)
+    for i, line in enumerate(body):
+        if line.startswith(f"# {HEADER}"):
+            end = i
+            while end < len(body) and body[end].startswith("#") and not VERDICT.match(body[end]):
+                end += 1
+            body = body[:i] + body[end:]
+            break
+    while body and body[0].strip() == "":
+        body.pop(0)
     out = "\n".join([header] + body) + "\n"
     if added:
         out += "\n# Added by update-env-register.py against %s.\n" % sha[:9] + "\n".join(added) + "\n"
-    reg.write_text(out, encoding="utf-8")
+    reg.write_text(out, encoding="utf-8", newline="\n")  # LF on every OS: the boxes source this file
     print(f"register: {len(rows)} settings in scope, {len(carried)} carried in the launcher env, "
-          f"{len(known)} verdicts, {len(added)} added as debt")
+          f"{len(known)} verdicts, {len(added)} added to the worklist")
     return 0
 
 
