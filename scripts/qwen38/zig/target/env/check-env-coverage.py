@@ -27,7 +27,10 @@ env of record then claims a setting the engine runs its own default for. `--meas
 that starts the defaults section so the message can say whether the lost value was a measured lever or a
 stated default; it never downgrades the failure.
 
-A `# default-ok|debt|unreachable NAME:` line in the register is an ANNOTATION on a value that is set,
+A `# <verdict> NAME:` line in the register is an ANNOTATION on a value that is set or deliberately absent,
+with the verdict vocabulary of `PROMOTION-RULES.md` plus the legacy `default-ok` and `unreachable`: `measured`,
+`inert`, `debt`, `raw`, `launcher`, `absent`, `candidate` and `retired`. A `retired` line names a setting the
+served engine no longer reads; every other verdict annotates one it sets
 never a substitute for setting it (VERDICT-ONLY fails). A `# missing NAME=` worklist line is temporary:
 each is moved into the launcher env with its citation and deleted here, and the gate fails while one
 remains (WORKLIST). A verdict line naming a setting the table no longer has is STALE and also fails, so
@@ -45,7 +48,7 @@ ROW = re.compile(r'\.\{ \.name = "([A-Z0-9_]+)"')  # a row starts here; fields a
 SCOPE = re.compile(r'\.scope = \.(\w+)')
 KIND = re.compile(r'\.kind = \.(\w+)')
 FORMS = re.compile(r'\.forms = "([^"]*)"')
-VERDICT = re.compile(r"^#\s*(default-ok|debt|unreachable)\s+([A-Z0-9_]+)\s*:\s*(.*)$")
+VERDICT = re.compile(r"^#\s*(default-ok|debt|unreachable|measured|inert|raw|launcher|absent|candidate|retired)\s+([A-Z0-9_]+)\s*:\s*(.*)$")
 IMAGE_BAKED = re.compile(r"^#\s*image-baked\s+([A-Z0-9_]+)=([^:]*):\s*(.*)$")
 MISSING = re.compile(r"^#\s*missing\s+([A-Z0-9_]+)=(.*)$")
 CITE = re.compile(r"(work/[A-Za-z0-9_./-]+|docs/[A-Za-z0-9_./-]+|int-docs/[A-Za-z0-9_./-]+|scripts/[A-Za-z0-9_./-]+)")
@@ -187,7 +190,9 @@ def main() -> int:
             m = MISSING.match(line)
             if m:
                 markers.append(m.group(1))
-    stale = sorted(n for n in verdicts if n not in rows)
+    non_row_kinds = {"retired", "raw", "launcher", "absent"}
+    stale = sorted(n for n in verdicts if n not in rows and verdicts[n] not in non_row_kinds)
+    stale += sorted(n for n in verdicts if n in rows and verdicts[n] == "retired")
     for name in silent:
         scope, forms = rows[name]
         problems.append(f"MISSING {name} ({scope}, forms {forms}): not set in the env")

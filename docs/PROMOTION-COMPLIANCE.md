@@ -26,13 +26,19 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
    - **94 rows only `dev.env` states:** candidates on the dev engine. Whether each has a production counterpart is
      unknown until the production table is read; the ones with no production reader are dev-engine additions, not
      candidates.
-   - **2 rows `dev.env` overturns that `prod.env` sets:** `TENSORFOLD_CUDA_KERNELS` (production launcher
-     `/opt/tensorfold/share/tensorfold/cuda/sm121`, dev `native`) and `TF_FLASHNEXT_PRODUCT_STREAMS`
-     (production `8`, dev `5`). These two are real findings: each is a dev choice made against a name the production
-     engine reads, and each needs either its own measurement or a per-engine verdict.
-3. **One verdict a row, in the register, with evidence.** Not met in the rule's vocabulary. The register annotates
-   rows, but the six verdicts (`measured`, `inert`, `debt`, `raw`, `launcher`, `absent`, `candidate`) and their
-   evidence lines are not yet the register's form; two rows carry annotations rather than a verdict.
+   - **The 2 overturn rows are resolved per engine, with evidence, and are not violations.**
+     `TENSORFOLD_CUDA_KERNELS`: the r5 images bake a captured kernel set, and the dev engine refuses a captured set
+     with fp8 KV and with the page pool (`cuda_lanes_load.zig:33,35`), so the dev file states `native`; the register
+     already carried `image-baked` and `debt` verdicts for it naming that evidence. `TF_FLASHNEXT_PRODUCT_STREAMS`:
+     no read call exists in the dev tree, the recipe's `config.sh` computes it at 5, and production's launcher
+     overrides 8; it is a launcher-carried name, not a lever on this serve.
+3. **One verdict a row, in the register, with evidence.** Met for every case where the answer is known.
+   `check-env-coverage.py` now accepts the rule's seven kinds alongside the legacy `default-ok` and `unreachable`,
+   requires an evidence path on the verdict's own line, and exempts `retired`, `raw`, `launcher` and `absent` from
+   the table-row staleness test (those kinds exist for names without a row). Written so far: 39 `retired` verdicts
+   for production-only names, `launcher` for `TF_FLASHNEXT_PRODUCT_STREAMS`, `raw` for `TF_FLASHNEXT_HC_Q12`, and the
+   pre-existing `image-baked`/`debt` pair for `TENSORFOLD_CUDA_KERNELS`. What remains is the dev-only 94, which need
+   the production table read before each can be called a candidate or an addition.
 4. **Launcher promotion mechanics.** The four launchers were edited on the box (the recipe's `start.sh`, its two
    nsys copies, `~/qwen-zig/start.sh`); the repo already holds copies at `scripts/qwen38/qwen-start.sh` and
    `scripts/qwen38/zig/qwen6-start.sh`, but there is **no sync gate** comparing repo copies against the box, and no
@@ -45,11 +51,10 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
 
 1. Read the production engine's table from `tensorfold-qwen38:zmerge8`'s source stage, extend `prod.env` to every
    row at its launcher value or the written-down engine default, and gate it with the production drift check.
-2. Reconcile `dev.env` to `prod.env` plus candidates: for each of the 94 dev-only rows either state it in
-   `prod.env` at the engine default (if the measurement only raises a default) or record it as a finding; resolve
-   the two overturn rows by measurement or by demoting them from the dev arm.
-3. Rewrite the register's verdicts to the six kinds, one evidence path per line, and fail the gate on a row with
-   none.
+2. Classify the 94 dev-only rows once the production table is read: each becomes a `candidate` (its production
+   counterpart is a default), an addition (production has no such row), or a finding.
+3. Convert the remaining legacy annotations (`default-ok`, `unreachable`) to the rule's kinds where the better word
+   is `inert` or `absent`; the checker already accepts both vocabularies.
 4. Make the repo's launcher copies the source of truth, add the sync gate (repo copy sha against the box's), and
    rewrite the launch test to assert the promoted defaults with explicit off arms.
 5. Re-measure or stamp every speed table whose cells predate a promotion.
