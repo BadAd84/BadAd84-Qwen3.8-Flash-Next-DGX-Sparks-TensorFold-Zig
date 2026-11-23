@@ -54,12 +54,13 @@ trees. Every number below is the gate run's own line, `~/work/KvTierShip2/gate-r
 | `zig build -Dfixed-cpu test-kernel-contract` | `36/36 steps succeeded; 260/260 tests passed` |
 | `zig build compile-config-server -Dtarget=aarch64-linux-gnu` | `8/8 steps succeeded` |
 | `zig build compile-cuda-tests -Dtarget=aarch64-linux-gnu` | `10/10 steps succeeded` |
-| `zig build -Dnvcc=... compile-cuda-tests` (the runner) | rc 0, 645 s |
-| `zig build -Dnvcc=... -Dtarget=aarch64-linux-gnu compile-cuda-tests` (cross) | rc 0, 712 s |
+| `zig build -Dnvcc=... compile-cuda-tests` (the runner) | rc 0, 645 s; `Build Summary: 169/169 steps succeeded` |
+| `zig build -Dnvcc=... -Dtarget=aarch64-linux-gnu compile-cuda-tests` (cross) | rc 0, 712 s; `Build Summary: 169/169 steps succeeded` |
+| `zig build -Dnvcc=... -Doptimize=fast --prefix ... fatbins install native` | rc 0, 711 s; `FATBIN fn_int4: 1132920 bytes sha256 8080835ba1bccf4595f6ee21181e87fe8ed96f6d3d1da128bdfff8f81fa6beba`; `FATBIN images 125` |
+| `zig build -Dfixed-cpu test-cuda-cache-budget-host` (the pool's witness step) | `6/6 steps succeeded; 21/21 tests passed` |
+| the gate's `new_test_ran` check | fired `the pool guard's test ran in no host step`, so the run closed `GATES-DONE bad=1`; the check greps for a phrase Zig's runner prints only on failure, and the test is proved collected by the counts (19 before the pool patch, 21 after) and by a planted failure that names it (`20 pass, 1 fail (21 total)`), both recorded in `main-1ece6e6db-r5-kvtier-pool/RECORD.md` |
 
-`nvcc_fatbins` and `test-cuda-cache-budget-host` (the step that collects the pool witness test) were still running when
-this package was committed: the log's last line was `GATE nvcc_cross rc=0 wall=712s`. Their rows are added in a
-follow-up commit the moment the run closes, so no line here is left inferred.
+Every other line of the run is rc 0, and `GATES end ... bad=1` is that single check.
 
 ## The lean finding and its resolution
 
