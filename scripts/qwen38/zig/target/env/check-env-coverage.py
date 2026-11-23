@@ -97,6 +97,12 @@ def main() -> int:
         return 2
 
     carried_re = re.compile(args.carried_pattern)
+    dev_lines = Path(args.dev).read_text(encoding="utf-8").splitlines()
+    dev_lines_index = {}
+    for i, l in enumerate(dev_lines):
+        m = re.match(r'^(?:export|unset) ([A-Z0-9_]+)', l)
+        if m:
+            dev_lines_index[m.group(1)] = i
     absent_re = re.compile(args.absent_pattern)
     no_value_re = re.compile(args.no_value_pattern)
     dev_lines = Path(args.dev).read_text(encoding="utf-8").splitlines()
@@ -162,9 +168,15 @@ def main() -> int:
             null_default.add(m.group(1))
     for name in sorted(set(rows) & null_default):
         line = carried.get(name, "")
-        if not line.startswith("unset "):
-            problems.append(f"NULL-DEFAULT-AS-VALUE {name}: its reader defaults to null, so state it as `unset {name}`, "
-                            f"not `{line.split('=')[0] or line}`")
+        if line.startswith("unset "):
+            continue
+        # A value is allowed only when it is the SERVED value and the file says so: the recipe supplies some of these
+        # through ${NAME:-...}, and a receipt's own env then reads the recipe's value while absence would hide it.
+        idx = dev_lines_index.get(name, -1)
+        window = "\n".join(dev_lines[max(0, idx - 4):idx]) if idx >= 0 else ""
+        if "served value" not in window:
+            problems.append(f"NULL-DEFAULT-AS-VALUE {name}: its reader defaults to null, so state it as `unset {name}` "
+                            f"or write the served value with a `served value` citation above it")
 
     silent = sorted(n for n in rows if n not in carried)
     markers = []
