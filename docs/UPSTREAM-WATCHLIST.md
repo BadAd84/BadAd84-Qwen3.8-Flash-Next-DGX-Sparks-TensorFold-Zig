@@ -2,6 +2,22 @@
 
 Current state of the upstream recipe and engine against what production runs (spark6 `:8888`, the `production`
 branch). Live config: `scripts/qwen38/README.md`.
+
+## 2026-11-23: four merged levers, and where our base stands
+
+Upstream `main` at `7bd4b6815` contains all four changes our series still delivers as its own patches. None of the
+four is in the r5 base `1ece6e6d` (checked with `git merge-base --is-ancestor` per sha), so until the next re-seat the
+patches remain the delivery mechanism and each retires the moment the stack moves onto a main that has them.
+
+| change | upstream commit | our patch | retirement at the next re-seat |
+|---|---|---|---|
+| the draft head's rows are affine4 unless `TF_FLASHNEXT_DRAFT_HEAD=bf16` | `230837886` (#3477) | 0007 | retire whole |
+| the int4 contract's own entry point and its accompanying change | `308d5e1fd` (#3475) | 0017 with its contract 0019 | retire both |
+| the Qwen CUDA vision tower's ModelOpt MXFP8 and NVFP4 linears at load | `174cfff34` (#3727) | 0011 | retire |
+| the gather-early half of the n-gram row cache | `69e4d0f04` (#4009) | 0004 | retire that half only |
+
+The re-seat re-tests the remaining stack on the new base rather than assuming any gain survives; the retiring
+patches are recorded with their absorbing commit in the package `RETIRED.md` when it happens.
 ## 2026-10-25
 
 - Upstream re-tested #34 (`TF_FLASHNEXT_CONFIDENCE=-0.15`) on current main `656879f` / the NVFP4 checkpoint: no
