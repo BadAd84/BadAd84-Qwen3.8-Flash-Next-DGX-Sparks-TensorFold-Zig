@@ -29,6 +29,8 @@ def main() -> int:
     ap.add_argument("--register", required=True)
     ap.add_argument("--scopes", required=True, help="comma list of the table scopes this serve reads")
     ap.add_argument("--carried-pattern", default=r"^export ([A-Z0-9_]+)=")
+    ap.add_argument("--absent-pattern", default=r"^unset ([A-Z0-9_]+)$",
+                    help="the absence form: a presence-tested setting whose default no value can state")
     ap.add_argument("--evidence", default="docs/ENV-REGISTER.md")
     ap.add_argument("--source", default="", help="the tree label to record (default: the table's git sha)")
     ap.add_argument("--defaults-from-tree", default="", help="a tree whose zig/src read sites supply each setting's literal default")
@@ -46,9 +48,10 @@ def main() -> int:
         kind = KIND.search(line)
         rows.append((m.group(1), scope.group(1), (forms.group(1) if forms else (kind.group(1) if kind else "?")) or "?"))
     carried_re = re.compile(args.carried_pattern)
+    absent_re = re.compile(args.absent_pattern)
     carried = set()
     for line in Path(args.dev).read_text(encoding="utf-8").splitlines():
-        m = carried_re.search(line)
+        m = carried_re.search(line) or absent_re.search(line)
         if m:
             carried.add(m.group(1))
 
@@ -68,7 +71,8 @@ def main() -> int:
         for f in Path(args.defaults_from_tree, "zig", "src").rglob("*.zig"):
             txt = f.read_text(encoding="utf-8", errors="replace")
             for m in pat.finditer(txt):
-                defaults.setdefault(m.group(1), (m.group(2).strip(), str(f).split("zig/src/")[-1]))
+                where = str(f).replace("\\", "/").split("zig/src/")[-1]
+                defaults.setdefault(m.group(1), (m.group(2).strip(), where))
 
     added = []
     for name, scope, forms in rows:
@@ -76,9 +80,14 @@ def main() -> int:
             continue
         if name in defaults:
             value, where = defaults[name]
-            how = ("literal" if value in ("true", "false") or value.replace("-", "").isdigit()
-                   else "expression: " + value)
-            added.append(f"# missing {name}={value}  # {how}, read at {where}; forms {forms}")
+            if value == "null":
+                added.append(f"# missing {name}=presence  # the reader tests the variable's presence: state `unset {name}`"
+                             f" when nothing else supplies it, else the value that realises the default; read at"
+                             f" {where}; forms {forms}")
+            else:
+                how = ("literal" if value in ("true", "false") or value.replace("-", "").isdigit()
+                       else "expression: " + value)
+                added.append(f"# missing {name}={value}  # {how}, read at {where}; forms {forms}")
         else:
             added.append(f"# missing {name}=???  # no literal default found in the tree; forms {forms}")
         known.add(name)
@@ -89,7 +98,8 @@ def main() -> int:
               f"# read site. A rebase that adds a row fails check-env-coverage.py until its value is written in dev.env\n"
               f"# and the worklist line this script added is deleted. A `# missing NAME=` line is temporary work,\n"
               f"# never a resting state; a `# default-ok|debt|unreachable NAME:` line annotates a value that is already\n"
-              f"# set and must cite its evidence.\n")
+              f"# set and must cite its evidence. A `# image-baked NAME=value:` line records that the served image's own\n"
+              f"# ENV carries the name, which forbids the `unset` form: the container always has a value.\n")
     # Drop the old header as one contiguous comment block: matching its first line alone left its own
     # continuation lines in the body, so they accumulated one re-seat at a time. An annotation line ends
     # the block even when someone writes it straight under the header.
