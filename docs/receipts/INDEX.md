@@ -26,7 +26,7 @@ listed at the end as deliberately untracked.
 | `docs/receipts/Fuse0018Fix/RESULT.md` | `work/Fuse0018Fix/RESULT.md` | `5480e09f15efdbbd` | `docs/KNOB-COVERAGE.md` |
 | `docs/receipts/GapArms/RESULT.md` | `work/GapArms/RESULT.md` | `4452edc5d4399a1e` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/Glm54Review/REPORT.md` | `work/Glm54Review/REPORT.md` | `0cc128437f79c6b7` | `scripts/qwen38/zig/target/env/dev.env` |
-| `docs/receipts/Int4Device/RESULT.md` | `work/Int4Device/RESULT.md` | `a185b8d5649ed3df` | (index only) |
+| `docs/receipts/Int4Device/RESULT.md` | `work/Int4Device/RESULT.md` | `a185b8d5649ed3df` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Respond/RESULT.md` | `work/Int4Respond/RESULT.md` | `d4ffde40926e8db1` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Window/QUALITY-DEFECT.md` | `work/Int4Window/QUALITY-DEFECT.md` | `4479df43f2cf5d1b` | `README.md`, `docs/INT4-PORT.md` |
 | `docs/receipts/KnobScreen/driver.sh` | `work/KnobScreen/driver.sh` | `26ee393a5f2d7505` | `docs/KNOB-SCREEN.md` |
@@ -52,14 +52,16 @@ listed at the end as deliberately untracked.
 | `docs/receipts/KvTierShip/SHAPES.md` | `work/KvTierShip/SHAPES.md` | `5adb687a4987842b` | `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/KvTierW4/RESULT.md` | `work/KvTierW4/RESULT.md` | `dafe2ea2b8267656` | `scripts/qwen38/README.md` |
 | `docs/receipts/KvTierW5/RESULT.md` | `work/KvTierW5/RESULT.md` | `657e9e51f93674d4` | `scripts/qwen38/README.md` |
-| `docs/receipts/KvTierW5/tables.md` | `work/KvTierW5/tables.md` | `2872c7ed37a9b188` | `scripts/qwen38/README.md` |
+| `docs/receipts/KvTierW5/tables.md` | `work/KvTierW5/tables.md` | `2872c7ed37a9b188` | (index only) |
 | `docs/receipts/P5Gpu/CLOSED.md` | `work/P5Gpu/CLOSED.md` | `ab53790599920ac5` | `docs/KNOB-COVERAGE.md` |
+| `docs/receipts/PartFix/REBASE.md` | `work/PartFix/REBASE.md` | `6004e77ff8308f4b` | `docs/OPEN-PR-COVERAGE.md` |
 | `docs/receipts/PatchBisect/RESULT.md` | `work/PatchBisect/RESULT.md` | `4f1a5698ed8313f1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProseDraft/out.fetched/out/B0a/env.txt` | `work/ProseDraft/out.fetched/out/B0a/env.txt` | `2a7043efe18f2149` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProseDraft/POLICY.md` | `work/ProseDraft/POLICY.md` | `96a68754dec63d19` | `docs/ENV-REGISTER.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProseDraft/RESULT.md` | `work/ProseDraft/RESULT.md` | `5ff75439aa38b26a` | `docs/ENV-REGISTER.md`, `docs/INT4-PORT.md`, `docs/KNOB-COVERAGE.md`, `docs/KNOB-SCREEN.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/QInt4/RESULT.md` | `work/QInt4/RESULT.md` | `3923bbe5245aa1f9` | `docs/INT4-PORT.md` |
 | `docs/receipts/QRerun/box/out/QA/env.txt` | `work/QRerun/box/out/QA/env.txt` | `cc490d5521a449d3` | `docs/ENV-REGISTER.md`, `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/QRerun/window.sh` | `work/QRerun/window.sh` | `66e9edb04a669a0f` | `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/RoGpu/receipt/cold.md` | `work/RoGpu/receipt/cold.md` | `02e655f3b84f8446` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/SDFix/RESULT.md` | `work/SDFix/RESULT.md` | `d2ddad7d63e7f4a1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/SeriesFix/box/out/RESULT-BOX.md` | `work/SeriesFix/box/out/RESULT-BOX.md` | `8c2b27ec3194417c` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/zig/target/env/dev.env` |

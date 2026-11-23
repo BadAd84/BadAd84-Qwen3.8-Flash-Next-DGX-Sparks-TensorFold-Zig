@@ -21,13 +21,13 @@ restored from its own launcher.
   `patches/main-964174ea05/README.md`.
 - **At production's shape** (8 x 262,144, fp8 KV, production's 54 names plus the page pool) the INT4 arm reads 0.79 of
   production on prose and 0.95 on code at eight streams, level on code at one, two and four; cold prefill is level at 1k
-  and 19 to 22 percent behind at 8k and 32k (`work/DevVsProd/RESULT.md`).
+  and 19 to 22 percent behind at 8k and 32k (`docs/receipts/DevVsProd/RESULT.md`).
 - **Quality: the r2 prompt-following defect does not reproduce on r5.** The 2026-11-22 window on the r2 tree
   scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the build answered a few-shot example instead
   of the question. Measured on 2026-11-23 over all 1,664 items on both r5 arms: echo 1 of 500 each, GSM8K 96.8
   percent on both, MMLU-Pro 75.2 and 75.1, HumanEval 87.2 and 82.3, recitation 82.5 and 82.0, and r5 FP4 is
   byte-identical to the 2026-11-19 FP4 build on all 1,664 replies, so the r4 fix closed it
-  (`work/EnvBoot/RESULT.md`, and `docs/INT4-PORT.md` has the table).
+  (`docs/receipts/EnvBoot/RESULT.md`, and `docs/INT4-PORT.md` has the table).
 
 ## The environment
 
@@ -43,15 +43,15 @@ on a worklist line; `update-env-register.py --defaults-from-tree` builds the wor
 
 | setting | value | measured or carried | record |
 |---|---|---|---|
-| `TF_FLASHNEXT_PROMPT_SHARED_DIRECT` | `1` | +1.2 percent at 8k and +1.0 at 32k cold prefill, decode level | `work/SDFix/RESULT.md`, `work/PatchBisect/RESULT.md` |
-| `TF_FLASHNEXT_READOUT_FUSED` | `1` | +3.19 to +6.47 percent cold TTFT, decode level, tokens equal | `work/KnobTest/receipt/w1`, `work/RoGpu/receipt/cold.md` |
-| `TF_FLASHNEXT_CHUNK_SOLO` | `16384` | +1.12 to +1.39 percent at 32k and 64k, 2k and 8k level | `work/KnobTest/VERDICTS.md` |
-| `TF_FLASHNEXT_CHUNK` | `4096` | +3.6 to +4.1 percent cold TTFT at 1k, 8k and 32k | `work/GapArms/RESULT.md` |
-| `TF_FLASHNEXT_WINDOW_CHECK` | `1` | +26 and +12 percent on verbatim and one-word copy turns, fail-closed at 32 rows | `work/upsubmit/PrCopyWindow/pr-body-g.md` |
-| `TF_FLASHNEXT_KV_PAGES` | `4096` | the shape needs it (39.90 GiB against 31.00 without it) and it is the tier's page pool | `work/KvTierShip/RESULT.md` |
-| `TF_FLASHNEXT_SHARED_DRAFTS` | `0` | +7 to +11 percent at 2 to 8 streams; prose 229.0 against 207.8 tokens a second at four | `work/ProseDraft/RESULT.md` |
-| `TF_FLASHNEXT_CONFIDENCE` | `-0.15` | production's launcher value, not a measured lever on this tree (-0.20 is level on prose); the FP4 1.2.7 stack's own optimum was -0.4 (`patches/1.2.7/README.md`), so the value is checkpoint-specific | `work/ProseDraft/RESULT.md`, `work/ProseDraft/POLICY.md` |
-| `TF_FLASHNEXT_BATCH_DRAWS`, `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW`, `TENSORFOLD_MEMORY_RESERVE_GIB`, `TENSORFOLD_NO_UPDATE_CHECK`, `TENSORFOLD_VIDEO_TOKENS` | `1`, `15`, `64`, `10`, `1`, `16384` | production's launcher values carried unchanged; `DEPTH` and `WINDOW` have no reader in this tree | `work/ProseDraft/POLICY.md` |
+| `TF_FLASHNEXT_PROMPT_SHARED_DIRECT` | `1` | +1.2 percent at 8k and +1.0 at 32k cold prefill, decode level | `docs/receipts/SDFix/RESULT.md`, `docs/receipts/PatchBisect/RESULT.md` |
+| `TF_FLASHNEXT_READOUT_FUSED` | `1` | +3.19 to +6.47 percent cold TTFT, decode level, tokens equal | `docs/receipts/KnobTest/receipt/w1`, `docs/receipts/RoGpu/receipt/cold.md` |
+| `TF_FLASHNEXT_CHUNK_SOLO` | `16384` | +1.12 to +1.39 percent at 32k and 64k, 2k and 8k level | `docs/receipts/KnobTest/VERDICTS.md` |
+| `TF_FLASHNEXT_CHUNK` | `4096` | +3.6 to +4.1 percent cold TTFT at 1k, 8k and 32k | `docs/receipts/GapArms/RESULT.md` |
+| `TF_FLASHNEXT_WINDOW_CHECK` | `1` | +26 and +12 percent on verbatim and one-word copy turns, fail-closed at 32 rows | `docs/receipts/upsubmit/PrCopyWindow/pr-body-g.md` |
+| `TF_FLASHNEXT_KV_PAGES` | `4096` | the shape needs it (39.90 GiB against 31.00 without it) and it is the tier's page pool | `docs/receipts/KvTierShip/RESULT.md` |
+| `TF_FLASHNEXT_SHARED_DRAFTS` | `0` | +7 to +11 percent at 2 to 8 streams; prose 229.0 against 207.8 tokens a second at four | `docs/receipts/ProseDraft/RESULT.md` |
+| `TF_FLASHNEXT_CONFIDENCE` | `-0.15` | production's launcher value, not a measured lever on this tree (-0.20 is level on prose); the FP4 1.2.7 stack's own optimum was -0.4 (`patches/1.2.7/README.md`), so the value is checkpoint-specific | `docs/receipts/ProseDraft/RESULT.md`, `docs/receipts/ProseDraft/POLICY.md` |
+| `TF_FLASHNEXT_BATCH_DRAWS`, `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW`, `TENSORFOLD_MEMORY_RESERVE_GIB`, `TENSORFOLD_NO_UPDATE_CHECK`, `TENSORFOLD_VIDEO_TOKENS` | `1`, `15`, `64`, `10`, `1`, `16384` | production's launcher values carried unchanged; `DEPTH` and `WINDOW` have no reader in this tree | `docs/receipts/ProseDraft/POLICY.md` |
 
 Measured level or negative, deliberately absent with the reason recorded in the file: `CONFIDENCE=-0.20`,
 `CHUNK=1536`, `HC_Q12`, `TF_CACHE_EVICT`, `READOUT_FUSE`, `FUSED_SPLIT`, `GREEDY_WIDE=8`, production's six draft
@@ -85,7 +85,7 @@ shipped r5int4 image, whose engine has no tier patch, the argument check refuses
   plus message of 256 tokens or more, where the rewind state is genuinely useful and both arms keep it: turn 7, after
   a 320-token reply, wrote 231.2 MiB on both arms.
 - **A rewrite costs a full prefill.** Changing the system message invalidates every state, so that turn pays the cold
-  prefill and writes the full row set (`work/KvTierW4/RESULT.md`). The tier buys resume time and store bytes, not decode.
+  prefill and writes the full row set (`docs/receipts/KvTierW4/RESULT.md`). The tier buys resume time and store bytes, not decode.
 
 ## The prose gap
 

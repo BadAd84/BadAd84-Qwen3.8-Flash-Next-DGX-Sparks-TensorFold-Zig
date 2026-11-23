@@ -34,7 +34,7 @@ conflicting; neither needs a change from us before its device check, and a rebas
 
 ## The part fix, not yet opened
 
-The MTP head's `fc_h` lane sizing fix (`work/PartFix/REBASE.md`): head `bbbf0d414b5ef05fd291812da2f8d49f0932998e`
+The MTP head's `fc_h` lane sizing fix (`docs/receipts/PartFix/REBASE.md`): head `bbbf0d414b5ef05fd291812da2f8d49f0932998e`
 on `1c9688ca2`, one signed commit, 2 files, +133 / -2, host gates green, issue text and pull request text approved.
 It is re-seated and posted after the device gate; the issue is not opened yet.
 
