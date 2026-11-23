@@ -8,10 +8,17 @@ Applied on top of `patches/main-1ece6e6db-r5` (0001 to 0020) on a pristine check
     ./apply.sh --check TREE     # the series and both patches apply, nothing written
     ./apply.sh TREE             # apply them
 
+The two patches are numbered after `patches/main-1ece6e6db-r5-int4-kvtier`'s last patch (0025): the two directories are
+alternative compositions over the same r5 series, and no two of the series' patches may share a number. The base is
+r5's 0001 to 0020. It does not stack on the INT4 and KV-tier directory unmodified, and the measured reason is in
+`RECORD.md`: both packages add a test step to the same block of `zig/build/cuda.zig` and both re-pin the `cuda_mtp.zig`
+row of `zig/tests/fixtures/gradient-serving.tsv`, so a combined tree needs a composition directory of its own, as that
+package is.
+
 | patch | what it carries |
 |---|---|
-| `0021-draft-head-format.patch` | the fix: the drafter's `TF_FLASHNEXT_MTP_WEIGHTS` recode window closes before the MTP draft head loads, and a draft-head projection in another coding is refused by name (`DraftHeadFormat`) at load and at the projection, with the host test `test-flashnext-draft-head-host` and its build step |
-| `0022-draft-head-format-pins.patch` | `zig/tests/fixtures/gradient-serving.tsv`: the hash column of 0021's `cuda_mtp.zig` row, as r5's 0020 does |
+| `0026-draft-head-format.patch` | the fix: the drafter's `TF_FLASHNEXT_MTP_WEIGHTS` recode window closes before the MTP draft head loads, and a draft-head projection in another coding is refused by name (`DraftHeadFormat`) at load and at the projection, with the host test `test-flashnext-draft-head-host` and its build step |
+| `0027-draft-head-format-pins.patch` | `zig/tests/fixtures/gradient-serving.tsv`: the hash column of 0026's `cuda_mtp.zig` row, as r5's 0020 does |
 
 ## The defect
 
@@ -29,4 +36,6 @@ projection.
 ## Checks
 
 `RECORD.md` has the provenance, the gate table with the exact line each gate is judged on, the mutant runs and the
-device receipt (the same prompts on the unfixed and the fixed image, drafted and `"draft": false`).
+device receipt. The receipt is tracked beside this file, in `receipt/`: the compare verdict and every arm's probe
+record (`device.tgz`), the Paperclip gate log (`gates.out`), and the two scripts that define the arms and the PASS
+rule (`arms.txt`, `compare.py`). `sha256sum -c receipt/SHA256SUMS` verifies them.

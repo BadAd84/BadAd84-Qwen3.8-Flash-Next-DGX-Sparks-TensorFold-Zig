@@ -1,0 +1,34 @@
+test-flashnext-draft-head-host
++- run test 23 pass, 1 fail (24 total)
+ss, 0, 0, 0, 1));
+    ^
+error: 'cuda_mtp_head_format_test.test.draft head format: a native projection the drafter's recode changed is refused by name' failed:
+       expected error.DraftHeadFormat, found error.FormatMismatch
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/cuda/qlinear.zig:224:29: 0x11aee47 in onLaneAs (test)
+               if (q.mode != mode) return error.FormatMismatch;
+                                   ^
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/cuda/qlinear.zig:210:9: 0x11af003 in onLane (test)
+               return l.onLaneAs(s, q, mode, in, out, .bf16, rows);
+               ^
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/cuda/qlinear.zig:130:26: 0x11b174b in decode (test)
+                   .bf16 => |q| return l.onLane(s, q, .bf16, in, out, rows),
+                                ^
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/cuda/proposal_head.zig:23:9: 0x11b3ef3 in project (test)
+               return switch (h.role) {
+               ^
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/families/flashnext/cuda_mtp.zig:359:13: 0x11b41c3 in project__func_962 (test)
+                   return view_.project(.{ .lane = &pass.k.native_lane }, pass.stream, .{ .x = input, .sums = sums, .part = pass.s.native_part }, out, rows);
+                   ^
+       /home/adam/tools/zig-aarch64-linux-0.17.0/lib/std/testing.zig:641:13: 0x11b439f in expectError__func_963 (test)
+                   return error.TestUnexpectedError;
+                   ^
+       /home/adam/work/DraftHeadPkg/trees/m1/zig/src/families/flashnext/cuda_mtp_head_format_test.zig:51:5: 0x11b459f in test.draft head format: a native projection the drafter's recode changed is refused by name (test)
+           try std.testing.expectError(error.DraftHeadFormat, h.project(&pa
+failed command: /home/adam/work/DraftHeadPkg/cache/o/e68438b651b919db983e87f5b7e63e8b/test --cache-dir=/home/adam/work/DraftHeadPkg/cache --seed=0x16c27a3a --listen=-
+
+Build Summary: 2/4 steps succeeded (1 failed); 23/24 tests passed (1 failed)
+test-flashnext-draft-head-host transitive failure
++- run test 23 pass, 1 fail (24 total)
+   +- compile test debug native success 2s MaxRSS:429M
+      +- options cached
+

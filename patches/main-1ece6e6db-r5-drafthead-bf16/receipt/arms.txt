@@ -1,0 +1,11 @@
+# One arm a line: label|image(fix|pre)|env delta. The delta is applied after dev.env and the series block, so it wins.
+# Every arm runs TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 (the series block): the recode is what the bf16 draft head must survive.
+#
+# def    the default draft head (TF_FLASHNEXT_DRAFT_HEAD unset, the series' affine4 rows)
+# bf16   the stored BF16 rows, the arm that failed before the fix
+# bf16n  the stored rows with the drafter's recode off: the pair that always served, the control for the recode
+# pre    the series image without the fix, same arm as bf16: the refusal is reproduced on the same prompts
+def|fix|
+bf16|fix|TF_FLASHNEXT_DRAFT_HEAD=bf16
+bf16n|fix|TF_FLASHNEXT_DRAFT_HEAD=bf16 TF_FLASHNEXT_MTP_WEIGHTS=bf16
+pre|pre|TF_FLASHNEXT_DRAFT_HEAD=bf16

@@ -1,0 +1,11 @@
+SETUP host Linux 7.0.0-1019-nvidia-64k aarch64 nproc 20 zig 0.17.0 2026-11-23T19:05:55+00:00
+SETUP m1 files 12623 src f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999
+GATE m1_control start 2026-11-23T19:05:55+00:00
+GATE m1_control rc=0 2026-11-23T19:06:09+00:00
+    Build Summary: 4/4 steps succeeded; 24/24 tests passed
+mutate: guard applied to /home/adam/work/DraftHeadPkg/trees/m1/zig/src/families/flashnext/cuda_mtp.zig (2 anchors)
+MUTANT src before f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999 after 28660d3f3f589e3da2de07a92e92b604e51404bce45ae90e0f9e6003840a8c12
+GATE m1_guard_removed start 2026-11-23T19:06:09+00:00
+GATE m1_guard_removed rc=1 (nonzero required) 2026-11-23T19:06:12+00:00
+    error: 'cuda_mtp_head_format_test.test.draft head format: a native projection the drafter's recode changed is refused by name' failed:
+M1-DONE 2026-11-23T19:06:12+00:00 bad 0

@@ -42,35 +42,81 @@ one and drives `Head.project`, requiring `error.DraftHeadFormat`; the format che
 so the test needs no device. A second test pins the predicate over the three codings (MXFP8 refused, BF16 and the
 affine4 head passed).
 
-Both ways: on the series tree the same test fails with qlinear's `error.FormatMismatch` (the mutant `M1`, the two
-guard lines removed). The window mutant `M2` (the recode restored to the function scope) passes the host test,
-because the refusals still stand: on host the window is not observable, and the device smoke is its test.
+Both ways, measured: on the series tree with the two guard lines removed (the mutant `M1`) the same test fails with
+qlinear's `error.FormatMismatch` at `qlinear.zig:224`. With the recode window restored to the function scope (the
+mutant `M2`) the host tests pass, because `Head.init` needs a CUDA device and the test builds its own `Head`: on host
+the window is not observable, and the device arms are its test (section 5).
 
 ## 4. Gates
 
-- Package: `apply.sh --check` on a pristine `1ece6e6db`: the series and both patches apply, nothing written. On
-  spark6 the package applied to a pristine extraction reproduced the shipped tree file for file (manifest
-  `dbcebcc68930542595a3c545a71290083bc22819a86998e9314b2774694f6582`, 12,623 files).
-- Lean pair, the trees the gate ships: `lean: 230 problems, 230 on the base, 0 new` (pre 230 problems over 7,014
-  files, fix 230 over 7,015). The pristine base reads 168; its delta is r5's own and already accepted, so the judged
-  comparator is the series tree this package stacks on.
-- Paperclip, fixed tree: `zig fmt --check build.zig zig` rc=0, `cuda_common_check.py` rc=0,
-  `cuda_fragment_check.py` rc=0, and `zig build -Dfixed-cpu test-flashnext-draft-head-host` rc=0 with
-  `Build Summary: 4/4 steps succeeded; 24/24 tests passed`.
-- Repo gates: `scripts/check-patch-packages.sh` CLEAN, `scripts/check-python.sh` CLEAN.
-- Queued behind another lane's `~/work/host.lock` when this package was written, and not yet reported: `test-cuda-host`,
-  `test-gradient-serving`, `test-kernel-contract`, both `compile-config-server` targets, `compile-cuda-tests`
-  (aarch64), and the two mutants. Their exit statuses are the ones to read before believing more than the line above.
+Real lines, not summaries. The host gates ran on Paperclip (x86-64, 16 threads, Zig 0.17.0), under
+`flock ~/work/host.lock`, on freshly extracted staged trees: the pristine base, the r5 series, and this package's
+tree. The log is tracked as `receipt/gates.out`.
+
+| step | line it is judged on |
+|---|---|
+| the staged trees | `SETUP archives match SHA256SUMS`; `SETUP base files 12601 pre 12622 head 12623` |
+| the fix's own source and pin | `SETUP head cuda_mtp.zig sha256 f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999`; `SETUP head pin row 1` |
+| lean, each side's own `lean_check.py` | base `6993 files, 168 problems`; series `7014 files, 230 problems`; head `7015 files, 230 problems` |
+| `lean_new.py`, base against head | `lean: 230 problems, 230 on the base, 0 new`, rc 0 |
+| `cuda_common_check.py` | `cuda common: 55 local copies, 0 violations`, rc 0 |
+| `cuda_fragment_check.py` | `cuda fragments: 2 fragments, 16 includes, 0 misses`, rc 0 |
+| `zig fmt --check build.zig zig` | rc 0, no output |
+| `zig build -Dfixed-cpu test-flashnext-draft-head-host` | `Build Summary: 4/4 steps succeeded; 24/24 tests passed`, rc 0 |
+| `zig build -Dfixed-cpu test-cuda-host` | `Build Summary: 436/436 steps succeeded; 3551/3581 tests passed (30 skipped)`, rc 0 |
+| `zig build -Dfixed-cpu test-gradient-serving` | `Build Summary: 4/4 steps succeeded; 1/1 tests passed`, rc 0 |
+| `zig build -Dfixed-cpu test-kernel-contract` | `Build Summary: 36/36 steps succeeded; 260/260 tests passed`, rc 0 |
+| `zig build compile-config-server` (x86-64) | `Build Summary: 8/8 steps succeeded`, rc 0 |
+| `zig build compile-config-server -Dtarget=aarch64-linux-gnu` | `Build Summary: 8/8 steps succeeded`, rc 0 |
+| `zig build compile-cuda-tests -Dtarget=aarch64-linux-gnu` (the nvcc leg: it writes the fatbins) | `Build Summary: 10/10 steps succeeded`, rc 0 |
+| the mutants, both legs (spark5, aarch64, Zig 0.17.0) | `M1` rc 1 with `23 pass, 1 fail (24 total)`; `M2` rc 0 at `24/24 tests passed`; `RECORD.md`, The mutants |
+| the package | `apply.sh: the series and 2 patches of this package apply on 1ece6e6dbbc073582d50738ce8e73e3c3261a73b in order (nothing written)`, rc 0 |
+| `scripts/check-patch-packages.sh` | `check-patch-packages: CLEAN (17 package dirs checked, 1 grandfathered)` |
+| `scripts/check-python.sh` | `check-python: CLEAN` |
+
+The CHANGELOG bullet this patch adds carries no reference number. The package is not upstreamed and no issue exists
+for the defect, so the placeholder that stood there was removed rather than invented; the reference goes in when a
+PR is opened.
 
 ## 5. Device receipt
 
-The window's four arms (one boot each: `def` the default affine4 head, `bf16`, `bf16n` with the recode off, and
-`pre` the series image without this fix) send three short prompts and one ~1,200-token prompt drafted and with
-`"draft": false`; `compare.py` requires the `bf16` and `bf16n` replies to equal the `def` arm's on every prompt, the
-`bf16` arm to have drafted, and `pre` to refuse by name. Built for it: `tensorfold-qwen38:dhbf16-pre`
-(`sha256:826d2c3be1...`) and `tensorfold-qwen38:dhbf16-fix`; the receipt is `~/work/DraftHeadBf16/receipt.tgz` on
-spark6 (`out/compare.out`, `out/<arm>/probe.json`, `out/RESTORED`). The arms were still running when this package's
-text was written; the mechanism above is source-derived and does not depend on them.
+The window's four arms, one boot each, on spark6: `def` (the default affine4 head), `bf16` (the stored BF16 rows, the
+arm that failed before the fix), `bf16n` (the stored rows with the drafter's recode off, the pair that always served)
+and `pre` (the series image without this fix). Every arm runs `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`; each sends three short
+prompts and one of about 1,200 tokens, drafted and with `"draft": false`.
+
+Images, gated by id before the window: `tensorfold-qwen38:dhbf16-pre`
+`sha256:826d2c3be1632ed097c60c4fdc93ca947c7eaa70a456c30d7a3a9de032930990` (the series without the fix) and
+`tensorfold-qwen38:dhbf16-fix` `sha256:cccf2c50491848ff97ebd0dc95711c15c6924f92a425efae7e7d49657067c87d`.
+
+The verdict, `compare.out` (tracked in `receipt/device.tgz`):
+
+    CMP bf16 drafter drafted 184 rounds 48
+    CMP within eq 12 differ 0
+    SUMMARY PASS
+
+28 comparison lines, every one `EQ` (the file's other two `CMP` lines are the drafter count and the within total): 16
+required cross comparisons (the `bf16` and `bf16n` replies against the `def` arm's, drafted and plain, on all four
+prompts) and 12 within-arm ones (each arm's drafted reply against its own plain reply, reported and not judged). The
+`bf16` arm drafted 184 tokens in 48 rounds, so the equality did not hold because the drafter had stopped. The run
+log's own lines: `RUN bf16 sum drafted ids 15 sha 7f05426bd7e4822b`, `RUN def sum drafted ids 15 sha 7f05426bd7e4822b`,
+and likewise for `code`, `plan` and `medium`.
+
+The unfixed image refused, on its own boot smoke request, before the window's prompts:
+
+    [tensorfold] ended chatcmpl-3ff2806733a36edf154ecc268f82f68c reason=error (FormatMismatch) prompt=16 tokens=1 after=0.12s
+    [tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 500 -
+    [start.sh] ERROR: the smoke test request failed; the server is still running
+    ARM-FAIL pre (1)
+
+So `compare.py`'s `pre` line is absent: it judges a refusal only from a probe record, and this arm stopped at the
+boot smoke test and wrote none. The refusal above is the receipt, and it names the same `FormatMismatch` the defect
+was reported with.
+
+Production was stopped for the window and restored:
+
+    RESTORE prod_rc 0 /health 200 2026-11-23T15:43:58+00:00 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7
+    PROD-IMAGE ok tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7
 
 ## 6. Revert
 

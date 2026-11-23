@@ -1,0 +1,42 @@
+GATES start 2026-11-23T15:27:48+00:00 user adam host Linux 7.0.0-43-generic x86_64 nproc 16 load 1.34 3.20 3.34
+GATES zig 0.17.0 cache /home/adam/work/DraftHeadBf16/gate/cache
+SETUP archives match SHA256SUMS
+SETUP base files 12601 pre 12622 head 12623
+SETUP head cuda_mtp.zig sha256 f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999
+SETUP head pin row 1
+GATE lean_base rc=1 (recorded) wall=2s 2026-11-23T15:27:52+00:00
+    6993 files, 168 problems
+GATE lean_pre rc=1 (recorded) wall=2s 2026-11-23T15:27:54+00:00
+    7014 files, 230 problems
+GATE lean_head rc=1 (recorded) wall=2s 2026-11-23T15:27:56+00:00
+    7015 files, 230 problems
+GATE lean_new rc=0 wall=0s 2026-11-23T15:27:56+00:00
+    lean: 230 problems, 230 on the base, 0 new
+GATE cuda_common_check rc=0 wall=1s 2026-11-23T15:27:57+00:00
+GATE cuda_fragment_check rc=0 wall=1s 2026-11-23T15:27:58+00:00
+GATE fmt rc=0 wall=1s 2026-11-23T15:27:59+00:00
+GATE control_draft_head rc=0 wall=3s 2026-11-23T15:28:02+00:00
+    Build Summary: 4/4 steps succeeded; 24/24 tests passed
+GATE test_cuda_host rc=0 wall=569s 2026-11-23T15:37:31+00:00
+    Build Summary: 436/436 steps succeeded; 3551/3581 tests passed (30 skipped)
+GATE test_serving rc=0 wall=1s 2026-11-23T15:37:32+00:00
+    Build Summary: 4/4 steps succeeded; 1/1 tests passed
+GATE test_kernel_contract rc=0 wall=289s 2026-11-23T15:42:21+00:00
+    Build Summary: 36/36 steps succeeded; 260/260 tests passed
+GATE compile_config_server rc=0 wall=223s 2026-11-23T15:46:04+00:00
+    Build Summary: 8/8 steps succeeded
+GATE compile_config_server_aarch64 rc=0 wall=235s 2026-11-23T15:49:59+00:00
+    Build Summary: 8/8 steps succeeded
+GATE compile_cuda_tests_aarch64 rc=0 wall=168s 2026-11-23T15:52:47+00:00
+    Build Summary: 10/10 steps succeeded
+GATE m1_control rc=0 wall=2s 2026-11-23T15:52:49+00:00
+    Build Summary: 4/4 steps succeeded
+mutate: guard applied to /home/adam/work/DraftHeadBf16/gate/trees/m1/zig/src/families/flashnext/cuda_mtp.zig (2 anchors)
+GATE m1_guard_removed rc=1 (mutant: nonzero required) wall=0s 2026-11-23T15:52:49+00:00
+    error: 'cuda_mtp_head_format_test.test.draft head format: a native projection the drafter's recode changed is refused by name' failed:
+GATE m2_control rc=0 wall=2s 2026-11-23T15:52:51+00:00
+    Build Summary: 4/4 steps succeeded; 24/24 tests passed
+mutate: window anchor matched 0 times, expected exactly 1: // closes before the draft head loads, whose rows TF_FLASHNEXT_DRAFT_H
+GATE m2_window_restored rc=0 wall=0s 2026-11-23T15:52:51+00:00
+    Build Summary: 4/4 steps succeeded
+GATES DONE 2026-11-23T15:52:51+00:00 bad 1

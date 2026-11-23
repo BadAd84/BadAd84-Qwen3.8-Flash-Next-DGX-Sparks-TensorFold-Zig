@@ -1,0 +1,6 @@
+Build Summary: 4/4 steps succeeded; 24/24 tests passed
+test-flashnext-draft-head-host success
++- run test 24 pass (24 total) 6ms MaxRSS:5M
+   +- compile test debug native success 2s MaxRSS:413M
+      +- options cached
+

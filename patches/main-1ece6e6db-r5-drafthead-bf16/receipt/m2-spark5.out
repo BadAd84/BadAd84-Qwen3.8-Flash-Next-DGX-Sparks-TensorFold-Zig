@@ -1,0 +1,13 @@
+SETUP host Linux 7.0.0-1019-nvidia-64k aarch64 nproc 20 zig 0.17.0 2026-11-23T19:05:22+00:00
+SETUP m2 files 12623 src f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999
+GATE m2_control start 2026-11-23T19:05:22+00:00
+GATE m2_control rc=0 2026-11-23T19:05:35+00:00
+    Build Summary: 4/4 steps succeeded; 24/24 tests passed
+mutate: window applied to /home/adam/work/DraftHeadPkg/trees/m2/zig/src/families/flashnext/cuda_mtp.zig (2 anchors)
+MUTANT src before f4c520b30243387dc0c5765bf65cf2c93132688208f13bff5257f6bb9d92d999 after 4a595717c8e51209002889b5a5a5fc315b488f49a02f3a9a7b319285703f3e12
+    291:        // the drafter's own linears only: the window closes before the draft head's own rows are read
+    292-            const weights = try @import("cuda_mtp_mxfp8.zig").format();
+GATE m2_window_restored start 2026-11-23T19:05:35+00:00
+GATE m2_window_restored rc=0 (host pass expected: the window is device-only) 2026-11-23T19:05:38+00:00
+    Build Summary: 4/4 steps succeeded; 24/24 tests passed
+M2-DONE 2026-11-23T19:05:38+00:00 bad 0
