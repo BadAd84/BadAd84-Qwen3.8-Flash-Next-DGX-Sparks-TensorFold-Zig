@@ -1,0 +1,171 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 850bc2eeb..065c4e0aa 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -209,6 +209,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - CUDA: with `TF_FLASHNEXT_KV_PAGES` on Linux, the Flash Next page pool no longer takes its whole arena at load: its 256 MiB pieces are mapped as streams first reach them, and a helper thread maps the next ones between requests, so at 262,144 x 3 on a GB10 about 14 GiB more stays free after load (MemAvailable 40.8-41.6 GiB against 26.5-27.0). Replies are unchanged; without `TF_FLASHNEXT_KV_PAGES`, and on other systems, nothing changes (#3066). Thanks to @Arminova.
+ 
++- Flash Next on CUDA: the MTP draft head's rows are the checkpoint's stored rows whenever `TF_FLASHNEXT_DRAFT_HEAD=bf16` selects them: the drafter's `TF_FLASHNEXT_MTP_WEIGHTS` recode closes before the head loads, and a projection in another coding stops the start by name (`DraftHeadFormat`) instead of failing every request (#9999).
++
+ ## 1.3.0
+ 
+ - CLI: `tensorfold models` lists the chat checkpoints from the supported-models guide that fit this machine, largest first, with the memory each needs, a quality score from TensorFold Web's quality suite (receipts in `docs/receipts/quality-suite`) and a rough one-stream speed (measured on this chip, or estimated from another chip by memory bandwidth); `--all` adds the rest, `--json` adds `machine` and `catalog` to schema 1, and the cached checkpoints follow as before (#3483).
+diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
+index d35fe9be1..a8b90564d 100644
+--- a/zig/build/cuda.zig
++++ b/zig/build/cuda.zig
+@@ -275,6 +275,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
+     b.step("test-pocket-device-host", "Actual pocket device hooks under CUDA ABI failures").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{"Learning persistence:"} })).step);
+     b.step("test-flashnext-readout-fused-host", "The fused read-out's down tile choice and its refusals by name, without a GPU").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{"fused read-out:"} })).step);
+     b.step("test-flashnext-part-rows-host", "The MTP head's fc_h lane fits part, and the default chunk stays under three gigabytes").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{ "fc_h lane fits part", "scratch at the default chunk" } })).step);
++    b.step("test-flashnext-draft-head-host", "The draft head's BF16 lane refuses a projection the drafter's recode changed, without a GPU").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{"draft head format:"} })).step);
+     b.step("test-living-host", "Family-neutral learner, saved form and commit gate on host").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = mods.living })).step);
+     const shard_tests = b.createModule(.{ .root_source_file = b.path("zig/src/living_shards_test.zig"), .target = host, .optimize = .debug, .link_libc = true });
+     shard_tests.addImport("living", mods.living);
+diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
+index 4a9fbc2c6..fd348120f 100644
+--- a/zig/src/families/flashnext/cuda_mtp.zig
++++ b/zig/src/families/flashnext/cuda_mtp.zig
+@@ -246,6 +246,11 @@ pub fn drawPick(gpa: std.mem.Allocator, row: []const u16, ids: []const u32, lse:
+ 
+ // ---- the head's weights --------------------------------------------------------------------------------------------
+ 
++/// The draft head's native rows are the stock BF16 rows; another coding is refused, never run as BF16.
++pub fn storedRows(p: *const Q4) bool {
++    return if (p.native) |w| w.mode == .bf16 else true;
++}
++
+ pub const Head = struct {
+     gpa: std.mem.Allocator,
+     norm_e: cuda.DeviceBuffer, // [D] fp32
+@@ -283,22 +288,24 @@ pub const Head = struct {
+         errdefer h.norm_e.free();
+         h.norm_h = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(nh));
+         errdefer h.norm_h.free();
+-        // the drafter's own weights only: TF_FLASHNEXT_MTP_WEIGHTS names how the BF16 ones are kept
+-        const weights = try @import("cuda_mtp_mxfp8.zig").format();
+-        @import("cuda_projection.zig").recode = weights;
+-        defer @import("cuda_projection.zig").recode = .bf16;
+-        if (weights != .bf16) std.log.info("flashnext: the drafter's BF16 linears kept as {s} (TF_FLASHNEXT_MTP_WEIGHTS)", .{@tagName(weights)});
+-        h.fc_e = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_embedding");
+-        errdefer h.fc_e.free();
+-        h.fc_h = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_hidden");
+-        errdefer h.fc_h.free();
+-        h.mixer = try wt.loadHc(gpa, driver, &store, "language_model.mtp.hyper_connection_mixer", false);
+-        errdefer h.mixer.free();
++        // the drafter's own linears only: the window closes before the draft head's own rows are read
+         {
+-            var pack_mod = try cuda.Module.load(driver, cuda.kernels.experts_pack);
+-            defer pack_mod.unload();
+-            const pack_fn = try pack_mod.function(wt.pack_symbol);
+-            h.layer = try load.loadLayerAt(gpa, driver, stream, &store, pack_fn, "language_model.mtp.layers.0", false, false);
++            const weights = try @import("cuda_mtp_mxfp8.zig").format();
++            @import("cuda_projection.zig").recode = weights;
++            defer @import("cuda_projection.zig").recode = .bf16;
++            if (weights != .bf16) std.log.info("flashnext: the drafter's BF16 linears kept as {s} (TF_FLASHNEXT_MTP_WEIGHTS)", .{@tagName(weights)});
++            h.fc_e = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_embedding");
++            errdefer h.fc_e.free();
++            h.fc_h = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_hidden");
++            errdefer h.fc_h.free();
++            h.mixer = try wt.loadHc(gpa, driver, &store, "language_model.mtp.hyper_connection_mixer", false);
++            errdefer h.mixer.free();
++            {
++                var pack_mod = try cuda.Module.load(driver, cuda.kernels.experts_pack);
++                defer pack_mod.unload();
++                const pack_fn = try pack_mod.function(wt.pack_symbol);
++                h.layer = try load.loadLayerAt(gpa, driver, stream, &store, pack_fn, "language_model.mtp.layers.0", false, false);
++            }
+         }
+         store.dropStaging(); // the head's experts are on the device
+         errdefer h.layer.free(gpa);
+@@ -313,6 +320,7 @@ pub const Head = struct {
+         h.service = try lanes.proposal_head.Service.legacy(gpa, &h.artifact);
+         h.draft = try head_load.draft(gpa, driver, &store, &h.artifact, role);
+         errdefer h.draft.free();
++        if (!storedRows(&h.draft)) return error.DraftHeadFormat;
+         h.module = try cuda.Module.load(driver, cuda.kernels.flashnext_mtp);
+         errdefer h.module.unload();
+         h.best_fn = try h.module.function("fn_row_best");
+@@ -348,6 +356,7 @@ pub const Head = struct {
+     /// The BF16 legacy lane is the same qlinear owner; group-32 affine keeps its existing unqualified callback.
+     pub fn project(h: *const Head, pass: anytype, input: u64, sums: u64, out: u64, rows: usize) !void {
+         if (h.draft.native) |weight| {
++            if (!storedRows(&h.draft)) return error.DraftHeadFormat;
+             const view_: cuda.qlinear.proposal.Head = .{ .weight = .{ .bf16 = weight }, .role = .decode, .vocab = vocab, .logical = @intCast(h.ids.len), .stride = @intCast(h.ids.len), .ids = h.ids, .generation = h.artifact.fingerprint };
+             return view_.project(.{ .lane = &pass.k.native_lane }, pass.stream, .{ .x = input, .sums = sums, .part = pass.s.native_part }, out, rows);
+         }
+@@ -548,4 +557,5 @@ test "the boot check's sweep is served every width a window holds, so its own ve
+ 
+ test {
+     _ = @import("cuda_mtp_nonfinite_test.zig");
++    _ = @import("cuda_mtp_head_format_test.zig");
+ }
+diff --git a/zig/src/families/flashnext/cuda_mtp_head_format_test.zig b/zig/src/families/flashnext/cuda_mtp_head_format_test.zig
+new file mode 100644
+index 000000000..91c293917
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_mtp_head_format_test.zig
+@@ -0,0 +1,62 @@
++//! The draft head's native rows are the stock BF16 rows; a projection the drafter's recode changed is refused.
++const std = @import("std");
++const cuda = @import("cuda");
++const mtp = @import("cuda_mtp.zig");
++
++/// A pass whose native lane is never looked up: the format check answers before any kernel is asked for.
++const FakePass = struct {
++    k: struct { native_lane: cuda.qmmf.Lane },
++    stream: cuda.Stream,
++    s: struct { native_part: u64, dummy: u64 },
++
++    pub fn lane(_: FakePass, _: u64, _: u64, _: anytype, _: u64, _: u64, _: usize, _: usize) !usize {
++        return error.LaneNotReached;
++    }
++};
++
++/// A non-null, aligned pointer that is never dereferenced.
++fn fakeDriver() *const cuda.Driver {
++    return @ptrFromInt(@alignOf(cuda.Driver));
++}
++
++fn emptyBuffer(d: *const cuda.Driver) cuda.DeviceBuffer {
++    return .{ .d = d, .ptr = 0, .len = 0 };
++}
++
++/// A Head with only the fields Head.project reads: the draft projection, its ids and the artifact's fingerprint.
++fn headWith(mode: cuda.qmmf.Mode) mtp.Head {
++    const d = fakeDriver();
++    var h: mtp.Head = undefined;
++    h.draft = .{
++        .w = emptyBuffer(d),
++        .s = emptyBuffer(d),
++        .b = emptyBuffer(d),
++        .n = 4,
++        .k = 64,
++        .native = .{ .mode = mode, .codes = 0, .scales = 0, .n = 4, .k = 64, .npad = 4 },
++    };
++    h.ids = &[_]u32{};
++    h.artifact.fingerprint = @splat(0);
++    return h;
++}
++
++test "draft head format: a native projection the drafter's recode changed is refused by name" {
++    var h = headWith(.mxfp8);
++    const pass: FakePass = .{
++        .k = .{ .native_lane = undefined },
++        .stream = .{ .d = fakeDriver(), .handle = null },
++        .s = .{ .native_part = 0, .dummy = 0 },
++    };
++    // the series' own failure was error.FormatMismatch out of qlinear; the head refuses it itself, by name
++    try std.testing.expectError(error.DraftHeadFormat, h.project(&pass, 0, 0, 0, 1));
++}
++
++test "draft head format: the predicate refuses every coding but BF16 and passes an affine head" {
++    var mxfp8 = headWith(.mxfp8);
++    var bf16 = headWith(.bf16);
++    var affine = headWith(.bf16);
++    affine.draft.native = null;
++    try std.testing.expect(!mtp.storedRows(&mxfp8.draft));
++    try std.testing.expect(mtp.storedRows(&bf16.draft));
++    try std.testing.expect(mtp.storedRows(&affine.draft));
++}

@@ -12,7 +12,10 @@ restored from its own launcher.
 
 - **Series.** `patches/main-1ece6e6db-r5` (0001 to 0020) on upstream main `1ece6e6db`, with
   `patches/main-1ece6e6db-r5-int4` (0021, 0022) for production's INT4-AutoRound checkpoint and
-  `patches/main-1ece6e6db-r5-kvtier` (the NVMe KV tier) on top. Build:
+  `patches/main-1ece6e6db-r5-kvtier` (the NVMe KV tier) on top. `patches/main-1ece6e6db-r5-drafthead-bf16` (0021,
+  0022, its own numbering) fixes the series' one serving defect beside them: with `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`
+  set, `TF_FLASHNEXT_DRAFT_HEAD=bf16` failed every request with `error (FormatMismatch)` because the drafter's recode
+  window covered the draft head's rows. Build:
   `zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf 1ece6e6db <package>`. Stock for a series A/B is
   upstream main at the base built with no patches; the last full A/B of the series is
   `patches/main-964174ea05/README.md`.
