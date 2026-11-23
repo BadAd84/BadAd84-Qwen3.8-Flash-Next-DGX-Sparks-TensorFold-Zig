@@ -118,7 +118,15 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   waiter queues forever. Pattern fix for runner scripts: scope the lock as
   `( flock 9; ... ) 9>lock`, or `exec 9>&-` before long-lived children. Exorcism if it happens
   (done once, preserved as `gpu.lock.ghost-2093720`): `mv` the lock aside, `touch` a fresh one, kill
-  the stranded waiters (their runners relaunch), FIFO re-queue. Also on that box: the tf.kernels label
+  the stranded waiters (their runners relaunch), FIFO re-queue.
+- **A driver that LOCKS ITSELF must run bare or under its own LOCKED flag, never under a plain outer `flock`**
+  (measured 2026-11-23, spark6): a queue script ran `flock -o -w 43200 gpu.lock env bash driver.sh`, driver.sh saw
+  `DRIVER_LOCKED` unset and re-exec'd `flock ... env DRIVER_LOCKED=1 bash driver.sh`; the outer process held the
+  file while its child waited on it, and every queue behind it stopped. `-o` closes the descriptor in the child,
+  not the parent's lock. The tell: /proc/locks shows a waiter's lock held by its own ancestor, and the holder has
+  produced nothing. Fix by killing the outer flock and its driver; the inner re-exec then takes the lock in FIFO
+  order. Correct wrapper: `flock ... env DRIVER_LOCKED=1 ... bash driver.sh window`. Read the driver's lock
+  contract (its header states it) before wrapping it. Also on that box: the tf.kernels label
   gate is generation-split (`present` for e1f564e/364f21a-era start.sh, `embedded` for fd3f43e) -
   `~/work/lanes/fp4port/relabel.sh IMAGE TOKEN` fixes a mismatch in 5 s; and the zmerge8-kfix image's
   restore is `~/qwen6-start-prod.sh` (the fd3f43e recipe arg-check rejects `--kv-cache`).
