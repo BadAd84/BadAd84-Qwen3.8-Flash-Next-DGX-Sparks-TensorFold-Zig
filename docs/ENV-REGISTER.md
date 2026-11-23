@@ -215,10 +215,12 @@ all (`work/DevEnvBoot/RESULT.md`).
 The red gate is the honest state: the file may not claim to be an environment of record while 26 of its settings are
 undeliverable. The repair is packaged at `upstream/recipe-launcher-tf-env/` (one line, the class widened to `TF_`,
 proved to apply against the recipe at `20e15e41`), and the same line is carried by the recipe's two nsys copies and by
-our own `~/qwen-zig/start.sh`. Before it deploys or is proposed upstream, two proofs are required: every stated value
-in the 26 equals what absence yields (otherwise the explicit value changes the serve), and one boot on the same image
-shows the container's environment differing only by those names, the window self-check equal and fixed-prompt replies
-identical. Until then the gate stays red and no text is posted.
+our own `~/qwen-zig/start.sh`. Before it deploys or is proposed upstream, two proofs are required. The first is done: of the 27 statements, 11 equal
+what absence yields, 16 are inert (their only readers are in `families/qwen3_5/`), and 0 differ, so widening is
+behaviour-neutral for the flashnext serve (`docs/receipts/EnvForward/TABLE.md`). The second is a boot on the same
+image, `work/LauncherAB/window.sh`, queued on spark6: all 26 names must arrive at their stated values, the window
+self-check must read 1176 of 1176, and the fixed-prompt reply hashes must equal DevEnvBoot's on the same image.
+Until both hold the gate stays red, the launcher is not deployed, and no text is posted.
 
 ## The production copy cannot drift
 
