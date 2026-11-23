@@ -427,9 +427,9 @@ dry() {
   proof checkenv-value-line 1 "$(grep -c '^VALUE TF_A=9 want 1' "$D/s-value.txt")"
 
   # 5. Analyzer: one stub arm a verdict branch, plus a discarded warm-up that must not be scored.
-  printf '01-promote\tTF_FLASHNEXT_ATTN_LANES\t1\tA1\tstub promote\n02-kill2\tTF_FLASHNEXT_DECODE_GRAPH\t1\tA1\tstub two-cell kill\n03-kill1\tTF_FLASHNEXT_WINDOW_GRAPH\t0\tA1\tstub one-cell kill\n04-kill1c\tTF_FLASHNEXT_BATCH_DRAWS\t0\tA1\tstub confirmed\n05-kill1u\tTF_FLASHNEXT_SHARED_SIDE\t0\tA1\tstub unconfirmed\n06-guard\tTF_FLASHNEXT_PROMPT_BF16\t0\tA2\tstub guard loss\n07-unstable\tTF_FLASHNEXT_READOUT_ROWS\t128\tA2\tstub unstable controls\n08-inside\tTF_FLASHNEXT_FACT_ROWS\t128\tA2\tstub inside\n' > "$D/plan-dry.tsv"
+  printf '01-promote\tTF_FLASHNEXT_ATTN_LANES\t1\tA1\tstub promote\n02-kill2\tTF_FLASHNEXT_DECODE_GRAPH\t1\tA1\tstub two-cell kill\n03-kill1\tTF_FLASHNEXT_WINDOW_GRAPH\t0\tA1\tstub one-cell kill\n04-kill1c\tTF_FLASHNEXT_BATCH_DRAWS\t0\tA1\tstub confirmed\n05-kill1u\tTF_FLASHNEXT_SHARED_SIDE\t0\tA1\tstub unconfirmed\n06-guard\tTF_FLASHNEXT_PROMPT_BF16\t0\tA2\tstub guard loss\n07-unstable\tTF_FLASHNEXT_READOUT_ROWS\t128\tA2\tstub unstable controls\n08-inside\tTF_FLASHNEXT_FACT_ROWS\t128\tA2\tstub inside\n09-malformed\tTF_FLASHNEXT_WARM_AHEAD\t0\tA2\tstub a malformed boot\n' > "$D/plan-dry.tsv"
   local arm mode
-  for arm in 01-promote 02-kill2 03-kill1 04-kill1c 05-kill1u 06-guard 07-unstable 08-inside; do
+  for arm in 01-promote 02-kill2 03-kill1 04-kill1c 05-kill1u 06-guard 07-unstable 08-inside 09-malformed; do
     mode=inside
     case "$arm" in
     01-promote) mode=promote;; 02-kill2) mode=kill2;; 03-kill1) mode=kill1;;
@@ -451,6 +451,7 @@ dry() {
     python3 "$KIT/rec.py" "$D/out/$arm/a2/meta.json" boot_rc=0 health=200 foreign=0 \
       digest=stubdigest env_sha=stub boot_wall_s=1 settings_ok=1
   done
+  printf '{"cells": []}\n' > "$D/out/09-malformed/a/conc.json"
   mkdir -p "$D/out/warmup/w"
   python3 "$KIT/stub_cells.py" "$D/out/warmup/w" c1 promote > /dev/null
   python3 "$KIT/rec.py" "$D/out/warmup/w/meta.json" boot_rc=0 health=200 foreign=0 \
@@ -466,11 +467,12 @@ dry() {
   proof analyze-guard-not-killed INCONCLUSIVE "$(verdict_of 06-guard)"
   proof analyze-unstable INCONCLUSIVE "$(verdict_of 07-unstable)"
   proof analyze-inside INCONCLUSIVE "$(verdict_of 08-inside)"
+  proof analyze-malformed INCONCLUSIVE-FINDING "$(verdict_of 09-malformed)"
   python3 "$KIT/analyze.py" --out "$D/out" --plan "$D/plan-dry.tsv" > "$D/table.txt" 2>&1
   proof pooled-median "1.0%" "$(grep '^POOL d4-prose' "$D/table.txt" | awk '{print $3}')"
-  proof pooled-pairs 8 "$(grep '^POOL d4-prose' "$D/table.txt" | awk '{print $NF}')"
+  proof pooled-pairs 9 "$(grep '^POOL d4-prose' "$D/table.txt" | awk '{print $NF}')"
   proof warmup-not-scored 0 "$(grep -c '^warmup' "$D/out/scores.tsv" || true)"
-  proof scored-arms 8 "$(grep -c '^| [0-9]' "$D/table.txt" || true)"
+  proof scored-arms 9 "$(grep -c '^| [0-9]' "$D/table.txt" || true)"
 
   # 6. The rule against the repo's own receipt: S0 PROMOTE, G8 and C20 INCONCLUSIVE.
   python3 "$KIT/sens.py" --out "$D/sens" > "$D/sens.log" 2>&1

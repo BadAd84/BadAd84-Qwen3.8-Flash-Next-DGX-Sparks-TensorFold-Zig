@@ -144,7 +144,10 @@ def pooled_spreads(out, plan):
     pairs = {c[0]: [] for c in CELLS}
     for arm in plan:
         d = Path(out) / arm
-        c1, c2 = try_load(d / "c1", "c1"), try_load(d / "c2", "c2")
+        try:
+            c1, c2 = try_load(d / "c1", "c1"), try_load(d / "c2", "c2")
+        except Instrument:
+            continue
         if c1 is None or c2 is None:
             continue
         for name, _, _, _, _ in CELLS:
@@ -277,13 +280,23 @@ def main():
         d = out / arm
         if not d.is_dir():
             continue
-        boots = {}
+        boots, bad = {}, ""
         for role in ("c1", "a", "c2"):
-            b = try_load(d / role, role)
+            try:
+                b = try_load(d / role, role)
+            except Instrument as e:
+                bad = str(e)
+                break
             if b is not None:
                 boots[role] = b
-        a2 = try_load(d / "a2", "a2") if (d / "a2").is_dir() else None
-        if len(boots) != 3:
+        a2 = None
+        try:
+            a2 = try_load(d / "a2", "a2") if (d / "a2").is_dir() else None
+        except Instrument as e:
+            bad = bad or str(e)
+        if bad:
+            verdict, note, rows = "INCONCLUSIVE-FINDING", bad, {}
+        elif len(boots) != 3:
             present = sorted(p.name for p in d.iterdir() if p.is_dir()) if d.is_dir() else []
             verdict, note, rows = "INCOMPLETE", f"boots with cells {sorted(boots)} of {present}", {}
         else:

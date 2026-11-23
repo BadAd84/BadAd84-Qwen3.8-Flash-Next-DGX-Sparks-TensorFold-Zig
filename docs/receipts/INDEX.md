@@ -33,7 +33,7 @@ listed at the end as deliberately untracked.
 | `docs/receipts/KnobScreen/RULE.md` | `work/KnobScreen/RULE.md` | `05f1118eaa4abc6c` | `docs/KNOB-SCREEN.md` (pre-fix copy; the live kit is `scripts/qwen38/zig/target/screen/`) |
 | `docs/receipts/KnobScreen/sens.py` | `work/KnobScreen/sens.py` | `4527d475c73cc138` | `docs/KNOB-SCREEN.md` (pre-fix copy; the live kit is `scripts/qwen38/zig/target/screen/`) |
 | `docs/receipts/KnobScreen/starter.sh` | `work/KnobScreen/starter.sh` | `d358f7cc9f7a77d1` | `docs/KNOB-SCREEN.md` (pre-fix copy; the live kit is `scripts/qwen38/zig/target/screen/`) |
-| `docs/receipts/KnobScreen/dry-run-2026-11-23.txt` | `work/KnobScreen/dry/proofs.txt` (box, printed by `driver.sh dry`) | `76f895c4ca040cb2` | `docs/KNOB-SCREEN.md` |
+| `docs/receipts/KnobScreen/dry-run-2026-11-23.txt` | `work/KnobScreen/dry/proofs.txt` (box, printed by `driver.sh dry`) | `155c60951cb853d7` | `docs/KNOB-SCREEN.md` |
 | `docs/receipts/KnobScreen/preflight-env-2026-11-23.txt` | `work/KnobScreen/out.failed-2026-11-23T1546/preflight/c1/env.txt` | `a15054a0527feec4` | `docs/KNOB-SCREEN.md`, `scripts/qwen38/zig/target/screen/allow-extra.txt` |
 | `docs/receipts/KnobScreen/preflight-settings-2026-11-23.txt` | `work/KnobScreen/out.failed-2026-11-23T1546/preflight/c1/settings.txt` | `cf135a0ea74d1b06` | `docs/KNOB-SCREEN.md` |
 | `docs/receipts/KnobScreen/coverage-passage-2026-11-23.txt` | the coverage gate's output after the passage fix (`scripts/qwen38/zig/target/env/check-env-coverage-selftest.sh` proves the rule) | `a4b06d2f73885765` | `docs/KNOB-SCREEN.md` |

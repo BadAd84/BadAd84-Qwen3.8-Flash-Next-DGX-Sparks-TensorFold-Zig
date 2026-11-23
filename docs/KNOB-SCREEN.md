@@ -11,7 +11,7 @@ boot records and the arms' own outputs live on the box under `work/KnobScreen/ou
 
 Status as of 2026-11-23, after the review's section 2: **disarmed, not run, dry green.** The kit changed in
 six ways, each proven by a stub proof in the box's dry run (`docs/receipts/KnobScreen/dry-run-2026-11-23.txt`,
-`DRY-OK 46`):
+`DRY-OK 47`):
 
 - **The base is the committed `dev.env`, copied at start with its sha256 recorded.** The copy is verified
   against the pin `install.sh` wrote (`refcommitted/dev.env.sha256`) and every boot records it as `env_sha`,
@@ -170,9 +170,10 @@ conversations), which is why the cap costs least there.
   lines) and proves each fixed check: the ref sha and a tampered source, the base filter's comment and
   report, the passage gate and the no-op gate, `unset`/`PRESENT`/`ABSENT`/`VALUE`/`EXTRA` and a declared
   allowlist, PROMOTE / two-cell KILL / KILL-PENDING / confirmed KILL / unconfirmed INCONCLUSIVE / guard
-  INCONCLUSIVE / UNSTABLE / inside, the pooled median, a warm-up directory that is never scored, the
+  INCONCLUSIVE / UNSTABLE / inside, a malformed boot that becomes `INCONCLUSIVE-FINDING` without touching
+  the other arms, the pooled median, a warm-up directory that is never scored, the
   sensitivity cases, the coverage gate's passage self-test, the real plan against the installed env, and
-  the disarmed starter. It prints one line a proof and ends `DRY-OK 46` on the box.
+  the disarmed starter. It prints one line a proof and ends `DRY-OK 47` on the box.
 
 ## The window
 
