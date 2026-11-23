@@ -269,15 +269,11 @@ otherwise.
   patch's line (`undo`, `restore`, `delete` shapes). Run it when a patch is ported to a new base, before the gates.
 
 ## Gotchas (each cost real time)
-- `build_qwen_ots.sh` must build from LF files: five layer files once went into the image with CRLF (it strips CRs
-  now).
-- The n-gram tables page from disk on the Python engine: a cold boot measures slower than a warm one. A/Bs boot each
-  arm from a cold table (`ple_evict.py`).
 - A server that keeps prompts answers a repeated prompt from its cache: qf_run.py's prefill prompts repeat every pass,
   so cold prefill needs prompts new to the server (`prefill_fresh.py`; the Zig release answered a repeated 128k
   prompt in 0.31 s).
 - spark6 is stock DGX OS on a 1 Gb/s LAN link and has no passwordless sudo, so the `:8888` firewall rule cannot be
-  applied there and arms bind to `127.0.0.1` instead; spark4 is no longer a serve. Production restarts take ~2 min;
+  applied there and arms bind to `127.0.0.1` instead. Production restarts take ~2 min;
   the container restarts by itself after a reboot (`unless-stopped`).
 - Nesting heredocs inside `ssh '...'` breaks quoting: write a script, `scp` it, run it (or base64 it).
 - **Type-check a patched tree on the laptop before any box build (found 2026-11-12).** The tree's own

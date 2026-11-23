@@ -3,7 +3,7 @@
 # (tensorfold-qwen38:v0.6.1, recipe @ 4c0dea8) + seven OTS changes, all with golden replies byte-identical:
 #  1. pr319/: TensorFold PR #319 ported to v0.6.1 (copy drafts proposed before the MTP chain, copy windows growing
 #     16 -> 64 rows while copies land whole; verbatim repeats 153.8 -> ~535 tok/s, rewrites 141.4 -> ~322;
-#     docs/SPEED-CAMPAIGN-2026-10.md section 2).
+#     the 2026-10 campaign record in git (deleted 2026-11-23, commit 338b6321^)).
 #  2. ple-cache/: the --ple-on-ssd n-gram lookups served from the page cache (a decode window's cached reads done on
 #     the calling thread with RWF_NOWAIT; the next round's rows hinted with POSIX_FADV_WILLNEED as the drafts are
 #     picked). Its multi.py is pr319's multi.py plus the hints, so it is copied AFTER pr319/ and wins.
