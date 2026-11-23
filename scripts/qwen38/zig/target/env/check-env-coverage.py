@@ -20,6 +20,11 @@ value and the setting must be stated with the one that realises the intended def
 (TENSORFOLD_CUDA_KERNELS=native, because the r5 images bake a captured kernel set). The register records
 such a name as `# image-baked NAME=<value>: <evidence>`, and IMAGE-BAKED fails if it is written `unset`.
 
+`--passes` takes the recipe launcher's own name filter (it passes `-e NAME=value` only for names the
+filter matches). A value whose name it cannot carry never reaches the engine, so one above the defaults
+marker (`--measured-before`, a measured lever) is PASSAGE-LOST and fails; one below it is reported as an
+advisory, because a stated default the launcher cannot carry is inert but harmless.
+
 A `# default-ok|debt|unreachable NAME:` line in the register is an ANNOTATION on a value that is set,
 never a substitute for setting it (VERDICT-ONLY fails). A `# missing NAME=` worklist line is temporary:
 each is moved into the launcher env with its citation and deleted here, and the gate fails while one
@@ -75,6 +80,12 @@ def main() -> int:
     ap.add_argument("--no-value-pattern", default=r"^export ([A-Z0-9_]+)[ \t]*$",
                     help="regex with one group naming a setting the launcher env marks and gives no value: always "
                          "a NO-VALUE failure, because that says nothing about the container")
+    ap.add_argument("--passes", default="",
+                    help="regex a setting's NAME must match to be reachable in the container at all (the recipe "
+                         "launcher's own filter, ^(TENSORFOLD|TF_FLASHNEXT)_ here); empty disables the check")
+    ap.add_argument("--measured-before", default="# --- explicit defaults",
+                    help="the line that starts the defaults section: a value above it is a measured lever, so one "
+                         "the launcher cannot carry is PASSAGE-LOST; below it the line is an advisory")
     ap.add_argument("--strict-carried", action="store_true",
                     help="also fail when the launcher env sets a serve setting this table does not have")
     args = ap.parse_args()
@@ -88,14 +99,21 @@ def main() -> int:
     carried_re = re.compile(args.carried_pattern)
     absent_re = re.compile(args.absent_pattern)
     no_value_re = re.compile(args.no_value_pattern)
+    dev_lines = Path(args.dev).read_text(encoding="utf-8").splitlines()
+    marker = next((i for i, l in enumerate(dev_lines) if args.measured_before and args.measured_before in l), None)
     carried = {}
+    at = {}
+    twice = []
     absent = set()
     no_value = []
-    for line in Path(args.dev).read_text(encoding="utf-8").splitlines():
+    for i, line in enumerate(dev_lines):
         m = absent_re.search(line)
         if m:
+            if m.group(1) in carried or m.group(1) in absent:
+                twice.append(m.group(1))
             absent.add(m.group(1))
             carried[m.group(1)] = line.strip()
+            at[m.group(1)] = i
             continue
         m = no_value_re.search(line)
         if m:
@@ -103,7 +121,10 @@ def main() -> int:
             continue
         m = carried_re.search(line)
         if m:
+            if m.group(1) in carried:
+                twice.append(m.group(1))
             carried[m.group(1)] = line.strip()
+            at[m.group(1)] = i
 
     verdicts = {}
     baked = {}
@@ -152,6 +173,9 @@ def main() -> int:
     for name in no_value:
         problems.append(f"NO-VALUE {name}: `export {name}` with no value says nothing about the container; state the "
                         f"value, or `unset {name}` where the reader tests presence and the image does not bake it")
+    for name in sorted(set(twice)):
+        problems.append(f"DUPLICATE {name}: the env states it more than once; the last line wins, so one of them is "
+                        f"a statement nobody reads")
     for name in sorted(absent & set(baked)):
         problems.append(f"IMAGE-BAKED {name}: the served image bakes it ({baked[name]}), so `unset` cannot reach the "
                         f"container; state the value that realises the default")
@@ -162,6 +186,18 @@ def main() -> int:
         problems.append(f"VERDICT-ONLY {name}: a note in the register is not a setting; write the value in the env")
     for name in markers:
         problems.append(f"WORKLIST {name}: the register still lists it as missing; move it into the env")
+    passage = []
+    if args.passes:
+        passes_re = re.compile(args.passes)
+        for name in sorted(n for n in carried if n not in absent and not passes_re.search(n)):
+            i = at.get(name, 0)
+            if marker is None or i < marker:
+                problems.append(f"PASSAGE-LOST {name}: the launcher cannot carry it into the container, so the value "
+                                f"here never reaches the engine")
+            else:
+                passage.append(name)
+        if passage:
+            print(f"stated defaults the launcher cannot carry ({len(passage)}): " + ", ".join(passage))
     served_unknown = sorted(n for n in carried if SERVE_NAMES.match(n) and n not in rows)
     if served_unknown and args.strict_carried:
         for name in served_unknown:
@@ -170,8 +206,11 @@ def main() -> int:
         print("carried but not in this table (series-added or other-engine settings; confirm each has a reader "
               "in the tree you serve): " + ", ".join(served_unknown))
 
-    print("coverage: %d settings in scope, set %d, missing %d, absent %d, annotations %d, worklist markers %d"
-          % (len(rows), counts["set"], len(silent), len(absent & set(rows)), counts["annotated"], len(markers)))
+    lost = sum(1 for p in problems if p.startswith("PASSAGE-LOST"))
+    print("coverage: %d settings in scope, set %d, missing %d, absent %d, annotations %d, worklist markers %d, "
+          "passage-lost %s"
+          % (len(rows), counts["set"], len(silent), len(absent & set(rows)), counts["annotated"], len(markers),
+             lost if args.passes else "off"))
     for p in problems:
         print(p)
     return 1 if problems or silent else 0

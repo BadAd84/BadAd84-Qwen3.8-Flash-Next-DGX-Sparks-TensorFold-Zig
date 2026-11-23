@@ -26,6 +26,8 @@ no line in `dev.env` fails the gate whether or not anyone wrote a note about it.
 | `STALE` | the register annotates a setting the served table does not have |
 | `NO-VALUE` | a bare `export NAME` with no value, which says nothing about the container |
 | `IMAGE-BAKED` | `unset NAME` for a name the served image's own ENV carries |
+| `DUPLICATE` | the env states one setting twice, so the last line silently wins |
+| `PASSAGE-LOST` | a measured value whose name the recipe launcher's filter cannot pass into the container |
 
 The four old verdicts survive as **annotations on values that are already set**, never as substitutes
 for setting them: `default-ok` (we keep the engine default, and the line says which read site gives
@@ -38,6 +40,40 @@ where the reader's default is `null` (a presence test). The worklist is work in 
 resting state: each line is moved into `dev.env` with its citation and deleted from the register. **A
 rebase that adds a setting fails the gate until its value is written**, which is the point: a new
 upstream knob cannot inherit a default in silence.
+
+## How the env reaches the container, read from the recipe's own launcher
+
+The passage is one loop in the recipe's `start.sh` (spark6 `~/qwen-zig/start.sh`, the served launcher):
+
+```bash
+ENV_ARGS=(-e HF_HUB_OFFLINE="${HF_HUB_OFFLINE:-1}")
+while IFS='=' read -r name _; do
+  [[ "$name" == TENSORFOLD_API_KEY ]] && continue
+  ENV_ARGS+=(-e "$name=${!name}")
+done < <(env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+=' || true)
+...
+here_cmd=(docker run -d --name "$CONTAINER_NAME" ... "${ENV_ARGS[@]}" "${KEY_ARGS[@]}" ... "$IMAGE" ...)
+```
+
+Three consequences, and they are the whole presence rule:
+
+- **Only names present in the launcher's process environment are passed**, each as `-e NAME=value`, and only
+  those two prefixes (the secret `TENSORFOLD_API_KEY` is passed as a bare `-e NAME`, so it never appears in
+  the argv we log). Every `dev.env` name is `TF_*` or `TENSORFOLD_*`, so every one is in reach.
+- **`unset NAME` therefore reaches the container as absence**: the name is not in `env`, no `-e` is
+  generated, and the container keeps only whatever the image's `ENV` supplies. That is why the absence
+  form is real and why the dump check (arm A's 30 names) settles `TF_ROCE_GID_INDEX`.
+- **`export NAME` with no value generates no `-e` at all**: the shell does not export a name it never set,
+  so the image's `ENV` value passes through untouched. That is the exact chain EnvBoot's boot hit, and it
+  is why the bare form is a failure now rather than a statement.
+- **The filter also decides which of our settings can act.** The recipe's launcher passes only
+  `TENSORFOLD_*` and `TF_FLASHNEXT_*`. `dev.env` states 27 `TF_*` names (26 with a value, `TF_ROCE_GID_INDEX` as
+  `unset`), and those never reach the engine through this launcher. All 26 are in the `explicit
+  defaults` section, so each is the value the engine already uses: inert, and harmless. The gate makes
+  the distinction mechanical: `--passes` takes the launcher's filter, and a value above the defaults
+  marker that the filter cannot carry is `PASSAGE-LOST`, because a measured lever that cannot act is a
+  defect; one below it is reported as an advisory. The gate also fails a setting stated twice
+  (`DUPLICATE`), since the last line silently wins.
 
 ## Presence-tested settings: `unset`, or a value, never a bare `export`
 
@@ -59,11 +95,13 @@ A presence-tested setting has exactly two honest forms, and `export NAME` with n
    container env, the r5 FP4 image through the dev launcher, carries 30 serve names and not this one
    (`work/QRerun/box/out/QA/env.txt`). If an image or a launcher ever supplies it, the register records
    that with `# image-baked` and the setting is stated with a value.
-2. **`export NAME=<value>`** where the image bakes the name. Docker applies the image's own `ENV` at
-   container creation and nothing in the shell can remove it; `-e NAME=` passes a value (empty is a
-   value), and for this row a blank is taken as a folder name and refused. The only honest statement
-   is the value that realises the intended default, and the register records the bake as
-   `# image-baked NAME=<value>: <evidence>`, which fails if the name is written `unset`.
+2. **`export NAME=<value>`** where the image bakes the name. The loop passes `-e NAME=value`, and `-e`
+   wins over the image's `ENV`; a name the launcher never exports generates no `-e` at all, so the
+   image's value stands, and nothing in the shell can remove an image's `ENV` from the container. An
+   empty value is also a value (it is passed as `-e NAME=`, and for this row a blank is a folder name
+   that is refused), so the only honest statement is the value that realises the intended default. The
+   register records the bake as `# image-baked NAME=<value>: <evidence>`, which fails if the name is
+   written `unset`.
 
 **Why the old bare `export NAME` was wrong.** It marked the name for export in the sourcing shell and
 set nothing; EnvBoot's dev boot measured the consequence and is the probe for this decision. `dev.env`
@@ -147,7 +185,7 @@ Current state against the served tree:
 
 ```
 dev-env: 0 setting(s) without a citation
-coverage: 95 settings in scope, set 95, missing 0, absent 1, annotations 2, worklist markers 0
+coverage: 95 settings in scope, set 95, missing 0, absent 1, annotations 2, worklist markers 0, passage-lost 0
 ```
 
 The 95 are the `flashnext`, `cuda` and `common` rows of `zig/src/platform/environment.zig`: `dev.env`
@@ -176,8 +214,9 @@ can only list them:
    that `dev.env` does not set and the register does not already annotate; a presence test with a
    `null` default is appended as `# missing NAME=presence`.
 3. `python scripts/qwen38/zig/target/env/check-env-coverage.py --table <served tree>/zig/src/platform/environment.zig \
-  --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env --scopes flashnext,cuda,common`
-   fails while any worklist line remains. `--strict-carried` also fails a `dev.env` export that tree
+  --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env \
+  --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_FLASHNEXT)_'`
+   fails while any worklist line remains or a measured value cannot reach the container. `--strict-carried` also fails a `dev.env` export that tree
    does not read, so it is for a serve whose env carries nothing else; here it would name the seven
    classified names above, and it is not part of the standing command.
 4. Resolve every worklist line from the new tree's own source, never by guessing: read the expression
@@ -196,6 +235,7 @@ register exists to prevent. It was caught when the same scripts were run against
 and the totals disagreed with a plain grep.
 
 The scripts are portable: `--table`, `--dev`, `--register`, `--scopes`, `--carried-pattern`,
-`--absent-pattern`, `--no-value-pattern` and `--defaults-from-tree` are all arguments, so another serve
+`--absent-pattern`, `--no-value-pattern`, `--passes`, `--measured-before` and `--defaults-from-tree` are
+all arguments, so another serve
 repo runs the same files against its own family scope and launcher env (the DeepSeek-V4.1 repo carries a
 copy and the write-up in its `docs/ENV-REGISTER.md`).
