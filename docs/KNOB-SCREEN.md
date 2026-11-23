@@ -5,10 +5,6 @@ Current state of the screen lane. The rule and the window machinery live in `wor
 live under `work/KnobScreen/out/` when the window has run. This page is the durable record: what was
 screened, by what rule, what each arm returned, and what stage two inherits.
 
-Status at 2026-11-23T12:02Z: the window is queued on spark6's GPU lock behind Int4Device (holder at that
-time) and EnvBoot (second in the queue), gated on EnvBoot's fast r5 prompt-following marker; no arm has
-booted. This line is replaced by the verdicts below when the window runs. A screen is never a verdict: a
-PROMOTE only earns the five-level A/B later, and **nothing here is written into `dev.env`**.
 Status as of the last box reading, 2026-11-23T12:29:36Z: **armed and queued, not run.** The box rebooted at 12:15:31Z and killed all
 three windows (EnvBoot's, Int4Device's, this lane's). The queue re-formed as EnvBoot's fast half,
 Int4Device's contract window, this window, then EnvBoot's long half, and Main added a second gate: this
@@ -20,6 +16,12 @@ touching production or the lock. At the last reading the lock was held by Int4De
 neither gate existed, so **no arm has booted and there are no verdicts**. EnvBoot has separately reported
 r5 prompt following clean on the complete 1,664-body rows (echo 1/500 on both arms, GSM8K 96.8 percent,
 r5 FP4 byte-identical to the 2026-11-19 build), which is the evidence its marker will carry.
+
+So the lane's deliverables that do not need the GPU are complete and checked: the rule, the driver, the
+analyzer, the stub dry run on the box, the sensitivity check against the repo's own receipt, the twelve
+arms, and this record. The rows are the one thing still owed, and they are owed by the GPU queue, not by
+the instrument. A screen is never a verdict: a PROMOTE only earns the five-level A/B later, and **nothing
+here is written into `dev.env`**.
 
 ## Why a screen
 
@@ -41,7 +43,10 @@ The full rule is `work/KnobScreen/RULE.md`, written before the first row. In sho
   copy of the committed `dev.env`. A candidate's copy differs in **exactly one line**, asserted by the
   writer before it boots. Nothing is built.
 - **Boot arguments.** Production's shape, identical on every boot: 8 lanes, 262,144 tokens, fp8 KV,
-  vision off, drafts on, `TENSORFOLD_CUDA_KERNELS=native` as a launcher pin, loopback only.
+  vision off, drafts on, loopback only. `TENSORFOLD_CUDA_KERNELS=native` is in that list because both
+  images bake `TENSORFOLD_CUDA_KERNELS=/opt/tensorfold/share/tensorfold/cuda/sm121` into their ENV, and a
+  captured kernel set refuses both `--kv-cache fp8` and paged KV (`cuda_lanes_load.zig:33,35`), which are
+  exactly what this env sets; `native` clears `captured` and both are then allowed at TP=1.
 - **Boots.** Three a candidate, in the order control, candidate, control. The second control is the null
   arm: its disagreement with the first is the spread every verdict is measured against.
 - **Cells.** Decode at 1 and 4 streams on the prose and code prompts at temperature 0 (greedy, 256
@@ -77,6 +82,17 @@ leads, then the first four A2 prompt-pass leads.
 | 10 | `TF_FLASHNEXT_READOUT_ROWS` | 64 to 128 | A2 | read-out fused tiles from 128 rows instead of 64 |
 | 11 | `TF_FLASHNEXT_FACT_ROWS` | 64 to 128 | A2 | NVFP4 prompt tiles from 128 rows instead of 64 |
 | 12 | `TF_FLASHNEXT_WARM_AHEAD` | 0 to 1 | A2 | PLE warm-ahead hints on |
+
+**The base is dev.env's 78 settings, and the r5 tree's own table has 95 rows in scope.** The 17 it also
+carries are this series' own switches (`GATHER_READ`, `GATHER_DIRECT`, `GATHER_EARLY`, `GATHER_THREADS`,
+`GATHER_LOG`, `GATHER_LOCK_SCALES`, `GATHER_CACHE_MIB`, `PROMPT_GEMM2`, `PROMPT_MX128`, `PROMPT_SYNC`,
+`FUSED_SPLIT`, `READOUT_FUSE`, `HEAD_PIECE`, `PREFILL_TAIL`, `ROUND_MS`, `DRAFT_ROW_MS`, `DRAFT_AHEAD`),
+whose verdicts live in the patch READMEs and the do-not-chase register rather than in `dev.env`. They are
+equal on every arm of this window because no arm sets them, which is what makes the C-A-C deltas
+attributable, but the screened base is not the launcher's full environment; stage two keeps that caveat.
+(Measured: `work/QRerun/trees/fp4/src/zig/src/platform/environment.zig` 95 rows in scope against
+`dev.env`'s 78; `work/Int4Step5/tree` carries exactly 78, which is the set `docs/KNOB-COVERAGE.md`
+classified.)
 
 What the cap left out, in rank order: `TF_FLASHNEXT_TABLE_WARM`, `TENSORFOLD_CUDA_KERNELS` (A3);
 `TENSORFOLD_PREFIX_WAIT_MS`, `TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS`, `TF_PROMPT_INTERMEDIATE`,
