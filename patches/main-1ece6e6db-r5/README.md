@@ -42,10 +42,10 @@ test.
     ./apply.sh --check TREE     # the whole series applies, nothing written
     ./apply.sh TREE             # apply it
 
-`RECORD.md` has the provenance, the per-patch verdict on this base and every resolution the re-seat needed;
-`RETIRED.md` is the hunk-level record of the two levers upstream has absorbed; `docs/RESEAT-1ece6e6db.md` is the
-study with the evidence and the gate outputs. This is `patches/main-964174ea05` re-seated: **no patch is wholly
-retired**, because upstream has absorbed only parts of two of them (0005's 3,072-row chunk, 0008's fused read-out).
+`RECORD.md` has the provenance, the per-patch verdict on this base, every resolution the re-seat needed and the gate
+outputs; `RETIRED.md` is the hunk-level record of what upstream has absorbed: the two levers already out of the series
+(0005's 3,072-row chunk, 0008's fused read-out) and the four units absorbed on main after this base, which the next
+re-seat retires. This is `patches/main-964174ea05` re-seated: **no patch is wholly retired on `1ece6e6db`.**
 
 ## The levers, one a patch
 
@@ -54,7 +54,7 @@ retired**, because upstream has absorbed only parts of two of them (0005's 3,072
 | 0001 | a lone stream's copy window grows to the boot self-check's largest row-exact width (48 rows on GB10 against the 32-row base); a verify window carrying a pending-row log takes the row-by-row DeltaNet | `TF_FLASHNEXT_WINDOW_CHECK` off (set 1 to run the boot check at load; a failed check stays at 32 rows) | PR #4075 `flashnext-copy-window-up`, open |
 | 0002 | copy re-sync past an edit, the copy ramp and the miss rules | lane core config | none |
 | 0003 | `--kv-cache fp8` for Flash Next: e4m3 keys and values with a power-of-two scale a row, 1,056 bytes a position and layer instead of 2,048 | `KV_DTYPE=fp8` | none; the ground is upstream issue #4107 (another contributor's fp8 KV), which we do not submit to |
-| 0004 | the n-gram table's rows through a direct-mapped row cache with up to 128 parked readers, a drafted token's rows asked for while the head drafts, a prompt chunk's rows asked for while the chunk before it runs, one gather a shared pass (its gather-early half is merged upstream as #4009, `69e4d0f04`) | `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1` (all on) | PR #4009 `flashnext-gather-early-up` (the gather-early part only), open |
+| 0004 | the n-gram table's rows through a direct-mapped row cache with up to 128 parked readers, a drafted token's rows asked for while the head drafts, a prompt chunk's rows asked for while the chunk before it runs, one gather a shared pass (its gather-early half is merged upstream as #4009, `69e4d0f04`) | `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1` (all on) | PR #4009 `flashnext-gather-early-up` (the gather-early part only), MERGED (2026-11-21). **Absorbed: retire the gather-early half at the next re-seat onto a base that contains `69e4d0f04`; the row cache and draft-ahead stay, so 0004 is not absorbed.** |
 | 0005 | prompt passes drain less on one rank; MXFP8 projections of N columns or more take the relaxed 128 x 128 prompt tile | `PROMPT_SYNC` off (the drain stays off), `PROMPT_MX128` (0: off) | none: the 3,072-row chunk half was absorbed by PR #3726 (merged, `e172bcc29`), the MX128 tile is in no PR |
 | 0006 | the MX128 tile in two stages, two blocks an SM | `PROMPT_GEMM2=1` (on, acts only with MX128) | none |
 | 0007 | the draft head's rows 4-bit by default | `DRAFT_HEAD` (`affine4`; `bf16` restores) | PR #3477 `flashnext-draft-head-affine4`, MERGED (2026-11-21, `230837886`). **Superseded on upstream main by `230837886` (2026-11-21 09:32 UTC): do not drop it from this package, whose base `1ece6e6db` predates that merge; drop it at the next re-seat onto a base that contains it, checking that the base reads `TF_FLASHNEXT_DRAFT_HEAD` through `platform/environment.zig` with `affine4` as its default** |
@@ -69,12 +69,17 @@ retired**, because upstream has absorbed only parts of two of them (0005's 3,072
 | 0016 | 0009's 12-bit read-out tile loads its blocks two groups ahead | with `HC_Q12=1` | none |
 | 0017 | lane calls split over K on a cluster run on the fused form | `FUSED_SPLIT=1` (off) | PR #3475 `flashnext-fused-split-up`, MERGED (2026-11-21, `308d5e1fd`) |
 | 0018 | the read-out's reduce and mix inside its products | `READOUT_FUSE=1` (off) | none |
-| 0019 | the fused split's kernel contract | none (a `tf-cuda-test` contract) | PR #3475 carries the contract in its own shape |
+| 0019 | the fused split's kernel contract | none (a `tf-cuda-test` contract) | PR #3475, MERGED (2026-11-21, `308d5e1fd`) carries the contract in its own shape: **retire 0019 and 0017 at the next re-seat** |
 | 0020 | the serving pins: every row of `zig/tests/fixtures/gradient-serving.tsv` the series' own edits move (28 rows, the new `flashnext_hc_norm.cuh` among them) | none (package plumbing) | not upstream: the fixture is this package's own contract |
+
+0001's window lives under three caps the engine sets and this series keeps: `max_rows` 32
+(`zig/src/families/flashnext/cuda_mtp.zig:85`), `round_rows` 64 (`:87`) and the 16-row window cap in
+`batch_meta.zig:3`. The 48-row result is the boot check's proved width under those caps, and a check that does not run,
+fails, or proves nothing past 32 leaves the window at 32.
 
 PR #3523 (`flashnext-config-widths`, top-k and shared width) and #4183 (`cuda-int4-kernel-m`) carry levers that are
 not patches of this series: #3523 is config widths, #4183 belongs to the experimental INT4 series
-(`patches/main-964174ea05-int4`). GPTQ (PR #3611, merged `0f8e35a1a`) touches `core/quant`, which no patch here edits.
+(`patches/main-1ece6e6db-r5-int4`). GPTQ (PR #3611, merged `0f8e35a1a`) touches `core/quant`, which no patch here edits.
 
 ### What the 0020 pins prove
 
@@ -93,16 +98,26 @@ record the same finding.
 
     TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 TF_FLASHNEXT_FUSED_SPLIT=1 TF_FLASHNEXT_READOUT_FUSE=1
     TF_FLASHNEXT_SHARED_DRAFTS=0 TF_FLASHNEXT_GREEDY_WIDE=8
-    # at 6 and 8 streams with a 262,144 window also TF_FLASHNEXT_KV_PAGES=4096; TF_FLASHNEXT_HC_Q12 stays unset
+    # TF_FLASHNEXT_KV_PAGES=4096 at 6 and 8 streams with a 262,144 window, and in every other case
+    # TF_FLASHNEXT_KV_PAGES=<the plan's page count>; TF_FLASHNEXT_HC_Q12=0 (measured level, kept off explicitly)
     # recipe: IMAGE=tensorfold-qwen38:<tag> CHECKPOINT=nvfp4 VISION=0 TENSORFOLD_CUDA_KERNELS=native KV_DTYPE=fp8 \
     #         PARALLEL=<streams> CONTEXT=262144 HOST=127.0.0.1 MEM_CHECK=0 PREPARE=0 ./start.sh restart
+
+Every setting the block relies on is written, per the env rule in AGENTS.md: `scripts/qwen38/zig/target/env/dev.env` is
+our arm's record and no setting may be left unset.
 
 From r3 on, the copy-window half of these numbers also asks for `TF_FLASHNEXT_WINDOW_CHECK=1`: the switch is
 off by default, and with it off the window is main's 32 rows. The block is the 1.2.7 measurement's; since then #3413 landed the fused read-out upstream under
 `TF_FLASHNEXT_READOUT_FUSED` (off by default), so the same reading is available from main alone with
-`TF_FLASHNEXT_READOUT_FUSED=1` added. `HC_Q12` is the one switch the block leaves out: its 1.02 GiB of 12-bit copies
+`TF_FLASHNEXT_READOUT_FUSED=1` added. `HC_Q12=0` is the measured level: its 1.02 GiB of 12-bit copies
 is a capacity cost (14 pool pages, 57,344 positions, fewer at 6 and 8 streams) and it showed no served gain outside
 the cell noise at 1 to 4 streams.
+
+## Leads not in the series
+
+- `TF_PROMPT_INTERMEDIATE=0` (off): a bounded ladder of intermediate prompt checkpoints, read by
+  `zig/src/native/cuda_snaps.zig:35` and written as an explicit default in `dev.env`. It is a lead for long agent
+  turns and has no A/B, so it stays off.
 
 ## Measured on the old base (`964174ea05`, 2026-11-15, spark6)
 

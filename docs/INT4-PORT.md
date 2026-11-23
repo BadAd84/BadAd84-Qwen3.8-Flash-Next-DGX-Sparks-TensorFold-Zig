@@ -1,21 +1,25 @@
 # Serving production's INT4-AutoRound checkpoint on our engine (experimental, 2026-11-13)
 
-**Re-seated 2026-11-15 onto upstream main `964174ea05`** as `patches/main-964174ea05-int4/` (on top of
-`patches/main-964174ea05`), and `compile-config-server` passes on spark6, but it is not yet built into an image or served on that base, so every number below is
-the v1.2.7 package's (image `int4d`). Two hunks needed a decision - the BF16-expert recode stays in front of
-upstream's shared block-FP8 reader (#2892, `1bc80c5f78`) and the scratch estimate keeps upstream's extra slot row -
-both recorded in that package's `RECORD.md`.
+**Re-seated 2026-11-20 onto upstream main `1ece6e6db`** as `patches/main-1ece6e6db-r5-int4/` (on r5's 0001 to 0020) and
+served as `tensorfold-qwen38:qr-b-r5int4-1ece6e6d` at production's shape (8 x 262,144, fp8 KV, production's 54-name
+environment plus `TF_FLASHNEXT_KV_PAGES=4096`); the r5 cells are `work/DevVsProd/RESULT.md` and the exactness run is
+`work/QInt4/RESULT.md`. Two hunks needed a decision - the BF16-expert recode stays in front of upstream's shared
+block-FP8 reader (#2892, `1bc80c5f78`) and the scratch estimate keeps upstream's extra slot row - both recorded in that
+package's `RECORD.md`. The phases below report the v1.2.7 package's numbers (image `int4d`), which is where each
+mechanism was found.
 
-Owner directive: our engine (TensorFold v1.2.7 `93a2e93ec` plus `patches/1.2.7`, 0001 to 0015) serves the checkpoint
-production serves, `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` (spark6 HF cache, revision
-`1464274120d36a4d8fcaa934552334a7d83ce0fd`), so the 18 to 39% gap in `docs/CATCHUP-1.2.6.md` ("The production target is
-a different model configuration") can be split into engine and checkpoint. Not for upstream. The work is a separate
-package, `patches/1.2.7-int4/`, applied on top of the accepted series, which stays untouched.
+Owner directive: our engine serves the checkpoint production serves,
+`azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` (spark6 HF cache, revision
+`1464274120d36a4d8fcaa934552334a7d83ce0fd`), so the serving gap splits into engine and checkpoint. The work is a
+separate package, `patches/main-1ece6e6db-r5-int4/`, applied on top of the accepted series, which stays untouched. For
+upstream the int4 kernel is PR #4183 (the int4 W4A16 kernel); the build-time routing constants this package uses are
+local to this campaign and are not part of that PR.
 
 Production's tree is the `production` branch at `5c3e3e29` (worktree `work/prod`); every production anchor below is
 a file under `work/prod/zig/src/families/flashnext/` unless it names another directory. Every "ours" anchor is a
-line of the accepted tree (v1.2.7 plus 0001 to 0015, `work/i4` here), under `zig/src/families/flashnext/` unless
-it names `zig/src/cuda/` (the engine's shared CUDA library) or `zig/kernels/cuda/`.
+line of the tree the port was derived from (v1.2.7 plus 0001 to 0015, `work/i4` here), under
+`zig/src/families/flashnext/` unless it names `zig/src/cuda/` (the engine's shared CUDA library) or
+`zig/kernels/cuda/`; a line number can move between re-seats.
 
 ## Phase 0: what production does for this checkpoint that ours refuses or fixes at compile time
 
@@ -136,9 +140,8 @@ carry a few percent of cell noise.
 
 ### What the number means
 
-The earlier table (`docs/CATCHUP-1.2.6.md`, "The production target is a different model configuration") had ours on
-the FP4 checkpoint at 61.4 / 81.3, 86.8 / 120.6, 112.9 / 166.4, 146.4 / 204.5 and 162.9 / 234.0 tok/s at 1, 2, 4, 6
-and 8 streams. The same engine on production's checkpoint gives +0% / +30% at one stream and +8 to +19% / +30 to +32%
+The earlier table, on the FP4 checkpoint, had ours at 61.4 / 81.3, 86.8 / 120.6, 112.9 / 166.4, 146.4 / 204.5 and
+162.9 / 234.0 tok/s at 1, 2, 4, 6 and 8 streams. The same engine on production's checkpoint gives +0% / +30% at one stream and +8 to +19% / +30 to +32%
 at two to eight. Splitting each total gap to production into the part that moves with the checkpoint and the part
 that stays (in logarithms, so the parts add; production from this evening's windows):
 
@@ -151,8 +154,10 @@ that stays (in logarithms, so the parts add; production from this evening's wind
 | 8 | -33% / -38% | -24% / -19% | 32% / 57% | 68% / 43% |
 
 So on code a little over half of the old gap was the checkpoint (production's top-5 routing reads less than half our
-expert bytes a round, and its int4 head about a quarter of our BF16 head's), and on prose most of it is the engine.
-What remains on the same checkpoint is a 13 to 24% gap that belongs to our engine.
+expert bytes a round, and its int4 head about a quarter of our BF16 head's), and on prose the larger share was the
+engine in this window; the 2026-11-23 window then placed the prose gap on the hard-coded shared per-draft gate
+(`work/ProseDraft/RESULT.md`), and `work/SpeedAudit/CORRECTIONS.md` supersedes the one-stream cell of this
+decomposition. What remains on the same checkpoint is a 13 to 24% gap that belongs to our engine.
 
 ### Where the remaining gap goes at one stream
 
@@ -189,8 +194,9 @@ the diagnostic patch, `scripts/qwen38/zig/target/int4/0099-diag-int4.patch`, spa
 | in kernels | 50.28 | 48.13 | +2.15 |
 | window wall | 52.02 | 52.29 | -0.27 |
 
-On equal bytes the engine-owned round cost is where `docs/CATCHUP-1.2.6.md` already placed it: the dense projections
-and the read-outs, +4.81 ms a round here against +4.23 there. Our expert and head launches are 2.84 ms cheaper on the
+On equal bytes the engine-owned round cost is in the dense projections
+and the read-outs: +4.81 ms a round here, against +4.23 ms in the kernel log the first decomposition read. Our expert and
+head launches are 2.84 ms cheaper on the
 same int4 kernels (production also runs its draft head on `int4_kernel`), and production's window spends 4.16 ms a
 round outside its kernels against our 1.74, so the instrumented walls are equal. The served gap at one stream is
 therefore the drafter's tokens a round first and the dense projections and read-outs second.
@@ -280,5 +286,40 @@ still 5 to 7% more.
 So the drafter settings close, of the 13 to 24% same-checkpoint gap (in logarithms, against production's averaged
 cells): all of it at one stream on prose and 83% on code; 63% / 56% at two streams, 57% / 52% at four, 48% / 51% at
 six, 28% / 47% at eight. What remains is 0% / -3% at one stream, -9% / -6% at two, -8% / -9% at four, -12% / -9% at
-six and -18% / -11% at eight: at eight streams on prose about a third of it is rounds (6% more than production) and
-the rest the round, whose engine-owned cost the kernel log places in the dense projections and read-outs.
+six and -18% / -11% at eight. What remains at eight streams on prose is drafting volume left in the drafter, not the
+round: at four streams the round costs 51.1 ms against production's 51.5 while tokens a round read 3.01 against 3.28,
+with acceptance 0.718 against 0.750 (`work/ProseDraft/RESULT.md`).
+
+## Quality: an open defect
+
+The 2026-11-22 quality window on the r2 tree scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the
+build answered a few-shot example instead of the question (`work/Int4Window/QUALITY-DEFECT.md`): 166 of 500 GSM8K
+replies on FP4 and 145 of 500 on INT4 name the prompt's jelly-beans example, against 0 and 1 in the 2026-11-19 run, and
+1,654 of 1,664 items sit in the prompt-length band where the build diverges. The 0008 shared-direct write-back is the
+prime suspect: the same lever produced a 0 of 20 answer set on the r2 image, and its r4 fix (the mode-3
+`hc_writeback_norm`, gated byte for byte against mode 2) is in the r5 series. No r5 or r5-int4 prompt-following run
+exists yet; the re-run of all 1,664 items is queued, and until it lands treat internal exactness (drafted equals
+`"draft": false`) as no evidence about prompt following and make no quality claim for either arm.
+
+## PR #4183, state
+
+Read 2026-11-23 (`gh pr view 4183`): OPEN against `main`, head `5aced6d3e8ea1e5d704958653c4254a9b48f30ff`, 20 files,
++2,018 / -3, four commits. The maintainer's four asks of 2026-11-21 are answered on that work
+(`work/Int4Respond/RESULT.md`):
+
+- the rebase onto `7bd7081e0`, with both conflicts resolved (both control headers kept, the serving manifest's two moved
+  rows regenerated) and the two named pin rows regenerated from the merged bytes, the other 167 already main's;
+- gates 1 to 4 plus byte-replacement coverage for the prompt-down BF16 form (`Kind.prompt_down_bf16`, which no entry
+  gated before);
+- the dense wrapper narrowed to BF16, which is what its only caller and every head reader takes;
+- a real `int4-contract` dispatch (`zig/tests/cuda/main.zig`, the usage line, the build step and
+  `docs/kernel-contract.md`), so a filtered run reaches the suite instead of gating nothing.
+
+On the rebased branch (`984556bf50`, six commits) the lean pair read 165 against 165 with 0 new, `tools/pr_check.py`
+read 0 errors and 1 advisory (no Unreleased CHANGELOG bullet naming the PR), `git diff --check` was clean and
+`cuda_common_check` read 55 local copies, 0 violations. On the pushed head `5aced6d3e` upstream's own trial merge into
+`1eed88bb0` applied cleanly, 33 int4 host tests and the serving pin passed, and the Linux x86-64 CUDA test runner
+compiled. **Outstanding: the device summary**, one Spark window on the pushed head (`zig build int4-contract
+-Dnvcc=...` for the SUMMARY line and both planted controls, `kernel-contract` for the full registry, and
+`tf-cuda-test kernel-contract-limits` for gate 5). GitHub read the branch as CONFLICTING against today's main on
+2026-11-23, so a further rebase is due at landing.

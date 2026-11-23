@@ -8,8 +8,8 @@ before it and on nothing after it: the tree compiles after every one of the firs
     ./apply.sh TREE             # apply it
     build_patches.sh TAG git://192.168.99.16/up-pr/tf 93a2e93ecebff8aa52b88e58c5dd222516e69c5f <this directory>
 
-`RECORD.md` says where the text comes from and which repairs it carries; `docs/CATCHUP-1.2.6.md` has every
-measurement behind the table below. RETIRED: the 32-patch series and its integration tail (campaign repo history up
+`RECORD.md` says where the text comes from and which repairs it carries; each row below carries its measured cells.
+RETIRED: the 32-patch series and its integration tail (campaign repo history up
 to `6b4cb3b`); it compiled at four points only and served with a stale chunk position.
 
 The same 13 levers as `patches/1.2.6`, re-seated on v1.2.7 (see `RECORD.md`), each re-tested one rung at a time
@@ -60,8 +60,8 @@ bf16 KV decode the same on this box" rested on fp8 cells that ran bf16 caches; s
 | 8 | not served: 8 streams at 131,072 with bf16 KV does not fit | 237.1 / 370.5 | |
 
 Every cell's golden is 6/6 identical to v1.2.6 stock's and its boot log reads "window self-check: 1176 of 2080".
-Where the remaining time is, and what has been measured against it, is in `docs/CATCHUP-1.2.6.md`: the round's
-read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to take next.
+The round's read-outs already run at the memory roofline, and the drafter's 181.1 MB of BF16 linears are the row to
+take next.
 
 ## 0014: the drafter's BF16 linears, selectable format (`TF_FLASHNEXT_MTP_WEIGHTS`) (2026-11-12)
 
@@ -128,12 +128,11 @@ branch.
 - There is no patch 0015 for the expert path (2026-11-13): measured by expert id, every unique expert is read once a
   layer a round, our decode expert kernels stream at 195 to 222 GB a second (faster than production's at equal rows),
   and the 2.35 times the expert bytes a round at one stream is production's checkpoint routing 5 experts a token
-  against our 10. `docs/CATCHUP-1.2.6.md`, "The decode round's expert traffic, measured by expert id".
+  against our 10.
 - **The target serves a different model configuration (2026-11-13).** Production's checkpoint (azampatti INT4-AutoRound)
   routes 5 experts a token with a GPTQ int4 head; ours (nvidia FP4) routes 10 with a BF16 head. Neither engine loads
   the other's checkpoint, and on one harness the one-stream round splits as about 12 ms of routing width and up to
-  5 ms of head format (the checkpoint's) against about 4.5 ms of engine work. Table and refusals in
-  `docs/CATCHUP-1.2.6.md`, "The production target is a different model configuration".
+  5 ms of head format (the checkpoint's) against about 4.5 ms of engine work.
 
 ## Draft-policy settings on this base, measured (2026-11-13)
 
@@ -308,7 +307,7 @@ fp8pg2 g8` and `fp8q.sh`, spark6 `~/work/target/fp8pages-fp8pg2.{log,sum}` and `
 
 ## 0016 and 0017: the read-outs' 12-bit blocks two groups ahead, and split-K projections on the fused form (2026-11-13)
 
-Both aim at rows of the per-kernel table in `docs/CATCHUP-1.2.6.md` ("The 4.23 ms by tensor shape"), and both are
+Both aim at the round's per-kernel rows (the 4.23 ms by tensor shape), and both are
 exact by construction: they change when bytes are loaded or which block adds the K slices, never a product or an
 addition order.
 
@@ -635,5 +634,9 @@ tokens a streamed chunk less one):
   and level everywhere else it can act, so an issue asking to flip either default would report a regression: main's
   shared 0.6 rule is the better default there. The gains in "Draft settings on the FP4 checkpoint, multi-stream" were
   measured on v1.2.7 plus our patches (`rq18`), fp8 KV at 262,144 and our 512-token harness, not on main; which of
-  those differences turns the sign is not measured, nor are six and eight streams on main (its default boot admits
-  four at 131,072 bf16).
+  those differences turns the sign was not measured in that window, nor were six and eight streams on main (its
+  default boot admits four at 131,072 bf16). It has since been measured on the r5 stack (`1ece6e6db` plus
+  `patches/main-1ece6e6db-r5`): `TF_FLASHNEXT_SHARED_DRAFTS=0` is promoted there, 7 to 11 percent at 2 to 8 streams,
+  prose 229.0 against 207.8 tokens a second at four streams against production's 247.0, exact on every arm and with
+  the one-stream counters unchanged to the digit (`work/ProseDraft/RESULT.md`); it is set in
+  `scripts/qwen38/zig/target/env/dev.env`. Main alone's verdict above stands for that stack.

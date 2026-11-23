@@ -23,16 +23,18 @@ writeback-with-normalize family into `zig/kernels/cuda/flashnext_hc_norm.cuh` (r
 stacked on r5 as it stands, because its `cuda_batch_hc.zig` hunk rewrites the line r4 fixed. `RECORD.md` has the
 per-file disposition and the one resolution; `CHANGES.md` names every difference from the r2-int4 package.
 
-**STATUS: host gates only, and every one of them green on the re-cut patches.** `RECORD.md` ("Checks") has the table,
-each gate with the exact line it is judged on, and `work/R5Int4Fix/RESULT.md` holds that run and its log. Two numbers
-are worth stating here because they were the first cut's failures: `cuda_common_check` reads `55 local copies, 0
-violations` (was `61 local copies, 6 violations`) and the lean pair reads `230 problems, 230 on the base, 0 new` (was
-60 new). The old and the new `fn_int4.cu` compile to one fatbin (`8080835b`, 1,132,920 bytes), the same image the first
-cut's own `fatbins install native` produced. Not built into an image or served on this base. The last served receipt of
-this port is the previous re-seat (`patches/main-964174ea05-int4`, image `pvz-int4`, window of 2026-11-19,
-`docs/PROD-VS-ZIG-2026-11-18.md`): golden 6/6 identical to production's own serve at 1, 2, 4, 6 and 8 streams, decode
-0.94 / 0.97 of production at one stream and 0.82 / 0.87 at eight (prose / code). Those numbers are not this package's
-until a window repeats them on this base.
+**STATUS: host gates green, built and served.** `RECORD.md` ("Checks") has the gate table, each gate with the exact line
+it is judged on, and `work/R5Int4Fix/RESULT.md` holds that run and its log. Two numbers are worth stating here because
+they were the first cut's failures: `cuda_common_check` reads `55 local copies, 0 violations` (was `61 local copies, 6
+violations`) and the lean pair reads `230 problems, 230 on the base, 0 new` (was 60 new). The old and the new
+`fn_int4.cu` compile to one fatbin (`8080835b`, 1,132,920 bytes), the same image the first cut's own `fatbins install
+native` produced.
+
+The tree is built into image `tensorfold-qwen38:qr-b-r5int4-1ece6e6d` and was served at production's shape for five
+stream counts (8 x 262,144, fp8 KV, production's 54-name environment plus `TF_FLASHNEXT_KV_PAGES=4096`): decode 0.79
+of production on prose and 0.95 on code at eight streams, level on code at one, two and four (`work/DevVsProd/RESULT.md`),
+with internal exactness 20 of 20 (`work/QInt4/RESULT.md`). It is still the experimental arm: the accepted series is r5
+alone. Prompt-following has NOT been re-measured on this tree (`work/Int4Window/QUALITY-DEFECT.md`).
 
 ## Serve settings for this checkpoint (measured 2026-11-14 on 1.2.7, image `int4d`; not yet measured on this base)
 
@@ -53,15 +55,14 @@ drafter's 8-bit form in this engine is `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`. The blo
 
 ## What this package does not do (the gap between "dev serves INT4" and "upstream serves INT4")
 
-The maintainer's approved order on issue #3368 has six steps; this package is a dev route, not those steps. This table
-is the r2-int4 package's record of the upstream state at 2026-11-21, carried unchanged; re-read it before quoting it
-as current:
+The maintainer's approved order on issue #3368 has six steps; this package is a dev route, not those steps. The table's
+upstream column is read on 2026-11-23 (`gh pr view`); the package column is this package's own state:
 
-| step | upstream state (2026-11-21) | in this package |
+| step | upstream state (2026-11-23) | in this package |
 |---|---|---|
-| 1. routing and shared widths | PR #3523 open | **only as build-time constants** (`slots = 6`, `shared_w = 1280`, the five write-backs on `slots - 1, slots`): one image serves INT4 and refuses FP4; no runtime widths |
-| 2. block-FP8 projections and the shared expert | unsubmitted branch `work/PrBlockFp8` (head `126b95f6`) | the port's own loader arm (`cuda_projection.zig`, `cuda_projection_load.zig`), with no loader host test and no device check against a float64 reference |
+| 1. routing and shared widths | PR #3523 open, awaiting upstream's GB10 check; upstream settles its CHANGELOG and fixture hunks at landing | **only as build-time constants** (`slots = 6`, `shared_w = 1280`, the five write-backs on `slots - 1, slots`): one image serves INT4 and refuses FP4; no runtime widths |
+| 2. block-FP8 projections and the shared expert | draft PR #4449 (`flashnext-block-fp8-projections-up2`, on its parent #3523) | the port's own loader arm (`cuda_projection.zig`, `cuda_projection_load.zig`), with no loader host test and no device check against a float64 reference |
 | 3. the core GPTQ reader | **merged** (#3611: `51a108030` the reader, `fe3622b72`, `08540d797`; changelog `0f8e35a1a`) | used for admission; the loader still reads the tensors through the port's own `cuda_int4.Source`, not `gptq.read` |
-| 4. the int4 kernel | PR #4183 open, not called by any family | production's lifted `fn_int4.cu` and `cuda_int4.zig` (not #4183's `zig/src/cuda/int4.zig`), with #4183's common helpers and its four settings read through `platform/environment.zig`; no contract records, no planted controls, no float64 device test |
+| 4. the int4 kernel | PR #4183 open at head `5aced6d3e` (the maintainer's four asks answered; the device summary is outstanding) | production's lifted `fn_int4.cu` and `cuda_int4.zig` (not #4183's `zig/src/cuda/int4.zig`), with #4183's common helpers and its four settings read through `platform/environment.zig`; no contract records, no planted controls, no float64 device test |
 | 5. admission and loading as stored | not started | admits and loads the checkpoint, but: no lane name, `--tp 2` refused only by a bare `error.UnsupportedQuantization` (`cuda_mixed_experts.zig`) and drafts not refused, the int4 module loads at every boot (`cuda_batch_kernels.zig`), `cuda_ple.zig` at 636 lines over 600 (a base finding, present on r5's own tree), no fidelity cells against a float64 reference |
 | 6. the MTP layer as stored | not started | **not as stored**: the MTP layer's BF16 experts are re-coded to block FP8 at load (e4m3, lossy; drafts only, so replies stay exact) |

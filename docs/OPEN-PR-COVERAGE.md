@@ -1,85 +1,50 @@
-# Open TensorFold PRs vs our levers
+# Our pull requests against upstream `ashhart/TensorFold`
 
-## 2026-11-12: 278 open, 40 about Flash Next or Qwen3.8, and main has moved
+Read on 2026-11-23 with `gh pr view` and `gh api repos/ashhart/TensorFold/commits/<sha>` for each landing commit;
+the shas and dates are those reads'. A "landed" sha is the commit on main whose message names the pull request.
 
-Read with `gh pr list -R ashhart/TensorFold` (278 open) and a fetch of upstream main, `000b534a2`
-(2026-11-12T02:11Z). The scan below this section (2026-11-08, 199 open) is kept as it was.
+## Merged
 
-**Upstream has moved under our base.** v1.2.7 was tagged 2026-11-11 (`93a2e93ec`, 188 commits past v1.2.6) and main
-is 120 past that. 23 of the 308 commits touch Flash Next, the lane core or the lane tile. By title the CUDA ones are
-checks and refusals (`dfd9ac5ef` malformed settings refused by name, `c6a337753` verify rows checked after one wait,
-`80e0fd72c` non-finite selections, `ab2d08ac3` chunk invariance under `--decode-share`, `37b0776ce` one sampled
-rule, `e32de56c6` qmmf's FP4 decode behind a build flag); none is titled as a one-GPU decode speed change. Our 13
-patches apply on v1.2.6 only: on v1.2.7 the first stops in `CHANGELOG.md`, on main in `CHANGELOG.md`,
-`cuda_lanes_load.zig`, `cuda_mtp_draft.zig` and `platform/environment.zig`. The repo rule for a version bump
-(re-seat, re-test every patch, retire what upstream absorbed) is due.
+| PR | what it carries | merged | landed |
+|---|---|---|---|
+| #3611 | `core/quant`: a GPTQ reader for AutoGPTQ v1 group-128 symmetric weights | 2026-11-19 | code `51a108030`, changelog `0f8e35a1a` |
+| #3726 | Flash Next on CUDA: a prompt pass holds 3,072 rows | 2026-11-19 | code `e172bcc29`, changelog `bc99bab7b` |
+| #3413 | Flash Next: `TF_FLASHNEXT_READOUT_FUSED`, a prompt pass's BF16 read-out on two fused tiles | 2026-11-20 | code `12233bee5`, changelog `9748adc7e` |
+| #3727 | Qwen3.5/3.8 and Flash Next on CUDA: `--vision` reads a quantized ModelOpt tower | 2026-11-20 | code `174cfff34`, changelog `e0ebc7b69` |
+| #2044 | glm cuda: decode windows' EXL3 experts run on the 16-pair item plan | 2026-11-20 | `82e8927f9` |
+| #3477 | Flash Next: the draft head's rows are affine4 unless `TF_FLASHNEXT_DRAFT_HEAD=bf16` | 2026-11-21 | code `230837886`, changelog `50b819756` |
+| #4009 | Flash Next: one pooled n-gram gather for every row a shared pass needs | 2026-11-21 | `69e4d0f04` |
+| #3475 | Flash Next: `TF_FLASHNEXT_FUSED_SPLIT` runs wide split-K decode calls on the fused form | 2026-11-21 | `308d5e1fd` |
 
-**The 40, by what they are:**
+Each absorbed lever is retired from our series at the next re-seat; `patches/main-1ece6e6db-r5/RETIRED.md` carries the
+hunk-level record and the instruction, so nothing is re-added.
 
-| group | PRs | bearing on the one-GPU NVFP4 serve |
+## Open
+
+| PR | what it carries | state at 2026-11-23 |
 |---|---|---|
-| Flash Next on CUDA, one GPU | #2815 two graphs a window-graph slot; #2927 sampled draws in one launch and one wait a step; #2898 pool lanes as pieces on any pages; #2763 KV in the display carveout (draft) | #2815 is carried and queued (below). #2927 is exact and aimed at sampled streams, which is what the recipe serves by default (temperature 1.0) and what our greedy benchmark does not exercise; as cut it conflicts with main and does not apply on v1.2.6. #2898 and #2763 are capacity, not speed |
-| Flash Next on CUDA at `--tp 2` | #2837, #2969, #2971, #2972, #2976, #2977, #2978, #2980, #2982 | two-rank work; window graphs are off at TP=2 |
-| EXL3 Flash Next | #1441 to #1446, #1522 (20k to 49k lines each) | another checkpoint format |
-| Flash Next on HIP (AMD) | #1878, #2695, #2696, #2697, #2728, #2730 | another backend; what they add (parked gather workers, batched heads, wider windows) the CUDA path has, and #2697 is a confidence default |
-| Flash Next on Metal | #2805 | another backend |
-| Qwen3.8-27B (the dense model, family `qwen3_5`) | #1835, #2000, #2023, #2078, #2464, #2634, #2648, #2799, #2854, #2895, #2921 | not Flash Next |
-| shared cleanups | #2392, #2679 | none |
+| #4075 `flashnext-copy-window-up` | a lone stream's copy window takes the width the boot check proves | clean and mergeable (head `4e7bc21d9`, 26 files, +882 / -109), awaiting upstream's GB10 check; nothing needed from us |
+| #3218 `flashnext-mtp-weights` | `TF_FLASHNEXT_MTP_WEIGHTS` selects how the drafter keeps its BF16 linears | head `20003e9670`; nothing further needed from us, and upstream settles the `CHANGELOG.md` hunk at landing (the maintainer, 2026-11-19); upstream's device check is the open item |
+| #3523 `flashnext-config-widths` | config-driven top-k and shared expert width | head `37d99a8a`, awaiting upstream's GB10 check; its landing route is recorded: the only overlaps are `CHANGELOG.md` and `zig/tests/fixtures/gradient-serving.tsv`, both reconciled in a scratch merge against the main it was cut on, so landing is a fixture refresh and not a source conflict |
+| #4183 `cuda-int4-kernel-m` | an int4 W4A16 kernel for GPTQ group-128 routed experts and the LM head | head `5aced6d3e8`, 20 files, +2,018 / -3; the maintainer's four asks are answered (rebase and re-pin, the prompt-down BF16 gates, the BF16 dense wrapper, a real `int4-contract` dispatch) and the **device summary is outstanding**; full state in `docs/INT4-PORT.md` |
+| #4449 `flashnext-block-fp8-projections-up2` | block-FP8 projections load on the FP8G lane | draft (head `42ff781a5`, 33 files, +931 / -105), stacked on its parent #3523 and awaiting that PR's landing |
 
-Outside the 40 but touching us:
+#3218 and #3523 have moved under upstream's main since their heads were refreshed, so GitHub reads both as
+conflicting; neither needs a change from us before its device check, and a rebase is due at landing.
 
-- **#2266** (NVFP4 routed experts through a per-warp `cp.async` ring, +24% on GLM at sm_120): the experts are 29% of
-  our round (18.1 of 62.6 ms), but the PR keeps GB10 on its register form and reports the sm_121 SASS byte-identical
-  to main's for all 19 expert functions, with its GB10 cells level. It does nothing for us as it stands.
-- **#2687** (the lane core prices plain shared rounds apart from drafted rows): the same ground as our round-cost
-  patch (0010), from the core's side. If it lands, 0010 is re-tested against it first.
-- **#2934** (`qwen3_5`: windows of 2 to 8 rows run at 4 and 8 rows, not 16): an idea, not a patch for this family.
-  Our verify windows are 5 to 7 rows on the lane's 16-row tile; whether Flash Next pays for the padding is unchecked.
+## The part fix, not yet opened
 
-**#2815, carried:** `upstream/tensorfold-pr-2815/` (the commit `8cb59625d` as `git format-patch` wrote it, with
-`RECORD.md`). It applies untouched on v1.2.6 alone and after 7 or all 13 of our patches. Its body says a window slot
-re-records its graph on 57% of passes and lists the GB10 run as still to do. Our round log agrees with the symptom:
-on the accepted rung the window graph costs what eager launches cost (49.8 against 49.2 ms a prose forward).
-`pr2815.sh` runs it against the accepted rung at one and four streams with the engine's own capture counts.
+The MTP head's `fc_h` lane sizing fix (`work/PartFix/REBASE.md`): head `bbbf0d414b5ef05fd291812da2f8d49f0932998e`
+on `1c9688ca2`, one signed commit, 2 files, +133 / -2, host gates green, issue text and pull request text approved.
+It is re-seated and posted after the device gate; the issue is not opened yet.
 
-## 2026-11-08: the recipe's 17 patches and our two levers (199 open)
+## Our series
 
-Checked: all 199 open PRs' titles against the 17 feature keywords, plus diff-level file checks on the 9
-candidates that matched (2593, 2585, 2577, 2576, 2528, 2568, 2507, 2266, 1394 - all opened 2026-10-26 to
-2026-11-08, none older). Diffs taken against `267c5af6a` (the tip our arms ran).
+Our levers are 20 patches on upstream main `1ece6e6db` (`patches/main-1ece6e6db-r5`), with
+`patches/main-1ece6e6db-r5-int4` (production's INT4-AutoRound checkpoint) and `patches/main-1ece6e6db-r5-kvtier` (the
+NVMe KV tier) on top. The 13-patch series cut against v1.2.6 (`patches/1.2.6`) and the 19-patch series cut against
+v1.2.7 (`patches/1.2.7`) carry the same levers on their own bases.
 
-## Verdict
-
-**No open PR covers any of the recipe's 17 patches, nor our two levers.** The Flash Next work in open
-PRs is: #2593 (6/8-bit row products on Metal-class simdgroups - Metal, not CUDA), #2585 (strict
-`TF_FLASHNEXT_*` validation - no overlap with our settings, 0 code-file mentions of copy_resync/warm_turns),
-#2577 (window-graph key hashing - a bugfix on #2444's KV-pool work), #2266 (NVFP4 expert decode via a
-cp.async ring, GLM-5.3), #2507 (sampled top-k skipping doomed blocks), #2576/#2528/#2568 (HIP + KV-pool
-items). The recipe's features - fp8 KV for Flash Next, copy windows, the resync, 64/48-row windows, the
-expert tiles, hc fusion, mx128 prompt tiles, host draws, contract_controls, the vision loader, the
-prompt-hc fusion - appear in no open PR title or diff.
-
-## The near-misses
-
-- **#2576** "the 64-row routed tile reads the prompt chunk's rows, so its 1,024-row cap holds" - HIP
-  (ROCm), a routed-experts tile cap, not the Flash Next copy-window invariance on CUDA. Different backend,
-  different mechanism.
-- **#2528/#2568/#2577** - the KV-pool chain (#2444): a lane host a pool, reclaim hooks, window-graph keys.
-  Adjacent to the pool-of-kept-graphs lever but not it (those are KV pages, not captured decode graphs).
-- **#2266** - NVFP4 expert decode via a per-warp cp.async ring, same bits, GLM-5.3 83.8 -> 104.1 tok/s.
-  If it generalises to Flash Next's NVFP4 experts it would stack with our levers; its title scopes to GLM.
-- **#2585** - strict `TF_FLASHNEXT_*` validation. Complementary to everything of ours (we rely on strict
-  settings too); 0 code mentions of our settings.
-
-## The 12-bit read-out check
-
-#2593 "6- and 8-bit row products take 2 outputs a simdgroup" is Metal simdgroup work, not the CUDA hc
-read-out path our lever changed - and our lever measured flat on 1.2.4 anyway, so nothing to check there.
-
-## Implication
-
-The recipe's 17 patches remain a genuine porting backlog: nobody upstream has submitted any of them
-against the 1.2.4 kernel layout. Our 0064/0065 are the only two features from the whole campaign that
-exist as reviewable diffs against upstream 1.2.4, alongside the maintainer's own merged work
-(confidence handling, KV-pool pages, KEEP_LATE, lane-batched DeltaNet, staged copies, first-token
-sooner).
+The recipe's 17 patches (`docs/RECIPE-PATCHES-VS-UPSTREAM.md`) are a porting backlog for the recipe's own 1.1.4 line
+only: our levers are the series above plus the eight merged pull requests and the four open ones in the tables. The
+recipe's features are not part of that series.

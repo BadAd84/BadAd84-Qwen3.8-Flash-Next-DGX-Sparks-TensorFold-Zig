@@ -1,10 +1,19 @@
+The target is `production/SPEED-TARGET.md` on the `production` branch, read in its worktree (`git worktree add work/prod
+production`). It is reproduced below, model note included; the `production` branch's copy is the authoritative one.
+
 # Speed target: the zmerge8-kfix production serve, measured 2026-11-10
 
-This branch is upstream TensorFold v1.2.6 (`6e9af9302`) plus this one document. The document records the speed
-every 1.2.6 lever is ranked against: the production serve on spark6 (image
+This document lives on the `production` branch, which is upstream TensorFold v1.2.6 (`6e9af9302`) plus this one
+document. It records the speed every 1.2.6 lever is ranked against: the production serve on spark6 (image
 `tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7`, the recipe's Zig 1.0.0 stack with our OTS 0010-0028,
 tfm-fixes, tfm-warm-t and c68-shared-cost-levels, plus its two kindling boot fixes in the base image) ran the
 full suite once, one fresh boot per concurrency level, and the numbers below are its cells.
+
+**Model note (added 2026-11-13):** this serve's checkpoint, azampatti's INT4-AutoRound, routes **5 experts a token**
+(`num_experts_per_tok` 5, shared expert 1280 wide); the campaign's `main` serves nvidia's FP4 checkpoint, which routes
+**10** (shared expert 640 wide), over the same 512 experts of width 640. A decode round here reads about 2.35 times
+fewer expert bytes at one stream (measured by expert id), so a cell measured on the
+other checkpoint compares a different model configuration, not only a different engine.
 
 A change ships when the cell it targets moves toward these numbers and no other cell regresses. A faster
 decode cell that costs TTFT, a higher aggregate that costs the per-stream rate, or a win at 6 streams that

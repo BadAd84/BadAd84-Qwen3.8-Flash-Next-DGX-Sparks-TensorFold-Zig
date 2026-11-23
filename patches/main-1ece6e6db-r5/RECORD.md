@@ -121,7 +121,7 @@ measured cost of 62,914,560 bytes more scratch at cap 3,072.
   added-line comparison against `patches/main-964174ea05` loses exactly the retired hunks (0005: 4 lines, 0008: 935)
   and the two re-seats' own lines (0003: 2, 0010: 4, 0015: 1 swap), and nothing else.
 - `work/upsubmit/MergeMain2/box/pincheck.py`: base `files 169 failing 0`, series `files 169 failing 0`.
-- Host gates on Paperclip (x86-64, Zig 0.17.0): see `docs/RESEAT-1ece6e6db.md`, "Gates".
+- Host gates on Paperclip (x86-64, Zig 0.17.0): see `work/SeriesFix/RESULT.md` section 4.
 - `scripts/check-patch-packages.sh` (RECORD.md + SHA256SUMS with every patch listed).
 - The device re-verify on spark6 (2026-11-22), on the image built from this tree (`tensorfold-qwen38:sdlimits-r5`,
   `sha256:17cfdc9a...`, relabelled `embedded`): the 20-item oracle reads `RESTORES eqB 20 marker 20 gold 20` at

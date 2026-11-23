@@ -2,7 +2,7 @@
 # qwen6-start.sh - start (or restart) the Qwen3.8 Flash Next Zig serve on spark6 (box copy: ~/qwen6-start.sh).
 #
 # Image: tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 = the recipe's Zig 1.0.0 release + our 0001-0028 + the
-# zmerge8 keep set (docs/ZIG-SPEED-CAMPAIGN-2026-10.md section 4) + the two byte-neutral 64K-page boot fixes
+# zmerge8 keep set + the two byte-neutral 64K-page boot fixes
 # (label ai-engine.kindling: 0001-vision-clone + 0002-upload-staging), the only build of that stack that boots on
 # kindling spark-os. Golden 6/6 and every decode reply equal to stock at 1/2/4/6/8 streams (2026-10-12).
 # Env: the measured zmerge8 arm env (spark6 ~/work/lanes/merge8, copy ~/work/ots-255-knob/m8env.sh) with two changes:

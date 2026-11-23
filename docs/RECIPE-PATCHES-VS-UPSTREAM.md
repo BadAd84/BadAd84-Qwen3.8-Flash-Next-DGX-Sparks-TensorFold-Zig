@@ -1,8 +1,8 @@
 # Answer: are the recipe's 17 patches already covered by upstream code?
 
-Checked against upstream `267c5af6a` (the tip our A/B arms ran) and today's tip `303c389d4a`,
-by content probes on the Flash Next family and kernel files, plus `git apply --check` of each
-patch against both tips.
+Checked against upstream `267c5af6a` (the tip our 1.2.4 arms ran) and `303c389d4a` (the tip on 2026-11-06), by content
+probes on the Flash Next family and kernel files, plus `git apply --check` of each patch against both tips. Upstream is
+now at v1.2.9 and later, and the current series is `patches/main-1ece6e6db-r5`.
 
 ## Short answer
 
@@ -35,8 +35,8 @@ upstream's), and the content probes for the specific features come back empty.
 
 ## Why the probes and the apply-check agree
 
-Every one of the 17 patches fails `git apply --check` against both `267c5af6a` and today's tip
-(`303c389d4a`), for the same structural reason: the recipe's series was written against a
+Every one of the 17 patches fails `git apply --check` against both `267c5af6a` and `303c389d4a`
+(the tip on 2026-11-06), for the same structural reason: the recipe's series was written against a
 `flashnext_*.cu` kernel layout that upstream never had - upstream's own Flash Next kernels are a
 different set (`flashnext_attn_lanes.cuh`, `flashnext_gdn_lanes.cuh`, `flashnext_hcf.cu` missing, etc.).
 So "covered" would require the feature to exist in upstream's OWN structure, and the content probes show

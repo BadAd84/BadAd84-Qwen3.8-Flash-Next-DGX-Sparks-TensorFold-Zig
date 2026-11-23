@@ -1,6 +1,7 @@
 # Qwen3.8 Flash Next on one DGX Spark - upstream watchlist
 
-Current state of the upstream recipe and engine against what spark4 runs. Live config: `scripts/qwen38/README.md`.
+Current state of the upstream recipe and engine against what production runs (spark6 `:8888`, the `production`
+branch). Live config: `scripts/qwen38/README.md`.
 ## 2026-10-25
 
 - Upstream re-tested #34 (`TF_FLASHNEXT_CONFIDENCE=-0.15`) on current main `656879f` / the NVFP4 checkpoint: no
@@ -15,11 +16,10 @@ Current state of the upstream recipe and engine against what spark4 runs. Live c
   ~2.8 GiB load; our OTS 64K loader fix is what our images carry) - upstream-artifact testing must use the DGX OS
   4K GRUB fallback; and on a cold kernel cache the vision helper's first-boot work outlasts the engine's
   VisionTimeout, looping failed boots (VISION=0 avoids it).
-  Full data, the FP4 risk table and the continuation plan: docs/FP4-PORT-AND-RETEST.md.
 
 ## 2026-10-08
 
-- Live (spark4): the MiaAI-Lab recipe `Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold` @ `4c0dea8` (TensorFold's Python
+- Served on spark4 at this date: the MiaAI-Lab recipe `Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold` @ `4c0dea8` (TensorFold's Python
   engine v0.6.1, the MLX 4-bit checkpoint `Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP`) + seven OTS layers, image
   `tensorfold-qwen38:v061-ots` (`scripts/qwen38/`).
 - The recipe moved to TensorFold's Zig engine on 2026-10-08 (release 1.0.0, main @ `364f21a`: TensorFold `db281878`
@@ -34,8 +34,9 @@ Current state of the upstream recipe and engine against what spark4 runs. Live c
   both read is `nvidia/Qwen3.8-Flash-Next-NVFP4` (123.6 GiB); MiaAI-Lab's `nvfp4-v066` branch measured it on the
   Python engine v0.6.6: prose / code 35.2 / 52.1 tok/s at one request, prefill 1,479-1,616 tok/s, against 2,180-2,468
   for the MLX checkpoint (its 47.7 GiB FP8 n-gram table pages from disk).
-- The Zig release serves on spark6 for the two-box comparison against spark4 (`scripts/qwen38/zig2_ab.sh`; it is
-  also staged, not serving, in spark4's `~/qwen-zig`). Measured 2026-10-08 (`scripts/qwen38/README.md`): code decode
+- The Zig release was staged on spark6 for the two-box comparison against spark4 (`scripts/qwen38/zig2_ab.sh`; it was
+  also staged, not serving, in spark4's `~/qwen-zig`). Measured 2026-10-08 against that date's `scripts/qwen38/README.md`:
+  code decode
   1.14-1.30x production at 1-4 clients, prose 0.82x at one client and 1.13x at four; fresh prefill 1.07-1.08x, which
   spark6's ~8% compute lead accounts for.
 - TensorFold's Python engine is frozen at v0.6.6 (`python-0.6` branch); TensorFold's own 1.0.x release builds serve

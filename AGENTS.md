@@ -1,10 +1,11 @@
 # qwen3.8-flash-next-dev - repo rules, conventions, and gotchas
 
-The Qwen3.8 Flash Next serve on spark4 as a development project: our layers on the MiaAI-Lab recipe, their tests and
-benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is glm5.3-flash-dev.
+The Qwen3.8 Flash Next serve on spark6 (production at :8888) as a development project: the MiaAI-Lab recipe's serve,
+our levers as patches on upstream TensorFold main, their tests and benchmarks, and the upstream PRs. The hardware is
+ots-infra's; the GLM serve is glm5.3-flash-dev.
 
 ## Branches (owner 2026-11-12)
-- **`production`** - the recipe the serve on spark6 runs today and the target to match or beat: the engine source its
+- **`production`** - the recipe the serve on spark6 runs and the target to match or beat: the engine source its
   image was built from (TensorFold at `5c3e3e29`, the zmerge8 stack with the 64K boot fix; the build tar compared
   file for file) and, under `production/`, the image build, the launcher with its whole environment, the FP8 drafter
   overlay tool and the measured target. Frozen: production hotfixes only. Its history is unrelated to `main`'s, so
@@ -15,19 +16,26 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   `production/SPEED-TARGET.md` at 1, 2, 4, 6 and 8 streams, production is retired and replaced from here.
 
 ## Layout
-- `scripts/qwen38/` - the serve's files, AUTHORED here and COPIED to spark4 (`~/qwen-start.sh`, `~/qwen-ots/` for the
-  image build, `~/work/` for the harnesses); the repo copy is the source. `scripts/qwen38/README.md` is the SSOT for
-  the serve and each layer's evidence.
-- `patches/1.2.6/` - EVERY change we own on TensorFold v1.2.6 (`6e9af9302`) as numbered `.patch` files applied in
-  filename order to a PRISTINE upstream tree. The TensorFold source is never edited in place: the patches are the
-  artifact and the build consumes them (`scripts/qwen38/zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf
-  6e9af9302 patches/1.2.6`). `patches/1.2.6/README.md` lists which patch carries which lever.
+- `scripts/qwen38/` - the serve's files, AUTHORED here and COPIED to spark6 (`~/qwen6-start.sh`, `~/qwen-zig` for the
+  recipe, `~/work/` for the harnesses); the repo copy is the source.
+- `scripts/qwen38/zig/target/env/` - the environment of record: `dev.env` is our arm (every setting the served tree
+  reads, each with the file that measured it; gate `check-dev-env.py`), `prod.env` is the live serve's launcher copy
+  (52 settings, copied 2026-11-20). A setting with no value in the env is a hard stop at a rebase, not a note in the
+  register.
+- `scripts/qwen38/README.md` is the SSOT for the serve: the env of record, the series, and each lever's measurements.
+  `patches/*/README.md` carries each lever's evidence.
+- `patches/main-1ece6e6db-r5/` - EVERY change we own on upstream main `1ece6e6db` as numbered `.patch` files applied in
+  filename order to a PRISTINE upstream tree, with `main-1ece6e6db-r5-int4/` (the INT4-AutoRound port) and
+  `main-1ece6e6db-r5-kvtier/` (the NVMe KV tier) on top. `build_patches.sh TAG git://192.168.99.16/up-pr/tf <base-sha>
+  <package>`. `patches/1.2.6/` and `patches/1.2.7/` carry the same levers cut against v1.2.6 (`6e9af9302`) and v1.2.7
+  (`93a2e93ec`).
 - `archive/tensorfold-levers124/` - RETIRED 2026-11-12: the old engine fork `ots/tensorfold-levers124`, kept whole as
   a git bundle (59 refs: the production zmerge8 engine source `27b6700cb`, the `archive/*` development tags, the
   working clone's branches) with a restore check. This repo is the only home of our Qwen work.
 - The plain TensorFold fork for upstream PRs is GitHub `BadAd84/TensorFold` (branches cut from upstream main, one
   change each; nothing of this campaign lives there). It has no Gitea twin.
-- `docs/` - the speed campaign and the upstream watchlist.
+- `docs/` - the environment register, the PR map, the INT4 port, the target, the recipe comparison and the upstream
+  watchlist.
 - `upstream/` - recipe PR packages; skill `submit-ots-patch-as-miaai-recipe-pr`.
 
 ## Conventions
@@ -45,7 +53,11 @@ benchmarks, and the upstream PRs. The hardware is ots-infra's; the GLM serve is 
   the base tree, and never edit it in place, so the gates and any A/B run against upstream's own source. A measurement
   taken on a patched tree names the base sha and the patches applied.
 - **GPG-signed commits. Never `--no-gpg-sign`** (pinentry = YubiKey touch; if it fails, retry).
-- **Current-state docs**; retired things marked RETIRED in one line; "current" claims carry a date.
+- **Current-state docs, and nothing else.** A retired lever, setting or procedure is REMOVED from the docs, not marked
+  as retired: the only place a retirement is kept is where it is evidence for a decision still in force (a package
+  `RECORD.md` naming the upstream commit that absorbed a patch, so the next re-seat does not re-add it). A
+  "current" claim names the tree or commit it is true of; a historical campaign lives in `work/` (gitignored), never
+  in `docs/`. The audit that established this is `work/DocAudit/REPORT.md`.
 - New `.sh` files need `git update-index --chmod=+x`.
 - **A change ships only with replies byte-identical to the image it replaces** (golden 6/6:
   `~/work/qf_harness.py golden`, then `diff`), and its speed from an interleaved HTTP A/B on fixed prompts (3 passes
@@ -245,12 +257,16 @@ otherwise.
   only; style findings are INFO.
 - `scripts/qwen38/zig/target/env/check-env-coverage.py --table <tree>/zig/src/platform/environment.zig
   --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env
-  --scopes flashnext,cuda,common [--strict-carried]` - every setting the served engine reads carries a verdict: carried in `dev.env` with a
-  measurement, `default-ok`, `debt` (counted) or `unreachable` in `register.env`. A SILENT setting fails, a STALE
-  verdict fails, and `--strict-carried` also fails a `dev.env` export with no reader in the tree being served. Run
-  it against the served tree at every re-seat after `update-env-register.py`, which appends a `debt` line for each
-  new upstream knob. Why: an upstream default in no env file cost 7 to 11 percent for two days
-  (`docs/ENV-REGISTER.md`).
+  --scopes flashnext,cuda,common [--strict-carried]` - **every setting the served tree reads must be SET in
+  `dev.env`**; the engine's default written out counts, a note in `register.env` does not. A missing setting fails,
+  a setting carried only by a note fails (`VERDICT-ONLY`), a worklist line still in the register fails, and
+  `--strict-carried` also fails an export the served tree does not read (a retired or misspelled name).
+  `update-env-register.py --defaults-from-tree <tree>` builds the worklist with each setting's literal default and
+  its read site. Run both against the served tree at every re-seat and after any patch that adds a registry row; a
+  new upstream knob is then a hard stop until its value is written. Why: an upstream default in no env file cost 7
+  to 11 percent for two days (`docs/ENV-REGISTER.md`).
+- `scripts/check-patch-reverts.py SERIES_DIR` - a series patch that silently takes back a base line or an earlier
+  patch's line (`undo`, `restore`, `delete` shapes). Run it when a patch is ported to a new base, before the gates.
 
 ## Gotchas (each cost real time)
 - `build_qwen_ots.sh` must build from LF files: five layer files once went into the image with CRLF (it strips CRs
@@ -260,8 +276,9 @@ otherwise.
 - A server that keeps prompts answers a repeated prompt from its cache: qf_run.py's prefill prompts repeat every pass,
   so cold prefill needs prompts new to the server (`prefill_fresh.py`; the Zig release answered a repeated 128k
   prompt in 0.31 s).
-- spark4 is stock DGX OS on a 1 Gb/s LAN link; spark6 (the comparison box) is the same. Production restarts take
-  ~2 min; the container restarts by itself after a reboot (`unless-stopped`).
+- spark6 is stock DGX OS on a 1 Gb/s LAN link and has no passwordless sudo, so the `:8888` firewall rule cannot be
+  applied there and arms bind to `127.0.0.1` instead; spark4 is no longer a serve. Production restarts take ~2 min;
+  the container restarts by itself after a reboot (`unless-stopped`).
 - Nesting heredocs inside `ssh '...'` breaks quoting: write a script, `scp` it, run it (or base64 it).
 - **Type-check a patched tree on the laptop before any box build (found 2026-11-12).** The tree's own
   `zig build compile-config-server -Dtarget=aarch64-linux-gnu` cross-compiles the real CUDA server (the Flash Next

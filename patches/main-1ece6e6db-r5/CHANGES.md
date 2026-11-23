@@ -121,7 +121,7 @@ pinned image and id).
 
 ## 6. What is not proven
 
-- The 1,664-item text comparison (`docs/QUALITY-A-VS-B-2026-11-18.md`) was measured on a different image
+- The 1,664-item text comparison was measured on a different image
   (`tensorfold-qwen38:t5-b-c0eb2126`), before this write-back was fixed. Any text-quality statement about the FP4 arm
   with the lever on is void for this build until that comparison is re-run on it; this window proves the 20-item
   answer set and the contract, not a benchmark-scale quality claim.

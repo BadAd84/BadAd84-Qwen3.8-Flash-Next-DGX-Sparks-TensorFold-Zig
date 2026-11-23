@@ -8,8 +8,8 @@ before it and on nothing after it: the tree compiles after every one of the 13.
     ./apply.sh TREE             # apply it
     build_patches.sh TAG git://192.168.99.16/up-pr/tf 6e9af930261a88bb28ac0bfb157ce8e57e9eea07 <this directory>
 
-`RECORD.md` says where the text comes from and which repairs it carries; `docs/CATCHUP-1.2.6.md` has every
-measurement behind the table below. RETIRED: the 32-patch series and its integration tail (campaign repo history up
+`RECORD.md` says where the text comes from and which repairs it carries; each row below carries its measured cells.
+RETIRED: the 32-patch series and its integration tail (campaign repo history up
 to `6b4cb3b`); it compiled at four points only and served with a stale chunk position.
 
 Measured on spark6, NVFP4 checkpoint, bf16 KV, 131,072-token window, one fresh boot a cell, through the upstream
@@ -32,13 +32,16 @@ recipe. "Decode" is 512-token prose and code replies at one and four streams. A 
 | 0012 | the row cache can read through the page cache | `GATHER_DIRECT` (1) | switch only |
 | 0013 | the window self-check can log its first differing row | `CHECK_LOG` (off) | log only |
 
-The accepted stack for speed today is 0001 to 0007: 61.9 / 81.7 tok/s at one stream and 113.0 / 166.1 at four,
+The accepted stack for speed on this base is 0001 to 0007: 61.9 / 81.7 tok/s at one stream and 113.0 / 166.1 at four,
 against stock's 54.4 / 74.3 and 106.8 / 155.9. Patch 0007 is a default flip of a knob the base already has, and the
 same gain shows on an unpatched binary with `TF_FLASHNEXT_DRAFT_HEAD=affine4` (stock 54.2 / 74.3, with the switch
 61.7 / 82.0 at one stream; replies identical): the 4-bit draft head is an environment setting on stock, and this
 series makes it the default. The other stock knobs tried on the unpatched binary (`DRAFTS_GREEDY`, `PLE_IO=mmap`,
-`TABLE_WARM`, `SHARED_DRAFTS`, `KEEP_INPASS`, `LANE_PARTS`, `PROMPT_BF16`, `GPU_TOPK`, `READOUT_ROWS`, `FACT_ROWS`)
-move nothing or lose; `BATCH_HEADS=0` loses 17 to 28% at four streams, so the default stays.
+`TABLE_WARM`, `KEEP_INPASS`, `LANE_PARTS`, `PROMPT_BF16`, `GPU_TOPK`, `READOUT_ROWS`, `FACT_ROWS`)
+move nothing or lose, except `TF_FLASHNEXT_SHARED_DRAFTS=0`, which was measured later on the r5 stack and promoted:
+7 to 11 percent at 2 to 8 streams, prose 229.0 against 207.8 tokens a second at four streams against production's
+247.0, exact on every arm (`work/ProseDraft/RESULT.md`), and set in `scripts/qwen38/zig/target/env/dev.env`;
+`BATCH_HEADS=0` loses 17 to 28% at four streams, so the default stays.
 
 Not in this series: `TF_FLASHNEXT_HC_MXFP8` (the hyper-connection matrices re-coded to MXFP8 at load,
 `work/ladder/rungs/gm21.patch`): +3.5% prose and +6.5% code at one stream, +3.1% / +5.3% at four, golden 6/6, but
