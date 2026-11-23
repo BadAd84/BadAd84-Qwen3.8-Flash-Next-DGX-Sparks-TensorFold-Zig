@@ -1,9 +1,9 @@
 # Promotion rules for env rows and launcher options
 
-Read this before touching an env file, a boot script or a queue. It exists because a measured setting is only worth
-anything once it is in the tree every later boot inherits, and because two of our serve repos drifted: a knob measured
-better stayed a per-arm flag, and a setting production runs stayed off in every arm, so the cells described a serve
-nobody ships.
+Read this before touching an env file, a boot script, a queue or a patch's switch. It exists because a measured setting
+is only worth anything once it is in the tree every later boot inherits, and because two of our serve repos drifted: a
+knob measured better stayed a per-arm flag, and a setting production runs stayed off in every arm, so the cells
+described a serve nobody ships.
 
 ## The rule, in one paragraph
 
@@ -14,15 +14,7 @@ them says so.
 
 ## Env rows
 
-**Scope when two engines are served.** This repo serves a production engine and a dev engine from different
-trees (different base, different patch set). Then "every row set in both files" means every row of EACH file's own
-tree, and the cross-file test applies only to names both trees read. A name the target tree no longer reads is
-*retired*, not copied: it leaves that tree's env file with a `retired NAME=` verdict naming the engine version that
-dropped it. Copying a dead name into a live env file states a setting nothing reads, which is the same class of lie
-as leaving a live setting unset.
-
-- **Complete.** Every row of each served engine's settings table whose scope it reads is SET in that engine's env
-  file (both files when both serve one engine); see the scope paragraph above for two engines.
+- **Complete.** Every row of the served engine's settings table whose scope this serve reads is SET in both env files
   (`prod.env` and `dev.env`, or whatever they are called here), at a measured value or at the engine's own default
   written down. "Unset" is not a value: the engine's default may change in a rebase and take the serve with it.
 - **One verdict a row**, in the register, with an evidence path on every line:
@@ -36,8 +28,6 @@ as leaving a live setting unset.
     the launcher.
   - `absent NAME=` - no value is the decision (no key file, no ceiling), and the register says what the absence means.
   - `candidate NAME=VALUE` - a dev-only override, see below.
-  - `retired NAME=` - the engine this file serves no longer reads the name; the verdict names the version that dropped it
-    and the other engine that still sets it, if any.
 - **`dev.env` is `prod.env` plus candidates.** A candidate may only raise a row that `prod.env` keeps at the engine's
   default, and it may not repeat prod's value (that decides nothing). A candidate that overturns a measured line is a
   finding, not a test.
@@ -63,6 +53,48 @@ The mechanics, learned the hard way:
 4. **Record the promotion where the settings ledger lives**: the option, its value, the evidence, the date. Then
    re-measure any comparison table whose cells predate it.
 
+## A knob we add ourselves, as a patch
+
+- **The switch ships with its value.** If our patch carries a measured improvement, its setting goes into both env files
+  (or into the launcher default) in the same package, with the patch's cells as the evidence. A patch whose win we
+  know, delivered with its knob off and nobody told to set it, is the same failure as measuring and forgetting.
+- **Default-off in the code, on in our env.** The code's default stays off so upstream can take the patch without a
+  behaviour change; OUR env turns it on explicitly, so a rebase that flips the default cannot silently change the serve.
+- **One line, one place.** The switch is a row of the engine's table (read through the table, not a raw getenv), it has
+  a register verdict, and its patch's RECORD names the cells.
+
+## When upstream accepts one of our knobs
+
+1. **Check the name.** Upstream may rename it (`TF_GLM_OVN_X` becoming `TF_GLM_X` is the usual shape). Update the env
+   file, the register line and the launcher to upstream's spelling in one commit, keeping our measured VALUE unless the
+   measurement was against a different engine.
+2. **Check the default and the semantics.** If upstream lands it default-off and we run it on, our env keeps it on
+   explicitly. If upstream's version does something different from our patch, re-measure before keeping our value.
+3. **Remove our patch.** It is superseded: delete it from the patch series and record the retirement, naming the
+   upstream commit that absorbed it. A patch that is still there after upstream absorbed it is debt that hides a rebase
+   conflict.
+4. **Re-gate on the new base**: the coverage gate (the row must still exist, and now it exists in upstream's table), the
+   launcher test if the switch touched the launcher, and the five-level cells on the base that carries upstream's code.
+
+## Settings that no longer exist in the engine
+
+Production's env and launcher outlive any one tree. When the engine moves, a row can be deleted from its table and a flag
+can be renamed or dropped, and both fail quietly:
+
+- **A stale env row is silently ignored.** The engine's table has no such name, so the serve runs without the setting
+  while the env file says it is on. The detector is the coverage gate's `STALE` finding: run it against the tree the
+  image was built from, not a copy from before the rebase.
+- **A stale launcher flag cannot be detected from `--help`.** A flag may be accepted by the parser and still be missing
+  from the help text - `--kv-cache` is accepted by the engine we run today and does not appear in its help. The oracle is
+  the parser: run the engine with the flag and a deliberately incomplete command line. `unrecognized arguments: --flag`
+  means it is gone; `a required argument is missing` means the flag was accepted.
+- **Reconciliation runs in this order, at every rebase and before every promotion campaign**: build the tree the image
+  will use, run the coverage gate against it (rows), then put each launcher flag through the parser (flags).
+- **A stale setting is retired in the commit that removes it** - the line out of both env files and out of the register,
+  the fragment out of the launcher - never left in place "in case it comes back". The gate's own words are the rule: a
+  base that adds a table row is a hard stop until its value is chosen, and a base that removes one is a hard stop until
+  the env is reconciled.
+
 ## The worked example: the disk tier
 
 - Production ran the NVMe/disk KV tier (`--learn-conversations --learn-gib 128 --learn-daily-gib 512
@@ -74,22 +106,7 @@ The mechanics, learned the hard way:
   launcher, default 1 in the forwarding driver, the launcher's test rewritten to assert the promoted default, the sync
   gate run, and the promotion recorded. Every later arm inherits it.
 
-## Knobs that arrive as a patch
-
-A lever we own often lands as a numbered patch first, and the owner's rule is one lifecycle, not two:
-
-1. **When the patch adds a knob we know is an improvement, the knob enters the env file and the launcher in the SAME
-   commit as the patch.** The row is set at the measured value with its cell's evidence, and its register verdict is
-   `measured`. A patch whose knob stays behind a per-arm flag is not promoted, exactly like the launcher case above; the
-   `check-env-coverage.py` gate fails a table row the env does not set, so a new row cannot arrive silently.
-2. **When the change is accepted upstream, check the name before anything else.** Read the upstream table at the merge
-   commit and compare it with the name our patch and env files use. Names do get adjusted in review. If it differs,
-   change the name in both env files, the launcher and every forwarding driver, the register verdict and the patch's
-   read sites, in one commit. If it is identical, say so in the retirement record.
-3. **Then remove the patch.** A patch upstream absorbed is deleted from the series with its absorbing commit recorded in
-   `RETIRED.md`, and the stack is re-tested on the new base rather than assumed. The env row and its verdict stay: they
-   now describe upstream's own knob.
-
+## The promotion checklist
 
 1. The cells exist for the full set of stream counts (1, 2, 4, 6 and 8, a fresh boot a level, interleaved arms), and
    replies are equal to the control's unless the change is meant to alter them.
