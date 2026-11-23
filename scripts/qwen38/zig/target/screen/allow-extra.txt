@@ -7,8 +7,8 @@
 # Measured from the preflight boot's Config.Env on 2026-11-23T15:44Z (tracked copy:
 # docs/receipts/KnobScreen/preflight-env-2026-11-23.txt, from work/KnobScreen/out.failed-2026-11-23T1546/
 # preflight/c1/env.txt, image sha256:001fc6ff0b5b7edfc3a992d34900122ac179e434ee05cec74f9afe8fdbd00063) and
-# from the recipe at ~/work/lanes/rpr/recipe/scripts/config.sh. dev.env does not state them; that is an
-# env-register gap for the register's own file to close, not something this allowlist may hide for an arm.
+# from the recipe at ~/work/lanes/rpr/recipe/scripts/config.sh. dev.env now states all eight with these values (2026-11-23); this
+# list stays as the declaration the screen checks against, not as a hiding place for an arm.
 TF_FLASHNEXT_SAMPLE_CAND                                                  # config.sh:116 ${TF_FLASHNEXT_SAMPLE_CAND:-1}
 TF_FLASHNEXT_HOST_DRAW_THREADS                                            # config.sh:118 ${TF_FLASHNEXT_HOST_DRAW_THREADS:-7}
 TF_FLASHNEXT_PROMPT_HC2                                                   # config.sh:130 ${TF_FLASHNEXT_PROMPT_HC2:-1}
