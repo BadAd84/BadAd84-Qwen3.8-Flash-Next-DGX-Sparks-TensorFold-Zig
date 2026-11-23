@@ -1,0 +1,1261 @@
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/drama3_fp8.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (drama3_fp8.fatbin) w
+./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/flashnext_attn.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_attn.fatbin) w
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+      for (int h = 0; h < 2; ++h) {
+      ^
+          detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+
+
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/flashnext_fact.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_fact.fatbin) w
+./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+              for (int kt = 0; kt < GS / 16; ++kt) {
+              ^
+          detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+              for (int kt = 0; kt < GS / 16; ++kt) {
+              ^
+          detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+              for (int kt = 0; kt < GS / 16; ++kt) {
+              ^
+          detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+              for (int kt = 0; kt < GS / 16; ++kt) {
+              ^
+          detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+              for (int kt = 0; kt < GS / 16; ++kt) {
+              ^
+          detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/glm_mm.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_mm.fatbin) w
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+      static constexpr int SMEM = STAGES * STAGE;
+                           ^
+
+
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/exl3_linear.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exl3_linear.fatbin) w
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+
+./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+      for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+      ^
+          detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+
+
+kernel-contract-fatbins
++- fatbins
+   +- install generated to fatbin/fp8_experts.fatbin
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (fp8_experts.fatbin) w
+./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+    constexpr int RW = PromptCfg<M, RT, CW>::RW;
+                  ^
+
+Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+
+
+Build Summary: 356/356 steps succeeded
+kernel-contract-fatbins success
++- install generated to fatbin/contract_controls.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (contract_controls.fatbin) success 1m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc success 2ms
++- install generated to fatbin/h3.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (h3.fatbin) success 5s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/moe.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moe.fatbin) success 5s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/qwen36_mtp.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen36_mtp.fatbin) success 5s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/experts.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts.fatbin) success 7s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/sample.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (sample.fatbin) success 53s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/glm_glue.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_glue.fatbin) success 20s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- fatbins success
+|  +- install generated to fatbin/qwen4_projection.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen4_projection.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen4_gdn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen4_gdn.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  |     +- WriteFile qwen4_gdn.cu success
+|  +- install generated to fatbin/qwen4_hc.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen4_hc.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen4_ple.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen4_ple.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  |     +- WriteFile qwen4_ple.cu success
+|  +- install generated to fatbin/attn_train.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (attn_train.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen27_train.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen27_train.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/gdn_train.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (gdn_train.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/train_q4.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (train_q4.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/train_attn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (train_attn.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_train.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_train.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_gdn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_gdn.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_batch.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_batch.fatbin) success 27s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_mtp.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_mtp.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qmm.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qmm.fatbin) success 8s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts_rows.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/route_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (route_rows.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_hc.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_hc.fatbin) success 12s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_attn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_attn.fatbin) success 1m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts3.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts3.fatbin) success 8s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts3_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts3_prefill.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/moe.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moe.fatbin) (+1 more reused dependencies)
+|  +- install generated to fatbin/qwen36_mtp.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen36_mtp.fatbin) (+1 more reused dependencies)
+|  +- install generated to fatbin/ggml.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (ggml.fatbin) success 45s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/gdn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (gdn.fatbin) success 10s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/probe.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (probe.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qmm_group.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qmm_group.fatbin) success 11s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qmm_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qmm_prefill.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_fact.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_fact.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_hcf.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_hcf.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_hcn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_hcn.fatbin) success 9s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/flashnext_fexp.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (flashnext_fexp.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/w4a8_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (w4a8_prefill.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts.fatbin) (+1 more reused dependencies)
+|  +- install generated to fatbin/experts_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts_prefill.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts_pack.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts_pack.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/prefill_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (prefill_attention.fatbin) success 42s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/scan_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (scan_rows.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_ops.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_ops.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/affine4_pack.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (affine4_pack.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/affine8.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (affine8.fatbin) success 9s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/affine_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (affine_prefill.fatbin) success 9s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/fp8_experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (fp8_experts.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/exlr8.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exlr8.fatbin) success 22s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/exlr8_dense.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exlr8_dense.fatbin) success 6s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nvfp4_experts_tile.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nvfp4_experts_tile.fatbin) success 19s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/experts_bf16.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (experts_bf16.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nvfp4_experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nvfp4_experts.fatbin) success 1m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nvfp4_experts32.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nvfp4_experts32.fatbin) success 38s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/rank_sum.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (rank_sum.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/lane_gemv.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (lane_gemv.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/sample.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (sample.fatbin) (+1 more reused dependencies)
+|  +- install generated to fatbin/train.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (train.fatbin) success 8s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen35.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen35.fatbin) success 27s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen35_draft.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen35_draft.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen35_keep.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen35_keep.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen_vision.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen_vision.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/gdn_prefill.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (gdn_prefill.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen35_kv8.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen35_kv8.fatbin) success 1m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qwen35_bf16_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qwen35_bf16_rows.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/joint_schema.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (joint_schema.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_route.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_route.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_mamba.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_mamba.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_attention.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_keyed.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_keyed.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemotron_latent.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemotron_latent.fatbin) success 7s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/ck_lane.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (ck_lane.fatbin) success 14s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/ck_experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (ck_experts.fatbin) success 7s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/norms.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (norms.fatbin) success 21s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/embed_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (embed_rows.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/lfm2.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (lfm2.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/lfm2_moe.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (lfm2_moe.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/dots_mocr.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dots_mocr.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/vit.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (vit.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/moss_image.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moss_image.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/nemo_audio.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (nemo_audio.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/moss_image_decoder.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moss_image_decoder.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/moss_image_encoder.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moss_image_encoder.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/tree_round.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (tree_round.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/act_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (act_rows.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/gemma4_ple.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (gemma4_ple.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/gdn_prep.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (gdn_prep.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qk_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qk_rows.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/qmmf.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (qmmf.fatbin) success 1m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/prompt16.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (prompt16.fatbin) success 16s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/tree_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (tree_attention.fatbin) success 1m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/block_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (block_attention.fatbin) success 8s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/window_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (window_attention.fatbin) success 37s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/window_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (window_rows.fatbin) success 20s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/window_pages.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (window_pages.fatbin) success 18s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/moe_glue.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (moe_glue.fatbin) success 12s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/mla.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (mla.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/dense_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dense_rows.fatbin) success 13s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/modelopt_pack.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (modelopt_pack.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_kda.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_kda.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_glue.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_glue.fatbin) (+1 more reused dependencies)
+|  +- install generated to fatbin/glm_ops.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_ops.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_index.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_index.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_indexpool.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_indexpool.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_engram.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_engram.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/affine_experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (affine_experts.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_index_recall.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_index_recall.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_attention_sink.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_attention_sink.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_mla_project.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_mla_project.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_mla_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_mla_attention.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/hy4_ihc.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (hy4_ihc.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/minimax_m3.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (minimax_m3.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/minimax_m3_attn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (minimax_m3_attn.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/idol.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (idol.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/idol_decoder.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (idol_decoder.fatbin) success 16s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/inkling2_attn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (inkling2_attn.fatbin) success 7s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/inkling2_pattn.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (inkling2_pattn.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/inkling2_ops.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (inkling2_ops.fatbin) success 13s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/inkling2_rows.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (inkling2_rows.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_quant.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_quant.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/exl3_linear.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exl3_linear.fatbin) success 2m
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/exl3_experts.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exl3_experts.fatbin) success 30s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/exl3_candidate.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (exl3_candidate.fatbin) success 59s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_vision.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_vision.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_mm.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_mm.fatbin) success 16s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/glm_dflash.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (glm_dflash.fatbin) success 4s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_argmax.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_argmax.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_topk.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_topk.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_pointwise.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_pointwise.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_indexing.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_indexing.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_movement.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_movement.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/torch_nemotron_constants.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (torch_nemotron_constants.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/roce_gather.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (roce_gather.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/l2pf.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (l2pf.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/l2pace.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (l2pace.fatbin) success 1s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_dflash.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_dflash.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_glue.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_glue.fatbin) success 9s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_attention.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_attention.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_dflash2.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_dflash2.fatbin) success 3s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_experts2.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_experts2.fatbin) success 13s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/muse_linear.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (muse_linear.fatbin) success 31s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/drama3_staged_gemv.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (drama3_staged_gemv.fatbin) success 2s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/drama3.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (drama3.fatbin) success 10s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/drama3_fp8.fatbin success
+|  |  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (drama3_fp8.fatbin) success 5s
+|  |     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+|  +- install generated to fatbin/drama3_codec.fatbin success
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (drama3_codec.fatbin) success 3s
+|        +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_exl3_experts.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_exl3_experts.fatbin) success 59s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3ld.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3ld.fatbin) success 51s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3pf.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3pf.fatbin) success 32s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3gm.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3gm.fatbin) success 8m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_linear.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_linear.fatbin) success 36s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3seg.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3seg.fatbin) success 25s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_dense3.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_dense3.fatbin) success 33s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_attn.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_attn.fatbin) success 18s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_topk.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_topk.fatbin) success 3s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_mhc.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_mhc.fatbin) success 1m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_mhc_pf.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_mhc_pf.fatbin) success 7s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_router_gemv.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_router_gemv.fatbin) success 3m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pfdense_k8.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pfdense_k8.fatbin) success 51s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pfdense_k10.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pfdense_k10.fatbin) success 57s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pfdense_k12.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pfdense_k12.fatbin) success 50s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pfdense_k16.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pfdense_k16.fatbin) success 28s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_engram_gate.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_engram_gate.fatbin) success 1s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_l2pace.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_l2pace.fatbin) success 1s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_l2pf.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_l2pf.fatbin) success 1s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3gm_plan.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3gm_plan.fatbin) success 1s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_topk_keys.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_topk_keys.fatbin) success 1s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pointwise.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pointwise.fatbin) success 2s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_kvsplit.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_kvsplit.fatbin) success 3s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_glue.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_glue.fatbin) success 7s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3gm3.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3gm3.fatbin) success 14m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_pfglue.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_pfglue.fatbin) success 3s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_router_glue.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_router_glue.fatbin) success 2s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_kv_glue.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_kv_glue.fatbin) success 2s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_x3ld_epi.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_x3ld_epi.fatbin) success 3m
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_topk_b.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_topk_b.fatbin) success 4s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_sampling.fatbin success
+|  +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_sampling.fatbin) success 2s
+|     +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
++- install generated to fatbin/dsv41_lin2.fatbin success
+   +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (dsv41_lin2.fatbin) success 1m
+      +- run /home/adam/tools/cuda-13.3/usr/local/cuda-13.3/bin/nvcc (reused)
+fatbins (+139 more reused dependencies)
+

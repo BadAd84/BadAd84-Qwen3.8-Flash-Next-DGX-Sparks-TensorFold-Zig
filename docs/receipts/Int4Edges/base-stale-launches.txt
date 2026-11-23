@@ -1,0 +1,550 @@
+      1 sm_120 GLM BF16 tf_ctl_glm_old_hc_finish
+      1 sm_120 GLM BF16 tf_ctl_glm_old_rmsnorm_1536
+      1 sm_120 GLM BF16 tf_ctl_glm_old_rmsnorm_4096
+      1 sm_120 GLM BF16 tf_ctl_glm_old_rmsnorm_512
+      1 sm_120 _ZN20tf_prefill_attention13hpattn_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_120 _ZN20tf_prefill_attention14hpattn8_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifiPKixi
+      1 sm_120 _ZN20tf_prefill_attention18hpattn_p256_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_120 _ZN20tf_prefill_attention19hpattn_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifi
+      1 sm_120 _ZN20tf_prefill_attention20hpattn8_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifi
+      1 sm_120 _ZN20tf_prefill_attention22hpattn_p256_ids_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_120 drama3 d3_router_compact
+      1 sm_120 embed_rows tf_embed_rows_tiles4
+      1 sm_120 exl3_experts tf_exl3_prompt_down
+      1 sm_120 exl3_experts tf_exl3_prompt_down_k6
+      1 sm_120 exl3_experts tf_exl3_prompt_gu
+      1 sm_120 exl3_experts tf_exl3_prompt_gu_k6
+      1 sm_120 exl3_grouped tf_ctl_exl3_grouped_old_0
+      1 sm_120 exl3_grouped tf_ctl_exl3_grouped_old_1
+      1 sm_120 exl3_grouped tf_ctl_exl3_grouped_old_2
+      1 sm_120 flashnext_batch fn_copy_cols
+      1 sm_120 flashnext_batch fn_gdn_chain_tpr_h8
+      1 sm_120 flashnext_batch fn_gdn_front_h8
+      1 sm_120 flashnext_batch fn_gdn_fused_h8
+      1 sm_120 flashnext_batch fn_gdn_norm_h8
+      1 sm_120 flashnext_batch fn_gdn_rows_h8
+      1 sm_120 flashnext_batch fn_gdn_rows_to_h8
+      1 sm_120 flashnext_mtp fn_row_topk
+      1 sm_120 glm_glue tf_glm_combine_tail
+      1 sm_120 glm_glue tf_glm_dsel_scan
+      1 sm_120 glm_glue tf_glm_router_tile
+      1 sm_120 glm_glue tf_glm_scores
+      1 sm_120 glm_glue tf_glm_top1_sums
+      1 sm_120 glm_glue tf_glm_topk
+      1 sm_120 glm_index tf_glm_index_scores
+      1 sm_120 glm_ops tf_glm_dsa_tokens
+      1 sm_120 idol decoder tf_idol_dec_attention
+      1 sm_120 l2pace _ZN12dsv41_l2pace12paced_kernelEPKlijmm
+      1 sm_120 l2pf _ZN6tfl2pf15segments_kernelILb1EEEvPKlij
+      1 sm_120 mla tf_mla_absorb_q_192
+      1 sm_120 moss image decoder tf_md_conv3x3
+      1 sm_120 moss image decoder tf_md_gemm
+      1 sm_120 moss image decoder tf_md_group_finish
+      1 sm_120 moss image decoder tf_md_group_part 192 channels
+      1 sm_120 moss image decoder tf_md_group_part 32 channels
+      1 sm_120 moss image decoder tf_md_group_part 384 channels
+      1 sm_120 moss image decoder tf_md_group_part 96 channels
+      1 sm_120 nemotron_ops tf_nemo_gather_last
+      1 sm_120 nvfp4_experts_tile tf_nvfp4_tile_down_f32
+      1 sm_120 nvfp4_experts_tile tf_nvfp4_tile_swiglu
+      1 sm_120 qmmf BF16 prompt 128x128 bf16 fused slices
+      1 sm_120 qmmf BF16 prompt 128x128 bf16 unsplit
+      1 sm_120 qmmf BF16 prompt 128x128 fp32 fused slices
+      1 sm_120 qmmf BF16 prompt 128x128 fp32 unsplit
+      1 sm_120 qmmf BF16 prompt K32 128x128 bf16 unsplit
+      1 sm_120 qmmf BF16 prompt K32 128x128 fp32 unsplit
+      1 sm_120 qmmf shared down 16 stride
+      1 sm_120 qmmf shared down 32 stride
+      1 sm_120 qmmf shared down 64 stride
+      1 sm_120 qmmf shared down half16 stride
+      1 sm_120 qwen35 tf_q35_rope
+      1 sm_120 qwen35_kv8 tf_q35_rope8
+      1 sm_120 qwen4_gdn qwen4_gdn_chain
+      1 sm_120 qwen4_gdn qwen4_gdn_chain_bad_nan
+      1 sm_120 qwen4_gdn qwen4_gdn_chain_bad_repeat
+      1 sm_120 qwen4_gdn qwen4_gdn_chain_bad_sums
+      1 sm_120 qwen4_gdn qwen4_gdn_chain_bad_tail
+      1 sm_120 qwen4_hc qwen4_dense_act
+      1 sm_120 qwen4_hc qwen4_dense_act_bad_nan
+      1 sm_120 qwen4_hc qwen4_dense_act_bad_repeat
+      1 sm_120 qwen4_hc qwen4_dense_act_bad_tail
+      1 sm_120 qwen4_hc qwen4_hc_activation
+      1 sm_120 qwen4_hc qwen4_hc_activation_bad_nan
+      1 sm_120 qwen4_hc qwen4_hc_activation_bad_repeat
+      1 sm_120 qwen4_hc qwen4_hc_activation_bad_tail
+      1 sm_120 qwen4_hc qwen4_hc_pointwise
+      1 sm_120 qwen4_hc qwen4_hc_pointwise_bad_nan
+      1 sm_120 qwen4_hc qwen4_hc_pointwise_bad_repeat
+      1 sm_120 qwen4_hc qwen4_hc_pointwise_bad_tail
+      1 sm_120 qwen4_ple qwen4_ple_conv
+      1 sm_120 qwen4_ple qwen4_ple_conv_bad_nan
+      1 sm_120 qwen4_ple qwen4_ple_conv_bad_repeat
+      1 sm_120 qwen4_ple qwen4_ple_conv_bad_sums
+      1 sm_120 qwen4_ple qwen4_ple_conv_bad_tail
+      1 sm_120 qwen4_ple qwen4_ple_gate
+      1 sm_120 qwen4_ple qwen4_ple_gate_bad_nan
+      1 sm_120 qwen4_ple qwen4_ple_gate_bad_repeat
+      1 sm_120 qwen4_ple qwen4_ple_gate_bad_sums
+      1 sm_120 qwen4_ple qwen4_ple_gate_bad_tail
+      1 sm_120 qwen4_projection tf_qwen4_projection
+      1 sm_120 qwen4_projection tf_qwen4_projection_bad_nan
+      1 sm_120 qwen4_projection tf_qwen4_projection_bad_repeat
+      1 sm_120 qwen4_projection tf_qwen4_projection_bad_sums
+      1 sm_120 qwen4_projection tf_qwen4_projection_bad_tail
+      1 sm_120 tf_js_add
+      1 sm_120 tf_js_broadcast
+      1 sm_120 tf_js_combine
+      1 sm_120 tf_js_gelu
+      1 sm_120 tf_js_layer_norm
+      1 sm_120 tf_js_lex_sums
+      1 sm_120 tf_js_logits
+      1 sm_120 tf_js_option_summary
+      1 sm_120 tf_js_round
+      1 sm_120 tf_js_softmax_rows
+      1 sm_120 tf_js_span_means
+      1 sm_120 tf_js_span_sums
+      1 sm_120 tf_js_widen
+      1 sm_120 tf_moe_router_tiles
+      1 sm_120 tf_q35_attn_partial8_whole
+      1 sm_120 tf_q35_attn_partial_whole
+      1 sm_120 tf_q35_attn_rows8_join
+      1 sm_120 tf_q35_attn_rows8_whole
+      1 sm_120 tf_q35_attn_rows_join
+      1 sm_120 tf_q35_attn_rows_whole
+      1 sm_120 tf_q35_head_norm_shift
+      1 sm_120 tf_q35_norm_shift
+      1 sm_120 tf_q36m_attn
+      1 sm_120 tf_q36m_attn_rows
+      1 sm_120 tf_q36m_attn_tree
+      1 sm_120 tf_q36m_norm_rope
+      1 sm_121 GLM BF16 tf_ctl_glm_old_hc_finish
+      1 sm_121 GLM BF16 tf_ctl_glm_old_rmsnorm_1536
+      1 sm_121 GLM BF16 tf_ctl_glm_old_rmsnorm_4096
+      1 sm_121 GLM BF16 tf_ctl_glm_old_rmsnorm_512
+      1 sm_121 _ZN20tf_prefill_attention13hpattn_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_121 _ZN20tf_prefill_attention14hpattn8_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifiPKixi
+      1 sm_121 _ZN20tf_prefill_attention18hpattn_p256_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_121 _ZN20tf_prefill_attention19hpattn_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifi
+      1 sm_121 _ZN20tf_prefill_attention20hpattn8_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifi
+      1 sm_121 _ZN20tf_prefill_attention22hpattn_p256_ids_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_121 drama3 d3_router_compact
+      1 sm_121 embed_rows tf_embed_rows_tiles4
+      1 sm_121 exl3_experts tf_exl3_prompt_down
+      1 sm_121 exl3_experts tf_exl3_prompt_down_k6
+      1 sm_121 exl3_experts tf_exl3_prompt_gu
+      1 sm_121 exl3_experts tf_exl3_prompt_gu_k6
+      1 sm_121 exl3_grouped tf_ctl_exl3_grouped_old_0
+      1 sm_121 exl3_grouped tf_ctl_exl3_grouped_old_1
+      1 sm_121 exl3_grouped tf_ctl_exl3_grouped_old_2
+      1 sm_121 flashnext_batch fn_copy_cols
+      1 sm_121 flashnext_batch fn_gdn_chain_tpr_h8
+      1 sm_121 flashnext_batch fn_gdn_front_h8
+      1 sm_121 flashnext_batch fn_gdn_fused_h8
+      1 sm_121 flashnext_batch fn_gdn_norm_h8
+      1 sm_121 flashnext_batch fn_gdn_rows_h8
+      1 sm_121 flashnext_batch fn_gdn_rows_to_h8
+      1 sm_121 flashnext_mtp fn_row_topk
+      1 sm_121 glm_glue tf_glm_combine_tail
+      1 sm_121 glm_glue tf_glm_dsel_scan
+      1 sm_121 glm_glue tf_glm_router_tile
+      1 sm_121 glm_glue tf_glm_scores
+      1 sm_121 glm_glue tf_glm_top1_sums
+      1 sm_121 glm_glue tf_glm_topk
+      1 sm_121 glm_index tf_glm_index_scores
+      1 sm_121 glm_ops tf_glm_dsa_tokens
+      1 sm_121 idol decoder tf_idol_dec_attention
+      1 sm_121 l2pace _ZN12dsv41_l2pace12paced_kernelEPKlijmm
+      1 sm_121 l2pf _ZN6tfl2pf15segments_kernelILb1EEEvPKlij
+      1 sm_121 mla tf_mla_absorb_q_192
+      1 sm_121 moss image decoder tf_md_conv3x3
+      1 sm_121 moss image decoder tf_md_gemm
+      1 sm_121 moss image decoder tf_md_group_finish
+      1 sm_121 moss image decoder tf_md_group_part 192 channels
+      1 sm_121 moss image decoder tf_md_group_part 32 channels
+      1 sm_121 moss image decoder tf_md_group_part 384 channels
+      1 sm_121 moss image decoder tf_md_group_part 96 channels
+      1 sm_121 nemotron_ops tf_nemo_gather_last
+      1 sm_121 nvfp4_experts_tile tf_nvfp4_tile_down_f32
+      1 sm_121 nvfp4_experts_tile tf_nvfp4_tile_swiglu
+      1 sm_121 qmmf BF16 prompt 128x128 bf16 fused slices
+      1 sm_121 qmmf BF16 prompt 128x128 bf16 unsplit
+      1 sm_121 qmmf BF16 prompt 128x128 fp32 fused slices
+      1 sm_121 qmmf BF16 prompt 128x128 fp32 unsplit
+      1 sm_121 qmmf BF16 prompt K32 128x128 bf16 unsplit
+      1 sm_121 qmmf BF16 prompt K32 128x128 fp32 unsplit
+      1 sm_121 qmmf shared down 16 stride
+      1 sm_121 qmmf shared down 32 stride
+      1 sm_121 qmmf shared down 64 stride
+      1 sm_121 qmmf shared down half16 stride
+      1 sm_121 qwen35 tf_q35_rope
+      1 sm_121 qwen35_kv8 tf_q35_rope8
+      1 sm_121 qwen4_gdn qwen4_gdn_chain
+      1 sm_121 qwen4_gdn qwen4_gdn_chain_bad_nan
+      1 sm_121 qwen4_gdn qwen4_gdn_chain_bad_repeat
+      1 sm_121 qwen4_gdn qwen4_gdn_chain_bad_sums
+      1 sm_121 qwen4_gdn qwen4_gdn_chain_bad_tail
+      1 sm_121 qwen4_hc qwen4_dense_act
+      1 sm_121 qwen4_hc qwen4_dense_act_bad_nan
+      1 sm_121 qwen4_hc qwen4_dense_act_bad_repeat
+      1 sm_121 qwen4_hc qwen4_dense_act_bad_tail
+      1 sm_121 qwen4_hc qwen4_hc_activation
+      1 sm_121 qwen4_hc qwen4_hc_activation_bad_nan
+      1 sm_121 qwen4_hc qwen4_hc_activation_bad_repeat
+      1 sm_121 qwen4_hc qwen4_hc_activation_bad_tail
+      1 sm_121 qwen4_hc qwen4_hc_pointwise
+      1 sm_121 qwen4_hc qwen4_hc_pointwise_bad_nan
+      1 sm_121 qwen4_hc qwen4_hc_pointwise_bad_repeat
+      1 sm_121 qwen4_hc qwen4_hc_pointwise_bad_tail
+      1 sm_121 qwen4_ple qwen4_ple_conv
+      1 sm_121 qwen4_ple qwen4_ple_conv_bad_nan
+      1 sm_121 qwen4_ple qwen4_ple_conv_bad_repeat
+      1 sm_121 qwen4_ple qwen4_ple_conv_bad_sums
+      1 sm_121 qwen4_ple qwen4_ple_conv_bad_tail
+      1 sm_121 qwen4_ple qwen4_ple_gate
+      1 sm_121 qwen4_ple qwen4_ple_gate_bad_nan
+      1 sm_121 qwen4_ple qwen4_ple_gate_bad_repeat
+      1 sm_121 qwen4_ple qwen4_ple_gate_bad_sums
+      1 sm_121 qwen4_ple qwen4_ple_gate_bad_tail
+      1 sm_121 qwen4_projection tf_qwen4_projection
+      1 sm_121 qwen4_projection tf_qwen4_projection_bad_nan
+      1 sm_121 qwen4_projection tf_qwen4_projection_bad_repeat
+      1 sm_121 qwen4_projection tf_qwen4_projection_bad_sums
+      1 sm_121 qwen4_projection tf_qwen4_projection_bad_tail
+      1 sm_121 tf_js_add
+      1 sm_121 tf_js_broadcast
+      1 sm_121 tf_js_combine
+      1 sm_121 tf_js_gelu
+      1 sm_121 tf_js_layer_norm
+      1 sm_121 tf_js_lex_sums
+      1 sm_121 tf_js_logits
+      1 sm_121 tf_js_option_summary
+      1 sm_121 tf_js_round
+      1 sm_121 tf_js_softmax_rows
+      1 sm_121 tf_js_span_means
+      1 sm_121 tf_js_span_sums
+      1 sm_121 tf_js_widen
+      1 sm_121 tf_moe_router_tiles
+      1 sm_121 tf_q35_attn_partial8_whole
+      1 sm_121 tf_q35_attn_partial_whole
+      1 sm_121 tf_q35_attn_rows8_join
+      1 sm_121 tf_q35_attn_rows8_whole
+      1 sm_121 tf_q35_attn_rows_join
+      1 sm_121 tf_q35_attn_rows_whole
+      1 sm_121 tf_q35_head_norm_shift
+      1 sm_121 tf_q35_norm_shift
+      1 sm_121 tf_q36m_attn
+      1 sm_121 tf_q36m_attn_rows
+      1 sm_121 tf_q36m_attn_tree
+      1 sm_121 tf_q36m_norm_rope
+      1 sm_80 GLM BF16 tf_ctl_glm_old_hc_finish
+      1 sm_80 GLM BF16 tf_ctl_glm_old_rmsnorm_1536
+      1 sm_80 GLM BF16 tf_ctl_glm_old_rmsnorm_4096
+      1 sm_80 GLM BF16 tf_ctl_glm_old_rmsnorm_512
+      1 sm_80 _ZN20tf_prefill_attention13hpattn_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_80 _ZN20tf_prefill_attention14hpattn8_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifiPKixi
+      1 sm_80 _ZN20tf_prefill_attention18hpattn_p256_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_80 _ZN20tf_prefill_attention19hpattn_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifi
+      1 sm_80 _ZN20tf_prefill_attention20hpattn8_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifi
+      1 sm_80 _ZN20tf_prefill_attention22hpattn_p256_ids_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_80 drama3 d3_router_compact
+      1 sm_80 exl3_experts tf_exl3_prompt_down
+      1 sm_80 exl3_experts tf_exl3_prompt_down_k6
+      1 sm_80 exl3_experts tf_exl3_prompt_gu
+      1 sm_80 exl3_experts tf_exl3_prompt_gu_k6
+      1 sm_80 exl3_grouped tf_ctl_exl3_grouped_old_0
+      1 sm_80 exl3_grouped tf_ctl_exl3_grouped_old_1
+      1 sm_80 exl3_grouped tf_ctl_exl3_grouped_old_2
+      1 sm_80 flashnext_batch fn_copy_cols
+      1 sm_80 flashnext_batch fn_gdn_chain_tpr_h8
+      1 sm_80 flashnext_batch fn_gdn_front_h8
+      1 sm_80 flashnext_batch fn_gdn_fused_h8
+      1 sm_80 flashnext_batch fn_gdn_norm_h8
+      1 sm_80 flashnext_batch fn_gdn_rows_h8
+      1 sm_80 flashnext_batch fn_gdn_rows_to_h8
+      1 sm_80 flashnext_mtp fn_row_topk
+      1 sm_80 glm_glue tf_glm_combine_tail
+      1 sm_80 glm_glue tf_glm_dsel_merge
+      1 sm_80 glm_glue tf_glm_router_tile
+      1 sm_80 glm_glue tf_glm_top1_sums
+      1 sm_80 glm_glue tf_glm_topk
+      1 sm_80 glm_index tf_glm_index_scores
+      1 sm_80 glm_ops tf_glm_dsa_tokens
+      1 sm_80 l2pace _ZN12dsv41_l2pace12paced_kernelEPKlijmm
+      1 sm_80 l2pf _ZN6tfl2pf15segments_kernelILb1EEEvPKlij
+      1 sm_80 mla tf_mla_absorb_q_192
+      1 sm_80 nemotron_ops tf_nemo_gather_last
+      1 sm_80 nvfp4_experts_tile tf_nvfp4_tile_down_f32
+      1 sm_80 nvfp4_experts_tile tf_nvfp4_tile_swiglu
+      1 sm_80 qmmf BF16 fp32 out 16-row tile, fused slices
+      1 sm_80 qmmf shared down 16 stride
+      1 sm_80 qmmf shared down 32 stride
+      1 sm_80 qmmf shared down 64 stride
+      1 sm_80 qmmf shared down half16 stride
+      1 sm_80 qwen35 tf_q35_rope
+      1 sm_80 qwen35_kv8 tf_q35_rope8
+      1 sm_80 qwen4_gdn qwen4_gdn_chain
+      1 sm_80 qwen4_gdn qwen4_gdn_chain_bad_nan
+      1 sm_80 qwen4_gdn qwen4_gdn_chain_bad_repeat
+      1 sm_80 qwen4_gdn qwen4_gdn_chain_bad_sums
+      1 sm_80 qwen4_gdn qwen4_gdn_chain_bad_tail
+      1 sm_80 qwen4_hc qwen4_dense_act
+      1 sm_80 qwen4_hc qwen4_dense_act_bad_nan
+      1 sm_80 qwen4_hc qwen4_dense_act_bad_repeat
+      1 sm_80 qwen4_hc qwen4_dense_act_bad_tail
+      1 sm_80 qwen4_hc qwen4_hc_activation
+      1 sm_80 qwen4_hc qwen4_hc_activation_bad_nan
+      1 sm_80 qwen4_hc qwen4_hc_activation_bad_repeat
+      1 sm_80 qwen4_hc qwen4_hc_activation_bad_tail
+      1 sm_80 qwen4_hc qwen4_hc_pointwise
+      1 sm_80 qwen4_hc qwen4_hc_pointwise_bad_nan
+      1 sm_80 qwen4_hc qwen4_hc_pointwise_bad_repeat
+      1 sm_80 qwen4_hc qwen4_hc_pointwise_bad_tail
+      1 sm_80 qwen4_ple qwen4_ple_conv
+      1 sm_80 qwen4_ple qwen4_ple_conv_bad_nan
+      1 sm_80 qwen4_ple qwen4_ple_conv_bad_repeat
+      1 sm_80 qwen4_ple qwen4_ple_conv_bad_sums
+      1 sm_80 qwen4_ple qwen4_ple_conv_bad_tail
+      1 sm_80 qwen4_ple qwen4_ple_gate
+      1 sm_80 qwen4_ple qwen4_ple_gate_bad_nan
+      1 sm_80 qwen4_ple qwen4_ple_gate_bad_repeat
+      1 sm_80 qwen4_ple qwen4_ple_gate_bad_sums
+      1 sm_80 qwen4_ple qwen4_ple_gate_bad_tail
+      1 sm_80 qwen4_projection tf_qwen4_projection
+      1 sm_80 qwen4_projection tf_qwen4_projection_bad_nan
+      1 sm_80 qwen4_projection tf_qwen4_projection_bad_repeat
+      1 sm_80 qwen4_projection tf_qwen4_projection_bad_sums
+      1 sm_80 qwen4_projection tf_qwen4_projection_bad_tail
+      1 sm_80 tf_js_add
+      1 sm_80 tf_js_broadcast
+      1 sm_80 tf_js_combine
+      1 sm_80 tf_js_gelu
+      1 sm_80 tf_js_layer_norm
+      1 sm_80 tf_js_lex_sums
+      1 sm_80 tf_js_logits
+      1 sm_80 tf_js_option_summary
+      1 sm_80 tf_js_round
+      1 sm_80 tf_js_softmax_rows
+      1 sm_80 tf_js_span_means
+      1 sm_80 tf_js_span_sums
+      1 sm_80 tf_js_widen
+      1 sm_80 tf_moe_router_tiles
+      1 sm_80 tf_q35_attn_partial8_whole
+      1 sm_80 tf_q35_attn_partial_whole
+      1 sm_80 tf_q35_attn_rows8_join
+      1 sm_80 tf_q35_attn_rows8_whole
+      1 sm_80 tf_q35_attn_rows_join
+      1 sm_80 tf_q35_attn_rows_whole
+      1 sm_80 tf_q35_head_norm_shift
+      1 sm_80 tf_q35_norm_shift
+      1 sm_80 tf_q36m_attn
+      1 sm_80 tf_q36m_attn_rows
+      1 sm_80 tf_q36m_attn_tree
+      1 sm_80 tf_q36m_norm_rope
+      1 sm_86 GLM BF16 tf_ctl_glm_old_hc_finish
+      1 sm_86 GLM BF16 tf_ctl_glm_old_rmsnorm_1536
+      1 sm_86 GLM BF16 tf_ctl_glm_old_rmsnorm_4096
+      1 sm_86 GLM BF16 tf_ctl_glm_old_rmsnorm_512
+      1 sm_86 _ZN20tf_prefill_attention13hpattn_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_86 _ZN20tf_prefill_attention14hpattn8_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifiPKixi
+      1 sm_86 _ZN20tf_prefill_attention18hpattn_p256_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_86 _ZN20tf_prefill_attention19hpattn_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifi
+      1 sm_86 _ZN20tf_prefill_attention20hpattn8_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifi
+      1 sm_86 _ZN20tf_prefill_attention22hpattn_p256_ids_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_86 drama3 d3_router_compact
+      1 sm_86 exl3_experts tf_exl3_prompt_down
+      1 sm_86 exl3_experts tf_exl3_prompt_down_k6
+      1 sm_86 exl3_experts tf_exl3_prompt_gu
+      1 sm_86 exl3_experts tf_exl3_prompt_gu_k6
+      1 sm_86 exl3_grouped tf_ctl_exl3_grouped_old_0
+      1 sm_86 exl3_grouped tf_ctl_exl3_grouped_old_1
+      1 sm_86 exl3_grouped tf_ctl_exl3_grouped_old_2
+      1 sm_86 flashnext_batch fn_copy_cols
+      1 sm_86 flashnext_batch fn_gdn_chain_tpr_h8
+      1 sm_86 flashnext_batch fn_gdn_front_h8
+      1 sm_86 flashnext_batch fn_gdn_fused_h8
+      1 sm_86 flashnext_batch fn_gdn_norm_h8
+      1 sm_86 flashnext_batch fn_gdn_rows_h8
+      1 sm_86 flashnext_batch fn_gdn_rows_to_h8
+      1 sm_86 flashnext_mtp fn_row_topk
+      1 sm_86 glm_glue tf_glm_combine_tail
+      1 sm_86 glm_glue tf_glm_router_tile
+      1 sm_86 glm_glue tf_glm_scores
+      1 sm_86 glm_glue tf_glm_top1_sums
+      1 sm_86 glm_glue tf_glm_topk
+      1 sm_86 glm_index tf_glm_index_scores
+      1 sm_86 glm_ops tf_glm_dsa_tokens
+      1 sm_86 l2pace _ZN12dsv41_l2pace12paced_kernelEPKlijmm
+      1 sm_86 l2pf _ZN6tfl2pf15segments_kernelILb1EEEvPKlij
+      1 sm_86 mla tf_mla_absorb_q_192
+      1 sm_86 nemotron_ops tf_nemo_gather_last
+      1 sm_86 nvfp4_experts_tile tf_nvfp4_tile_down_f32
+      1 sm_86 nvfp4_experts_tile tf_nvfp4_tile_swiglu
+      1 sm_86 qmmf BF16 fp32 out 16-row tile, fused slices
+      1 sm_86 qmmf shared down 16 stride
+      1 sm_86 qmmf shared down 32 stride
+      1 sm_86 qmmf shared down 64 stride
+      1 sm_86 qmmf shared down half16 stride
+      1 sm_86 qwen35 tf_q35_rope
+      1 sm_86 qwen35_kv8 tf_q35_rope8
+      1 sm_86 qwen4_gdn qwen4_gdn_chain
+      1 sm_86 qwen4_gdn qwen4_gdn_chain_bad_nan
+      1 sm_86 qwen4_gdn qwen4_gdn_chain_bad_repeat
+      1 sm_86 qwen4_gdn qwen4_gdn_chain_bad_sums
+      1 sm_86 qwen4_gdn qwen4_gdn_chain_bad_tail
+      1 sm_86 qwen4_hc qwen4_dense_act
+      1 sm_86 qwen4_hc qwen4_dense_act_bad_nan
+      1 sm_86 qwen4_hc qwen4_dense_act_bad_repeat
+      1 sm_86 qwen4_hc qwen4_dense_act_bad_tail
+      1 sm_86 qwen4_hc qwen4_hc_activation
+      1 sm_86 qwen4_hc qwen4_hc_activation_bad_nan
+      1 sm_86 qwen4_hc qwen4_hc_activation_bad_repeat
+      1 sm_86 qwen4_hc qwen4_hc_activation_bad_tail
+      1 sm_86 qwen4_hc qwen4_hc_pointwise
+      1 sm_86 qwen4_hc qwen4_hc_pointwise_bad_nan
+      1 sm_86 qwen4_hc qwen4_hc_pointwise_bad_repeat
+      1 sm_86 qwen4_hc qwen4_hc_pointwise_bad_tail
+      1 sm_86 qwen4_ple qwen4_ple_conv
+      1 sm_86 qwen4_ple qwen4_ple_conv_bad_nan
+      1 sm_86 qwen4_ple qwen4_ple_conv_bad_repeat
+      1 sm_86 qwen4_ple qwen4_ple_conv_bad_sums
+      1 sm_86 qwen4_ple qwen4_ple_conv_bad_tail
+      1 sm_86 qwen4_ple qwen4_ple_gate
+      1 sm_86 qwen4_ple qwen4_ple_gate_bad_nan
+      1 sm_86 qwen4_ple qwen4_ple_gate_bad_repeat
+      1 sm_86 qwen4_ple qwen4_ple_gate_bad_sums
+      1 sm_86 qwen4_ple qwen4_ple_gate_bad_tail
+      1 sm_86 qwen4_projection tf_qwen4_projection
+      1 sm_86 qwen4_projection tf_qwen4_projection_bad_nan
+      1 sm_86 qwen4_projection tf_qwen4_projection_bad_repeat
+      1 sm_86 qwen4_projection tf_qwen4_projection_bad_sums
+      1 sm_86 qwen4_projection tf_qwen4_projection_bad_tail
+      1 sm_86 tf_js_add
+      1 sm_86 tf_js_broadcast
+      1 sm_86 tf_js_combine
+      1 sm_86 tf_js_gelu
+      1 sm_86 tf_js_layer_norm
+      1 sm_86 tf_js_lex_sums
+      1 sm_86 tf_js_logits
+      1 sm_86 tf_js_option_summary
+      1 sm_86 tf_js_round
+      1 sm_86 tf_js_softmax_rows
+      1 sm_86 tf_js_span_means
+      1 sm_86 tf_js_span_sums
+      1 sm_86 tf_js_widen
+      1 sm_86 tf_moe_router_tiles
+      1 sm_86 tf_q35_attn_partial8_whole
+      1 sm_86 tf_q35_attn_partial_whole
+      1 sm_86 tf_q35_attn_rows8_join
+      1 sm_86 tf_q35_attn_rows8_whole
+      1 sm_86 tf_q35_attn_rows_join
+      1 sm_86 tf_q35_attn_rows_whole
+      1 sm_86 tf_q35_head_norm_shift
+      1 sm_86 tf_q35_norm_shift
+      1 sm_86 tf_q36m_attn
+      1 sm_86 tf_q36m_attn_rows
+      1 sm_86 tf_q36m_attn_tree
+      1 sm_86 tf_q36m_norm_rope
+      1 sm_89 GLM BF16 tf_ctl_glm_old_hc_finish
+      1 sm_89 GLM BF16 tf_ctl_glm_old_rmsnorm_1536
+      1 sm_89 GLM BF16 tf_ctl_glm_old_rmsnorm_4096
+      1 sm_89 GLM BF16 tf_ctl_glm_old_rmsnorm_512
+      1 sm_89 _ZN20tf_prefill_attention13hpattn_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_89 _ZN20tf_prefill_attention14hpattn8_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifiPKixi
+      1 sm_89 _ZN20tf_prefill_attention18hpattn_p256_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_89 _ZN20tf_prefill_attention19hpattn_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifi
+      1 sm_89 _ZN20tf_prefill_attention20hpattn8_whole_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16PKhS5_PKfS7_PS1_iiiiifi
+      1 sm_89 _ZN20tf_prefill_attention22hpattn_p256_ids_kernelILi256ELi8ELi2ELi2EEEvPK13__nv_bfloat16S3_S3_PS1_iiiiifiPKixi
+      1 sm_89 drama3 d3_router_compact
+      1 sm_89 exl3_experts tf_exl3_prompt_down
+      1 sm_89 exl3_experts tf_exl3_prompt_down_k6
+      1 sm_89 exl3_experts tf_exl3_prompt_gu
+      1 sm_89 exl3_experts tf_exl3_prompt_gu_k6
+      1 sm_89 exl3_grouped tf_ctl_exl3_grouped_old_0
+      1 sm_89 exl3_grouped tf_ctl_exl3_grouped_old_1
+      1 sm_89 exl3_grouped tf_ctl_exl3_grouped_old_2
+      1 sm_89 flashnext_batch fn_copy_cols
+      1 sm_89 flashnext_batch fn_gdn_chain_tpr_h8
+      1 sm_89 flashnext_batch fn_gdn_front_h8
+      1 sm_89 flashnext_batch fn_gdn_fused_h8
+      1 sm_89 flashnext_batch fn_gdn_norm_h8
+      1 sm_89 flashnext_batch fn_gdn_rows_h8
+      1 sm_89 flashnext_batch fn_gdn_rows_to_h8
+      1 sm_89 flashnext_mtp fn_row_topk
+      1 sm_89 glm_glue tf_glm_combine_tail
+      1 sm_89 glm_glue tf_glm_router_tile
+      1 sm_89 glm_glue tf_glm_scores
+      1 sm_89 glm_glue tf_glm_top1_sums
+      1 sm_89 glm_glue tf_glm_topk
+      1 sm_89 glm_index tf_glm_index_scores
+      1 sm_89 glm_ops tf_glm_dsa_tokens
+      1 sm_89 l2pace _ZN12dsv41_l2pace12paced_kernelEPKlijmm
+      1 sm_89 l2pf _ZN6tfl2pf15segments_kernelILb1EEEvPKlij
+      1 sm_89 mla tf_mla_absorb_q_192
+      1 sm_89 nemotron_ops tf_nemo_gather_last
+      1 sm_89 nvfp4_experts_tile tf_nvfp4_tile_down_f32
+      1 sm_89 nvfp4_experts_tile tf_nvfp4_tile_swiglu
+      1 sm_89 qmmf BF16 fp32 out 16-row tile, fused slices
+      1 sm_89 qmmf shared down 16 stride
+      1 sm_89 qmmf shared down 32 stride
+      1 sm_89 qmmf shared down 64 stride
+      1 sm_89 qmmf shared down half16 stride
+      1 sm_89 qwen35 tf_q35_rope
+      1 sm_89 qwen35_kv8 tf_q35_rope8
+      1 sm_89 qwen4_gdn qwen4_gdn_chain
+      1 sm_89 qwen4_gdn qwen4_gdn_chain_bad_nan
+      1 sm_89 qwen4_gdn qwen4_gdn_chain_bad_repeat
+      1 sm_89 qwen4_gdn qwen4_gdn_chain_bad_sums
+      1 sm_89 qwen4_gdn qwen4_gdn_chain_bad_tail
+      1 sm_89 qwen4_hc qwen4_dense_act
+      1 sm_89 qwen4_hc qwen4_dense_act_bad_nan
+      1 sm_89 qwen4_hc qwen4_dense_act_bad_repeat
+      1 sm_89 qwen4_hc qwen4_dense_act_bad_tail
+      1 sm_89 qwen4_hc qwen4_hc_activation
+      1 sm_89 qwen4_hc qwen4_hc_activation_bad_nan
+      1 sm_89 qwen4_hc qwen4_hc_activation_bad_repeat
+      1 sm_89 qwen4_hc qwen4_hc_activation_bad_tail
+      1 sm_89 qwen4_hc qwen4_hc_pointwise
+      1 sm_89 qwen4_hc qwen4_hc_pointwise_bad_nan
+      1 sm_89 qwen4_hc qwen4_hc_pointwise_bad_repeat
+      1 sm_89 qwen4_hc qwen4_hc_pointwise_bad_tail
+      1 sm_89 qwen4_ple qwen4_ple_conv
+      1 sm_89 qwen4_ple qwen4_ple_conv_bad_nan
+      1 sm_89 qwen4_ple qwen4_ple_conv_bad_repeat
+      1 sm_89 qwen4_ple qwen4_ple_conv_bad_sums
+      1 sm_89 qwen4_ple qwen4_ple_conv_bad_tail
+      1 sm_89 qwen4_ple qwen4_ple_gate
+      1 sm_89 qwen4_ple qwen4_ple_gate_bad_nan
+      1 sm_89 qwen4_ple qwen4_ple_gate_bad_repeat
+      1 sm_89 qwen4_ple qwen4_ple_gate_bad_sums
+      1 sm_89 qwen4_ple qwen4_ple_gate_bad_tail
+      1 sm_89 qwen4_projection tf_qwen4_projection
+      1 sm_89 qwen4_projection tf_qwen4_projection_bad_nan
+      1 sm_89 qwen4_projection tf_qwen4_projection_bad_repeat
+      1 sm_89 qwen4_projection tf_qwen4_projection_bad_sums
+      1 sm_89 qwen4_projection tf_qwen4_projection_bad_tail
+      1 sm_89 tf_js_add
+      1 sm_89 tf_js_broadcast
+      1 sm_89 tf_js_combine
+      1 sm_89 tf_js_gelu
+      1 sm_89 tf_js_layer_norm
+      1 sm_89 tf_js_lex_sums
+      1 sm_89 tf_js_logits
+      1 sm_89 tf_js_option_summary
+      1 sm_89 tf_js_round
+      1 sm_89 tf_js_softmax_rows
+      1 sm_89 tf_js_span_means
+      1 sm_89 tf_js_span_sums
+      1 sm_89 tf_js_widen
+      1 sm_89 tf_moe_router_tiles
+      1 sm_89 tf_q35_attn_partial8_whole
+      1 sm_89 tf_q35_attn_partial_whole
+      1 sm_89 tf_q35_attn_rows8_join
+      1 sm_89 tf_q35_attn_rows8_whole
+      1 sm_89 tf_q35_attn_rows_join
+      1 sm_89 tf_q35_attn_rows_whole
+      1 sm_89 tf_q35_head_norm_shift
+      1 sm_89 tf_q35_norm_shift
+      1 sm_89 tf_q36m_attn
+      1 sm_89 tf_q36m_attn_rows
+      1 sm_89 tf_q36m_attn_tree
+      1 sm_89 tf_q36m_norm_rope

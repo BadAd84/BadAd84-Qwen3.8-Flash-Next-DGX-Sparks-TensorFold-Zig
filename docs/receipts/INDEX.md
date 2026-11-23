@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 64 files, about 1.0 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 70 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -28,6 +28,12 @@ listed at the end as deliberately untracked.
 | `docs/receipts/GapArms/RESULT.md` | `work/GapArms/RESULT.md` | `4452edc5d4399a1e` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/Glm54Review/REPORT.md` | `work/Glm54Review/REPORT.md` | `0cc128437f79c6b7` | `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/Int4Device/RESULT.md` | `work/Int4Device/RESULT.md` | `a185b8d5649ed3df` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Edges/base-images.log` | `work/Int4Edges/out/base-images.log` | `51f8e3470ed86143` | (index only) |
+| `docs/receipts/Int4Edges/base-limits.txt` | `work/Int4Edges/out/base-limits.txt` | `adfc43a5a1a98c39` | (index only) |
+| `docs/receipts/Int4Edges/base-stale-launches.txt` | `work/Int4Edges/out/base-stale-launches.txt` | `82dff326e86fa87a` | (index only) |
+| `docs/receipts/Int4Edges/head-stale-launches.txt` | `work/Int4Edges/out/head-stale-launches.txt` | `82dff326e86fa87a` | (index only) |
+| `docs/receipts/Int4Edges/limits-control.md` | `work/Int4Edges/limits-control.md` | `0ed24cec7035f6c0` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Edges/stale-diff.txt` | `work/Int4Edges/out/stale-diff.txt` | `e3b0c44298fc1c14` | (index only) |
 | `docs/receipts/Int4Respond/RESULT.md` | `work/Int4Respond/RESULT.md` | `d4ffde40926e8db1` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Window/QUALITY-DEFECT.md` | `work/Int4Window/QUALITY-DEFECT.md` | `4479df43f2cf5d1b` | `README.md`, `docs/INT4-PORT.md` |
 | `docs/receipts/KnobScreen/driver.sh` | `work/KnobScreen/driver.sh` | `26ee393a5f2d7505` | `docs/KNOB-SCREEN.md` (pre-fix copy; the live kit is `scripts/qwen38/zig/target/screen/`) |

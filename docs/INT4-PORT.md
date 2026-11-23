@@ -16,7 +16,7 @@ A green table for one step is evidence INSIDE that step, never the port. The ste
 |---|---|---|---|
 | 2 | block-FP8 projections, upstream draft #4449 | OPEN | parent orphaned by #3523's rebuild to `37d99a8a`; the five commits re-apply with one fixtures conflict, re-cut in progress |
 | 3 | core-gptq-reader, upstream #3611 | OPEN until merged | PR opened and reviewed |
-| 4 | the int4 W4A16 kernel, upstream #4183 | DONE pending their review | head `984556bf` on `7bd7081e0`; host table PASS; device `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed`; gate 3 bit-equal on the bf16, fp32 and gate/up prompt forms; the reply waits on the owner's post |
+| 4 | the int4 W4A16 kernel, upstream #4183 | DONE pending their review | head `984556bf` on `7bd7081e0`; host table PASS; device `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed`; gate 3 bit-equal on the bf16, fp32 and gate/up prompt forms (`docs/receipts/Int4Device/RESULT.md`); the full registry run stopped part way (2,452 PASS lines, no real kernel failure) and its trailing suites are unrun, see "PR #4183, state"; the reply waits on the owner's post |
 | 5 | admission and loading as stored | OPEN | head `987de0084` with its chain orphaned by the same rebuild; device receipt and the float64 fidelity reference unrun |
 | 6 | as-stored MTP | HOLD | needs a new design, not a port |
 | promotion | production serving this stack | OPEN | production still runs its own engine; the int4 plus KV-tier image is not promoted |
@@ -314,15 +314,20 @@ suspect, and its r4 fix (the mode-3 `hc_writeback_norm`, gated byte for byte aga
 
 | arm | echo | GSM8K | MMLU-Pro | HumanEval | MMLU recitation |
 |---|---|---|---|---|---|
-| r5 FP4 | 1 of 500 | 484/500 = 96.8 percent | 75.2 percent | 87.2 percent | 82.5 percent |
-| r5 INT4 | 1 of 500 | 484/500 = 96.8 percent | 75.1 percent | 82.3 percent | 82.0 percent |
-| 2026-11-19 FP4 baseline | 1 of 500 | 96.8 percent | 75.2 percent | 87.2 percent | 82.5 percent |
-| 2026-11-19 INT4 | 0 of 500 | 96.4 percent | 75.9 percent | 81.1 percent | 82.6 percent |
+| r5 FP4 | 1 of 500 | 484/500 = 96.8 percent | 75.2 percent | 87.2 percent (143/164) | 82.5 percent |
+| r5 INT4 | 1 of 500 | 484/500 = 96.8 percent | 75.1 percent | 82.3 percent (135/164) | 82.0 percent |
+| 2026-11-19 FP4 baseline | 1 of 500 | 96.8 percent | 75.2 percent | 87.2 percent (143/164) | 82.5 percent |
+| 2026-11-19 INT4 | 0 of 500 | 96.4 percent | 75.9 percent | 81.1 percent (133/164) | 82.6 percent |
 
 The one echo on each arm is `gsm8k-test-31`, whose own question is about jelly beans, and r5 FP4 is byte-identical
 to the 2026-11-19 FP4 build on all 1,664 replies. The instrument was controlled by reproducing the defect report's
 own counters first (echo 166 and 145 on r2, recitation 51.1 and 54.9 percent). So the defect is closed for r5 and
 r5-int4: prompt following matches the pre-defect baseline, and the exactness tests were never the evidence for it.
+
+The port is not equal to FP4 on HumanEval: r5 FP4 reads 143 of 164 and r5 INT4 135 of 164, eight items behind, and
+the 2026-11-19 INT4 arm read 133 of 164, ten behind the same baseline. HumanEval is the only suite with a difference
+over a point; GSM8K reads the same 484 of 500 on both r5 arms, MMLU-Pro differs by 0.1 points, and MMLU recitation
+by 0.5.
 
 ## PR #4183, state
 
@@ -342,7 +347,39 @@ On the rebased branch (`984556bf50`, six commits) the lean pair read 165 against
 read 0 errors and 1 advisory (no Unreleased CHANGELOG bullet naming the PR), `git diff --check` was clean and
 `cuda_common_check` read 55 local copies, 0 violations. On the pushed head `5aced6d3e` upstream's own trial merge into
 `1eed88bb0` applied cleanly, 33 int4 host tests and the serving pin passed, and the Linux x86-64 CUDA test runner
-compiled. **Outstanding: the device summary**, one Spark window on the pushed head (`zig build int4-contract
--Dnvcc=...` for the SUMMARY line and both planted controls, `kernel-contract` for the full registry, and
-`tf-cuda-test kernel-contract-limits` for gate 5). GitHub read the branch as CONFLICTING against today's main on
-2026-11-23, so a further rebase is due at landing.
+compiled.
+
+A GB10 window on the rebased head (spark6, 2026-11-23, `docs/receipts/Int4Device/RESULT.md`) produced the device
+receipt on the suite itself: `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red
+as planted, 0 missed`; gate 3 is bit-equal to the replaced kernels on the prompt down to bf16, the prompt down to
+fp32 and the prompt gate/up forms (7, 7 and 8 shapes), the skipped slot's rows are accounted for, and both planted
+controls fail at the gates they are planted for (`sums` and `shapes`).
+
+The full registry run (`zig build kernel-contract`) is PARTIAL. It ran 4,083 s and was stopped by the operator,
+having printed 2,452 `PASS` lines and 441 `FAIL` lines, all accounted for (430 control detections plus 11 declared
+known findings) with no real kernel failure. It did not reach the trailing standalone suites, the in-process gate 5
+section, or the registry kernels after the moss image family, so the registry receipt is those 2,452 gates and not a
+complete pass.
+
+The limits audit (`tf-cuda-test kernel-contract-limits zig-out/fatbin`) reads `FAIL kernel-contract-limits: 550
+problems`: 5,941 per-launch `PASS` lines, no `FAIL limits` line, and exactly 550 `(record stale)` lines, none of them
+int4 (all 21 int4 launches are current and pass on all five SMs, 0 stale, 0 failing). Both limiter controls are red on
+every SM. The images name nvcc 13.3 and are checked against nvcc 13.3's records. As a control, the same audit was run
+over the same five SMs on Paperclip against upstream main `7bd7081e0`, built from its own archive, and reads 550
+stale records. The two logs' stale launch and SM pairs are identical (550 each, `diff` empty), and the counts move by
+exactly the int4 launches (105 `PASS`, 21 `RECORD`, 0 stale), so the 550 are the base tree's own records, not this
+branch's (`docs/receipts/Int4Edges/limits-control.md`). The base and head contract trees are byte-identical in 214 of
+216 files, and the audit source differs only by the `fn_int4` image name.
+
+The first device window died in a hard reset (last journal line 12:11:30 UTC, new boot 12:15:15). The records hold
+no cause: the pstore holds no record (`efi_pstore` registered, `systemd-pstore` skipped because `/sys/fs/pstore` was
+empty), the previous boot logged no panic, oops, BUG, MCE, hardware-error or OOM line in its last 12 hours,
+`MemAvailable` read 81,423 MiB 30 s before the reset, and the software watchdog wrote no `resets` record and logged
+no probe failure. The one firmware record is a single ACPI BERT entry from the previous boot, severity `corrected`, a
+MediaTek-vendor section the kernel does not decode. The cause is not established; the rerun, with a 96 GiB cap on the
+build container, ran the same heavy kernel without a second reset.
+
+On quality the port is not equal to FP4 on HumanEval: r5 FP4 read 143 of 164 and r5 INT4 135 of 164, and the
+2026-11-19 INT4 arm read 133 of 164; the other suites agree within a point (see the quality section).
+
+GitHub read the branch as CONFLICTING against today's main on 2026-11-23, so a further rebase is due at landing.
