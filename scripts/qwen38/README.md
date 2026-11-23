@@ -34,6 +34,7 @@ tree reads is SET in `dev.env`**, because presence is what an upstream rebase si
 engine's source is invisible to a name-level sweep. The file writes the measured settings below with the record that
 proved each one, then every remaining setting the served tree reads at its own read site's default with that read
 site quoted; a value that is not the engine default belongs in the measured list with its cells.
+The setting-by-setting verdicts and the ranked worklist are in `docs/KNOB-COVERAGE.md`.
 `zig/target/env/check-dev-env.py` fails on a missing setting, on a value carried only by a note in `register.env`, and
 on a worklist line; `update-env-register.py --defaults-from-tree` builds the worklist.
 

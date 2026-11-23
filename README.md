@@ -21,6 +21,9 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`ots-
 
 ## docs/
 - **`ENV-REGISTER.md`** - the setting rule and its gate: every setting the served tree reads is set in `dev.env`.
+- **`KNOB-COVERAGE.md`** - every setting the served tree reads, one verdict each (measured keep, level, negative,
+  no speed effect, capacity, other-family, or unmeasured), the 20-setting worklist ranked, the 20 settings settled by
+  reading the code, the never-sweep list, and the boots the worklist implies.
 - **`OPEN-PR-COVERAGE.md`** - our pull requests, merged and open, the part fix, and each one's state.
 - **`INT4-PORT.md`** - serving production's INT4-AutoRound checkpoint on our engine: the port, its speed cells, PR
   #4183's state and the open quality defect.

@@ -90,7 +90,8 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   2026-10-12).** The serve's concurrency is a production choice, not a property of the code: a change can win at 4 and
   lose at 8 (pool size, batch composition), and 1-2 streams is the everyday load. So every stock-vs-ours comparison,
   image qualification and patch A/B measures decode (aggregate and per stream, all slots busy), TTFT and the pool size
-  at boot at 1, 2, 4, 6 and 8 concurrent slots, one fresh boot per setting, same interleaving rules; tables carry a
+  at boot at 1, 2, 4, 6 and 8 concurrent slots, one fresh boot per setting PER LEVEL (a serve's concurrency is fixed at
+  boot, so five boots an arm), same interleaving rules; tables carry a
   concurrency column. Adding high-concurrency rows never drops the low ones: a 4/6/8-only run (2026-10-12, zmerge8)
   had to be extended. A change faster at some levels and slower at others is a trade, not a keep: confirm the losing
   cell (ABBA), try gating it on the live stream count, and otherwise take it to the owner (fleet rule in
