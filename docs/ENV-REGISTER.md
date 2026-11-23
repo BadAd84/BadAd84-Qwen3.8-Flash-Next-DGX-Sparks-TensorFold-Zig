@@ -215,7 +215,7 @@ including the 26 bare `TF_` names the old filter dropped. Two proofs stand behin
   all 26 names at their stated values, kept all 74 previously forwardable names equal, kept both `unset` lines
   absent, read `1176 of 1176` on the window self-check, and returned the same three fixed-prompt replies (carried
   100 equal, 0 differ, 0 absent; beyond-dev-env 48; levers 8/8; hashes 3/3). Production was restored pinned and its
-  drift check read EQUAL (`work/LauncherAB/RESULT.md`).
+  drift check read EQUAL (`docs/receipts/LauncherAB/SUMMARY.txt`, with its 26-name and env-proof logs beside it).
 
 The change is deployed to all four launchers: the recipe's `start.sh`, its two nsys copies, and `~/qwen-zig/start.sh`.
 With the delivered filter the coverage gate reads `coverage: 95 settings in scope, set 95, missing 0, absent 2,

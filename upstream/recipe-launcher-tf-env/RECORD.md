@@ -17,7 +17,8 @@
   absence yields (the live one is `TF_QMMF_HALF_BELOW`, 96, the `half_below_default` at `cuda/qmmf.zig:121`),
   16 are INERT (their only readers are in `families/qwen3_5/` or absent from this tree), and 0 DIFFER, so the
   widened filter is behaviour-neutral for the flashnext TP=1 serve. The second proof is a boot identity window,
-  `work/LauncherAB/window.sh`, queued on spark6 behind the existing GPU queue: it boots the widened launcher with
+  the identity window on spark6, whose receipts are tracked at `docs/receipts/LauncherAB/` (summary, the 26-name log,
+  the env proof and the AB-DONE marker): it boots the widened launcher with
   the same image, env and shape as DevEnvBoot, requires all 26 names in the container at their stated values,
   the window self-check at 1176 of 1176, and the fixed-prompt reply hashes equal to DevEnvBoot's, then restores
   production and runs the production env drift check.

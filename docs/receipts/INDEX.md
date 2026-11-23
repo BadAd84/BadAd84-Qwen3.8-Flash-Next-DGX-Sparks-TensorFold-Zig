@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 79 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 83 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -39,6 +39,10 @@ listed at the end as deliberately untracked.
 | `docs/receipts/DevEnvBoot/envdiff.out` | `work/DevEnvBoot/out-fetched/out/DEVENV/envdiff.out` | `26cf8e2a723a624e` | `scripts/qwen38/zig/target/env/dev.env`, `docs/ENV-REGISTER.md` |
 | `docs/receipts/DevEnvBoot/selfcheck-line.txt` | `work/DevEnvBoot/out-fetched/out/DEVENV/selfcheck-line.txt` | `82e728698b2ef224` | `scripts/qwen38/zig/target/env/dev.env`, `docs/ENV-REGISTER.md` |
 | `docs/receipts/DevEnvBoot/cells.txt` | `work/DevEnvBoot/out-fetched/out/CELLS/cells.txt` | `c60d7a012f9bcf2c` | `scripts/qwen38/zig/target/env/dev.env`, `docs/ENV-REGISTER.md` |
+| `docs/receipts/LauncherAB/SUMMARY.txt` | `work/LauncherAB/out-fetched/out/SUMMARY.txt` | `99c9320f231692e9` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
+| `docs/receipts/LauncherAB/abenv-verify.txt` | `work/LauncherAB/out-fetched/out/AB/abenv-verify.txt` | `28b60948ab069c64` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
+| `docs/receipts/LauncherAB/envdiff-verify.txt` | `work/LauncherAB/out-fetched/out/AB/envdiff-verify.txt` | `96bb2a49ca1d72d7` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
+| `docs/receipts/LauncherAB/STAGE` | `work/LauncherAB/out-fetched/out/STAGE` | `78811984eff71d15` | `docs/ENV-REGISTER.md`, `upstream/recipe-launcher-tf-env/RECORD.md` |
 | `docs/receipts/Int4Step5Dev/exactness-lines.txt` | `work/Int4Step5Dev/out-fetched/exactness-lines.txt` | `bae7ddf52c1fdf60` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Step5Dev/summary.txt` | `work/Int4Step5Dev/out-fetched/summary.txt` | `c399bec7fe158dc3` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Step5Dev/run.log` | `work/Int4Step5Dev/out-fetched/run.log` | `944b177a235f3902` | `docs/INT4-PORT.md` |
