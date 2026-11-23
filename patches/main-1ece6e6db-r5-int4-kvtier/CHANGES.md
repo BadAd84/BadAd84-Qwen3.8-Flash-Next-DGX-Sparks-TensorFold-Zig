@@ -52,3 +52,13 @@ package's base plus the tier's and the pool's files, and every test step of both
 - The tier's missing pieces are unchanged: the staging ring (design item 8), a store pin (9) and the block-name
   lineage (10). A state above the 1 GiB staging permit is skipped as `StagingFull`; `0023` declares `context` so the
   permit is priced at the window, which is what makes a 262,144-token cell testable at all.
+
+## The trailing gate rows
+
+The two steps that closed after this directory's first commit, from the same gate run: `GATE nvcc_fatbins
+rc=0 wall=711s` (`327/327 steps succeeded`, `FATBIN fn_int4: 1132920 bytes`, `FATBIN images 125`) and
+`GATE test_cuda_cache_budget rc=0 wall=0s` (`6/6 steps succeeded; 21/21 tests passed`). The pool patch, `0025` here
+and `0023` in its own package, is the one the witness belongs to: the step reads 19 tests without it and 21 with it,
+and a planted false assertion fails the step by name. The run's own `new_test_ran` grep was blind to a passing
+test's name, which is why it read red; the check is replaced in `work/KvTierShip/gates.sh`. `RECORD.md` carries the
+two rows verbatim and the counts.

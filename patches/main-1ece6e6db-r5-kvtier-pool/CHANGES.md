@@ -62,3 +62,18 @@ Both were the patch's own wording, not behaviour, and both were fixed before the
   default"`) collects it. Nothing in `build.zig` changed.
 
 The commit's patch sha256 above is of the fixed patch; the gate table for it is in `RECORD.md`.
+
+## The trailing gate rows
+
+The two steps still running when this package was first committed closed in the same run, with their own lines:
+
+- `GATE nvcc_fatbins rc=0 wall=711s`: `Build Summary: 327/327 steps succeeded`, `FATBIN fn_int4: 1132920 bytes`
+  sha256 `8080835ba1bccf4595f6ee21181e87fe8ed96f6d3d1da128bdfff8f81fa6beba`, `FATBIN images 125`. The package's
+  kernels compile and link into the fatbins the image installs.
+- `GATE test_cuda_cache_budget rc=0 wall=0s`: `Build Summary: 6/6 steps succeeded; 21/21 tests passed`. The step
+  builds the witness test in and passes it; it reads 19 tests with this patch absent and 21 with it, and with one
+  witness assertion planted false it fails and names the test (`20 pass, 1 fail (21 total)`).
+
+The run's `GATE new_test_ran` check read red (`the pool guard's test ran in no host step`, `GATES-DONE bad=1`)
+because it greps a summary that never prints a passing test's name; the check now runs the step's own binary and
+reads the witness's line. `RECORD.md` carries the table, the three-tree counts and the planted-failure line.

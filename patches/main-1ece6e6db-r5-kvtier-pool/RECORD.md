@@ -80,7 +80,7 @@ trees. Every number below is the gate run's own line, `~/work/KvTierShip2/gate-r
 | `zig build -Dnvcc=... compile-cuda-tests` (the runner) | rc 0, 645 s; `Build Summary: 169/169 steps succeeded` |
 | `zig build -Dnvcc=... -Dtarget=aarch64-linux-gnu compile-cuda-tests` (cross) | rc 0, 712 s; `Build Summary: 169/169 steps succeeded` |
 | `zig build -Dnvcc=... -Doptimize=fast --prefix ... fatbins install native` | rc 0, 711 s; `FATBIN fn_int4: 1132920 bytes sha256 8080835ba1bccf4595f6ee21181e87fe8ed96f6d3d1da128bdfff8f81fa6beba`; `FATBIN images 125` |
-| `zig build -Dfixed-cpu test-cuda-cache-budget-host` (the witness test's step) | `6/6 steps succeeded; 21/21 tests passed` |
+| `zig build -Dfixed-cpu test-cuda-cache-budget-host` (the witness test's step) | rc 0, 0 s; `6/6 steps succeeded; 21/21 tests passed` |
 | the gate's own `new_test_ran` check | `GATE new_test_ran: the pool guard's test ran in no host step`, so the run closed `GATES-DONE bad=1` |
 
 The run's only red is that last line, and it is a defect in the CHECK, not in the test. The check greps the step logs
@@ -99,8 +99,11 @@ and in a scratch copy of the gated tree with one assertion of the test made fals
     error: 'cuda_streams.test.CUDA cache default: a tier whose plan leaves the cache no bytes is refused by name' failed:
     .../zig/src/native/cuda_streams.zig:201:5 ... 20/21 tests passed (1 failed)
 
-So the witness test is collected by the step and passes on the committed patch, and the gate script's check is replaced
-by a count comparison against a pool-less tree for the next run.
+On the unmodified head the same binary prints the witness's own passing line,
+`20/21 cuda_streams.test.CUDA cache default: a tier whose plan leaves the cache no bytes is refused by name...OK`,
+and `All 21 tests passed.`; both runs are this lane's own (`~/work/KvTierShip2/gate-fix.log` and `gate-planted.log`).
+So the witness test is collected by the step and passes on the committed patch, and the gate script's check is
+replaced by one that runs the step's own binary and reads that line, with these counts as the attribution.
 
 ## The lean finding and its resolution
 
