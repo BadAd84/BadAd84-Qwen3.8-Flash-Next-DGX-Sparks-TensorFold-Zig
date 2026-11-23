@@ -1,0 +1,18 @@
+PROMPTS p200 200 ids p2k 2048 ids
+RUN p200/drafted ids 64 sha a816a5d43119b747 self a816a5d4 drafted 0 rounds 63 err - 2.242s
+RUN p200/plain ids 64 sha a816a5d43119b747 self a816a5d4 drafted 0 rounds 63 err - 2.15s
+CELL p200 drafted-vs-plain EQ sha a816a5d43119b747 ids 64
+RUN p2k/drafted ids 64 sha 452bfa141a8d1d31 self 452bfa14 drafted 0 rounds 63 err - 2.926s
+RUN p2k/plain ids 64 sha 452bfa141a8d1d31 self 452bfa14 drafted 0 rounds 63 err - 2.731s
+CELL p2k drafted-vs-plain EQ sha 452bfa141a8d1d31 ids 64
+LOAD 0 background streams decoding after 0.0s
+RUN p2k/concurrent ids 64 sha 452bfa141a8d1d31 self 452bfa14 drafted 0 rounds 63 err - 9.548s
+CELL p2k concurrent-vs-solo EQ sha 452bfa141a8d1d31 ids 64
+RUN resume/turn1 ids 32 sha f770bed1e6affdba self f770bed1 drafted 0 rounds 31 err - 1.978s
+RUN resume/fresh ids 20 sha f89e6e566098c5c9 self f89e6e56 drafted 0 rounds 19 err - 0.792s
+RUN resume/resumed ids 20 sha f89e6e566098c5c9 self f89e6e56 drafted 0 rounds 19 err - 0.66s
+RUN resume/resumed2 ids 20 sha f89e6e566098c5c9 self f89e6e56 drafted 0 rounds 19 err - 0.673s
+CELL resume resumed-vs-fresh EQ sha f89e6e566098c5c9 ids 20
+CELL resume repeats EQ sha f89e6e566098c5c9 ids 20
+RUN draft/true ids 8 sha b70ec7610d9976ce self b70ec761 drafted 0 rounds 7 err - 0.254s
+EXACTNESS PASS cells 5 drafted_total 0 sha_matches_ids True draft_true_error -

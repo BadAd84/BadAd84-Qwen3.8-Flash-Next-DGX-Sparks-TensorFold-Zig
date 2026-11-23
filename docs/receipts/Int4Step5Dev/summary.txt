@@ -1,0 +1,27 @@
+SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed
+SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed
+FID gu rows=512 n=640 k=2560 mats=2 pairs=512 tile=16 out_elem=2 bytes=655360 sha256=0d48b910a3d92cd48f13f6761fcc55ccec2415803c35175c13fd9f6f7c9dfd4f
+ALLOW gu rows=512 n=640 k=2560 depth=216 count=327680 min=4.327e-7 max=1.185e-1 sha256=ecb778cea6cc54b35ad664c25889fed18282d401356a452aa8253b9378ae9c2e
+FID gu rows=32 n=640 k=2560 mats=2 pairs=32 tile=16 out_elem=2 bytes=40960 sha256=392679b21b6228215ae5a07e1e3f2209882482f858b3291b2e59b3f0ee966ac0
+ALLOW gu rows=32 n=640 k=2560 depth=216 count=20480 min=1.186e-6 max=8.830e-2 sha256=c39a4f5e74d211c030732d57ed5570c10d8fc6d03a6bb13ec8378ccf65f2424a
+FID down_f32 rows=512 n=2560 k=640 mats=1 pairs=512 tile=16 out_elem=4 bytes=5242880 sha256=721342dd3f91cf59313df33dc845bda161002260e95f6d83afffef4c3d5f9339
+ALLOW down_f32 rows=512 n=2560 k=640 depth=81 count=1310720 min=2.187e-6 max=1.087e-5 sha256=6caa66b53f9f92b81d24e73cf65188d2f2b4ba86086103f0b102724a35249a33
+FID down_f32 rows=32 n=2560 k=640 mats=1 pairs=32 tile=16 out_elem=4 bytes=327680 sha256=edcd9b52c4c18d8129fe26266c92ad42cb31633c5b073a4efb2f0e78e9a0032f
+ALLOW down_f32 rows=32 n=2560 k=640 depth=81 count=81920 min=2.267e-6 max=9.364e-6 sha256=58185ad86c52f4d05d52cc97b982634065d7062291266d1db037ebe15e9f2a0f
+FID head rows=512 n=248320 k=2560 mats=1 pairs=0 tile=16 out_elem=2 bytes=254279680 sha256=9a5b1ebbe90239d55fb131ad495d13554e40b7221bfdda956e3593d31eeb3daa
+ALLOW head rows=512 n=248320 k=2560 depth=216 count=127139840 min=1.119e-4 max=1.730e-2 sha256=3d648b952a7b1bb42bcd0eff2fbc64ae4deddd5a60ded7f1d3cdc1629bbf2c6e
+FID head rows=32 n=248320 k=2560 mats=1 pairs=0 tile=16 out_elem=2 bytes=15892480 sha256=65911497af12753b5b36e1045f1aa2ea1464c57415feb3a90f4450c1b5713e57
+ALLOW head rows=32 n=248320 k=2560 depth=216 count=7946240 min=1.140e-4 max=1.690e-2 sha256=014756140e88113eb344e88fc5874dd2e4838f505f58452772cf9b23cadb5c43
+SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed
+FID gu rows=512 n=640 k=2560 mats=2 pairs=512 tile=16 out_elem=2 bytes=655360 sha256=0d48b910a3d92cd48f13f6761fcc55ccec2415803c35175c13fd9f6f7c9dfd4f
+ALLOW gu rows=512 n=640 k=2560 depth=216 count=327680 min=4.327e-7 max=1.185e-1 sha256=ecb778cea6cc54b35ad664c25889fed18282d401356a452aa8253b9378ae9c2e
+FID gu rows=32 n=640 k=2560 mats=2 pairs=32 tile=16 out_elem=2 bytes=40960 sha256=392679b21b6228215ae5a07e1e3f2209882482f858b3291b2e59b3f0ee966ac0
+ALLOW gu rows=32 n=640 k=2560 depth=216 count=20480 min=1.186e-6 max=8.830e-2 sha256=c39a4f5e74d211c030732d57ed5570c10d8fc6d03a6bb13ec8378ccf65f2424a
+FID down_f32 rows=512 n=2560 k=640 mats=1 pairs=512 tile=16 out_elem=4 bytes=5242880 sha256=721342dd3f91cf59313df33dc845bda161002260e95f6d83afffef4c3d5f9339
+ALLOW down_f32 rows=512 n=2560 k=640 depth=81 count=1310720 min=2.187e-6 max=1.087e-5 sha256=6caa66b53f9f92b81d24e73cf65188d2f2b4ba86086103f0b102724a35249a33
+FID down_f32 rows=32 n=2560 k=640 mats=1 pairs=32 tile=16 out_elem=4 bytes=327680 sha256=edcd9b52c4c18d8129fe26266c92ad42cb31633c5b073a4efb2f0e78e9a0032f
+ALLOW down_f32 rows=32 n=2560 k=640 depth=81 count=81920 min=2.267e-6 max=9.364e-6 sha256=58185ad86c52f4d05d52cc97b982634065d7062291266d1db037ebe15e9f2a0f
+FID head rows=512 n=248320 k=2560 mats=1 pairs=0 tile=16 out_elem=2 bytes=254279680 sha256=9a5b1ebbe90239d55fb131ad495d13554e40b7221bfdda956e3593d31eeb3daa
+ALLOW head rows=512 n=248320 k=2560 depth=216 count=127139840 min=1.119e-4 max=1.730e-2 sha256=3d648b952a7b1bb42bcd0eff2fbc64ae4deddd5a60ded7f1d3cdc1629bbf2c6e
+FID head rows=32 n=248320 k=2560 mats=1 pairs=0 tile=16 out_elem=2 bytes=15892480 sha256=65911497af12753b5b36e1045f1aa2ea1464c57415feb3a90f4450c1b5713e57
+ALLOW head rows=32 n=248320 k=2560 depth=216 count=7946240 min=1.140e-4 max=1.690e-2 sha256=014756140e88113eb344e88fc5874dd2e4838f505f58452772cf9b23cadb5c43

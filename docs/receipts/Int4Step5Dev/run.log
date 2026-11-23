@@ -1,0 +1,44 @@
+LOCKED 2026-11-23T20:46:35+00:00 host spark6 boot 2026-11-23 12:15:10 nproc 20 mem 123 GiB
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+DISK-BEFORE /dev/nvme0n1p2  916G  744G  125G  86% /home HOME-BEFORE 314G MEM used 97, available 25
+PROD-BEFORE image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 id sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f health 000
+INPUT tree 7f9f2443866986c5c6b5731bafcb8c9fdb093cba2ffc72ea3ab9de9d067d31f9 base b28d818d9744f1f9a2a8e1fe11db366316fa826848940de596a3cb9312e64133 patch 14cf598068d9b2de131a8b9a0129b7d99b4ed49fe50a17bfa1cbbc8fdc00fb0d
+TREE files 13498 mismatches 0 extras 0
+BASE files 13481 mismatches 0 extras 0
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+APPLY base + 1 patch reproduces the gated tree, file for file: 13498 files manifest 2e9a950d6256e0707ac6a35de3314dea61c3fe31262ed820b74e89593027149e
+GITD fd2d8756a667c6c866f01e976365711b6776214b	refs/heads/main
+BUILT int4s5 sha256:eec50f2725a7b35321fb30dfd8dd47ac60929adc2d783dd72c02a66b368b3b71 2026-11-23T17:00:09.807131005Z kernels=embedded id=sha256:eec50f2725a7b35321fb30dfd8dd47ac60929adc2d783dd72c02a66b368b3b71 
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+STOPPED production: :8888 000; containers []; mem 115 GiB
+HARNESS source 888262266ca3f5bf46c0ffcdaf3e7ebd55e879d07133e956ca000078a57865ed  /home/adam/work/Int4Step5Dev/fidtree/zig/tests/cuda/contract_int4.zig 7fb2b47b441c9ce3e890c3a6f7fb4c301c8e8aa93c323ea247a0c974d37b6722  /home/adam/work/Int4Step5Dev/fidtree/zig/tests/cuda/main.zig 2762df402d77235e2cf06bc94f3ab59f75e6b27079b0697cf53caf76118616aa  /home/adam/work/Int4Step5Dev/fidtree/zig/tests/cuda/contract_int4_fid.zig c9dfbdba940da8e2340fd04cc0a67b24f6386778aee3c4b36860456e9f111831  /home/adam/work/Int4Step5Dev/fidtree/zig/build/kernel_contract.zig a7edbfd19da3c13f9733a0a8a3ebba6b4e9e666ce987bb050b9c04d9a49f5716  /home/adam/work/Int4Step5Dev/tree/zig/kernels/cuda/fn_int4.cu a7edbfd19da3c13f9733a0a8a3ebba6b4e9e666ce987bb050b9c04d9a49f5716  /home/adam/work/Int4Step5Dev/fidtree/zig/kernels/cuda/fn_int4.cu 
+RESTORE first attempt health 000; one clean retry
+[stop.sh] No container named qwen38-flash-next-tf: nothing to stop
+RESTORE prod /health 200 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 id sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f home 314G
+PROD-IMAGE-OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f health=200
+RESTORE end 2026-11-23T20:53:45+00:00
+HARNESS harness-build int4-contract rc 0 :: 
+HARNESS harness-fidelity all rc 0 :: 
+FID cmp gu512 rc 0 :: CMP gu512 kind gu rows 512 n 640 k 2560 elements 327680 outside 0 worst_abs 3.606064e-02 at r347c190 worst_col_abs 3.606064e-02 col 190 worst_col_rel 1.114491e-02 col 56 worst_ratio 0.782426 col 567 ratio_p50 0.110108 p99 0.4567 p99.9 0.5806 max 0.782426 max_abs_want 7.008e+00
+FID cmp gu32 rc 0 :: CMP gu32 kind gu rows 32 n 640 k 2560 elements 20480 outside 0 worst_abs 3.193306e-02 at r22c412 worst_col_abs 3.193306e-02 col 412 worst_col_rel 1.104255e-02 col 469 worst_ratio 0.789031 col 41 ratio_p50 0.109449 p99 0.4622 p99.9 0.5847 max 0.789031 max_abs_want 5.212e+00
+FID cmp down512 rc 0 :: CMP down512 kind down_f32 rows 512 n 2560 k 640 elements 1310720 outside 0 worst_abs 7.286872e-08 at r352c1412 worst_col_abs 7.286872e-08 col 1412 worst_col_rel 1.735040e-07 col 1724 worst_ratio 0.010876 col 885 ratio_p50 0.000517 p99 0.0034 p99.9 0.0052 max 0.010876 max_abs_want 8.866e-01
+FID cmp down32 rc 0 :: CMP down32 kind down_f32 rows 32 n 2560 k 640 elements 81920 outside 0 worst_abs 4.839967e-08 at r8c118 worst_col_abs 4.839967e-08 col 118 worst_col_rel 1.801170e-07 col 1221 worst_ratio 0.009505 col 149 ratio_p50 0.000535 p99 0.0035 p99.9 0.0053 max 0.009505 max_abs_want 7.010e-01
+FID cmp head512 rc 0 :: CMP head512 kind head rows 512 n 248320 k 2560 elements 127139840 outside 0 worst_abs 1.557083e-02 at r86c220 worst_col_abs 1.557083e-02 col 220 worst_col_rel 3.890068e-03 col 118414 worst_ratio 0.966935 col 184214 ratio_p50 0.263323 p99 0.7767 p99.9 0.8733 max 0.966935 max_abs_want 4.340e+00
+FID cmp head32 rc 0 :: CMP head32 kind head rows 32 n 248320 k 2560 elements 7946240 outside 0 worst_abs 1.118745e-02 at r1c34689 worst_col_abs 1.118745e-02 col 34689 worst_col_rel 3.890557e-03 col 21073 worst_ratio 0.967386 col 107663 ratio_p50 0.265019 p99 0.7790 p99.9 0.8751 max 0.967386 max_abs_want 4.239e+00
+BOOT boot-refuse-drafts rc 1 health 000 2026-11-23T21:03:29+00:00
+BOOT boot-refuse-tp2 rc 1 health 000 2026-11-23T21:03:33+00:00
+BOOT boot-served8 rc 0 health 200 2026-11-23T21:05:44+00:00
+BOOT admitted boot-served8 health 200
+SERVED health 200 image tensorfold-qwen38:int4s5 sha256:eec50f2725a7b35321fb30dfd8dd47ac60929adc2d783dd72c02a66b368b3b71 
+STEP exactness start 2026-11-23T21:05:44+00:00 mem 38 GiB available home 125 GiB
+STEP exactness rc 0 wall 35s :: 
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+SERVE-DOWN 2026-11-23T21:06:20+00:00 containers []
+WINDOW-END rc 0 2026-11-23T21:06:20+00:00
+RESTORE begin rc=0 2026-11-23T21:06:20+00:00
+[stop.sh] No container named qwen38-flash-next-tf: nothing to stop
+RESTORE prod /health 200 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 id sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f home 315G
+PROD-IMAGE-OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f health=200
+RESTORE end 2026-11-23T21:07:51+00:00

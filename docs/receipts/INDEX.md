@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 70 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 74 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -33,6 +33,10 @@ listed at the end as deliberately untracked.
 | `docs/receipts/Int4Edges/base-stale-launches.txt` | `work/Int4Edges/out/base-stale-launches.txt` | `82dff326e86fa87a` | (index only) |
 | `docs/receipts/Int4Edges/head-stale-launches.txt` | `work/Int4Edges/out/head-stale-launches.txt` | `82dff326e86fa87a` | (index only) |
 | `docs/receipts/Int4Edges/limits-control.md` | `work/Int4Edges/limits-control.md` | `0ed24cec7035f6c0` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Step5Dev/RESULT.md` | `work/Int4Step5Dev/RESULT.md` | `3a11bed36c193f95` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Step5Dev/exactness-lines.txt` | `work/Int4Step5Dev/out-fetched/exactness-lines.txt` | `bae7ddf52c1fdf60` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Step5Dev/summary.txt` | `work/Int4Step5Dev/out-fetched/summary.txt` | `c399bec7fe158dc3` | `docs/INT4-PORT.md` |
+| `docs/receipts/Int4Step5Dev/run.log` | `work/Int4Step5Dev/out-fetched/run.log` | `944b177a235f3902` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Edges/stale-diff.txt` | `work/Int4Edges/out/stale-diff.txt` | `e3b0c44298fc1c14` | (index only) |
 | `docs/receipts/Int4Respond/RESULT.md` | `work/Int4Respond/RESULT.md` | `d4ffde40926e8db1` | `docs/INT4-PORT.md` |
 | `docs/receipts/Int4Window/QUALITY-DEFECT.md` | `work/Int4Window/QUALITY-DEFECT.md` | `4479df43f2cf5d1b` | `README.md`, `docs/INT4-PORT.md` |

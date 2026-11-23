@@ -17,7 +17,7 @@ A green table for one step is evidence INSIDE that step, never the port. The ste
 | 2 | block-FP8 projections, upstream draft #4449 | OPEN | parent orphaned by #3523's rebuild to `37d99a8a`; the five commits re-apply with one fixtures conflict, re-cut in progress |
 | 3 | core-gptq-reader, upstream #3611 | OPEN until merged | PR opened and reviewed |
 | 4 | the int4 W4A16 kernel, upstream #4183 | DONE pending their review | head `984556bf` on `7bd7081e0`; host table PASS; device `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 2 controls: 2 red as planted, 0 missed`; gate 3 bit-equal on the bf16, fp32 and gate/up prompt forms (`docs/receipts/Int4Device/RESULT.md`); the full registry run stopped part way (2,452 PASS lines, no real kernel failure) and its trailing suites are unrun, see "PR #4183, state"; the reply waits on the owner's post |
-| 5 | admission and loading as stored | OPEN | head `987de0084` with its chain orphaned by the same rebuild; device receipt and the float64 fidelity reference unrun |
+| 5 | admission and loading as stored | OPEN, admission measured | image `int4s5` booted at 8 x 131072 with bf16 KV (it refuses fp8), the int4 contract printed 8 kernels with 2 controls red as planted inside that boot, and five exactness cells read EQ at 64 and 20 ids; the arm ran drafts off, so drafter-versus-plain at this shape is not measured (`docs/receipts/Int4Step5Dev/RESULT.md`) |
 | 6 | as-stored MTP | HOLD | needs a new design, not a port |
 | promotion | production serving this stack | OPEN | production still runs its own engine; the int4 plus KV-tier image is not promoted |
 
