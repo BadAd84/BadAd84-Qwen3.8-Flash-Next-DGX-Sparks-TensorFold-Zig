@@ -19,6 +19,11 @@ Run it on the box, beside the serve, after any production restart or restore:
   python scripts/qwen38/zig/target/env/check-prod-env.py --container qwen38-flash-next-tf
   python scripts/qwen38/zig/target/env/check-prod-env.py --inspect /tmp/prod-inspect.json
 
+**The container name does not identify production.** Every GPU window serves under the same name
+(`qwen38-flash-next-tf`), so a run during a window reads the window's environment. The gate therefore refuses
+(input 3) unless the image it reads is the pinned production image; pass `--expect-image` to change the pin, or
+`--inspect-image` with a saved environment array.
+
 `--inspect FILE` takes a saved `docker inspect <container>` (the JSON array of objects) or the output of
 `docker inspect <container> --format '{{json .Config.Env}}'` (a JSON array of `NAME=value` strings), so the
 gate can be dry-run without the box. Exit 0 when the copy equals the live environment, 1 on any difference,
@@ -65,23 +70,28 @@ def prod_settings(path):
 
 
 def container_env(args):
+    image = None
     if args.inspect:
         data = json.loads(Path(args.inspect).read_text(encoding="utf-8"))
     else:
-        cmd = ["docker", "inspect", args.container, "--format", "{{json .Config.Env}}"]
+        cmd = ["docker", "inspect", args.container]
         try:
             data = json.loads(subprocess.run(cmd, check=True, capture_output=True, text=True).stdout)
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             raise SystemExit(f"check-prod-env: cannot read {args.container}'s environment: {e}")
     if isinstance(data, dict):
+        image = data.get("Config", {}).get("Image")
         data = data.get("Config", {}).get("Env", [])
     elif isinstance(data, list) and data and isinstance(data[0], dict):
+        image = data[0].get("Config", {}).get("Image")
         data = data[0].get("Config", {}).get("Env", [])
+    elif args.inspect_image:
+        image = args.inspect_image
     env = {}
     for item in data:
         name, _, value = item.partition("=")
         env[name] = value
-    return env
+    return env, image
 
 
 def main():
@@ -91,6 +101,10 @@ def main():
     ap.add_argument("--inspect", help="a saved docker inspect JSON, or the --format '{{json .Config.Env}}' array")
     ap.add_argument("--prefix", default="^(TENSORFOLD|TF_)", help="the names the launcher passes and the engine reads")
     ap.add_argument("--skip", default="TENSORFOLD_API_KEY", help="comma list of names never compared")
+    ap.add_argument("--expect-image", default="tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7",
+                    help="the pinned production image; a different one means a window serves under this name")
+    ap.add_argument("--inspect-image", help="the image the saved --inspect environment came from")
+    ap.add_argument("--allow-any-image", action="store_true", help="skip the production-image guard (dry runs only)")
     args = ap.parse_args()
 
     prod_path = Path(args.prod)
@@ -98,7 +112,18 @@ def main():
         print(f"check-prod-env: {prod_path} does not exist", file=sys.stderr)
         return 2
     values, problems = prod_settings(prod_path)
-    live = container_env(args)
+    live, image = container_env(args)
+    if not args.allow_any_image:
+        if not image:
+            print("check-prod-env: the input names no image, so it cannot show this is PRODUCTION; pass a full "
+                  "`docker inspect` (not the env-only array), `--inspect-image`, or `--allow-any-image`",
+                  file=sys.stderr)
+            return 3
+        if image != args.expect_image:
+            print(f"NOT-PRODUCTION image {image!r} is not {args.expect_image!r}: a GPU window reuses the "
+                  f"production container name for its own serve, so this environment is not production's and "
+                  f"comparing it would report the window's env as drift (2026-11-23 false alarm)", file=sys.stderr)
+            return 3
     prefix = re.compile(args.prefix)
     skip = {s.strip() for s in args.skip.split(",") if s.strip()}
 

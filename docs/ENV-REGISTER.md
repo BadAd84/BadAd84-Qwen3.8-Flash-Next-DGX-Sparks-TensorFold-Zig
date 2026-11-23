@@ -210,6 +210,11 @@ can only list them:
 one 54 (`TENSORFOLD_CUDA_KERNELS` and `TENSORFOLD_VISION_PYTHONPATH` were the two added), with nothing
 comparing either copy to the container. `scripts/qwen38/zig/target/env/check-prod-env.py` closes that:
 
+The check refuses to compare unless the container it reads is on the pinned production image (`rc 3`): every
+GPU window serves under the same container name, so a run during a window would otherwise report the window's
+environment as production drift. Observed 2026-11-23: a run during a dev window read that window's 122-name dev
+environment against production's 54 and looked like 69 problems.
+
 ```
 python scripts/qwen38/zig/target/env/check-prod-env.py
 prod-env: 54 settings in prod.env (54 stated, 0 unset), 54 in the container, 54 equal, 0 problem(s)
