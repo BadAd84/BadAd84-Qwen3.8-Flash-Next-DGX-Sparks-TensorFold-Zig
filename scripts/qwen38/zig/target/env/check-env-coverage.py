@@ -150,6 +150,22 @@ def main() -> int:
     else:
         problems.append(f"{args.register} does not exist")
 
+    # An optional setting whose read default is `null` has no textual default: absent is the only default, and a
+    # value such as 0 is a different statement the engine's own validator may refuse (KV_PAGE_TEST: valid() needs > 0).
+    null_default = set()
+    tree_root = Path(args.table).resolve()
+    for _ in range(3):
+        tree_root = tree_root.parent
+    opt = re.compile(r'environment\.read\(\s*\?[A-Za-z0-9_]+\s*,\s*"([A-Z0-9_]+)"\s*,\s*null\s*\)')
+    for f in (tree_root / "zig" / "src").rglob("*.zig"):
+        for m in opt.finditer(f.read_text(encoding="utf-8", errors="replace")):
+            null_default.add(m.group(1))
+    for name in sorted(set(rows) & null_default):
+        line = carried.get(name, "")
+        if not line.startswith("unset "):
+            problems.append(f"NULL-DEFAULT-AS-VALUE {name}: its reader defaults to null, so state it as `unset {name}`, "
+                            f"not `{line.split('=')[0] or line}`")
+
     silent = sorted(n for n in rows if n not in carried)
     markers = []
     if Path(args.register).exists():
