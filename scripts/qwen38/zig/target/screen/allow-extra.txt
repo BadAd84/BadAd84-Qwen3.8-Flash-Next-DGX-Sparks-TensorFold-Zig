@@ -1,0 +1,19 @@
+# Names the recipe launcher supplies in the container on every boot while the arm file does not state
+# them. Each is a `${NAME:-value}` export in the recipe's own scripts/config.sh, which start.sh's
+# `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_'` loop then passes with -e. They are identical on every boot
+# of the pinned image, so they cannot confound an arm; they are declared here rather than inferred, and
+# check_env.py fails on any name in the container this file and the arm do not cover (EXTRA).
+#
+# Measured from the preflight boot's Config.Env on 2026-11-23T15:44Z (tracked copy:
+# docs/receipts/KnobScreen/preflight-env-2026-11-23.txt, from work/KnobScreen/out.failed-2026-11-23T1546/
+# preflight/c1/env.txt, image sha256:001fc6ff0b5b7edfc3a992d34900122ac179e434ee05cec74f9afe8fdbd00063) and
+# from the recipe at ~/work/lanes/rpr/recipe/scripts/config.sh. dev.env does not state them; that is an
+# env-register gap for the register's own file to close, not something this allowlist may hide for an arm.
+TF_FLASHNEXT_SAMPLE_CAND                                                  # config.sh:116 ${TF_FLASHNEXT_SAMPLE_CAND:-1}
+TF_FLASHNEXT_HOST_DRAW_THREADS                                            # config.sh:118 ${TF_FLASHNEXT_HOST_DRAW_THREADS:-7}
+TF_FLASHNEXT_PROMPT_HC2                                                   # config.sh:130 ${TF_FLASHNEXT_PROMPT_HC2:-1}
+TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS                                      # config.sh:132 ${TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS:-256}
+TF_FLASHNEXT_PRODUCT_STREAMS                                              # config.sh:144 ${TF_FLASHNEXT_PRODUCT_STREAMS:-5}
+TENSORFOLD_MAX_IMAGES                                                     # config.sh:160 ${TENSORFOLD_MAX_IMAGES:-50}
+TENSORFOLD_IMAGE_TOKENS                                                   # config.sh:162 ${TENSORFOLD_IMAGE_TOKENS:-16384}
+TENSORFOLD_VISION_WORKSPACE_MIB                                           # config.sh:164 ${TENSORFOLD_VISION_WORKSPACE_MIB:-2048}

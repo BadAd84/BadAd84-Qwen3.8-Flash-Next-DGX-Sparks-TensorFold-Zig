@@ -1,0 +1,20 @@
+# arm	NAME	value	tier	why
+# Eleven arms. The twelve-candidate cap lost one: TF_QMMF_HALF_BELOW is not an arm, because the recipe
+# launcher builds its -e list from `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_'` (start.sh) and a plain TF_*
+# name has no route into the container. The 2026-11-23T15:44Z preflight read it ABSENT, and a screen of a
+# setting the container never sees would measure the control twice. plan_gate refuses such a row before any
+# boot (PASSAGE-REFUSED), and the coverage gate now fails a stated value the launcher cannot carry
+# (PASSAGE-LOST). The alternative value stays on the worklist until a launcher can carry it.
+# Every value below differs from the committed dev.env's own value; plan_gate refuses a row that does not
+# (PLAN-NO-OP), because that arm would silently measure the control twice.
+01-attn-lanes	TF_FLASHNEXT_ATTN_LANES	1	A1	shared-round attention in one launch a kernel (0 now); 1.2.6 measured 0 to 2 percent alone and 3.1 stacked, and this stack has it off
+02-decode-graph	TF_FLASHNEXT_DECODE_GRAPH	1	A1	one bounded decode round as a CUDA graph (0 now); legal at TP=1 because the dense-split refusal needs applies(), false at world != 2
+03-window-graph	TF_FLASHNEXT_WINDOW_GRAPH	0	A1	drafted windows and head pieces eager instead of replayed graphs (1 now); capture cost against replay saving is unmeasured
+05-batch-draws	TF_FLASHNEXT_BATCH_DRAWS	0	A1	per-stream row draws instead of batched (1 now, launcher value, never A/B on this stack)
+06-shared-side	TF_FLASHNEXT_SHARED_SIDE	0	A1	shared expert inline after the routed experts instead of on its own stream (1 now)
+07-sampled-heads	TF_FLASHNEXT_SAMPLED_HEADS	0	A1	sampled streams drafted separately instead of in the batched head (1 now); judged on the sampled cell, which is why the window carries one
+08-keep-late	TF_FLASHNEXT_KEEP_LATE	0	A1	pending DeltaNet rows re-run instead of kept in a log (1 now, the served value); one GPU only, so a decode effect at one stream
+09-prompt-bf16	TF_FLASHNEXT_PROMPT_BF16	0	A2	the other prompt path instead of BF16 prompt tiles (1 now); a cold prompt cell
+10-readout-rows	TF_FLASHNEXT_READOUT_ROWS	128	A2	read-out fused tiles from 128 rows instead of 64 (a threshold, read once at load); a cold prompt cell
+11-fact-rows	TF_FLASHNEXT_FACT_ROWS	128	A2	NVFP4 prompt tiles from 128 rows instead of 64 (a threshold, read once at load); a cold prompt cell
+12-warm-ahead	TF_FLASHNEXT_WARM_AHEAD	0	A2	PLE warm-ahead hints off instead of on (1 now, the served value); a cold prompt cell

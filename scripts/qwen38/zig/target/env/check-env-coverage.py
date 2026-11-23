@@ -21,9 +21,11 @@ value and the setting must be stated with the one that realises the intended def
 such a name as `# image-baked NAME=<value>: <evidence>`, and IMAGE-BAKED fails if it is written `unset`.
 
 `--passes` takes the recipe launcher's own name filter (it passes `-e NAME=value` only for names the
-filter matches). A value whose name it cannot carry never reaches the engine, so one above the defaults
-marker (`--measured-before`, a measured lever) is PASSAGE-LOST and fails; one below it is reported as an
-advisory, because a stated default the launcher cannot carry is inert but harmless.
+filter matches). A value whose NAME it cannot carry never reaches the engine, so it is PASSAGE-LOST and
+fails wherever it sits in the file: a stated default the launcher cannot carry is not inert, because the
+env of record then claims a setting the engine runs its own default for. `--measured-before` names the line
+that starts the defaults section so the message can say whether the lost value was a measured lever or a
+stated default; it never downgrades the failure.
 
 A `# default-ok|debt|unreachable NAME:` line in the register is an ANNOTATION on a value that is set,
 never a substitute for setting it (VERDICT-ONLY fails). A `# missing NAME=` worklist line is temporary:
@@ -214,18 +216,14 @@ def main() -> int:
         problems.append(f"VERDICT-ONLY {name}: a note in the register is not a setting; write the value in the env")
     for name in markers:
         problems.append(f"WORKLIST {name}: the register still lists it as missing; move it into the env")
-    passage = []
     if args.passes:
         passes_re = re.compile(args.passes)
         for name in sorted(n for n in carried if n not in absent and not passes_re.search(n)):
             i = at.get(name, 0)
-            if marker is None or i < marker:
-                problems.append(f"PASSAGE-LOST {name}: the launcher cannot carry it into the container, so the value "
-                                f"here never reaches the engine")
-            else:
-                passage.append(name)
-        if passage:
-            print(f"stated defaults the launcher cannot carry ({len(passage)}): " + ", ".join(passage))
+            where = "a measured lever" if marker is not None and i < marker else "a stated default"
+            problems.append(f"PASSAGE-LOST {name}: the launcher cannot carry it into the container, so the value "
+                            f"here ({where}) never reaches the engine; state it through a route the container "
+                            f"reads, or record that route in the register")
     served_unknown = sorted(n for n in carried if SERVE_NAMES.match(n) and n not in rows)
     if served_unknown and args.strict_carried:
         for name in served_unknown:
