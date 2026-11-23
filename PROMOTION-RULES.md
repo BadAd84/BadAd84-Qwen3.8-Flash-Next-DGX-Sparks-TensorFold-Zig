@@ -76,6 +76,20 @@ The mechanics, learned the hard way:
 4. **Re-gate on the new base**: the coverage gate (the row must still exist, and now it exists in upstream's table), the
    launcher test if the switch touched the launcher, and the five-level cells on the base that carries upstream's code.
 
+## The dev engine is the union of what won
+
+- **One tree, every beneficial package.** The dev engine applies all of them together (`scripts/dev-packages.list` in
+  the GLM repo is the shape), not one per branch. Five beneficial patches in five places test nothing about their
+  combination, and the combination is what ships.
+- **A package outside the union carries the verdict that keeps it out**: a trade with its cells, a rejection, a
+  supersession, or "unmeasured". `check-dev-packages.py` fails on a package that is in neither the union nor the
+  exclusion list, on a listed package with no directory, and on an exclusion that names no verdict.
+- **A win moves into the union in the commit that carries its cells**, and its switches go into `dev.env`'s candidates
+  section, so the dev arm runs them all at once. A patch and its knob travel together: a package in the union whose
+  switch sits at the engine default is a lever that is present and off.
+- **Promotion to prod is per lever, from the dev union.** The union is the proving ground; `prod.env` takes a value once
+  its cells exist, and the package stays in the union so later levers are still measured beside it.
+
 ## Settings that no longer exist in the engine
 
 Production's env and launcher outlive any one tree. When the engine moves, a row can be deleted from its table and a flag
