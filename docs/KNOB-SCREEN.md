@@ -9,6 +9,17 @@ Status at 2026-11-23T12:02Z: the window is queued on spark6's GPU lock behind In
 time) and EnvBoot (second in the queue), gated on EnvBoot's fast r5 prompt-following marker; no arm has
 booted. This line is replaced by the verdicts below when the window runs. A screen is never a verdict: a
 PROMOTE only earns the five-level A/B later, and **nothing here is written into `dev.env`**.
+Status as of the last box reading, 2026-11-23T12:29:36Z: **armed and queued, not run.** The box rebooted at 12:15:31Z and killed all
+three windows (EnvBoot's, Int4Device's, this lane's). The queue re-formed as EnvBoot's fast half,
+Int4Device's contract window, this window, then EnvBoot's long half, and Main added a second gate: this
+window starts only when `~/work/EnvBoot/FAST-VERDICT` has `CLEAN` on its first line **and**
+`~/work/KnobScreen/GO` exists (Main writes GO after the int4 device receipt lands). A detached starter,
+`/home/adam/work/KnobScreen/starter.sh`, waits for both **without holding the lock**, and starts the C-A-C
+window under `flock` the moment both are present; a `DEFECT` line writes `out/GATE-STOP` and exits without
+touching production or the lock. At the last reading the lock was held by Int4Device's requeued build and
+neither gate existed, so **no arm has booted and there are no verdicts**. EnvBoot has separately reported
+r5 prompt following clean on the complete 1,664-body rows (echo 1/500 on both arms, GSM8K 96.8 percent,
+r5 FP4 byte-identical to the 2026-11-19 build), which is the evidence its marker will carry.
 
 ## Why a screen
 
