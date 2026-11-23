@@ -1,0 +1,2 @@
+SUMMARY carried 74 equal, 0 differ, 0 absent-in-namespace; unset 2 ok, 0 violated; inert 26 not forwardable; table 95: match 64, mismatch 0, blank kept 4 filled 0, absent-default 2, image-default 0, violated 0, not-carried 25, unstated 0 (launcher-set 0, engine-default 0), beyond-dev-env 48; levers 8/8 ok
+ENV-PROOF OK

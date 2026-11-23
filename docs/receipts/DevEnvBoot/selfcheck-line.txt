@@ -1,0 +1,1 @@
+info: flashnext: window self-check: 1176 of 1176 rows byte-equal to their one-token steps (widths 1-48)
