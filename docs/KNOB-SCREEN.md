@@ -1,8 +1,9 @@
 # The knob screen: the rule, the twelve arms, their verdicts
 
-Current state of the screen lane. The rule and the window machinery live in `work/KnobScreen/`
-(`RULE.md`, `driver.sh`, `analyze.py`); the raw boot records, the clients' own outputs and `scores.tsv`
-live under `work/KnobScreen/out/` when the window has run. This page is the durable record: what was
+Current state of the screen lane. The rule and the window machinery are tracked as receipts at
+`docs/receipts/KnobScreen/` (`RULE.md`, `driver.sh`, `sens.py`, `starter.sh`); the live copies and the raw
+boot records live on the box under `work/KnobScreen/`, and its clients' outputs and `scores.tsv` appear
+under `work/KnobScreen/out/` when the window has run. This page is the durable record: what was
 screened, by what rule, what each arm returned, and what stage two inherits.
 
 Status as of the last box reading, 2026-11-23T12:29:36Z: **armed and queued, not run.** The box rebooted at 12:15:31Z and killed all
@@ -25,7 +26,7 @@ here is written into `dev.env`**.
 
 ## Why a screen
 
-`docs/KNOB-COVERAGE.md` classifies all 78 settings the served tree reads and lists 20 UNMEASURED ones
+`docs/KNOB-COVERAGE.md` classifies all 95 settings the served tree reads and lists 20 UNMEASURED ones
 whose read site can move decode or prompt speed. The repo's five-level interleaved ABBA gives one
 setting a real verdict, but it costs five boots a level and is too slow to spend on twenty settings that
 will mostly be level.
@@ -36,7 +37,7 @@ capped at 12 candidates or 8 hours. The remaining eight stay on the worklist, un
 
 ## The rule, in one page
 
-The full rule is `work/KnobScreen/RULE.md`, written before the first row. In short:
+The full rule is `docs/receipts/KnobScreen/RULE.md`, written before the first row. In short:
 
 - **Subject.** The r5 FP4 dev image, pinned by id
   (`tensorfold-qwen38:qr-a-r5-1ece6e6db`, `sha256:001fc6ff...`), booted through the recipe launcher with a
@@ -54,7 +55,7 @@ The full rule is `work/KnobScreen/RULE.md`, written before the first row. In sho
   reaches `SAMPLED_HEADS`); cold TTFT at 2k and 32k (thinking off, idle, 3 reps).
 - **Spread and margin.** Per cell, `s = |c1 - c2| / ((c1 + c2)/2)`, measured in the same window; every
   test uses the margin `m = max(s, 0.01)`. The 1 percent floor is the resolvability floor, added before
-  any row after checking the rule against `work/ProseDraft/RESULT.md`'s own numbers: at that receipt's 0.1
+  any row after checking the rule against `docs/receipts/ProseDraft/RESULT.md`'s own numbers: at that receipt's 0.1
   percent repeat spread a rule with no floor kills an arm it records as level at minus 0.24 percent.
 - **Verdicts, in precedence.** FINDING (digest, prompt tokens, boot, health, foreign traffic, or greedy
   text changed) - no verdict. UNSTABLE (any raw spread above 25 percent) - INCONCLUSIVE. KILL (worse than
@@ -83,16 +84,16 @@ leads, then the first four A2 prompt-pass leads.
 | 11 | `TF_FLASHNEXT_FACT_ROWS` | 64 to 128 | A2 | NVFP4 prompt tiles from 128 rows instead of 64 |
 | 12 | `TF_FLASHNEXT_WARM_AHEAD` | 0 to 1 | A2 | PLE warm-ahead hints on |
 
-**The base is dev.env's 78 settings, and the r5 tree's own table has 95 rows in scope.** The 17 it also
-carries are this series' own switches (`GATHER_READ`, `GATHER_DIRECT`, `GATHER_EARLY`, `GATHER_THREADS`,
-`GATHER_LOG`, `GATHER_LOCK_SCALES`, `GATHER_CACHE_MIB`, `PROMPT_GEMM2`, `PROMPT_MX128`, `PROMPT_SYNC`,
-`FUSED_SPLIT`, `READOUT_FUSE`, `HEAD_PIECE`, `PREFILL_TAIL`, `ROUND_MS`, `DRAFT_ROW_MS`, `DRAFT_AHEAD`),
-whose verdicts live in the patch READMEs and the do-not-chase register rather than in `dev.env`. They are
-equal on every arm of this window because no arm sets them, which is what makes the C-A-C deltas
-attributable, but the screened base is not the launcher's full environment; stage two keeps that caveat.
-(Measured: `work/QRerun/trees/fp4/src/zig/src/platform/environment.zig` 95 rows in scope against
-`dev.env`'s 78; `work/Int4Step5/tree` carries exactly 78, which is the set `docs/KNOB-COVERAGE.md`
-classified.)
+**The base is dev.env's 95 settings: every row of the served r5 tree's table, not the series tree's 78.** The 19
+rows the r5 patches add (`GATHER_READ`, `GATHER_DIRECT`, `GATHER_EARLY`, `GATHER_THREADS`, `GATHER_LOG`,
+`GATHER_LOCK_SCALES`, `GATHER_CACHE_MIB`, `PROMPT_GEMM2`, `PROMPT_MX128`, `PROMPT_SYNC`, `FUSED_SPLIT`,
+`READOUT_FUSE`, `HEAD_PIECE`, `PREFILL_TAIL`, `ROUND_MS`, `DRAFT_ROW_MS`, `DRAFT_AHEAD`, `PROMPT_SHARED_DIRECT`,
+`WINDOW_CHECK`) are stated in `dev.env` since `c70f8d13`, each with the served tree's read site and value, and
+their verdicts are in `docs/KNOB-COVERAGE.md`'s 19-row section and the patch READMEs. No arm of this window sets
+any of them, so they are equal on every arm, which is what makes the C-A-C deltas attributable.
+(Measured: `work/QRerun/trees/fp4/src/zig/src/platform/environment.zig` carries 95 rows in scope and the
+gate reads `coverage: 95 settings in scope, set 95`; the series tree `work/Int4Step5/tree` carries 78 and is not
+the table this serve validates.)
 
 What the cap left out, in rank order: `TF_FLASHNEXT_TABLE_WARM`, `TENSORFOLD_CUDA_KERNELS` (A3);
 `TENSORFOLD_PREFIX_WAIT_MS`, `TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS`, `TF_PROMPT_INTERMEDIATE`,
@@ -103,7 +104,7 @@ conversations), which is why the cap costs least there.
 
 ## The instrument
 
-- `work/KnobScreen/driver.sh` takes the GPU lock with `flock` and refuses to screen until EnvBoot's r5
+- `docs/receipts/KnobScreen/driver.sh` takes the GPU lock with `flock` and refuses to screen until EnvBoot's r5
   prompt-following verdict is on disk as `CLEAN` (the gate). It stops production only after the lock,
   runs a **preflight boot with cells** before any arm, then the C-A-C boots, then restores production and
   checks `/health` 200 against the pinned production image id (`PROD-IMAGE-OK`). Budget starts at lock
@@ -122,8 +123,8 @@ conversations), which is why the cap costs least there.
   environment with the arm file: a missing name, a different value, or a presence-test name that is set,
   refuses the boot before its cells run and retries once on a fresh boot. That is what stops a screen from
   scoring a control twice.
-- **The rule was checked against the repo's own verdicts before the first row.** `work/KnobScreen/sens.py`
-  feeds the rule the shared-drafts receipt's measured 4-stream numbers (`work/ProseDraft/RESULT.md:68-84`)
+- **The rule was checked against the repo's own verdicts before the first row.** `docs/receipts/KnobScreen/sens.py`
+  feeds the rule the shared-drafts receipt's measured 4-stream numbers (`docs/receipts/ProseDraft/RESULT.md:68-84`)
   in the writers' shape. With the 1 percent resolvability floor, the one arm the repo promoted (S0, plus
   10.2 percent) comes out PROMOTE and the arms it recorded level (G8 at minus 0.2 percent, C20 at plus
   0.1 percent) come out INCONCLUSIVE. Without the floor, G8 was killed at minus 0.24 percent against a 0.1
@@ -135,5 +136,6 @@ conversations), which is why the cap costs least there.
 
 ## The window
 
-See `work/KnobScreen/RESULT.md` for the per-candidate table, the spreads and the end state, and
-`work/KnobScreen/out/scores.tsv` for the machine-readable rows.
+When the window has run, `work/KnobScreen/RESULT.md` on the box holds the per-candidate table, the spreads
+and the end state, and `work/KnobScreen/out/scores.tsv` the machine-readable rows; neither exists yet, so
+neither is tracked in `docs/receipts/`.

@@ -1,0 +1,9 @@
+== a valueless export, name not inherited ==
+TF_ROCE_GID_INDEX=<absent>
+== a valueless export, name inherited from the parent ==
+TF_ROCE_GID_INDEX=3
+== the unset form, name inherited from the parent ==
+TF_ROCE_GID_INDEX=<absent>
+== the real dev.env under a hostile parent ==
+TF_ROCE_GID_INDEX=<absent> TENSORFOLD_CUDA_KERNELS=native TF_FLASHNEXT_ROUND_MS=<>
+exported rows: 104

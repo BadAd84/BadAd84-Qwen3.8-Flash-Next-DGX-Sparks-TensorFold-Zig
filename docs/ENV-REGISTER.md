@@ -5,7 +5,7 @@ decision that appears in no env file, and leaving it unset silently inherits its
 upstream added `shared_stop = 0.6` on 2026-11-10, which limits greedy drafting beside another open
 stream. Production's engine predates it, so production drafted 3.03 tokens a round while ours drafted
 1.92, and the difference read as an engine gap. Turning the gate off is worth 7 to 11 percent at two
-to eight streams and closed 54 percent of the prose gap (`work/ProseDraft/RESULT.md`). Neither
+to eight streams and closed 54 percent of the four-stream prose gap (`docs/receipts/ProseDraft/RESULT.md`). Neither
 `dev.env` nor `prod.env` named the setting, so no name-level sweep could find it.
 
 ## The rule: presence is the gate, and every value is stated
@@ -90,10 +90,10 @@ A presence-tested setting has exactly two honest forms, and `export NAME` with n
 1. **`unset NAME`** is real absence. `dev.env` is sourced into the launcher's process (`set -a; .
    dev.env`, the knob screen's own boot), so the name is gone from what the launcher and the recipe
    read, and it also clears a value the parent shell had: measured, a valueless `export` left an
-   inherited `TF_ROCE_GID_INDEX=3` in place while `unset` removed it (`work/EnvServed/absence-probe.txt`).
+   inherited `TF_ROCE_GID_INDEX=3` in place while `unset` removed it (`docs/receipts/EnvServed/absence-probe.txt`).
    It is honest only where nothing else supplies the name. That is `TF_ROCE_GID_INDEX`: arm A's
    container env, the r5 FP4 image through the dev launcher, carries 30 serve names and not this one
-   (`work/QRerun/box/out/QA/env.txt`). If an image or a launcher ever supplies it, the register records
+   (`docs/receipts/QRerun/box/out/QA/env.txt`). If an image or a launcher ever supplies it, the register records
    that with `# image-baked` and the setting is stated with a value.
 2. **`export NAME=<value>`** where the image bakes the name. The loop passes `-e NAME=value`, and `-e`
    wins over the image's `ENV`; a name the launcher never exports generates no `-e` at all, so the
@@ -114,11 +114,11 @@ tensorfold: --kv-cache fp8 runs on Flash Next's own glue on one rank: serve it w
   TENSORFOLD_CUDA_KERNELS, or without --kv-cache fp8
 ```
 
-(`work/EnvBoot/RESULT.md` section 2b.) The line read as "default" while the boot ran on a baked value,
+(`docs/receipts/EnvBoot/RESULT.md` section 2b.) The line read as "default" while the boot ran on a baked value,
 which is exactly the silent inheritance the register exists to prevent. The other half of the probe is
 the receipts' own container environments: a boot that passes `native` carries
 `TENSORFOLD_CUDA_KERNELS=native` in `docker inspect` (`docs/knob-receipt-2026-11-20/receipt/w1/boot.md`,
-first line of `work/KvTierDedup/ev/out/new/seed/env.txt`), so an explicit value reaches the container
+first line of `docs/receipts/KvTierDedup/ev/out/new/seed/env.txt`), so an explicit value reaches the container
 and overrides the image's.
 
 `dev.env` therefore states `TENSORFOLD_CUDA_KERNELS=native` (in the enabler block beside the page
@@ -141,11 +141,11 @@ Current state, 2026-11-23:
   TP=1. `dev.env` now states it, so the refusal is gone by construction. The shape's memory plan is
   the one the tier window measured at exactly this shape: the first stream's caches in the model's
   4.99 GiB, seven more taking 278 pages of 4,096 rows (20.02 GiB) inside the 31.0 GiB the budget
-  leaves after the 10 GiB reserve (`work/KvTierShip/RESULT.md` section 1, the `levels/off` control,
+  leaves after the 10 GiB reserve (`docs/receipts/KvTierShip/RESULT.md` section 1, the `levels/off` control,
   whose plan line ends `own glue kernels`, that is `native`).
 - **What differed in the tier windows**, which booted this shape for 30 cells: nothing about their
   images. Every cell's container env carried `TENSORFOLD_CUDA_KERNELS=native`, passed explicitly, so
-  they were never on a captured set (`work/KvTierDedup/ev/out/new/seed/env.txt` line 1). The shape
+  they were never on a captured set (`docs/receipts/KvTierDedup/ev/out/new/seed/env.txt` line 1). The shape
   needs no image without the baked variable and no engine change; it needs the setting stated.
 - **The cost of `native`**: the installed captured set is never loaded, so whatever speed it could give
   is unmeasured on this stack (A3 in `docs/KNOB-COVERAGE.md`). It is stated as `debt` in the register.
@@ -200,8 +200,28 @@ can only list them:
 | `TENSORFOLD_NO_UPDATE_CHECK` | none: the tree's benchmark server sets it for its child (`zig/src/server/benchmark_server.zig:77`), so it is a launcher and production-engine name |
 | `TENSORFOLD_PARALLEL` | none: no occurrence anywhere in `zig/src` |
 | `TENSORFOLD_VISION_PYTHONPATH` | none: a vision launcher convention, not an engine setting |
-| `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW` | none: production-engine names, carried for parity (`work/ProseDraft/POLICY.md`) |
+| `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW` | none: production-engine names, carried for parity (`docs/receipts/ProseDraft/POLICY.md`) |
 | `TF_HY4_MEM_FLOOR_GIB` | none: the `hy4_flash` family is not in this tree |
+
+## The production copy cannot drift
+
+`prod.env` is a hand copy of the production launcher's environment, taken from `docker inspect` of
+`qwen38-flash-next-tf`, and a hand copy drifts: the 2026-11-20 capture carried 52 settings and the 2026-11-23
+one 54 (`TENSORFOLD_CUDA_KERNELS` and `TENSORFOLD_VISION_PYTHONPATH` were the two added), with nothing
+comparing either copy to the container. `scripts/qwen38/zig/target/env/check-prod-env.py` closes that:
+
+```
+python scripts/qwen38/zig/target/env/check-prod-env.py
+prod-env: 54 settings in prod.env (54 stated, 0 unset), 54 in the container, 54 equal, 0 problem(s)
+```
+
+It reads the container's own `Config.Env` (`docker inspect qwen38-flash-next-tf --format
+'{{json .Config.Env}}'`, or a saved copy through `--inspect`), compares every `TF_*`/`TENSORFOLD_*` name in
+both directions, and fails on a changed value, a name the copy states and the container lacks, a name the
+container carries and the copy lacks, a duplicate line, and a bare `export`; `unset NAME` asserts absence.
+`TENSORFOLD_API_KEY` is never compared. The dry run plants one changed value, one missing name and one extra
+name and gets three findings (`DIFF`, `MISSING`, `EXTRA`, rc 1), while a copy generated from `prod.env`
+itself reads 54 equal (rc 0).
 
 ## At every re-seat
 
@@ -227,6 +247,11 @@ can only list them:
    the name, the value that realises the default.
 5. `python scripts/qwen38/zig/target/env/check-dev-env.py` and the coverage gate, both green, with the
    final lines quoted in the change that lands them.
+6. Run `python scripts/qwen38/zig/target/env/check-prod-env.py` in every window's restore step, after
+   production is back: it fails on any difference between `prod.env` and the live container, so a restore
+   that leaves a stale copy cannot pass as done. The box must be up and the container named
+   `qwen38-flash-next-tf`, or pass `--container`; `--inspect` takes a saved `docker inspect` when the gate
+   runs off the box.
 
 The parser reads each row field by field rather than by one fixed pattern. The first version matched the
 whole row shape and therefore saw 31 of 82 `dsv41` rows and 65 of 261 rows at main: any row carrying an

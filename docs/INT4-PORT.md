@@ -2,8 +2,8 @@
 
 **Re-seated 2026-11-20 onto upstream main `1ece6e6db`** as `patches/main-1ece6e6db-r5-int4/` (on r5's 0001 to 0020) and
 served as `tensorfold-qwen38:qr-b-r5int4-1ece6e6d` at production's shape (8 x 262,144, fp8 KV, production's 54-name
-environment plus `TF_FLASHNEXT_KV_PAGES=4096`); the r5 cells are `work/DevVsProd/RESULT.md` and the exactness run is
-`work/QInt4/RESULT.md`. Two hunks needed a decision - the BF16-expert recode stays in front of upstream's shared
+environment plus `TF_FLASHNEXT_KV_PAGES=4096`); the r5 cells are `docs/receipts/DevVsProd/RESULT.md` and the exactness run is
+`docs/receipts/QInt4/RESULT.md`. Two hunks needed a decision - the BF16-expert recode stays in front of upstream's shared
 block-FP8 reader (#2892, `1bc80c5f78`) and the scratch estimate keeps upstream's extra slot row - both recorded in that
 package's `RECORD.md`. The phases below report the v1.2.7 package's numbers (image `int4d`), which is where each
 mechanism was found.
@@ -169,7 +169,7 @@ that stays (in logarithms, so the parts add; production from this evening's wind
 So on code a little over half of the old gap was the checkpoint (production's top-5 routing reads less than half our
 expert bytes a round, and its int4 head about a quarter of our BF16 head's), and on prose the larger share was the
 engine in this window; the 2026-11-23 window then placed the prose gap on the hard-coded shared per-draft gate
-(`work/ProseDraft/RESULT.md`), and `work/SpeedAudit/CORRECTIONS.md` supersedes the one-stream cell of this
+(`docs/receipts/ProseDraft/RESULT.md`), and `docs/receipts/SpeedAudit/CORRECTIONS.md` supersedes the one-stream cell of this
 decomposition. What remains on the same checkpoint is a 13 to 24% gap that belongs to our engine.
 
 ### Where the remaining gap goes at one stream
@@ -301,16 +301,16 @@ cells): all of it at one stream on prose and 83% on code; 63% / 56% at two strea
 six, 28% / 47% at eight. What remains is 0% / -3% at one stream, -9% / -6% at two, -8% / -9% at four, -12% / -9% at
 six and -18% / -11% at eight. What remains at eight streams on prose is drafting volume left in the drafter, not the
 round: at four streams the round costs 51.1 ms against production's 51.5 while tokens a round read 3.01 against 3.28,
-with acceptance 0.718 against 0.750 (`work/ProseDraft/RESULT.md`).
+with acceptance 0.718 against 0.750 (`docs/receipts/ProseDraft/RESULT.md`).
 
 ## Quality: the r2 defect does not reproduce on r5
 
 The 2026-11-22 window on the r2 tree scored GSM8K at 8.8 percent (FP4) and 28.6 percent (INT4) because the build
-answered a few-shot example instead of the question (`work/Int4Window/QUALITY-DEFECT.md`): 166 of 500 GSM8K replies
+answered a few-shot example instead of the question (`docs/receipts/Int4Window/QUALITY-DEFECT.md`): 166 of 500 GSM8K replies
 on FP4 and 145 of 500 on INT4 named the prompt's jelly-beans example. The 0008 shared-direct write-back was the
 suspect, and its r4 fix (the mode-3 `hc_writeback_norm`, gated byte for byte against mode 2) is in the r5 series.
 
-**Measured 2026-11-23 on both r5 arms, all 1,664 items, the same harness and item set** (`work/EnvBoot/RESULT.md`):
+**Measured 2026-11-23 on both r5 arms, all 1,664 items, the same harness and item set** (`docs/receipts/EnvBoot/RESULT.md`):
 
 | arm | echo | GSM8K | MMLU-Pro | HumanEval | MMLU recitation |
 |---|---|---|---|---|---|
@@ -328,7 +328,7 @@ r5-int4: prompt following matches the pre-defect baseline, and the exactness tes
 
 Read 2026-11-23 (`gh pr view 4183`): OPEN against `main`, head `5aced6d3e8ea1e5d704958653c4254a9b48f30ff`, 20 files,
 +2,018 / -3, four commits. The maintainer's four asks of 2026-11-21 are answered on that work
-(`work/Int4Respond/RESULT.md`):
+(`docs/receipts/Int4Respond/RESULT.md`):
 
 - the rebase onto `7bd7081e0`, with both conflicts resolved (both control headers kept, the serving manifest's two moved
   rows regenerated) and the two named pin rows regenerated from the merged bytes, the other 167 already main's;

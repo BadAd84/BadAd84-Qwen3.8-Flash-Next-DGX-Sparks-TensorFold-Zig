@@ -57,7 +57,7 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   as retired: the only place a retirement is kept is where it is evidence for a decision still in force (a package
   `RECORD.md` naming the upstream commit that absorbed a patch, so the next re-seat does not re-add it). A
   "current" claim names the tree or commit it is true of; a historical campaign lives in `work/` (gitignored), never
-  in `docs/`. The audit that established this is `work/DocAudit/REPORT.md`.
+  in `docs/`. The audit that established this is `docs/receipts/DocAudit/REPORT.md`.
 - New `.sh` files need `git update-index --chmod=+x`.
 - **A change ships only with replies byte-identical to the image it replaces** (golden 6/6:
   `~/work/qf_harness.py golden`, then `diff`), and its speed from an interleaved HTTP A/B on fixed prompts (3 passes
@@ -277,13 +277,13 @@ otherwise.
   applied there and arms bind to `127.0.0.1` instead. Production restarts take ~2 min;
   the container restarts by itself after a reboot (`unless-stopped`).
 - Nesting heredocs inside `ssh '...'` breaks quoting: write a script, `scp` it, run it (or base64 it).
-- **Type-check a patched tree on the laptop before any box build (found 2026-11-12).** The tree's own
-  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` cross-compiles the real CUDA server (the Flash Next
-  lane backend included) with no nvcc and no GPU, using the local Zig 0.17.0
-  (`C:\Users\Adam\tools\zig-x86_64-windows-0.17.0\zig.exe`, run through `work/zigl.py TREE build ...`): about
-  3.5 minutes cold, about 10 seconds to a first error. A box build is 7.5 minutes and a failed one silently drops its
-  arms from a queued run, so every rung and every new patch is compiled here first. It checks types, not kernels:
-  the `.cu` side still needs the box.
+- **Type-check a patched tree on Paperclip before any box build (found 2026-11-12; moved off the laptop 2026-11-15).**
+  Compiling anything on the laptop or its WSL is banned (the owner's no-laptop-compile rule); host gates run on
+  `paperclip.ots-int.net` under `flock -w 14400 ~/work/host.lock` with `umask 022`. The tree's own
+  `zig build compile-config-server -Dtarget=aarch64-linux-gnu` cross-compiles the real CUDA server (the Flash Next lane
+  backend included) with no nvcc and no GPU, using that host's Zig 0.17.0: about 3.5 minutes cold, about 10 seconds to a
+  first error. A box build is 7.5 minutes and a failed one silently drops its arms from a queued run, so every rung and
+  every new patch is compiled there first. It checks types, not kernels: the `.cu` side still needs the box.
 - **The upstream recipe's `scripts/config.sh` exports lever settings** (`~/work/lanes/rpr/recipe`, MiaAI `20e15e4`):
   `GATHER_READ=pread`, `DRAFT_AHEAD=1`, `GATHER_EARLY=1`, `PREFILL_TAIL=512`, `PROMPT_HC2=1`,
   `PROMPT_SHARED_DIRECT=1`, `HEAD_PIECE=1536`, `PROMPT_GEMM2=1`, `CONFIDENCE=-0.4` and more. A binary that knows a knob

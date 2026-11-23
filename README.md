@@ -13,20 +13,24 @@ The hardware - the Sparks, provisioning, what runs where - is ots-infra's (`ots-
   `production/SPEED-TARGET.md`.
 - **Our arm (`main`):** `patches/main-1ece6e6db-r5` (+ `-r5-int4`, + `-r5-kvtier`) on upstream main `1ece6e6db`, env
   in `scripts/qwen38/zig/target/env/dev.env`; at production's shape it reads 0.79 prose / 0.95 code of production at 8
-  streams (`work/DevVsProd/RESULT.md`), and `TF_FLASHNEXT_SHARED_DRAFTS=0` is promoted (7 to 11 percent at 2 to 8
+  streams (`docs/receipts/DevVsProd/RESULT.md`), and `TF_FLASHNEXT_SHARED_DRAFTS=0` is promoted (7 to 11 percent at 2 to 8
   streams).
-- **Quality, open:** the r2 build answered a few-shot example instead of the question (GSM8K 8.8 percent on FP4 and
-  28.6 on INT4, against 96.8 and 96.4 on 2026-11-19); the 0008 shared-direct write-back is the prime suspect and its r4
-  fix is in, but no r5 or r5-int4 prompt-following run exists yet (`work/Int4Window/QUALITY-DEFECT.md`).
+- **Quality, closed on r5:** the r2 build answered a few-shot example instead of the question (GSM8K 8.8 percent on FP4 and
+  28.6 on INT4); the 0008 shared-direct write-back was the cause and its r4 fix is in. Measured 2026-11-23 on both r5 arms
+  over all 1,664 items: GSM8K 484/500 on each, echo 1/500 on each, MMLU-Pro 75.2 and 75.1, HumanEval 87.2 and 82.3, and r5
+  FP4 byte-identical to the 2026-11-19 build (`docs/INT4-PORT.md`, "Quality: the r2 defect does not reproduce on r5";
+  `docs/receipts/EnvBoot/RESULT.md`; `docs/receipts/Int4Window/QUALITY-DEFECT.md` for the original defect).
 
 ## docs/
 - **`ENV-REGISTER.md`** - the setting rule and its gate: every setting the served tree reads is set in `dev.env`.
 - **`KNOB-COVERAGE.md`** - every setting the served tree reads, one verdict each (measured keep, level, negative,
   no speed effect, capacity, other-family, or unmeasured), the 20-setting worklist ranked, the 20 settings settled by
   reading the code, the never-sweep list, and the boots the worklist implies.
+- **`KNOB-SCREEN.md`** - the knob screen: the control-candidate-control rule, the twelve arms, the instrument, and the
+  window's state.
 - **`OPEN-PR-COVERAGE.md`** - our pull requests, merged and open, the part fix, and each one's state.
 - **`INT4-PORT.md`** - serving production's INT4-AutoRound checkpoint on our engine: the port, its speed cells, PR
-  #4183's state and the open quality defect.
+  #4183's state and the quality window that closed the r2 defect on r5.
 - **`SPEED-TARGET-1.2.6.md`** - the target: the `production` branch's own `SPEED-TARGET.md`, reproduced.
 - **`RECIPE-PATCHES-VS-UPSTREAM.md`** - whether upstream covers the recipe's 17 patches (checked against 1.2.4).
 - **`UPSTREAM-WATCHLIST.md`** - the upstream recipe and engine, sectioned by date.

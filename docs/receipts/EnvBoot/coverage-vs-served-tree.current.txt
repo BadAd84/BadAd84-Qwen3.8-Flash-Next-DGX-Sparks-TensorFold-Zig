@@ -1,0 +1,19 @@
+carried but not in this table (series-added or other-engine settings; confirm each has a reader in the tree you serve): TENSORFOLD_NO_UPDATE_CHECK, TENSORFOLD_PARALLEL, TENSORFOLD_VISION_PYTHONPATH, TF_FLASHNEXT_DEPTH, TF_FLASHNEXT_KV_PAGES, TF_FLASHNEXT_WINDOW, TF_HY4_MEM_FLOOR_GIB
+coverage: 95 settings in scope, set 78, missing 17, annotations 2, worklist markers 0
+MISSING TF_FLASHNEXT_DRAFT_AHEAD (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_DRAFT_ROW_MS (cuda, forms a finite ms of at least 0 (0 prices a shared round's forward by its total rows)): not set in the env
+MISSING TF_FLASHNEXT_FUSED_SPLIT (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_GATHER_CACHE_MIB (cuda, forms a whole nonnegative native-size MiB count of row-cache address space (0 rounds up to two slots)): not set in the env
+MISSING TF_FLASHNEXT_GATHER_DIRECT (cuda, forms 0 or 1 (0 reads the n-gram row cache through the page cache instead of O_DIRECT)): not set in the env
+MISSING TF_FLASHNEXT_GATHER_EARLY (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_GATHER_LOCK_SCALES (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_GATHER_LOG (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_GATHER_READ (cuda, forms pread (the n-gram table's rows through a row cache and parked readers) or 0 (the plain reader)): not set in the env
+MISSING TF_FLASHNEXT_GATHER_THREADS (cuda, forms a whole nonnegative native-size reader count (0 disables read-ahead; capped at 128)): not set in the env
+MISSING TF_FLASHNEXT_HEAD_PIECE (cuda, forms a whole nonnegative native-size row count (0 keeps the decode rounds' piece)): not set in the env
+MISSING TF_FLASHNEXT_PREFILL_TAIL (cuda, forms a whole nonnegative native-size row count (0 keeps the plain last chunk)): not set in the env
+MISSING TF_FLASHNEXT_PROMPT_GEMM2 (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_PROMPT_MX128 (cuda, forms a whole nonnegative native-size column count (default 0: the exact kernels; N or more takes the relaxed prompt tile)): not set in the env
+MISSING TF_FLASHNEXT_PROMPT_SYNC (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_READOUT_FUSE (cuda, forms 0 or 1): not set in the env
+MISSING TF_FLASHNEXT_ROUND_MS (cuda, forms a shared round's forward ms by rows: \): not set in the env
