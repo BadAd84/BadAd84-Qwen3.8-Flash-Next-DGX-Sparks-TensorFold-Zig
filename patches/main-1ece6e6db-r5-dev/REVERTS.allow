@@ -1,0 +1,1 @@
+0034	zig/src/native/cuda_cache_capacity_test.zig	try t.expectEqual(@as(u64, (6 << 30) - 8 * 115_642_368), named8.copied);	0034 corrects the pool package's own named-slots expectation to the TF_KV_SHARE behaviour #2987 pins (copied 0, the rest kept as pages); the production code is untouched

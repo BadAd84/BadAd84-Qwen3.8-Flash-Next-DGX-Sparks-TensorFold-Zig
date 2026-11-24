@@ -51,6 +51,10 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   `main-1ece6e6db-r5-kvtier/` (the NVMe KV tier) on top. `build_patches.sh TAG git://192.168.99.16/up-pr/tf <base-sha>
   <package>`. `patches/1.2.6/` and `patches/1.2.7/` carry the same levers cut against v1.2.6 (`6e9af9302`) and v1.2.7
   (`93a2e93ec`).
+- `patches/main-1ece6e6db-r5-dev/` is the dev engine: the r5 series with every measured candidate appended in one
+  numbered composition (INT4 and pins, the KV tier, the bf16 draft head, the int4 contract suite and its tolerance
+  commits). A new beneficial patch lands by joining it - its numbered patch, its RECORD row and its pins - never as a
+  side package.
 - `archive/tensorfold-levers124/` - RETIRED 2026-11-12: the old engine fork `ots/tensorfold-levers124`, kept whole as
   a git bundle (59 refs: the production zmerge8 engine source `27b6700cb`, the `archive/*` development tags, the
   working clone's branches) with a restore check. This repo is the only home of our Qwen work.

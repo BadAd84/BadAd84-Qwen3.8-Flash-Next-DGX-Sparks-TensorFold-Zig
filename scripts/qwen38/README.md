@@ -10,16 +10,20 @@ restored from its own launcher.
 
 ## Our arm (`main`)
 
-- **Series.** `patches/main-1ece6e6db-r5` (0001 to 0020) on upstream main `1ece6e6db`, with
-  `patches/main-1ece6e6db-r5-int4` (0021, 0022) for production's INT4-AutoRound checkpoint and
-  `patches/main-1ece6e6db-r5-kvtier` (the NVMe KV tier) on top. `patches/main-1ece6e6db-r5-drafthead-bf16` (0026,
-  0027, numbered after the INT4 and KV-tier composition's last patch so no two directories share a number) fixes the
-  series' one serving defect beside them: with `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`
+- **Series.** The dev engine is `patches/main-1ece6e6db-r5-dev`: one directory of 35 patches on upstream main
+  `1ece6e6db`, the r5 core levers (0001 to 0020), the INT4-AutoRound port and its serving pins (0021, 0022), the NVMe
+  KV tier with the pool's cache refusal and the whole-ask budget (0023 to 0026), the bf16 draft-head fix (0027, 0028),
+  the int4 contract suite with the tolerance branch's three commits (0029 to 0032), the merged serving pins (0033),
+  and the two source-test corrections the composed gate forced (0034, 0035).
+  Build: `zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf 1ece6e6db patches/main-1ece6e6db-r5-dev`.
+  `patches/main-1ece6e6db-r5` (the twenty core levers), `patches/main-1ece6e6db-r5-int4`,
+  `patches/main-1ece6e6db-r5-kvtier`, `patches/main-1ece6e6db-r5-kvtier-pool`,
+  `patches/main-1ece6e6db-r5-int4-kvtier` and `patches/main-1ece6e6db-r5-drafthead-bf16` stay as provenance and as
+  alternatives an arm can choose; they are not the dev stack, and a new beneficial patch lands by joining the
+  composition. The draft-head pair fixes the series' one serving defect: with `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`
   set, `TF_FLASHNEXT_DRAFT_HEAD=bf16` failed every request with `error (FormatMismatch)` because the drafter's recode
-  window covered the draft head's rows. Build:
-  `zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf 1ece6e6db <package>`. Stock for a series A/B is
-  upstream main at the base built with no patches; the last full A/B of the series is
-  `patches/main-964174ea05/README.md`.
+  window covered the draft head's rows. Stock for a series A/B is upstream main at the base built with no patches;
+  the last full A/B of the series is `patches/main-964174ea05/README.md`.
 - **At production's shape** (8 x 262,144, fp8 KV, production's 54 names plus the page pool) the INT4 arm reads 0.79 of
   production on prose and 0.95 on code at eight streams, level on code at one, two and four; cold prefill is level at 1k
   and 19 to 22 percent behind at 8k and 32k (`docs/receipts/DevVsProd/RESULT.md`).
