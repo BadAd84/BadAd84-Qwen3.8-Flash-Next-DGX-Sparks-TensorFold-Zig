@@ -102,6 +102,12 @@ can be renamed or dropped, and both fail quietly:
   from the help text - `--kv-cache` is accepted by the engine we run today and does not appear in its help. The oracle is
   the parser: run the engine with the flag and a deliberately incomplete command line. `unrecognized arguments: --flag`
   means it is gone; `a required argument is missing` means the flag was accepted.
+- **The served binary is the oracle for the engine you actually run.** The settings table is compiled in, so
+  `strings <binary> | grep -E '^(TF|TENSORFOLD)_[A-Z0-9_]+$'` lists every setting the image knows, and comparing an env
+  file against it catches the silently ignored row without waiting for a tree to apply. Library variables (`NCCL_*`,
+  `HF_*`) are excluded: the engine never reads them and the container must carry them. A setting our env sets and the
+  binary lacks is either a package the image does not carry or a row the engine dropped; both are reconciled before a
+  promotion, and the finding is recorded either way.
 - **Reconciliation runs in this order, at every rebase and before every promotion campaign**: build the tree the image
   will use, run the coverage gate against it (rows), then put each launcher flag through the parser (flags).
 - **A stale setting is retired in the commit that removes it** - the line out of both env files and out of the register,
