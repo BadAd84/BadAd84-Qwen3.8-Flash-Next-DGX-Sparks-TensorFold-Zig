@@ -1,0 +1,750 @@
+diff --git a/CHANGELOG.md b/CHANGELOG.md
+index 286136ef..e458ec51 100644
+--- a/CHANGELOG.md
++++ b/CHANGELOG.md
+@@ -28,6 +28,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
+ 
+ - Flash Next on CUDA: the MTP draft head's rows load as 4-bit affine rows by default, like the GLM family's head, with `TF_FLASHNEXT_DRAFT_HEAD=bf16` for the exact rows (#9999).
+ 
++- Flash Next on CUDA: a prompt pass's MoE write-back reads the shared expert's fp32 output in place instead of a copy of it in y's last slot (`TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1`), and a prompt chunk's MTP head pass takes at most `TF_FLASHNEXT_HEAD_PIECE` rows (256, the decode piece), so a long prompt's head pass keeps the engine chunk's scratch; its `part` holds the head's `fc_h` lane, two fp32 slices of four streams by the piece (#9999).
++
+ - Tests: the Web startup test imports tensorfold_web's modules on one line, as ruff's import order asks (#4202).
+ - Web: the LibreChat and AnythingLLM Docker Connect examples keep the configured remote engine URL, with its scheme, hostname, port and proxy prefix; local loopback examples still use the Docker host alias and away examples the Web relay (#3843, fixes #3839). Thanks to @AIFlowML.
+ 
+diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
+index 96a9a4a6..d35fe9be 100644
+--- a/zig/build/cuda.zig
++++ b/zig/build/cuda.zig
+@@ -274,6 +274,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
+     @import("flashnext_scoring_host.zig").steps(b, cuda, mods.core, mods.lanes, flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), step);
+     b.step("test-pocket-device-host", "Actual pocket device hooks under CUDA ABI failures").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{"Learning persistence:"} })).step);
+     b.step("test-flashnext-readout-fused-host", "The fused read-out's down tile choice and its refusals by name, without a GPU").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{"fused read-out:"} })).step);
++    b.step("test-flashnext-part-rows-host", "The MTP head's fc_h lane fits part, and the default chunk stays under three gigabytes").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = flashnextModule(b, host, .debug, cuda, mods.core, mods.lanes, mods.qwen_vision, mods.api), .filters = &.{ "fc_h lane fits part", "scratch at the default chunk" } })).step);
+     b.step("test-living-host", "Family-neutral learner, saved form and commit gate on host").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = mods.living })).step);
+     const shard_tests = b.createModule(.{ .root_source_file = b.path("zig/src/living_shards_test.zig"), .target = host, .optimize = .debug, .link_libc = true });
+     shard_tests.addImport("living", mods.living);
+diff --git a/zig/kernels/cuda/flashnext_hc.cu b/zig/kernels/cuda/flashnext_hc.cu
+index 928e6fd..911e9ad 100644
+--- a/zig/kernels/cuda/flashnext_hc.cu
++++ b/zig/kernels/cuda/flashnext_hc.cu
+@@ -78,6 +78,10 @@
+             acc = __fmaf_rn(Y[at * D + d], WTS[at], acc);
+         }
+         branch = rbf(acc);
++    } else if constexpr (MODE == 3) {  // MODE 2, the last slot's fp32 row read from BR (the shared expert's output)
++        float acc = 0.0f;
++        for (int k = 0; k <= TOPK; ++k) acc = __fmaf_rn(k == TOPK ? BR[(long long)r * D + d] : Y[((long long)r * SLOTS + k) * D + d], WTS[(long long)r * SLOTS + k], acc);
++        branch = rbf(acc);
+     }
+     const int warp = threadIdx.x >> 5;
+     for (int s = 0; s < S; ++s) {
+@@ -108,89 +112,18 @@
+     hc_writeback<2>(H, HOUT, PSS, nullptr, INJ, Y, WTS, 0, D, S, TOPK, SLOTS, 1);
+ }
+ 
++extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_moe_sh(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS,
++    const __nv_bfloat16* INJ, const float* Y, const float* WTS, const float* SHARED, int D, int S, int TOPK, int SLOTS) {
++    hc_writeback<3>(H, HOUT, PSS, SHARED, INJ, Y, WTS, 0, D, S, TOPK, SLOTS, 1);
++}
++
+ extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_slices(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS,
+                                                                          const float* BR, const __nv_bfloat16* INJ,
+                                                                          long long RS, int D, int S, int WORLD) {
+     hc_writeback<4>(H, HOUT, PSS, BR, INJ, nullptr, nullptr, RS, D, S, 0, 1, WORLD);
+ }
+ 
+-// hc_writeback<MODE> then fn_hc_normalize in one block a row, slices summed and added in their order: the same bits.
+-template <int MODE, int NC, int S>
+-__device__ __forceinline__ void hc_writeback_norm(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* __restrict__ PSS,
+-                                                  const float* __restrict__ BR, const __nv_bfloat16* __restrict__ INJ,
+-                                                  const float* __restrict__ Y, const float* __restrict__ WTS,
+-                                                  const float* __restrict__ SCALE, __nv_bfloat16* __restrict__ NORM,
+-                                                  long long RS, float eps, int TOPK, int SLOTS, int WORLD) {
+-    constexpr int D = NC * 256;
+-    __shared__ float red[NC][8][S];
+-    __shared__ float rinv[S];
+-    const int r = blockIdx.x, warp = threadIdx.x >> 5;
+-    float hv[NC][S];
+-#pragma unroll
+-    for (int c = 0; c < NC; ++c) {
+-        const int d = c * 256 + threadIdx.x;
+-        float branch = 0.0f;
+-        if constexpr (MODE == 4) {
+-            float acc = BR[static_cast<long long>(r) * D + d];
+-            for (int k = 1; k < WORLD; ++k) acc = __fadd_rn(acc, BR[k * RS + static_cast<long long>(r) * D + d]);
+-            branch = rbf(acc);
+-        } else if constexpr (MODE == 2) {
+-            float acc = 0.0f;
+-            for (int k = 0; k <= TOPK; ++k) {
+-                const long long at = static_cast<long long>(r) * SLOTS + k;
+-                acc = __fmaf_rn(Y[at * D + d], WTS[at], acc);
+-            }
+-            branch = rbf(acc);
+-        }
+-#pragma unroll
+-        for (int s = 0; s < S; ++s) {
+-            const long long at = static_cast<long long>(r) * S * D + static_cast<long long>(s) * D + d;
+-            float v = bf(H[at]);
+-            if constexpr (MODE != 0) {
+-                v = rbf(__fmaf_rn(branch, bf(INJ[r * S + s]), v));
+-                HOUT[at] = __float2bfloat16_rn(v);
+-            }
+-            hv[c][s] = v;
+-            const float ss = warp_sum(__fmul_rn(v, v));
+-            if ((threadIdx.x & 31) == 0) red[c][warp][s] = ss;
+-        }
+-    }
+-    __syncthreads();
+-    if (threadIdx.x < S) {
+-        float all = 0.0f;
+-        for (int c = 0; c < NC; ++c) {
+-            float total = 0.0f;
+-            for (int w = 0; w < 8; ++w) total = __fadd_rn(total, red[c][w][threadIdx.x]);
+-            PSS[(static_cast<long long>(r) * NC + c) * S + threadIdx.x] = total;
+-            all = __fadd_rn(all, total);
+-        }
+-        rinv[threadIdx.x] = tf_common::rms_scale(all, D, eps);
+-    }
+-    __syncthreads();
+-#pragma unroll
+-    for (int c = 0; c < NC; ++c)
+-#pragma unroll
+-        for (int s = 0; s < S; ++s) {
+-            const int col = s * D + c * 256 + threadIdx.x;
+-            NORM[static_cast<long long>(r) * S * D + col] =
+-                __float2bfloat16_rn(__fmul_rn(__fmul_rn(hv[c][s], rinv[s]), SCALE[col]));
+-        }
+-}
+-
+-// Flash Next's shape: 2560 columns (10 slices), 4 streams.
+-extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm0(const __nv_bfloat16* H, float* PSS, const float* SCALE, __nv_bfloat16* NORM, float eps) {
+-    hc_writeback_norm<0, 10, 4>(H, nullptr, PSS, nullptr, nullptr, nullptr, nullptr, SCALE, NORM, 0, eps, 0, 1, 1);
+-}
+-
+-extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm_moe(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS, const __nv_bfloat16* INJ,
+-    const float* Y, const float* WTS, const float* SCALE, __nv_bfloat16* NORM, float eps, int TOPK, int SLOTS) {
+-    hc_writeback_norm<2, 10, 4>(H, HOUT, PSS, nullptr, INJ, Y, WTS, SCALE, NORM, 0, eps, TOPK, SLOTS, 1);
+-}
+-
+-extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm_slices(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS, const float* BR,
+-    const __nv_bfloat16* INJ, long long RS, const float* SCALE, __nv_bfloat16* NORM, float eps, int WORLD) {
+-    hc_writeback_norm<4, 10, 4>(H, HOUT, PSS, BR, INJ, nullptr, nullptr, SCALE, NORM, RS, eps, 0, 1, WORLD);
+-}
++#include "flashnext_hc_norm.cuh"
+ 
+ // qmm._qmm_hcdown, block (16 rows, 64 columns, K slice): the slice's normed rows times the down rows, fp32 to PART.
+ extern "C" __global__ void __launch_bounds__(128) fn_hc_down(const __nv_bfloat16* __restrict__ H, const float* __restrict__ PSS,
+diff --git a/zig/kernels/cuda/flashnext_hc_norm.cuh b/zig/kernels/cuda/flashnext_hc_norm.cuh
+new file mode 100644
+index 0000000..ebfcd3e
+--- /dev/null
++++ b/zig/kernels/cuda/flashnext_hc_norm.cuh
+@@ -0,0 +1,92 @@
++// Flash Next's writeback with fn_hc_normalize in one block a row, included in place by flashnext_hc.cu.
++#pragma once
++
++// hc_writeback<MODE> then fn_hc_normalize in one block a row, slices summed and added in their order: the same bits.
++template <int MODE, int NC, int S>
++__device__ __forceinline__ void hc_writeback_norm(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* __restrict__ PSS,
++                                                  const float* __restrict__ BR, const __nv_bfloat16* __restrict__ INJ,
++                                                  const float* __restrict__ Y, const float* __restrict__ WTS,
++                                                  const float* __restrict__ SCALE, __nv_bfloat16* __restrict__ NORM,
++                                                  long long RS, float eps, int TOPK, int SLOTS, int WORLD) {
++    constexpr int D = NC * 256;
++    __shared__ float red[NC][8][S];
++    __shared__ float rinv[S];
++    const int r = blockIdx.x, warp = threadIdx.x >> 5;
++    float hv[NC][S];
++#pragma unroll
++    for (int c = 0; c < NC; ++c) {
++        const int d = c * 256 + threadIdx.x;
++        float branch = 0.0f;
++        if constexpr (MODE == 4) {
++            float acc = BR[static_cast<long long>(r) * D + d];
++            for (int k = 1; k < WORLD; ++k) acc = __fadd_rn(acc, BR[k * RS + static_cast<long long>(r) * D + d]);
++            branch = rbf(acc);
++        } else if constexpr (MODE == 2) {
++            float acc = 0.0f;
++            for (int k = 0; k <= TOPK; ++k) {
++                const long long at = static_cast<long long>(r) * SLOTS + k;
++                acc = __fmaf_rn(Y[at * D + d], WTS[at], acc);
++            }
++            branch = rbf(acc);
++        } else if constexpr (MODE == 3) {  // MODE 2, the last slot's fp32 row read from BR (the shared expert's output)
++            float acc = 0.0f;
++            for (int k = 0; k <= TOPK; ++k) {
++                const long long at = static_cast<long long>(r) * SLOTS + k;
++                acc = __fmaf_rn(k == TOPK ? BR[(long long)r * D + d] : Y[at * D + d], WTS[at], acc);
++            }
++            branch = rbf(acc);
++        }
++#pragma unroll
++        for (int s = 0; s < S; ++s) {
++            const long long at = static_cast<long long>(r) * S * D + static_cast<long long>(s) * D + d;
++            float v = bf(H[at]);
++            if constexpr (MODE != 0) {
++                v = rbf(__fmaf_rn(branch, bf(INJ[r * S + s]), v));
++                HOUT[at] = __float2bfloat16_rn(v);
++            }
++            hv[c][s] = v;
++            const float ss = warp_sum(__fmul_rn(v, v));
++            if ((threadIdx.x & 31) == 0) red[c][warp][s] = ss;
++        }
++    }
++    __syncthreads();
++    if (threadIdx.x < S) {
++        float all = 0.0f;
++        for (int c = 0; c < NC; ++c) {
++            float total = 0.0f;
++            for (int w = 0; w < 8; ++w) total = __fadd_rn(total, red[c][w][threadIdx.x]);
++            PSS[(static_cast<long long>(r) * NC + c) * S + threadIdx.x] = total;
++            all = __fadd_rn(all, total);
++        }
++        rinv[threadIdx.x] = tf_common::rms_scale(all, D, eps);
++    }
++    __syncthreads();
++#pragma unroll
++    for (int c = 0; c < NC; ++c)
++#pragma unroll
++        for (int s = 0; s < S; ++s) {
++            const int col = s * D + c * 256 + threadIdx.x;
++            NORM[static_cast<long long>(r) * S * D + col] =
++                __float2bfloat16_rn(__fmul_rn(__fmul_rn(hv[c][s], rinv[s]), SCALE[col]));
++        }
++}
++
++// Flash Next's shape: 2560 columns (10 slices), 4 streams.
++extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm0(const __nv_bfloat16* H, float* PSS, const float* SCALE, __nv_bfloat16* NORM, float eps) {
++    hc_writeback_norm<0, 10, 4>(H, nullptr, PSS, nullptr, nullptr, nullptr, nullptr, SCALE, NORM, 0, eps, 0, 1, 1);
++}
++
++extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm_moe(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS, const __nv_bfloat16* INJ,
++    const float* Y, const float* WTS, const float* SCALE, __nv_bfloat16* NORM, float eps, int TOPK, int SLOTS) {
++    hc_writeback_norm<2, 10, 4>(H, HOUT, PSS, nullptr, INJ, Y, WTS, SCALE, NORM, 0, eps, TOPK, SLOTS, 1);
++}
++
++extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm_moe_sh(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS, const float* SHARED,
++    const __nv_bfloat16* INJ, const float* Y, const float* WTS, const float* SCALE, __nv_bfloat16* NORM, float eps, int TOPK, int SLOTS) {
++    hc_writeback_norm<3, 10, 4>(H, HOUT, PSS, SHARED, INJ, Y, WTS, SCALE, NORM, 0, eps, TOPK, SLOTS, 1);
++}
++
++extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_norm_slices(const __nv_bfloat16* H, __nv_bfloat16* HOUT, float* PSS, const float* BR,
++    const __nv_bfloat16* INJ, long long RS, const float* SCALE, __nv_bfloat16* NORM, float eps, int WORLD) {
++    hc_writeback_norm<4, 10, 4>(H, HOUT, PSS, BR, INJ, nullptr, nullptr, SCALE, NORM, RS, eps, 0, 1, WORLD);
++}
+diff --git a/zig/src/core/contract/flashnext_tile_records.zig b/zig/src/core/contract/flashnext_tile_records.zig
+index 326fc0f..357aa40 100644
+--- a/zig/src/core/contract/flashnext_tile_records.zig
++++ b/zig/src/core/contract/flashnext_tile_records.zig
+@@ -26,6 +26,7 @@
+     .{ .launch = .{ .name = "flashnext_batch fn_gdn_lanes_shift", .symbol = "fn_gdn_lanes_shift", .image = "flashnext_batch", .threads = 256 }, .usage = .{ .{ .regs = 26, .static = 0, .bound = 0 }, .{ .regs = 28, .static = 0, .bound = 0 }, .{ .regs = 28, .static = 0, .bound = 0 }, .{ .regs = 24, .static = 0, .bound = 0 }, .{ .regs = 24, .static = 0, .bound = 0 } } },
+     .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm0", .symbol = "fn_hc_writeback_norm0", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 59, .static = 1296, .bound = 256 }, .{ .regs = 60, .static = 1296, .bound = 256 }, .{ .regs = 60, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 } } },
+     .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_moe", .symbol = "fn_hc_writeback_norm_moe", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 } } },
++    .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_moe_sh", .symbol = "fn_hc_writeback_norm_moe_sh", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 } } },
+     .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_slices", .symbol = "fn_hc_writeback_norm_slices", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 64, .static = 1296, .bound = 256 } } },
+     .{ .launch = .{ .name = "prompt16 tf_prompt_bf16", .symbol = "tf_prompt_bf16", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
+     .{ .launch = .{ .name = "prompt16 tf_prompt_bf16_f32", .symbol = "tf_prompt_bf16_f32", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+index 179aefb0..7c1cec1d 100644
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -119,6 +119,7 @@ pub fn Pass(comptime Tri: type) type {
+         prepared: bool = false,
+         /// The pending write-back's branch sits in fp32 in moe_f32 (something added to it, or it is kept).
+         pending_f32: bool = false,
++        shared_direct: bool = false, // the pending MoE write-back reads the shared expert's output in place (mode 3)
+         /// This layer's out projection leaves part's other slices alone; its writeback adds the zero slice once.
+         zero_slices: bool = false,
+         /// stageWindow queued the pass's uploads (ids, positions, n-gram rows): it launches kernels alone (graphs).
+@@ -183,6 +184,7 @@ pub fn Pass(comptime Tri: type) type {
+             }
+             const y = s.y + r0 * slots * dims * 4;
+             const wts = s.wts + r0 * slots * 4;
++            if (self.shared_direct) return hc.writebackSharedDirect(self, r0, n);
+             try self.tri.hcWriteback(h, h, pss, dummy, "*bf16", inj, y, "*fp32", wts, "*fp32", rs, n, dims, streams, 2, 10, 11, 1);
+         }
+ 
+@@ -458,7 +460,8 @@ pub fn Pass(comptime Tri: type) type {
+             try self.copy(keep.moe_wts, s.wts, pairs * 4);
+             const e = experts_n + 1;
+             const plan: cuda.grouped.Plan = .{ .members = s.members, .items = s.items, .counts = s.counts, .rank = s.rank, .hist = s.hist };
+-            if (lw.native_experts) |*native| return moe_native.run(self, native, n, pairs, plan);
++            if (lw.native_experts) |*native| return hc.moeRunPromptAware(self, native, n, pairs, plan, keep);
++
+             if (n >= 64) {
+                 // prompt rows on 64-pair factored tiles, expert_rows' bits
+                 try self.k.router.route(self.stream, s.picks, pairs, e, tk.fexp_tile, plan);
+@@ -513,6 +516,7 @@ pub fn Pass(comptime Tri: type) type {
+             self.pos0 = pos0;
+             self.pending = null;
+             self.pending_f32 = false;
++            self.shared_direct = false;
+             // the gather writes the scratch's pinned rows, so the last pass's uploads must have read them first
+             if (!self.prepared and !self.staged) try s.ready();
+             const emb = s.hostEmb(n);
+@@ -598,3 +602,8 @@ test "a pass's scratch at the default chunk stays under three gigabytes" {
+     try std.testing.expect(Scratch.bytes(1, .{}) < Scratch.bytes(2, .{}));
+     try std.testing.expect(Scratch.bytes(4096, .{ .lane_reduce = false }) < Scratch.bytes(4096, .{}));
+ }
++
++test {
++    // cuda_batch.zig is reached from the module root's test block (`_ = prompt.batch`), so the part-rows test runs
++    _ = @import("cuda_part_rows_test.zig");
++}
+diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
+index 312f9898..309c0609 100644
+--- a/zig/src/families/flashnext/cuda_batch_hc.zig
++++ b/zig/src/families/flashnext/cuda_batch_hc.zig
+@@ -4,6 +4,7 @@ const wt = @import("cuda_prompt_wt.zig");
+ const parts = @import("cuda_batch_state.zig");
+ const tiles = @import("cuda_tiles.zig");
+ 
++const knobs = @import("cuda_knobs.zig");
+ const dims = wt.dims;
+ const streams = wt.streams;
+ const wide = wt.wide;
+@@ -28,6 +29,24 @@ pub fn fuses(pass: anytype, hc_w: wt.HcW, n: usize, keep: parts.HcKeep) bool {
+ pub fn promptFused(pass: anytype, hc_w: wt.HcW, n: usize) bool {
+     return pass.k.forms.readout_fused and pass.hooks.prompt and n >= tiles.fused_rows and tiles.nativeFused(hc_w);
+ }
++/// The pending MoE write-back reading the shared expert's fp32 output in place: mode 3, no copy into y's slot.
++pub fn writebackSharedDirect(pass: anytype, r0: usize, n: usize) !void {
++    const s = pass.s;
++    pass.shared_direct = false;
++    const h = s.h + r0 * wide * 2;
++    const pss = s.pss + r0 * pss_n * 4;
++    const inj = s.inj + r0 * streams * 2;
++    const y = s.y + r0 * slots * dims * 4;
++    const wts = s.wts + r0 * slots * 4;
++    return pass.tri.hcWriteback(h, h, pss, s.shared_out + r0 * dims * 4, "*fp32", inj, y, "*fp32", wts, "*fp32", pass.rows * dims, n, dims, streams, 3, 10, 11, 1);
++}
++
++/// moe_native.run after taking the prompt rows' shared-direct decision: the write-back reads the output in place.
++pub fn moeRunPromptAware(pass: anytype, native: anytype, n: usize, pairs: usize, plan: anytype, keep: anytype) !void {
++    if (pass.hooks.prompt and (knobs.sharedDirect() catch false) and (pass.hooks.logits == .none or pass.hooks.streams != 0) and
++        pass.hooks.moe_add == null and pass.m.pocket == null and keep.moe_branch == 0 and native.world == 1) pass.shared_direct = true;
++    return @import("cuda_moe_native.zig").run(pass, native, n, pairs, plan);
++}
+ 
+ /// The pass's pending writeback with hc_w's normalize in the same launch: the normed rows readoutNative reads.
+ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+@@ -47,6 +66,10 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+     }
+     const y = s.y + r0 * slots * dims * 4;
+     const wts = s.wts + r0 * slots * 4;
++    if (pass.shared_direct) {
++        pass.shared_direct = false;
++        return pass.tri.hcWritebackNorm(h, h, pss, s.shared_out + r0 * dims * 4, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 3, 10, 11, 1);
++    }
+     try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, 10, 11, 1);
+ }
+ 
+diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
+index 28255760..be60b4ca 100644
+--- a/zig/src/families/flashnext/cuda_batch_side.zig
++++ b/zig/src/families/flashnext/cuda_batch_side.zig
+@@ -48,10 +48,12 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
+ pub fn down(pass: anytype, st: cuda.Stream, input: u64, native: anytype, n: usize) !void {
+     const s = pass.s;
+     const w = native.shared[2].native.?;
+-    if (w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, moe_w, slots * dims))
++    if (!pass.shared_direct and w.n == dims and cuda.qmmf_shared.eligible(pass.k.native_lane, n, w, moe_w, slots * dims))
+         return pass.k.native_lane.matmulF32Strided(st, input, moe_w, n, w, s.y + (slots - 1) * dims * 4, slots * dims);
+     const glue = pass.tri.own orelse return error.NativeGlueRequired;
+     try pass.k.nativeMatmul(st, input, moe_w, n, w, s.shared_out, s.native_part, .f32);
++    // with the write-back reading it in place, the rows stay in shared_out and y's slot keeps its zeros
++    if (pass.shared_direct) return;
+     try glue.sharedScatter(st, s.shared_out, s.y, n, dims, slots);
+ }
+ 
+diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
+index 2e37c246..4db2a5e1 100644
+--- a/zig/src/families/flashnext/cuda_glue.zig
++++ b/zig/src/families/flashnext/cuda_glue.zig
+@@ -34,10 +34,12 @@ pub const Pg = extern struct { pt: u64 = 0, ps: i64 = 0, ptok: c_int = 0 };
+ const Fns = struct {
+     wb0: cuda.Function,
+     wb_moe: cuda.Function,
++    wb_moe_sh: cuda.Function,
+     wb_slices: cuda.Function,
+     // each writeback with fn_hc_normalize in one block a row (2560 columns, 4 streams): the same bits
+     wbn0: cuda.Function,
+     wbn_moe: cuda.Function,
++    wbn_moe_sh: cuda.Function,
+     wbn_slices: cuda.Function,
+     normalize: cuda.Function,
+     normalize_cols: cuda.Function, // fn_hc_normalize's bits over 256-column slices (dims a multiple of 256)
+@@ -135,9 +137,11 @@ pub const Glue = struct {
+         g.f = .{
+             .wb0 = try g.hc.function("fn_hc_writeback0"),
+             .wb_moe = try g.hc.function("fn_hc_writeback_moe"),
++            .wb_moe_sh = try g.hc.function("fn_hc_writeback_moe_sh"),
+             .wb_slices = try g.hc.function("fn_hc_writeback_slices"),
+             .wbn0 = try g.hc.function("fn_hc_writeback_norm0"),
+             .wbn_moe = try g.hc.function("fn_hc_writeback_norm_moe"),
++            .wbn_moe_sh = try g.hc.function("fn_hc_writeback_norm_moe_sh"),
+             .wbn_slices = try g.hc.function("fn_hc_writeback_norm_slices"),
+             .normalize = try g.hc.function("fn_hc_normalize"),
+             .normalize_cols = try g.hc.function("fn_hc_normalize_cols"),
+@@ -514,6 +518,13 @@ pub const Glue = struct {
+                 ints(&a, &.{ topk, slots });
+                 try go(g.f.wbn_moe, s, grid, 256, 0, &a);
+             },
++            3 => {
++                // mode 2 with the shared expert's fp32 output (`branch`) as the last slot
++                ptrs(&a, &.{ h, hout, pss, branch, inj, y, wts, scale, norm });
++                a.add(eps);
++                ints(&a, &.{ topk, slots });
++                try go(g.f.wbn_moe_sh, s, grid, 256, 0, &a);
++            },
+             4 => {
+                 ptrs(&a, &.{ h, hout, pss, branch, inj });
+                 a.add(@as(i64, @intCast(rs)));
+@@ -542,6 +553,12 @@ pub const Glue = struct {
+                 ints(&a, &.{ dims, streams, topk, slots });
+                 try go(g.f.wb_moe, s, grid, 256, 0, &a);
+             },
++            3 => {
++                // mode 2 with the shared expert's fp32 output (`branch`) as the last slot
++                ptrs(&a, &.{ h, hout, pss, inj, y, wts, branch });
++                ints(&a, &.{ dims, streams, topk, slots });
++                try go(g.f.wb_moe_sh, s, grid, 256, 0, &a);
++            },
+             4 => {
+                 ptrs(&a, &.{ h, hout, pss, branch, inj });
+                 a.add(@as(i64, @intCast(rs)));
+diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
+index 70858f61..fa25e1f0 100644
+--- a/zig/src/families/flashnext/cuda_knobs.zig
++++ b/zig/src/families/flashnext/cuda_knobs.zig
+@@ -52,7 +52,17 @@ pub fn mx128MinN() sys.environment.Error!usize {
+     return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
+ }
+ 
+-/// TF_FLASHNEXT_PROMPT_GEMM2=1: the MX128 prompt tile runs with two pipeline stages and two blocks an SM, same bits.
++/// TF_FLASHNEXT_HEAD_PIECE: the rows a prompt chunk MTP head pass takes at most (256, the decode piece).
++pub fn headPiece() sys.environment.Error!usize {
++    return sys.environment.read(usize, "TF_FLASHNEXT_HEAD_PIECE", 256);
++}
++
++/// TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1: the MoE write-back reads the shared expert fp32 output in place.
++pub fn sharedDirect() sys.environment.Error!bool {
++    return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", false);
++}
++
++/// TF_FLASHNEXT_PROMPT_GEMM2=1: the relaxed prompt tile runs two stages and two blocks an SM, same arithmetic and bits.
+ pub fn promptGemm2() sys.environment.Error!bool {
+     return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
+ }
+diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
+index fe158464..26abef4a 100644
+--- a/zig/src/families/flashnext/cuda_mtp_ops.zig
++++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
+@@ -43,7 +43,7 @@ const max_rows = mtp.max_rows;
+ const proj_bytes = mtp.proj_bytes;
+ const fc_sk = mtp.fc_sk;
+ const piece_rows = mtp.piece_rows;
+-const pss_n = mtp.pss_n;
++const knobs = @import("cuda_knobs.zig");
+ /// Streams one batched head pass drafts for at most.
+ pub const max_lanes: usize = 16;
+ const Head = mtp.Head;
+@@ -109,7 +109,7 @@ pub fn Ops(comptime Tri: type) type {
+             const last = stop == ids.len;
+             try o.forwardMain(seq, ids[at..stop], .{ .logits = if (last) .last else .none, .streams = d.streams.ptr, .prompt = true, .marks = marks });
+             const head_to = @min(stop, ids.len - 1);
+-            if (head_to > at) try o.forwardHead(d, ids[at + 1 .. head_to + 1], d.streams.ptr, false);
++            if (head_to > at) try o.forwardHeadPieces(d, ids[at + 1 .. head_to + 1], d.streams.ptr, false, knobs.headPiece() catch piece_rows);
+             if (last) d.prompt_last = d.streams.ptr + (stop - 1 - at) * wide * 2;
+         }
+ 
+@@ -126,14 +126,22 @@ pub fn Ops(comptime Tri: type) type {
+ 
+         /// The head over `next.len` rows of streams `rows`: cache at d.len, last row in d.out, scores in d.dlogits.
+         pub fn forwardHead(o: Self, d: *Draft, next: []const u32, rows: u64, scores: bool) !void {
++            return o.forwardHeadPieces(d, next, rows, scores, piece_rows);
++        }
++
++        /// forwardHead taking at most `piece_req` rows a pass (the engine's chunk's half at most).
++        pub fn forwardHeadPieces(o: Self, d: *Draft, next: []const u32, rows: u64, scores: bool, piece_req: usize) !void {
+             const e = o.e;
++            // never past half the engine's chunk: the pass's scratch is the chunk's and must not grow for the head
++            const piece_max = @min(if (piece_req == 0) piece_rows else piece_req, @max(piece_rows, e.chunk / 2));
+             const tri = o.tri;
+             const h = o.h;
+             if (next.len == 0) return;
+             if (d.len + next.len > d.cap) return error.PromptTooLong;
+-            const want = plan.reserveRows(next.len);
++            const want = @max(@as(usize, 32), 2 * @min(next.len, piece_max));
+             const s = try e.reserve(want);
+-            const piece = @max(@as(usize, 1), @min(piece_rows, s.cap / 2));
++            // half the pass's cap at most: partRows holds the fc_h lane's two streams x piece fp32 slices exactly
++            const piece = @max(@as(usize, 1), @min(piece_max, s.cap / 2));
+             // the engine's block scores (the passes share one stream), for rows past 2,048 keys of the head's cache
+             const score_rows = try e.reserveScores(d.cap, piece);
+             var p: batch.Pass(Tri) = .{
+diff --git a/zig/src/families/flashnext/cuda_mtp_pieces.zig b/zig/src/families/flashnext/cuda_mtp_pieces.zig
+index 882fa536..f2203a72 100644
+--- a/zig/src/families/flashnext/cuda_mtp_pieces.zig
++++ b/zig/src/families/flashnext/cuda_mtp_pieces.zig
+@@ -2,6 +2,7 @@
+ const std = @import("std");
+ const wt = @import("cuda_prompt_wt.zig");
+ const mtp = @import("cuda_mtp.zig");
++const sizes = @import("cuda_scratch_sizes.zig");
+ const window_graph = @import("cuda_window_graph.zig");
+ 
+ const dims = wt.dims;
+@@ -42,6 +43,8 @@ pub fn Piece(comptime O: type, comptime P: type) type {
+             try pp.sumSlices(ps.part, ps.branch, true, m * dims, esk);
+             // the hidden branch: the four streams normed as one row, fc_hidden on each stream
+             try t.rmsnorm(r.input, hh.norm_h.ptr, ps.norm, ps.gq, eps, wide, m, wide, wide);
++            // the lane writes a streams x m fp32 slice and clears the slice beside it: part must hold both
++            if (2 * streams * m > sizes.partRows(ps.cap)) return error.UnexpectedTensor;
+             const hsk = try pp.lane(ps.norm, ps.gq, hh.fc_h, ps.dummy, ps.part, streams * m, fc_sk);
+             try pp.sumSlices(ps.part, ps.ple_gated, true, streams * m * dims, hsk);
+             try t.addStreams(ps.branch, ps.ple_gated, ps.h, m, dims, streams);
+@@ -111,6 +114,8 @@ pub fn Group(comptime O: type, comptime P: type, comptime G: type) type {
+                 row0 += nx.len;
+             }
+             try t.rmsnorm(ps.ple_nrow, hh.norm_h.ptr, ps.norm, ps.gq, eps, wide, tot, wide, wide);
++            // as in Piece.run: the lane's fp32 slice and the slice its clear touches must both fit part
++            if (2 * streams * tot > sizes.partRows(ps.cap)) return error.UnexpectedTensor;
+             const hsk = try pp.lane(ps.norm, ps.gq, hh.fc_h, ps.dummy, ps.part, streams * tot, fc_sk);
+             try pp.sumSlices(ps.part, ps.ple_gated, true, streams * tot * dims, hsk);
+             try t.addStreams(ps.branch, ps.ple_gated, ps.h, tot, dims, streams);
+diff --git a/zig/src/families/flashnext/cuda_part_rows_test.zig b/zig/src/families/flashnext/cuda_part_rows_test.zig
+new file mode 100644
+index 00000000..c2142092
+--- /dev/null
++++ b/zig/src/families/flashnext/cuda_part_rows_test.zig
+@@ -0,0 +1,58 @@
++//! The MTP head's fc_h lane asks tiles.matmul for `streams x piece` rows at sk > 1, and that call writes one fp32
++//! slice into part and clears the slice beside it, so part must hold `2 x streams x piece` rows. A piece is at most
++//! half the pass's cap, so the lane needs `4 x cap` rows. The 8,607-token resume prompt (cap 3,072, the recipe's
++//! TF_FLASHNEXT_HEAD_PIECE=1536) asked for 12,288 rows in a 6,144-row part and failed with CUDA_ERROR_INVALID_VALUE;
++//! this holds the arithmetic that failed, main's own 256-row bound across every cap, and the bound the fix keeps.
++const std = @import("std");
++const sizes = @import("cuda_scratch_sizes.zig");
++const wt = @import("cuda_prompt_wt.zig");
++
++/// partRows as the first 0008 left it: two cap slices, or a legacy lane tile's out_sk slices below 64 rows.
++fn partRowsBefore(cap: usize) usize {
++    return @max(2 * cap, wt.out_sk * @min(cap, 63));
++}
++
++/// The rows a tiles.matmul at sk > 1 writes into part: its fp32 slice and the slice it clears beside it.
++fn laneRows(streams: usize, piece: usize) usize {
++    return 2 * streams * piece;
++}
++
++/// The head's piece on a pass of `cap` rows, as forwardHeadPieces bounds it: the request, and the pass's half.
++fn pieceOf(request: usize, cap: usize) usize {
++    return @max(@as(usize, 1), @min(request, cap / 2));
++}
++
++test "the MTP head's fc_h lane fits part: the recipe's 1536-row piece at cap 3072 and main's 256 across caps" {
++    // the measured failure: the resume probe's prompt pass (cap 3,072) with the recipe's TF_FLASHNEXT_HEAD_PIECE
++    const cap: usize = 3072;
++    try std.testing.expectEqual(@as(usize, 1536), pieceOf(1536, cap));
++    try std.testing.expectEqual(@as(usize, 6144), partRowsBefore(cap)); // the buffer the labelled build overran
++    const need = laneRows(wt.streams, pieceOf(1536, cap));
++    try std.testing.expectEqual(@as(usize, 12288), need); // 2 x 4 x 1536 rows of dims
++    try std.testing.expect(need > partRowsBefore(cap)); // fails on the first 0008's partRows
++    try std.testing.expect(need <= sizes.partRows(cap)); // holds on the fix
++    try std.testing.expectEqual(@as(usize, 12288), sizes.partRows(cap));
++
++    // main's own 256-row bound, over every cap: the range where the old buffer overruns, computed not assumed
++    var first: usize = 0;
++    var last: usize = 0;
++    var c: usize = 1;
++    while (c <= 4096) : (c += 1) {
++        if (laneRows(wt.streams, pieceOf(256, c)) > partRowsBefore(c)) {
++            if (first == 0) first = c;
++            last = c;
++        }
++        try std.testing.expect(laneRows(wt.streams, pieceOf(256, c)) <= sizes.partRows(c));
++    }
++    try std.testing.expectEqual(@as(usize, 128), first);
++    try std.testing.expectEqual(@as(usize, 1023), last);
++    // the range's own ends: 127 fits the old buffer, and main's 1,024-row cap fills it exactly
++    try std.testing.expect(laneRows(wt.streams, pieceOf(256, 127)) <= partRowsBefore(127));
++    try std.testing.expectEqual(laneRows(wt.streams, pieceOf(256, 1024)), partRowsBefore(1024));
++
++    // the recipe's piece on the caps a serve meets: the head pass's own 32-row floor to the engine's 3,072 chunk
++    for ([_]usize{ 32, 48, 126, 512, 1024, 2048, 3071, 3072, 4096 }) |at| {
++        try std.testing.expect(laneRows(wt.streams, pieceOf(1536, at)) <= sizes.partRows(at));
++    }
++    try std.testing.expectEqual(@as(usize, 504), sizes.partRows(63)); // 8 x 63: the legacy tile's floor unchanged
++}
+diff --git a/zig/src/families/flashnext/cuda_scratch_sizes.zig b/zig/src/families/flashnext/cuda_scratch_sizes.zig
+index 315655b7..9bcdf772 100644
+--- a/zig/src/families/flashnext/cuda_scratch_sizes.zig
++++ b/zig/src/families/flashnext/cuda_scratch_sizes.zig
+@@ -3,6 +3,7 @@ const wt = @import("cuda_prompt_wt.zig");
+ 
+ const hc_sk = wt.hc_sk;
+ const out_sk = wt.out_sk;
++const streams = wt.streams;
+ const att_rows = @import("cuda_batch_state.zig").att_rows;
+ 
+ /// head_local's rows on one GPU: the draft head's lanes (<= 16) times its ids; a split head needs a pass's rows.
+@@ -16,9 +17,12 @@ pub fn hcPartRows(cap: usize) usize {
+     return @max(cap, @max(hc_sk * @min(cap, 63), @as(usize, 8) * @min(cap, 255)));
+ }
+ 
+-/// part's rows of dims: an out projection's slice plus the zero slice, or a legacy lane tile's out_sk below 64 rows.
++/// part's rows of dims: an out projection's slice plus the zero slice, a legacy lane tile's out_sk below 64 rows, or
++/// the MTP head's fc_h lane: streams rows a piece row, one fp32 slice written and the slice its clear touches.
+ pub fn partRows(cap: usize) usize {
+-    return @max(2 * cap, out_sk * @min(cap, 63));
++    // the lane asks for streams x piece rows at a piece of at most cap / 2, and tiles.matmul writes that fp32 slice
++    // and clears the slice beside it, so two streams x cap / 2 slices must fit beside the out projection's own
++    return @max(@max(2 * cap, out_sk * @min(cap, 63)), 2 * streams * (cap / 2));
+ }
+ 
+ /// The block scores' row stride for a cache of `cap` tokens: its blocks rounded up to 16 (the captured _scores').
+diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
+index 417a47a8..7f7fe9dc 100644
+--- a/zig/src/families/flashnext/cuda_split_lane_test.zig
++++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
+@@ -268,6 +268,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
+     for (&r.k.native_lane.shared_down) |*f| f.* = .{ .d = &r.d, .handle = @ptrFromInt(strided_id) };
+     const Self = struct {
+         k: *parts.Kernels,
++        shared_direct: bool = false,
+         s: *parts.Scratch,
+         m: parts.Model,
+         stream: cuda.Stream,
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 4bb02adf..20d77537 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -73,6 +73,8 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (default 0: the exact kernels; N or more takes the relaxed prompt tile)" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
++    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row count (0 keeps the decode rounds' piece)" },
++    .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     // Qwen 3.5 CUDA and HIP settings, read through this table:
+     .{ .name = "TENSORFOLD_MEMORY_RESERVE_GIB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission's floor and the memory's size still bound it)" },
+     .{ .name = "TENSORFOLD_HIP_MEMORY_LIMIT_GB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission still fits its byte count in a 64-bit size)" },
+diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
+index 2ea999b5..9afac7f8 100644
+--- a/zig/src/platform/environment_test.zig
++++ b/zig/src/platform/environment_test.zig
+@@ -198,6 +198,9 @@ const valid = [_]Case{
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "0", .n = 0 },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .raw = "1024", .n = 1024 },
+     .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .raw = "1", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .raw = "1", .n = 1 },
++    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .raw = "1024", .n = 1024 },
++    .{ .name = "TF_FLASHNEXT_HEAD_PIECE", .raw = "0", .n = 0 },
+ };
+ 
+ test "environment: valid forms remain raw numbers before existing consumer clamps and defaults" {
+diff --git a/zig/tests/cuda/contract_flashnext_more.zig b/zig/tests/cuda/contract_flashnext_more.zig
+index 7421a381..cd401ef4 100644
+--- a/zig/tests/cuda/contract_flashnext_more.zig
++++ b/zig/tests/cuda/contract_flashnext_more.zig
+@@ -24,7 +24,7 @@ pub const Set = struct {
+     lanes_fns: lanes_k.Fns,
+     lanes: [4]lanes_k.Lanes,
+     glue: flash.Glue,
+-    wbnorm: [3]wbnorm_k.WbNorm,
++    wbnorm: [4]wbnorm_k.WbNorm,
+     mtp: cuda.Module,
+     hcn: *hcn_k.Set,
+     topk: topk_k.TopK,
+diff --git a/zig/tests/cuda/contract_flashnext_wbnorm.zig b/zig/tests/cuda/contract_flashnext_wbnorm.zig
+index 2f390f1..7ad5c9c 100644
+--- a/zig/tests/cuda/contract_flashnext_wbnorm.zig
++++ b/zig/tests/cuda/contract_flashnext_wbnorm.zig
+@@ -8,7 +8,7 @@
+ const c = core.contract.spec;
+ const g = core.contract.gates;
+ 
+-pub const Mode = enum { sums, moe, slices };
++pub const Mode = enum { sums, moe, slices, moe_sh };
+ 
+ const dims = 2560;
+ const streams = 4;
+@@ -22,18 +22,19 @@
+ }
+ 
+ pub fn spec(mode: Mode) c.Spec {
+-    const rule = "the written rows, their 256-column square sums and the normalized rows bit-equal to the two launches";
++    const rule = if (mode == .moe_sh) "the written rows, their 256-column square sums and the normalized rows bit-equal to mode 2's fused launch with the shared row in the last slot" else "the written rows, their 256-column square sums and the normalized rows bit-equal to the two launches";
+     return .{
+         .name = switch (mode) {
+             .sums => "cuda flashnext fn_hc_writeback_norm0 (square sums, then normalize)",
+             .moe => "cuda flashnext fn_hc_writeback_norm_moe (MoE slots written back, then normalize)",
+             .slices => "cuda flashnext fn_hc_writeback_norm_slices (K slices written back, then normalize)",
++            .moe_sh => "cuda flashnext fn_hc_writeback_norm_moe_sh (shared row in the last slot, then normalize)",
+         },
+         .accum = .none,
+         .depth = noSums,
+         .out = .raw,
+         .nan = .{ .stated = rule },
+-        .replaces = "fn_hc_writeback0 / _moe / _slices, then fn_hc_normalize",
++        .replaces = if (mode == .moe_sh) "fn_hc_writeback_norm_moe (mode 2) on the same inputs, the shared row in the last slot" else "fn_hc_writeback0 / _moe / _slices, then fn_hc_normalize",
+         .served = &.{ .{ .rows = 1, .n = dims, .k = 1 }, .{ .rows = 17, .n = dims, .k = 2 }, .{ .rows = 300, .n = dims, .k = 3 } },
+     };
+ }
+@@ -67,6 +68,7 @@
+             .sums => 0,
+             .moe => 2,
+             .slices => 4,
++            .moe_sh => 3,
+         };
+     }
+ 
+@@ -97,6 +99,10 @@
+         const scale = try a.alloc(f32, wide);
+         defer a.free(scale);
+         for (scale) |*x| x.* = 0.5 + r.float(f32);
++        // mode 3 reads the shared expert's fp32 row where mode 2 reads the last slot: the copy fn_shared_scatter makes
++        if (self.mode == .moe_sh) for (0..m) |row| {
++            @memcpy(y[(row * slots + slots - 1) * dims ..][0..dims], br[row * dims ..][0..dims]);
++        };
+         if (fill == .nonfinite) for (0..m) |row| {
+             h[row * wide + (row % streams) * dims + 3] = switch (row % 4) {
+                 0 => 0x7fc1,
+@@ -135,6 +141,11 @@
+     fn theirs(self: *WbNorm, o: []const u64) !void {
+         const p = self.split(o);
+         const m = self.shape.rows;
++        if (self.mode == .moe_sh) {
++            // the same fused launch in mode 2, its last slot holding the row mode 3 reads
++            try self.glue.hcWritebackNorm(self.rig.s, self.ins[0], p.hout, p.pss, self.ins[4], self.ins[1], self.ins[2], self.ins[3], self.ins[5], p.norm, eps, m * dims, m, dims, streams, 2, slots - 1, slots, self.shape.k);
++            return;
++        }
+         try self.glue.hcWriteback(self.rig.s, self.ins[0], p.hout, p.pss, self.ins[4], self.ins[1], self.ins[2], self.ins[3], m * dims, m, dims, streams, self.modeNumber(), slots - 1, slots, self.shape.k);
+         try self.glue.hcNormalize(self.rig.s, if (self.mode == .sums) self.ins[0] else p.hout, p.pss, self.ins[5], p.norm, eps, m, dims, streams);
+     }
+@@ -144,7 +155,7 @@
+         try self.rig.s.synchronize();
+     }
+ 
+-    /// The scratch the two launches write: the outputs' layout back to back, poisoned like them (0xff).
++    /// The scratch the replaced route writes: the outputs' layout back to back, poisoned like them (0xff).
+     fn baseline(self: *WbNorm) ![]const u8 {
+         var at = self.base;
+         var o: [3]u64 = undefined;
+@@ -167,14 +178,14 @@
+         return self.baseline();
+     }
+ 
+-    /// Gate 1's stated rule: the outputs on the planted inputs equal the two launches' bytes.
++    /// Gate 1's stated rule: the outputs on the planted inputs equal the replaced route's bytes.
+     pub fn check(self: *WbNorm, gate: g.Gate) !?[]const u8 {
+         _ = gate;
+         self.seen.clearRetainingCapacity();
+         try self.seen.appendSlice(self.rig.gpu.gpa, try self.rig.outputBytes());
+         const want = try self.baseline();
+         if (std.mem.eql(u8, self.seen.items, want)) return null;
+-        return try std.fmt.bufPrint(&self.msg, "bytes differ from the two launches' from byte {d}", .{std.mem.indexOfDiff(u8, self.seen.items, want).?});
++        return try std.fmt.bufPrint(&self.msg, "bytes differ from the expected output from byte {d}", .{std.mem.indexOfDiff(u8, self.seen.items, want).?});
+     }
+ 
+     pub fn count(self: *WbNorm) usize {

@@ -1,0 +1,52 @@
+diff --git a/docs/kernel-contract.md b/docs/kernel-contract.md
+--- a/docs/kernel-contract.md
++++ b/docs/kernel-contract.md
+@@ -86,9 +86,11 @@
+ TEXT, `--offline DIR` adds the M1/M2 compiles, and `--repro` prints the smallest input behind each known finding.
+ 
+ On a CUDA machine, build with `-Dnvcc` (the controls are compiled only then), and run `zig build kernel-contract
+--Dnvcc=/usr/local/cuda/bin/nvcc`. For the limits of every SM, `zig build fatbins kernel-contract-fatbins -Dnvcc=...
+--Dsm=80,86,89,120,121`, then `tf-cuda-test kernel-contract-limits zig-out/fatbin`. Its `RECORD` lines are the values
+-`registry.zig` holds for that build's nvcc (see [CUDA records per nvcc release](#cuda-records-per-nvcc-release)).
++-Dnvcc=/usr/local/cuda/bin/nvcc`. A family's suite alone runs as `zig build int4-contract -Dnvcc=...` (the GPTQ int4
++experts and head, its `SUMMARY` line and each control) or as `tf-cuda-test int4-contract` on a built runner. For the
++limits of every SM, `zig build fatbins kernel-contract-fatbins -Dnvcc=... -Dsm=80,86,89,120,121`, then
++`tf-cuda-test kernel-contract-limits zig-out/fatbin`. Its `RECORD` lines are the values `registry.zig` holds for that
++build's nvcc (see [CUDA records per nvcc release](#cuda-records-per-nvcc-release)).
+ 
+ For a development sm_110 build, use `-Dsm=110` in the fatbin build and run the same limits command on that set.
+ The `DIR` must contain `norms.fatbin` and every registered image; the runner reads `norms.fatbin` first to select
+diff --git a/zig/build/kernel_contract.zig b/zig/build/kernel_contract.zig
+--- a/zig/build/kernel_contract.zig
++++ b/zig/build/kernel_contract.zig
+@@ -206,5 +206,8 @@
+     const prefill_many_bench = b.addRunArtifact(runner);
+     prefill_many_bench.addArg("qmm-prefill-many-bench");
+     b.step("qmm-prefill-many-bench", "Same-process A-B-A screening for the GB10 prompt launch fusion").dependOn(&prefill_many_bench.step);
++    const int4 = b.addRunArtifact(runner);
++    int4.addArg("int4-contract");
++    b.step("int4-contract", "The GPTQ int4 experts and head through gates 1-4 on this GPU, each planted control red").dependOn(&int4.step);
+     return install;
+ }
+diff --git a/zig/tests/cuda/main.zig b/zig/tests/cuda/main.zig
+--- a/zig/tests/cuda/main.zig
++++ b/zig/tests/cuda/main.zig
+@@ -337,6 +337,7 @@
+     if (std.mem.eql(u8, cmd, "qmm-prefill-many-bench")) return qmm_prefill_many_contract.bench(gpu);
+     if (std.mem.eql(u8, cmd, "prompt-swiglu-contract")) return @import("contract_prompt_swiglu.zig").run(gpu);
+     if (std.mem.eql(u8, cmd, "prompt-swiglu-bench")) return @import("contract_prompt_swiglu.zig").bench(gpu);
++    if (std.mem.eql(u8, cmd, "int4-contract")) return @import("contract_int4.zig").run(gpu);
+     if (std.mem.eql(u8, cmd, "mtp-rows")) return @import("contract_qwen_mtp_rows.zig").alone(gpu);
+     if (std.mem.eql(u8, cmd, "qwen-pages")) return @import("contract_qwen_pages.zig").run(gpu);
+     if (std.mem.eql(u8, cmd, "qwen-shared-prefix")) return @import("contract_qwen_shared_prefix.zig").run(gpu, rest);
+diff --git a/zig/tests/cuda/main_usage.zig b/zig/tests/cuda/main_usage.zig
+--- a/zig/tests/cuda/main_usage.zig
++++ b/zig/tests/cuda/main_usage.zig
+@@ -141,6 +141,7 @@
+     \\  qmm-prefill-many-bench    same-process A-B-A screening for the GB10 launch fusion
+     \\  prompt-swiglu-contract    the lean gate/up SwiGLU pair against two products and the act kernel, controls red
+     \\  prompt-swiglu-bench       same-process A-B-A: the lean SwiGLU pair against two products and the act kernel
++    \\  int4-contract             the GPTQ int4 experts and head through gates 1-4 on this GPU, each planted control red
+     \\  mtp-rows                  tf_q36m_attn_rows: gates 1-4 (byte-equal to tf_q36m_attn a segment) and float64 alone
+     \\  qwen-pages                qwen35.cu's attention cache through a page table: paged == contiguous, float64, red controls
+     \\  qwen-shared-prefix [time] attn_rows's classes across streams on shared pages == each stream alone, red controls; time: A/B

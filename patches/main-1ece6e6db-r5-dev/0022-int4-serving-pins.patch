@@ -1,0 +1,77 @@
+diff --git a/zig/tests/fixtures/gradient-serving.tsv b/zig/tests/fixtures/gradient-serving.tsv
+index adddc9c3c..85314aeb8 100644
+--- a/zig/tests/fixtures/gradient-serving.tsv
++++ b/zig/tests/fixtures/gradient-serving.tsv
+@@ -94,7 +94,7 @@ zig/src/cuda/experts.zig	8bfc2f15a742cceba87dd7eb8e80f3f1b4e3f7eb323b557eb1bb4bf
+ zig/src/cuda/fp8.zig	a9caf312cb451dc95572b493e69ae211dd1e8b5be5b2c48cae3febd5d9327143	raw	series patches 65-pr-1024.patch; HELD: must be re-qualified by the LW device gates on the 1.1.1 candidate
+ zig/src/cuda/graph.zig	17639aaef0298c934b3f5ad3511925169c096ae57ede8ebee655faa838844f7b	raw
+ zig/src/cuda/grouped.zig	5fa1f39394b701eab59383bc7ed214ea3e17652a1229236df49f5281e6e764b5	raw	commits e1be0806d; HELD: must be re-qualified by the LW device gates on the 1.1.1 candidate
+-zig/src/cuda/kernels.zig	035a0f6efce81061d63dd8eec74bedccf2a9aadaddfbc75438580c41f0606b88	raw	main 42735f94f0 (#2335: the mla image registered), f35900e60c (#2709: the dots_mocr image registered), #1630 (the experts_bf16 image registered), #2914 (covers: the release SM check), #1631 (the nemo_audio image registered), #1767 (the idol image registered); #1295: the six Muse Spark images registered; #3413 (the flashnext_hcn image registered)
++zig/src/cuda/kernels.zig	8ea09fb6461988737b91bbcbc9a533e32205d44f5b1dce3a8f4e769177541ad9	raw	main 42735f94f0 (#2335: the mla image registered), f35900e60c (#2709: the dots_mocr image registered), #1630 (the experts_bf16 image registered), #2914 (covers: the release SM check), #1631 (the nemo_audio image registered), #1767 (the idol image registered); #1295: the six Muse Spark images registered; #3413 (the flashnext_hcn image registered)
+ zig/src/cuda/launch.zig	9ec64848834d82ddcea85a6123e975c95a5ae2bf85c2a71772244794b0bcd705	raw	series patches 14-runtime-foundation.patch; HELD: must be re-qualified by the LW device gates on the 1.1.1 candidate
+ zig/src/cuda/memory.zig	c140f1700e0f257a3ac09b1bfaa4a0d704d1922ccbffc3d453d75be0fef4b617	raw	commits 5dcf77d7c, f630f1a90, e9bf05ffd, 881cccaa4, a34cb6ded; series patches 14-runtime-foundation.patch; HELD: must be re-qualified by the LW device gates on the 1.1.1 candidate, this change (DeviceBuffer.allocVia allocates through a given hook; alloc is allocVia with the installed one, unchanged)
+ zig/src/cuda/modelopt.zig	648c9ba58197af0ce905f8792383502fc44a52c45d1413fe9e21d28d04c22253	raw
+@@ -116,11 +116,11 @@ zig/src/cuda/tp_watch.zig	19ed1d12bc56f804b5d207d04226e9f6131a517aaf7aec4c4b2d0b
+ zig/src/cuda/triton.zig	256323865c6a4676b8b75aae9e32d2d9732cf2623efedb9462cf6f95302c3e83	raw
+ zig/src/cuda/vit.zig	72c4301251f50d0f25907f0d8ad03a943281b234c506a455e413627a3ffe09c0	raw
+ zig/src/families/flashnext/cuda_attn.zig	99dfe79f919a8599490f1cdba0bec20d6e73ccbeafe26d5848419a465fdfa0d0	raw
+-zig/src/families/flashnext/cuda_batch.zig	c4e3f9ac9f1292450999560d0f5ce4957cdf9a6baa4cf87e044377aa59e1379b	raw	main 42ff6c510f (disk states keyed by the resolved prompt passes; serving unchanged); #XXXX: the scratch test's ceiling restated at the 3,072-row default, #3413 (TF_FLASHNEXT_READOUT_FUSED's prompt read-out; unchanged when unset)
+-zig/src/families/flashnext/cuda_batch_state.zig	f94fe83b1646946f8ab3e5d874fe01722faf9b152dc275bfb35cee9f10fc0556	raw	y and moe_f32 take one spare row for a --tp 2 prompt pass's padded rank block; replies unchanged; #XXXX: the default prompt chunk is 3,072 rows
++zig/src/families/flashnext/cuda_batch.zig	6e8e7a161db369cdeb2bda2544dea2b1614f93b7bf4070044b16dc618f21659a	raw	main 42ff6c510f (disk states keyed by the resolved prompt passes; serving unchanged); #XXXX: the scratch test's ceiling restated at the 3,072-row default, #3413 (TF_FLASHNEXT_READOUT_FUSED's prompt read-out; unchanged when unset)
++zig/src/families/flashnext/cuda_batch_state.zig	d1a1979aa28af4123aba46f054d8bfbf8b0f4d32323f6416c2266897a842a76c	raw	y and moe_f32 take one spare row for a --tp 2 prompt pass's padded rank block; replies unchanged; #XXXX: the default prompt chunk is 3,072 rows
+ zig/src/families/flashnext/cuda_collective.zig	bf475ffb46b3440fcad280f46e34de25cd22b79ed96a0b587d0869e7451d3519	raw	adds sumBlock, the in-place FP32 reduce-scatter with sum's peer check, deadline and abort; no served change on its own
+ zig/src/families/flashnext/cuda_compare_main.zig	ade014dfec88f0b386076cdc093ea20710d7bf36c33ff566ca2caf472064695b	raw	main dfd9ac5ef4 (#2585: the TF_FLASHNEXT_* startup check), c274b45cc1 (the check through the flashnext module)
+-zig/src/families/flashnext/cuda_config.zig	19366ee591270c719fa6f710af0efd4d5a55cfc3e30c923f5ed08771b5c14001	raw
++zig/src/families/flashnext/cuda_config.zig	598d1276723c7094aaea615751f609ff9488d409a90660c4710cf04f40db04a9	raw
+ zig/src/families/flashnext/cuda_draft_affine.zig	2ec22bec1a38a6d2cc7e16a65d41deeb452d1a679661351a473652b5f39f2da8	raw
+ zig/src/families/flashnext/cuda_embed.zig	f52cee06a9bf820554b5443e9278be7bedf3381ff6d2529902b40c6699de4518	raw
+ zig/src/families/flashnext/cuda_embed_main.zig	2b596788cccd420368fe803676e8ad45a4f0bf7a115a6cd8cbde9151cbf1e597	raw
+@@ -134,35 +134,35 @@ zig/src/families/flashnext/cuda_lanes.zig	e5d3185d73bb4b68ee76caa236a72a047d736c
+ zig/src/families/flashnext/cuda_lanes_admission_test.zig	3f34c402c7f231d088f6b1c876b48265e128b70d4202c8644fbee455f7c5df97	raw
+ zig/src/families/flashnext/cuda_lanes_load.zig	18b19ecce27f3e8701caee5ba531ac79ed24399b5e0d870328c5a29d9e417e5a	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #3467: after load a shard drops its page cache except the n-gram ranges, and the sweep reaches nested shards; tensors and replies are unchanged, this change (the load's device and io handed to the page pool's arena; paging off: unchanged)
+ zig/src/families/flashnext/cuda_lanes_restore_test.zig	76bafbf4f0cb145e02dbc278c86bce762a9d7c24eacf56cf0f03a1778ed8fc05	raw
+-zig/src/families/flashnext/cuda_launch.zig	4ed03a1e5a5b2e5ca023c8d19550f17121b1cfe4599e95d006ec05498240bc5a	raw	exports cuda_moe_exchange.zig for its device test; no served change; #2837 (Flash Next TP=2 graph replay); #3413 exports cuda_tiles.zig and readout_fused.zig for their tests
++zig/src/families/flashnext/cuda_launch.zig	b89fe79b5a3ce6698313fef4a82a0ce10a809097ee1fef8365bd9d20e67556a8	raw	exports cuda_moe_exchange.zig for its device test; no served change; #2837 (Flash Next TP=2 graph replay); #3413 exports cuda_tiles.zig and readout_fused.zig for their tests
+ zig/src/families/flashnext/cuda_media.zig	987b43b260ae8c6eeb98bd83b0a9e5e8802207c8ba2de5148d2fa1e7ed4014bc	raw
+ zig/src/families/flashnext/cuda_media_test.zig	4292f8f7c8f8bf4efd0dfaaa5a6c63e11568f85534127a0ce9feb0ab0be05120	raw
+ zig/src/families/flashnext/cuda_mix.zig	248a2a86b3f377531f5b713c408ba99f73604510f4afe34ffae52615d5863c2c	raw
+-zig/src/families/flashnext/cuda_mixed_experts.zig	d0362f591e98c2d13581ae48fb75fb7391e41558e08119c6e21e3b34c004e503	raw
++zig/src/families/flashnext/cuda_mixed_experts.zig	6a74df938ad5854be9a6f5d20da921cb2fcee979210fa9ed8876d3c270cd67c3	raw
+ zig/src/families/flashnext/cuda_mlp.zig	8224a28003487487e69eb669be11eaafafdb1ce0bc4c5e57024cef0a6a29e66f	raw
+-zig/src/families/flashnext/cuda_modelopt_experts.zig	de779975629770b33ad5c0ebf9aa6e334f7a98f173a452d2b7c33b50a08d968e	raw
++zig/src/families/flashnext/cuda_modelopt_experts.zig	e178cd50aaa2b4531f54e01e5f4ef57aa84571871f508b0e8c2f4ba0db5bcc51	raw
+ zig/src/families/flashnext/cuda_moe.zig	87ba75343c1d228800ed9fcc6d933f1175df172c008e14a8c7a64ff7011bed44	raw
+-zig/src/families/flashnext/cuda_mtp.zig	9ba55a30ecefc06a9c8459b87baac78ac2c5d148595e1c15a46e441be79e7a23	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #2927
++zig/src/families/flashnext/cuda_mtp.zig	2f7273781b97c2f1ceb9a7ecac6104c0e9934b7c8afb2b6ab6e5d7d8782053f5	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #2927
+ zig/src/families/flashnext/cuda_mtp_check.zig	fb426202a42133aacb5ae6bd192cf2e3917025eecf2c58634129096326bcbe84	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
+ zig/src/families/flashnext/cuda_mtp_draft.zig	ad32587c056ff0a723ad440f08ff6dd33c20811fe8e655d6c5ea1657e789af3c	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), 52479d3036 (#2585: a test of the blank TF_FLASHNEXT_KEEP_LATE reader)
+-zig/src/families/flashnext/cuda_mtp_load.zig	08b026299e0b61a515f9b7fcfe51b18894be5ed325d787b9cd0896bdc046e582	raw
++zig/src/families/flashnext/cuda_mtp_load.zig	0c09c792c9e50fb19f41eff7be3c6485c2fd7a6fd426cecff1141560f3bf4298	raw
+ zig/src/families/flashnext/cuda_mtp_ops.zig	c28c14f1ce8d63532bcf70e2aa6ba1951f0e178e33f0930ec888cc8b86947e9b	raw	main 4b2679bf9 (grouped draft head carries its page table), 4f6017ced, ec76abd45 (reserveRows), 80e0fd72c, c6a337753 (#2753: verify rows checked after one completion wait, non-finite rows refused; finite rows unchanged), #2927
+ zig/src/families/flashnext/cuda_norms.zig	c6ca7f9c1a9049c0f9d512fe2a38c2672a2e96b5c060d6cec2bca0d39e34bad0	raw
+-zig/src/families/flashnext/cuda_ple.zig	3c9d297cea926415187951348218b35181df81a3d74f580e49a6a0d8c128df58	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
++zig/src/families/flashnext/cuda_ple.zig	5d11b5a7de4846186de1f15c342d7c7f0ae2d991907c7e36b01f5b58eb0c01b0	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
+ zig/src/families/flashnext/cuda_ple_check.zig	e8b7cac1e0d3718f106482f6cff7375c0063e1757c46814bd40da435c83ba8ed	raw
+ zig/src/families/flashnext/cuda_ple_nvfp4_test.zig	8010c5a68719dc3f939c7db3a33cf07c614bcb4711eb1ababad01966b7c33b1a	raw
+-zig/src/families/flashnext/cuda_projection.zig	ac939ad53447ae05d81c1c4fcf8732ff052127958a7e32469c6fff6413be1ed0	raw
+-zig/src/families/flashnext/cuda_projection_load.zig	335fb41717d28673c3d58e01627e61d37d5e14cf40722335677dc2d994c73916	raw
++zig/src/families/flashnext/cuda_projection.zig	a8db613df53ce3d70f4ae452632390423dfbe5729a58fefee25e4ad116e0ef16	raw
++zig/src/families/flashnext/cuda_projection_load.zig	32e39526ba30d3d119a6d2ea12c09d76ddad5e1272f88ed3182b7f1c1b9fe52d	raw
+ zig/src/families/flashnext/cuda_projection_load_test.zig	bcbd6ed2753c863916a2163d1cf72544429c776365702e860f52cd22449354a1	raw
+-zig/src/families/flashnext/cuda_prompt.zig	31bc78fe67d28fafd96bb7968dfaccc777026d7b5bfdba0a674cc23239730426	raw
+-zig/src/families/flashnext/cuda_prompt_load.zig	334d68cfca85c15c9d986d0c6b4f8f2a38569309b21bdac6d365935d73c115cd	raw
++zig/src/families/flashnext/cuda_prompt.zig	2c1a5c86a8891e1d6066454dc2caa5c5aa8a7c60d4bdad439d907514ece2ff07	raw
++zig/src/families/flashnext/cuda_prompt_load.zig	5132fa42058a021bf495b6cc879c31643e6f25d6e0bfd02068ffb01d1d3ef675	raw
+ zig/src/families/flashnext/cuda_prompt_main.zig	2543cd166dc80cd97b1ca1ce930a6150f9d36b52ee231744606f83bf54f0669d	raw	main dfd9ac5ef4 (#2585: the TF_FLASHNEXT_* startup check), c274b45cc1 (the check through the flashnext module)
+-zig/src/families/flashnext/cuda_prompt_step.zig	e04030fb4a4fdb8780704a1bc0b5ba4b786159ab08a927fe32a636a893129d0c	raw
+-zig/src/families/flashnext/cuda_prompt_wt.zig	e6ecef08402f6b84dec7f31a10f846b5d46c19224d5d9ddafbc3d9e4e1820f50	raw	#3467: after load a shard drops its page cache except the n-gram ranges, and the sweep reaches nested shards; tensors and replies are unchanged#3413 (an MLX affine read-out refuses TF_FLASHNEXT_READOUT_FUSED=1 by name; unchanged when unset)
++zig/src/families/flashnext/cuda_prompt_step.zig	df47388a65fd1b79d91418cde75857cc00bde38dd543e82689eabd71a72368fa	raw
++zig/src/families/flashnext/cuda_prompt_wt.zig	7605032f9454755990fae1baa52b0cf85ec20b04d6f319be589d501e654e326c	raw	#3467: after load a shard drops its page cache except the n-gram ranges, and the sweep reaches nested shards; tensors and replies are unchanged#3413 (an MLX affine read-out refuses TF_FLASHNEXT_READOUT_FUSED=1 by name; unchanged when unset)
+ zig/src/families/flashnext/cuda_qmm.zig	6d035feb053691cc9750a369c86a5463d41ed942764ad85b861bb628c106dccf	raw
+ zig/src/families/flashnext/cuda_rank_engine.zig	df6a83bcf80edfd94ac4474dbbc2e73818d40b7532430399af73f2eb95ccfa33	raw
+ zig/src/families/flashnext/cuda_rank_media.zig	e5c268c8cf257934bb49fe401ba6213ea8b108258bbfd4d06edb990d568c3c2b	raw
+-zig/src/families/flashnext/cuda_rank_memory.zig	072954f4e2e9d6ea66124a209d20a1fa1c7ed391e501310d41880f11ce61ada8	raw
++zig/src/families/flashnext/cuda_rank_memory.zig	cf521ec6d5a7ca6d1bb083244cf29ede49bf39aac298d933fe3d663f4a63e2be	raw
+ zig/src/families/flashnext/cuda_rank_wire.zig	ee1ea4202cb6b383e03a3c909d002fbdefb8fee469cae1440714e51291aa30a4	raw
+ zig/src/families/flashnext/cuda_round_graph.zig	7fa3a54e93c81de36cf3962d0a68eb72a7dd81b8869f47b6d9ed8b9a6cc325cd	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
+ zig/src/families/flashnext/cuda_rows.zig	735fc8915036e47d09f533f4e5948e5fc4b61556172ebe2c6bfdaad3e0373216	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)

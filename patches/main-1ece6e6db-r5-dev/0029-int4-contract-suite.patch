@@ -1,0 +1,1671 @@
+diff --git a/docs/kernel-contract.md b/docs/kernel-contract.md
+--- a/docs/kernel-contract.md
++++ b/docs/kernel-contract.md
+@@ -469,6 +469,16 @@
+ one dropping a last round of K groups short of the warps, one chaining the groups in reverse).
+ CUDA also checks Flash Next's NVFP4 experts on prompt tiles with the decode form's sums (SwiGLU gate-up and fp32
+ down, each bit-equal to the decode instance it replaces; the scaled-code prompt tile is the planted control).
++CUDA also checks Flash Next's GPTQ int4 experts and head (`fn_int4.cu`, `zig/tests/cuda/contract_int4.zig`) at the
++checkpoint's widths: gate/up with SwiGLU, down to fp32 and bf16, the head's dense rows and the two prompt forms
++bit-equal to the plain ones, each output against float64 at the weights `qweight` and the fp16 scales store. A gate/up
++output's allowance is derived from its own epilogue (`int4_ref.zig`): the two fp32 sums through silu's slope and the up
++value, then bf(g), bf(u), bf(silu) and the store, each at its own value's size, and the silu 0 that expf's fp32
++overflow leaves where float64 keeps a denormal-sized value. Gate 4's bf16 proof of that epilogue stops at
++1 / (4.1 u) = 62x, because a mirrored row cancels exactly in the halves order, so the registration states 60. Two
++controls: a group sum rounded to bf16 before its scale (gate 4), and a head whose words are packed unshuffled (gate 3).
++A plan whose shared expert's slot is skipped must leave those rows untouched. nvcc 13.3's usage of its 21 launches is in
++`measurements/pending_133.zig`; a 13.0 record stays pending.
+ CUDA also checks the bf16 experts (`experts_bf16.cu`, a checkpoint's own bf16 weights: Nemotron 3.5 Transcribe's routed
+ and shared experts): relu^2 up, fp32 down and bf16 down, in the decode and prompt forms, against float64 (two controls:
+ the fp32 down launched one 32-input group short, and a down summing in bf16). nvcc 13.2's prompt forms and 13.3's
+diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
+--- a/zig/build/cuda.zig
++++ b/zig/build/cuda.zig
+@@ -282,6 +282,7 @@
+     shard_tests.addImport("living", mods.living);
+     b.step("test-living-shards-host", "Quantized save and reopen through actual shard writer").dependOn(&b.addRunArtifact(b.addTest(.{ .root_module = shard_tests })).step);
+     @import("cuda_contract_host.zig").steps(b, host, cuda, mods, step);
++    @import("cuda_int4_host.zig").steps(b, host, cuda, mods.core);
+     const bolt = b.step("test-bolt-host", "Nemotron Bolt and shared lane host contracts");
+     const cuda_target = b.resolveTargetQuery(.{ .cpu_arch = host.result.cpu.arch, .os_tag = .linux, .abi = .gnu });
+     const check_cuda = runtime(b, cuda_target, .debug, &.{});
+diff --git a/zig/build/cuda_int4_host.zig b/zig/build/cuda_int4_host.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/build/cuda_int4_host.zig
+@@ -0,0 +1,21 @@
++//! The GPTQ int4 host tests: the packer, the stored codes, the binary64 reference and the epilogue's allowance.
++const std = @import("std");
++
++/// `test-int4-host` over the cuda module's `int4:` tests and the contract's derived allowance, and `test-cuda-host`.
++pub fn steps(b: *std.Build, host: std.Build.ResolvedTarget, cuda: *std.Build.Module, core: *std.Build.Module) void {
++    const step = b.step("test-int4-host", "The GPTQ int4 packer, its stored codes and the binary64 reference (cuda/int4.zig)");
++    const run = b.addRunArtifact(b.addTest(.{ .root_module = cuda, .filters = &.{"int4:"} }));
++    step.dependOn(&run.step);
++    const allow = b.addRunArtifact(b.addTest(.{ .root_module = b.createModule(.{
++        .root_source_file = b.path("zig/tests/cuda/int4_ref.zig"),
++        .target = host,
++        .optimize = .debug,
++        .link_libc = true,
++        .imports = &.{.{ .name = "core", .module = core }},
++    }) }));
++    step.dependOn(&allow.step);
++    if (b.top_level_steps.get("test-cuda-host")) |all| {
++        all.step.dependOn(&run.step);
++        all.step.dependOn(&allow.step);
++    }
++}
+diff --git a/zig/kernels/cuda/contract_controls_set.cu b/zig/kernels/cuda/contract_controls_set.cu
+--- a/zig/kernels/cuda/contract_controls_set.cu
++++ b/zig/kernels/cuda/contract_controls_set.cu
+@@ -8,3 +8,4 @@
+ #include "contract_idol_controls.cuh"
+ #include "contract_embed_controls.cuh"
+ #include "contract_hcn_controls.cuh"
++#include "contract_int4_controls.cuh"
+diff --git a/zig/kernels/cuda/contract_int4_controls.cuh b/zig/kernels/cuda/contract_int4_controls.cuh
+new file mode 100644
+--- /dev/null
++++ b/zig/kernels/cuda/contract_int4_controls.cuh
+@@ -0,0 +1,39 @@
++// Gate 4's control for fn_int4.cu: the routed down with each group's sum rounded to bf16 before its scale.
++#pragma once
++
++extern "C" __global__ void tf_ctl_int4_bf16_sums(const __nv_bfloat16* X, int x_stride, int slots, const uint32_t* W,
++                                                const __half* S, int K, int N, const int* items,
++                                                const int* counts, const int* members, int rows, float* out,
++                                                int out_stride, float limit, int skip) {
++  const int col = blockIdx.x * blockDim.x + threadIdx.x;
++  if (col >= N) return;
++  const int KG = K / 128, nt = col / 8, lane = 4 * (col % 8);
++  const size_t mat_words = (size_t)N * K / 8, mat_scales = (size_t)N * KG;
++  for (int it = 0; it < __ldg(counts); ++it) {
++    const int e = __ldg(items + 3 * it), first = __ldg(items + 3 * it + 1), cnt = __ldg(items + 3 * it + 2);
++    if (e == skip) continue;
++    const uint32_t* w = W + (size_t)e * mat_words;
++    const __half* s = S + (size_t)e * mat_scales;
++    for (int i = 0; i < cnt; ++i) {
++      const int p = __ldg(members + first + i);
++      const int xr = slots ? p / slots : p;
++      float acc = 0.0f;
++      for (int g = 0; g < KG; ++g) {
++        float sum = 0.0f;
++        for (int b = 0; b < 4; ++b)
++          for (int t = 0; t < 4; ++t) {
++            const uint32_t word = w[((size_t)(nt * KG + g) * 32 + lane + t) * 4 + b];
++            for (int j = 0; j < 8; ++j) {
++              const int nib = (j % 2 == 0) ? j / 2 : j / 2 + 4;
++              const int code = (word >> (4 * nib)) & 0xF;
++              const float x = tf_ctl_x(X, (int64_t)xr * x_stride + g * 128 + b * 32 + 8 * t + j);
++              sum += (float)(code - 8) * x;
++            }
++          }
++        const float sc = __half2float(s[(size_t)(nt * KG + g) * 8 + (col % 8)]);
++        acc = fmaf(__bfloat162float(__float2bfloat16_rn(sum)), sc, acc);
++      }
++      out[(size_t)p * out_stride + col] = acc;
++    }
++  }
++}
+diff --git a/zig/src/core/contract/int4_records.zig b/zig/src/core/contract/int4_records.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/src/core/contract/int4_records.zig
+@@ -0,0 +1,74 @@
++//! The int4 launches (fn_int4.cu): every kept instantiation; nvcc 13.3's usage in pending_133.zig, 13.0 pending.
++const std = @import("std");
++const registry = @import("registry.zig");
++const limits = @import("limits.zig");
++
++/// The group AutoGPTQ stores and the kernel reads.
++pub const group = 128;
++/// The prompt kernel's dynamic shared memory: 2 stages of (64 rows, 16 n8 tiles, one matrix).
++pub const prompt_down_smem = 49664;
++/// The routed gate/up's: 3 stages of (64 rows, 16 n8 tiles, two matrices).
++pub const prompt_gu_smem = 99840;
++
++fn kernel(comptime nt: usize, comptime mt: usize, comptime mats: usize, comptime epi: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int411int4_kernelILi{d}ELi{d}ELi{d}ELi{d}ELi{d}ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", .{ group, nt, mt, mats, epi });
++}
++
++fn prompt(comptime mats: usize, comptime epi: usize, comptime st: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi{d}ELi{d}ELi{d}ELi2ELi4ELi2ELi4ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ group, mats, epi, st });
++}
++
++/// What the loader launches: a warp a unit (128 threads) for int4_kernel, a block a 64-row item (256) for the prompts.
++fn row(comptime kind: []const u8, comptime nt: usize, comptime mt: usize, comptime mats: usize, comptime epi: usize) registry.CudaRecord {
++    return .{ .launch = .{ .name = std.fmt.comptimePrint("fn_int4 {s} nt {d} mt {d}", .{ kind, nt, mt }), .symbol = kernel(nt, mt, mats, epi), .image = "fn_int4", .threads = 128, .min_sm = 80 }, .usage = registry.none };
++}
++
++/// Every instantiation the module resolves, each unmeasured until a compiler receipt fills its usage.
++pub const records = [_]registry.CudaRecord{
++    row("gate-up SwiGLU", 1, 1, 2, 2),
++    row("gate-up SwiGLU", 2, 1, 2, 2),
++    row("gate-up SwiGLU", 4, 1, 2, 2),
++    row("gate-up SwiGLU", 1, 2, 2, 2),
++    row("gate-up SwiGLU", 2, 2, 2, 2),
++    row("gate-up SwiGLU", 4, 2, 2, 2),
++    row("down fp32", 1, 1, 1, 0),
++    row("down fp32", 2, 1, 1, 0),
++    row("down fp32", 4, 1, 1, 0),
++    row("down fp32", 1, 2, 1, 0),
++    row("down fp32", 2, 2, 1, 0),
++    row("down fp32", 4, 2, 1, 0),
++    row("down bf16", 1, 1, 1, 3),
++    row("down bf16", 2, 1, 1, 3),
++    row("down bf16", 4, 1, 1, 3),
++    row("down bf16", 1, 2, 1, 3),
++    row("down bf16", 2, 2, 1, 3),
++    row("down bf16", 4, 2, 1, 3),
++    .{ .launch = .{ .name = "fn_int4 prompt down fp32", .symbol = prompt(1, 0, 2), .image = "fn_int4", .threads = 256, .dynamic = prompt_down_smem, .opt_in = true, .min_sm = 80 }, .usage = registry.none },
++    .{ .launch = .{ .name = "fn_int4 prompt down bf16", .symbol = prompt(1, 3, 2), .image = "fn_int4", .threads = 256, .dynamic = prompt_down_smem, .opt_in = true, .min_sm = 80 }, .usage = registry.none },
++    .{ .launch = .{ .name = "fn_int4 prompt gate-up SwiGLU", .symbol = prompt(2, 2, 3), .image = "fn_int4", .threads = 256, .dynamic = prompt_gu_smem, .opt_in = true, .min_sm = 80 }, .usage = registry.none },
++};
++
++test "int4: every kept instantiation is declared once, unmeasured and inside the block's shared memory" {
++    for (records, 0..) |r, i| {
++        for (records[i + 1 ..]) |t| try std.testing.expect(!std.mem.eql(u8, r.launch.symbol, t.launch.symbol));
++        try std.testing.expectEqualDeep(registry.none, r.usage);
++        // a missing receipt is one problem on each of the five recorded SMs
++        try std.testing.expectEqual(limits.sms.len, try registry.checkCuda(std.testing.allocator, &.{r}, true));
++        try std.testing.expectEqual(registry.TargetDecision.applicable, registry.targetDecision(r, limits.sms[0], r.usage[0]));
++        try std.testing.expect(r.launch.dynamic <= limits.sms[4].smem_optin);
++    }
++}
++
++test "int4: the symbol scheme is the module's own" {
++    // the seven template arguments cuda/int4_test.zig pins a compiler's mangling of, as symbol sets of the records
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi4ELi1ELi2ELi2ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", records[2].launch.symbol);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi2ELi2ELi1ELi0ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", records[10].launch.symbol);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi1ELi1ELi1ELi3ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", records[12].launch.symbol);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi1ELi0ELi2ELi4ELi2ELi4ELi2EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", records[18].launch.symbol);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi1ELi3ELi2ELi4ELi2ELi4ELi2EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", records[19].launch.symbol);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi2ELi2ELi2ELi4ELi2ELi4ELi3EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", records[20].launch.symbol);
++    // and the order the loader expects: three epilogues of six, then the two prompt downs and the prompt gate/up
++    try std.testing.expectEqual(@as(usize, 21), records.len);
++    for (records[0..6]) |r| try std.testing.expect(std.mem.indexOf(u8, r.launch.symbol, "ELi2ELi2ELi4EEEv") != null);
++    for (records[12..18]) |r| try std.testing.expect(std.mem.indexOf(u8, r.launch.symbol, "ELi1ELi3ELi4EEEv") != null);
++}
+diff --git a/zig/src/core/contract/measurements/pending_133.zig b/zig/src/core/contract/measurements/pending_133.zig
+--- a/zig/src/core/contract/measurements/pending_133.zig
++++ b/zig/src/core/contract/measurements/pending_133.zig
+@@ -68,4 +68,25 @@
+     .{ .name = "mla tf_mla_rope", .usage = .{ .{ .regs = 26, .static = 0, .bound = 32 }, .{ .regs = 26, .static = 0, .bound = 32 }, .{ .regs = 26, .static = 0, .bound = 32 }, .{ .regs = 22, .static = 0, .bound = 32 }, .{ .regs = 22, .static = 0, .bound = 32 } } },
+     .{ .name = "mla tf_mla_gate", .usage = .{ .{ .regs = 16, .static = 0, .bound = 0 }, .{ .regs = 16, .static = 0, .bound = 0 }, .{ .regs = 16, .static = 0, .bound = 0 }, .{ .regs = 12, .static = 0, .bound = 0 }, .{ .regs = 12, .static = 0, .bound = 0 } } },
+     .{ .name = "exl3_experts tf_exl3_plan_finish_after", .usage = .{ .{ .regs = 40, .static = 0, .bound = 0 }, .{ .regs = 40, .static = 0, .bound = 0 }, .{ .regs = 40, .static = 0, .bound = 0 }, .{ .regs = 40, .static = 0, .bound = 0 }, .{ .regs = 40, .static = 0, .bound = 0 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 1 mt 1", .usage = .{ .{ .regs = 141, .static = 0, .bound = 128 }, .{ .regs = 141, .static = 0, .bound = 128 }, .{ .regs = 141, .static = 0, .bound = 128 }, .{ .regs = 150, .static = 0, .bound = 128 }, .{ .regs = 150, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 2 mt 1", .usage = .{ .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 168, .static = 0, .bound = 128 }, .{ .regs = 168, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 4 mt 1", .usage = .{ .{ .regs = 246, .static = 0, .bound = 128 }, .{ .regs = 246, .static = 0, .bound = 128 }, .{ .regs = 246, .static = 0, .bound = 128 }, .{ .regs = 252, .static = 0, .bound = 128 }, .{ .regs = 252, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 1 mt 2", .usage = .{ .{ .regs = 226, .static = 0, .bound = 128 }, .{ .regs = 226, .static = 0, .bound = 128 }, .{ .regs = 226, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 2 mt 2", .usage = .{ .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 gate-up SwiGLU nt 4 mt 2", .usage = .{ .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 1 mt 1", .usage = .{ .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 122, .static = 0, .bound = 128 }, .{ .regs = 122, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 2 mt 1", .usage = .{ .{ .regs = 126, .static = 0, .bound = 128 }, .{ .regs = 139, .static = 0, .bound = 128 }, .{ .regs = 139, .static = 0, .bound = 128 }, .{ .regs = 148, .static = 0, .bound = 128 }, .{ .regs = 148, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 4 mt 1", .usage = .{ .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 166, .static = 0, .bound = 128 }, .{ .regs = 166, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 1 mt 2", .usage = .{ .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 186, .static = 0, .bound = 128 }, .{ .regs = 186, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 2 mt 2", .usage = .{ .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down fp32 nt 4 mt 2", .usage = .{ .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 1 mt 1", .usage = .{ .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 118, .static = 0, .bound = 128 }, .{ .regs = 122, .static = 0, .bound = 128 }, .{ .regs = 122, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 2 mt 1", .usage = .{ .{ .regs = 126, .static = 0, .bound = 128 }, .{ .regs = 139, .static = 0, .bound = 128 }, .{ .regs = 139, .static = 0, .bound = 128 }, .{ .regs = 148, .static = 0, .bound = 128 }, .{ .regs = 148, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 4 mt 1", .usage = .{ .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 164, .static = 0, .bound = 128 }, .{ .regs = 166, .static = 0, .bound = 128 }, .{ .regs = 166, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 1 mt 2", .usage = .{ .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 198, .static = 0, .bound = 128 }, .{ .regs = 187, .static = 0, .bound = 128 }, .{ .regs = 187, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 2 mt 2", .usage = .{ .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 227, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 down bf16 nt 4 mt 2", .usage = .{ .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 }, .{ .regs = 255, .static = 0, .bound = 128 } } },
++    .{ .name = "fn_int4 prompt down fp32", .usage = .{ .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 126, .static = 512, .bound = 256 }, .{ .regs = 126, .static = 512, .bound = 256 } } },
++    .{ .name = "fn_int4 prompt down bf16", .usage = .{ .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 152, .static = 512, .bound = 256 }, .{ .regs = 126, .static = 512, .bound = 256 }, .{ .regs = 126, .static = 512, .bound = 256 } } },
++    .{ .name = "fn_int4 prompt gate-up SwiGLU", .usage = .{ .{ .regs = 226, .static = 512, .bound = 256 }, .{ .regs = 226, .static = 512, .bound = 256 }, .{ .regs = 226, .static = 512, .bound = 256 }, .{ .regs = 230, .static = 512, .bound = 256 }, .{ .regs = 230, .static = 512, .bound = 256 } } },
+ };
+diff --git a/zig/src/core/contract/registry_joins.zig b/zig/src/core/contract/registry_joins.zig
+--- a/zig/src/core/contract/registry_joins.zig
++++ b/zig/src/core/contract/registry_joins.zig
+@@ -45,6 +45,7 @@
+     @import("experts_bf16_records.zig").cuda_133;
+ pub const cuda_pending = @import("qwen_whole_records.zig").records ++
+     @import("flashnext_tile_records.zig").pending ++
++    @import("int4_records.zig").records ++
+     @import("exl3_prompt_pending.zig").records ++
+     @import("nemotron_draw_records.zig").records ++
+     @import("cuda_lane_pending.zig").records ++
+diff --git a/zig/src/cuda/int4.zig b/zig/src/cuda/int4.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/src/cuda/int4.zig
+@@ -0,0 +1,387 @@
++//! GPTQ int4 routed experts and lm_head from AutoGPTQ v1 qweight int32 [K/8, N], fp16 scales and qzeros all 7.
++const std = @import("std");
++const module_ = @import("module.zig");
++const driver = @import("driver.zig");
++const launch_ = @import("launch.zig");
++const stream_ = @import("stream.zig");
++const kernels = @import("kernels.zig");
++const grouped = @import("grouped.zig");
++
++/// The group AutoGPTQ stores and this kernel reads.
++pub const checkpoint_group: usize = 128;
++/// Pairs an item of a decode plan holds.
++pub const plan_tile: usize = 16;
++/// Pairs an item of a prompt plan holds, for the paired and the prompt kernels alike.
++pub const prompt_tile: usize = 64;
++
++/// One layer's routed experts: up = [E][gate, up] and down = [E] packed matrices with their scales.
++pub const Experts = struct {
++    up: u64 = 0,
++    up_s: u64 = 0,
++    down: u64 = 0,
++    down_s: u64 = 0,
++    /// the intermediate width (gate/up outputs, down inputs)
++    width: u32 = 0,
++    dims: u32 = 0,
++};
++
++/// One packed matrix [n outputs, k inputs] (the head).
++pub const Mat = struct { w: u64 = 0, s: u64 = 0, n: u32 = 0, k: u32 = 0 };
++
++/// Words a packed [n, k] matrix holds (8 codes a word).
++pub fn wordsOf(n: usize, k: usize) usize {
++    return n * k / 8;
++}
++
++/// fp16 scales a packed [n, k] matrix holds: one a group of 128 inputs and output column.
++pub fn scalesOf(n: usize, k: usize) usize {
++    return n * (k / checkpoint_group);
++}
++
++/// A GPTQ word's eight codes (input j at nibble j) reordered for the kernel: nibble i = 2i and i + 4 = 2i + 1.
++pub fn shuffle(w: u32) u32 {
++    var out: u32 = 0;
++    inline for (0..4) |i| {
++        out |= ((w >> (8 * i)) & 0xF) << (4 * i);
++        out |= ((w >> (8 * i + 4)) & 0xF) << (4 * (i + 4));
++    }
++    return out;
++}
++
++/// One checkpoint matrix: qweight int32 [k_full / 8, n_full] and scales fp16 [k_full / 128, n_full], little-endian.
++pub const Source = struct { qweight: []const u8, scales: []const u8, n_full: usize, k_full: usize };
++
++/// Columns [n0, n0 + n) and inputs [k0, k0 + k) of a Source, in groups of `gs` inputs.
++pub const Slice = struct { n0: usize, n: usize, k0: usize, k: usize, gs: usize };
++
++/// A slice the kernel takes: groups of 128 inside the source's groups of 128, whole n8 tiles, in bounds.
++pub fn checkSlice(src: Source, sl: Slice) !void {
++    if (sl.gs != checkpoint_group) return error.BadSlice;
++    if (sl.n == 0 or sl.k == 0 or sl.n % 8 != 0 or sl.k % sl.gs != 0 or sl.k0 % sl.gs != 0) return error.BadSlice;
++    if (sl.n0 + sl.n > src.n_full or sl.k0 + sl.k > src.k_full or src.k_full % checkpoint_group != 0) return error.BadSlice;
++    if (src.qweight.len != src.k_full / 8 * src.n_full * 4 or src.scales.len != src.k_full / checkpoint_group * src.n_full * 2) return error.BadLength;
++}
++
++/// Columns [n0, n0 + n) and inputs [k0, k0 + k) of `src` in the kernel's word order: [n/8][k/gs][32][gs/32].
++pub fn packWords(src: Source, sl: Slice, out: []u32) !void {
++    try checkSlice(src, sl);
++    if (out.len != wordsOf(sl.n, sl.k)) return error.BadLength;
++    const kg = sl.k / sl.gs;
++    const per = sl.gs / 32;
++    var at: usize = 0;
++    for (0..sl.n / 8) |nt| for (0..kg) |g| for (0..32) |lane| {
++        const col = sl.n0 + nt * 8 + lane / 4;
++        const t = lane % 4;
++        for (0..per) |b| {
++            const kp = (sl.k0 + g * sl.gs + b * 32) / 8 + t;
++            out[at] = shuffle(std.mem.readInt(u32, src.qweight[(kp * src.n_full + col) * 4 ..][0..4], .little));
++            at += 1;
++        }
++    };
++}
++
++/// The scales of the same slice: fp16 bits [n/8][k/gs][8].
++pub fn packScales(src: Source, sl: Slice, out: []u16) !void {
++    try checkSlice(src, sl);
++    const kg = sl.k / sl.gs;
++    if (out.len != scalesOf(sl.n, sl.k)) return error.BadLength;
++    var at: usize = 0;
++    for (0..sl.n / 8) |nt| for (0..kg) |g| for (0..8) |c| {
++        const col = sl.n0 + nt * 8 + c;
++        const row = (sl.k0 + g * sl.gs) / checkpoint_group;
++        out[at] = std.mem.readInt(u16, src.scales[(row * src.n_full + col) * 2 ..][0..2], .little);
++        at += 1;
++    };
++}
++
++/// AutoGPTQ v1 symmetric zero points: every nibble of qzeros [k_full / 128, n_full / 8] is 7 (8 minus one).
++pub fn zerosAreSymmetric(qzeros: []const u8) bool {
++    var i: usize = 0;
++    while (i + 8 <= qzeros.len) : (i += 8) if (std.mem.readInt(u64, qzeros[i..][0..8], .little) != 0x7777777777777777) return false;
++    while (i < qzeros.len) : (i += 1) if (qzeros[i] != 0x77) return false;
++    return true;
++}
++
++/// Code q of input k, column n of `src` (0..15; the weight is (q - 8) * scale).
++pub fn code(src: Source, n: usize, k: usize) u4 {
++    const w = std.mem.readInt(u32, src.qweight[((k / 8) * src.n_full + n) * 4 ..][0..4], .little);
++    return @intCast((w >> @intCast(4 * (k % 8))) & 0xF);
++}
++
++/// The fp16 scale of input k's group, column n, widened to f32.
++pub fn scale(src: Source, n: usize, k: usize) f32 {
++    const h: f16 = @bitCast(std.mem.readInt(u16, src.scales[((k / checkpoint_group) * src.n_full + n) * 2 ..][0..2], .little));
++    return @floatCast(h);
++}
++
++/// The dequantized weight of input k, column n: (q - 8) * scale, exact in fp32.
++pub fn weight(src: Source, n: usize, k: usize) f32 {
++    return @as(f32, @floatFromInt(@as(i32, code(src, n, k)) - 8)) * scale(src, n, k);
++}
++
++/// The same weight in binary64, the reference the device test compares against: both factors are exact.
++pub fn weight64(src: Source, n: usize, k: usize) f64 {
++    const s: f64 = @floatCast(scale(src, n, k));
++    return @as(f64, @floatFromInt(@as(i32, code(src, n, k)) - 8)) * s;
++}
++
++// ---- the kernels -------------------------------------------------------------------------------------------------
++
++pub const warps = 4;
++/// The three epilogues int4_kernel is built for: gate/up SwiGLU, down to fp32, down to bf16.
++const n_kinds = 3;
++pub const nts = [_]usize{ 1, 2, 4 };
++/// Row tiles of 16 a pass: 1 (decode), 2 (prompt items of up to 64 pairs).
++pub const mts = [_]usize{ 1, 2 };
++
++fn symbol(comptime gs: usize, comptime nt: usize, comptime mt: usize, comptime mats: usize, comptime epi: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int411int4_kernelILi{d}ELi{d}ELi{d}ELi{d}ELi{d}ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", .{ gs, nt, mt, mats, epi });
++}
++
++const kinds = [n_kinds]struct { mats: usize, epi: usize }{
++    .{ .mats = 2, .epi = 2 }, .{ .mats = 1, .epi = 0 }, .{ .mats = 1, .epi = 3 },
++};
++
++/// Every kept int4_kernel instantiation: [kind][n8 tiles a warp][row tiles a pass], groups of 128 inputs.
++pub const symbols = blk: {
++    var out: [n_kinds][nts.len][mts.len][:0]const u8 = undefined;
++    for (kinds, 0..) |k, i| for (nts, 0..) |nt, j| for (mts, 0..) |mt, q| {
++        out[i][j][q] = symbol(checkpoint_group, nt, mt, k.mats, k.epi);
++    };
++    break :blk out;
++};
++
++const prompt_threads = 256;
++/// Stages the prompt kernel keeps in flight by output type: fp32 out, bf16 out.
++const prompt_stages = [2]usize{ 2, 2 };
++
++fn promptSymbol(comptime gs: usize, comptime epi: usize, comptime st: usize) [:0]const u8 {
++    return std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi{d}ELi1ELi{d}ELi2ELi4ELi2ELi4ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ gs, epi, st });
++}
++
++/// The routed down of a prompt call: a block an (item of up to 64 pairs, 128 columns), 8 warps, by output type.
++pub const prompt_symbols = [2][:0]const u8{ promptSymbol(checkpoint_group, 0, 2), promptSymbol(checkpoint_group, 3, 2) };
++
++/// The routed gate/up of a prompt call: {row warps, column warps, row tiles a warp, n8 tiles a warp, stages}.
++pub const PromptGu = struct { wr: usize, wc: usize, rt: usize, wn: usize, stages: usize };
++pub const prompt_gu: PromptGu = .{ .wr = 2, .wc = 4, .rt = 2, .wn = 4, .stages = 3 };
++
++pub const prompt_gu_symbol = std.fmt.comptimePrint("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi2ELi2ELi{d}ELi{d}ELi{d}ELi{d}ELi{d}EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", .{ prompt_gu.wr, prompt_gu.wc, prompt_gu.rt, prompt_gu.wn, prompt_gu.stages });
++
++/// int4_prompt_kernel's dynamic shared memory: stages x (rows of a group, each matrix's words and scales).
++pub fn promptSmemOf(mats: usize, br: usize, bt: usize, stages: usize) u32 {
++    const gs = checkpoint_group;
++    return @intCast(stages * (br * gs * 2 + mats * bt * 32 * (gs / 32) * 4 + mats * bt * 16));
++}
++
++/// The routed down's shared memory: `prompt_tile` rows, 16 n8 tiles, one matrix.
++pub fn promptSmem(stages: usize) u32 {
++    return promptSmemOf(1, prompt_tile, 16, stages);
++}
++
++pub fn promptGuRows(p: PromptGu) usize {
++    return p.wr * p.rt * 16;
++}
++pub fn promptGuTiles(p: PromptGu) usize {
++    return p.wc * p.wn;
++}
++pub fn promptGuSmem(p: PromptGu) u32 {
++    return promptSmemOf(2, promptGuRows(p), promptGuTiles(p), p.stages);
++}
++
++/// sm_121's (GB10's) opt-in shared memory a block.
++pub const sm121_smem_optin = 101376;
++comptime {
++    std.debug.assert(promptGuSmem(prompt_gu) <= sm121_smem_optin);
++}
++
++/// Whether a block of prompt_gu fits a GPU: its dynamic plus `static` shared memory within the opt-in limit.
++pub fn promptGuFits(static: usize, optin: usize) bool {
++    return promptGuSmem(prompt_gu) + static <= optin;
++}
++
++/// Whether gateUpPrompt takes a call on `ex`: whole column blocks, K groups of 128, aligned rows, words and stores.
++pub fn gateUpPromptFits(ex: Experts, x: u64, x_stride: usize, out: u64) bool {
++    const cols = 8 * promptGuTiles(prompt_gu);
++    return ex.width % cols == 0 and ex.dims % checkpoint_group == 0 and x_stride % 8 == 0 and x % 16 == 0 and ex.up % 16 == 0 and ex.up_s % 16 == 0 and out % 8 == 0;
++}
++
++pub const Kernels = struct {
++    module: module_.Module,
++    fns: [n_kinds][nts.len][mts.len]module_.Function,
++    /// resident blocks of each function on this GPU (occupancy x SMs)
++    blocks: [n_kinds][nts.len][mts.len]usize,
++    /// the prompt down by output type (fp32, bf16) and its resident blocks
++    pdown: [2]module_.Function,
++    pdown_blocks: [2]usize,
++    /// the prompt gate/up, resident blocks and whether the GPU's shared memory takes a block of it
++    pgu_fn: module_.Function,
++    pgu_blocks: usize,
++    pgu_ready: bool,
++
++    pub fn load(d: *const driver.Driver) !Kernels {
++        if (!kernels.available) return error.BuiltWithoutKernels;
++        var device: c_int = 0;
++        var sms_c: c_int = 0;
++        var optin_c: c_int = 0;
++        try d.check(d.api.cuDeviceGet(&device, 0), "cuDeviceGet");
++        try d.check(d.api.cuDeviceGetAttribute(&sms_c, .multiprocessor_count, device), "cuDeviceGetAttribute");
++        try d.check(d.api.cuDeviceGetAttribute(&optin_c, .max_shared_memory_per_block_optin, device), "cuDeviceGetAttribute");
++        const sms: usize = @intCast(sms_c);
++        var k: Kernels = undefined;
++        k.module = try module_.Module.load(d, kernels.fn_int4);
++        errdefer k.module.unload();
++        for (symbols, 0..) |row, i| for (row, 0..) |cols, j| for (cols, 0..) |s, q| {
++            k.fns[i][j][q] = try k.module.function(s);
++            k.blocks[i][j][q] = @as(usize, @max(1, try k.fns[i][j][q].occupancy(warps * 32, 0))) * sms;
++        };
++        for (0..2) |o| {
++            const sm = promptSmem(prompt_stages[o]);
++            k.pdown[o] = try k.module.function(prompt_symbols[o]);
++            try k.pdown[o].allowDynamicShared(sm);
++            k.pdown_blocks[o] = @as(usize, @max(1, try k.pdown[o].occupancy(prompt_threads, sm))) * sms;
++        }
++        const sm_gu = promptGuSmem(prompt_gu);
++        k.pgu_fn = try k.module.function(prompt_gu_symbol);
++        const static: usize = @intCast(try k.pgu_fn.attribute(.shared_size_bytes));
++        k.pgu_ready = promptGuFits(static, @intCast(optin_c));
++        k.pgu_blocks = 0;
++        if (k.pgu_ready) {
++            try k.pgu_fn.allowDynamicShared(sm_gu);
++            k.pgu_blocks = @as(usize, @max(1, try k.pgu_fn.occupancy(@intCast(prompt_gu.wr * prompt_gu.wc * 32), sm_gu))) * sms;
++        }
++        std.log.info("int4 kernels: prompt gate/up {s}, prompt down {d} blocks", .{ if (k.pgu_ready) "a block a 64-row item" else "not taken", k.pdown_blocks[0] });
++        return k;
++    }
++
++    pub fn deinit(k: *Kernels) void {
++        k.module.unload();
++    }
++};
++
++fn int(x: usize) c_int {
++    return @intCast(x);
++}
++
++/// The widest n8-tile count whose units still fill the GPU twice over (the same bits at any NT).
++fn pickNt(k: *const Kernels, kind: usize, max_items: usize, n: usize, q: usize) usize {
++    var j: usize = nts.len;
++    while (j > 1) {
++        j -= 1;
++        const units = max_items * (n / (8 * nts[j]));
++        if (n % (8 * nts[j]) == 0 and units >= 2 * k.blocks[kind][j][q] * warps) return j;
++    }
++    return 0;
++}
++
++fn launch(k: *const Kernels, s: stream_.Stream, kind: usize, max_items: usize, x: u64, x_stride: usize, slots: usize, w: u64, sc: u64, kk: usize, n: usize, p: ?grouped.Plan, rows: usize, out: u64, out_stride: usize, skip: c_int, mt: usize) !void {
++    // uint4 loads of the input rows, uint4 weight words, half2 scales, float2/bf16x2 stores
++    if (n % 8 != 0 or kk % checkpoint_group != 0 or x_stride % 8 != 0 or x % 16 != 0 or w % 16 != 0 or sc % 4 != 0 or out % 8 != 0) return error.Invalid;
++    const q = std.mem.indexOfScalar(usize, &mts, mt) orelse return error.Invalid;
++    const j = pickNt(k, kind, max_items, n, q);
++    if (n % (8 * nts[j]) != 0) return error.Invalid;
++    const units = max_items * (n / (8 * nts[j]));
++    const grid = @min((units + warps - 1) / warps, k.blocks[kind][j][q]);
++    if (grid < 1) return;
++    var a: launch_.Args = .{};
++    a.add(x);
++    a.add(int(x_stride));
++    a.add(int(slots));
++    a.add(w);
++    a.add(sc);
++    a.add(int(kk));
++    a.add(int(n));
++    if (p) |pl| {
++        a.add(pl.items);
++        a.add(pl.counts);
++        a.add(pl.members);
++    } else {
++        a.add(@as(u64, 0));
++        a.add(@as(u64, 0));
++        a.add(@as(u64, 0));
++    }
++    a.add(int(rows));
++    a.add(out);
++    a.add(int(out_stride));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try launch_.launch(k.fns[kind][j][q], .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, .block = .{ .x = warps * 32, .y = 1, .z = 1 } }, s, &a);
++}
++
++/// The routed gate/up with SwiGLU: x [R, D] token rows -> out [R * slots, width] bf16, `skip` the expert to leave.
++pub fn gateUp(k: *const Kernels, s: stream_.Stream, x: u64, x_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int, tile: usize) !void {
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, tile);
++    try launch(k, s, 0, items, x, x_stride, plan_slots, ex.up, ex.up_s, ex.dims, ex.width, p, 0, out, ex.width, skip, if (tile > plan_tile) 2 else 1);
++}
++
++/// The routed experts' down: act [R * slots, width] pair rows -> out [R * slots, D], fp32 (`f32_out`) or bf16.
++pub fn down(k: *const Kernels, s: stream_.Stream, act: u64, act_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, f32_out: bool, rows: usize, skip: c_int, tile: usize) !void {
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, tile);
++    const kind: usize = if (f32_out) 1 else 2;
++    try launch(k, s, kind, items, act, act_stride, 0, ex.down, ex.down_s, ex.width, ex.dims, p, 0, out, ex.dims, skip, if (tile > plan_tile) 2 else 1);
++}
++
++/// The routed down of a prompt call on int4_prompt_kernel: `down`'s outputs, from a plan of `prompt_tile` items.
++pub fn downPrompt(k: *const Kernels, s: stream_.Stream, act: u64, act_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, f32_out: bool, rows: usize, skip: c_int) !void {
++    const n: usize = ex.dims;
++    const kk: usize = ex.width;
++    if (n % 128 != 0 or kk % checkpoint_group != 0 or act_stride % 8 != 0 or act % 16 != 0 or ex.down % 16 != 0 or ex.down_s % 16 != 0 or out % 8 != 0) return error.Invalid;
++    const g = @intFromBool(!f32_out);
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, prompt_tile);
++    const units = items * (n / 128);
++    const grid = @min(units, k.pdown_blocks[g]);
++    if (grid < 1) return;
++    var a: launch_.Args = .{};
++    a.add(act);
++    a.add(int(act_stride));
++    a.add(@as(c_int, 0));
++    a.add(ex.down);
++    a.add(ex.down_s);
++    a.add(int(kk));
++    a.add(int(n));
++    a.add(p.items);
++    a.add(p.counts);
++    a.add(p.members);
++    a.add(out);
++    a.add(int(n));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try launch_.launch(k.pdown[g], .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, .block = .{ .x = prompt_threads, .y = 1, .z = 1 }, .shared = promptSmem(prompt_stages[g]) }, s, &a);
++}
++
++/// The routed gate/up of a prompt call on int4_prompt_kernel (prompt_gu): `gateUp`'s outputs, byte for byte.
++pub fn gateUpPrompt(k: *const Kernels, s: stream_.Stream, x: u64, x_stride: usize, ex: Experts, p: grouped.Plan, plan_slots: usize, plan_experts: usize, out: u64, rows: usize, skip: c_int) !void {
++    const sh = prompt_gu;
++    const n: usize = ex.width;
++    if (!k.pgu_ready or !gateUpPromptFits(ex, x, x_stride, out)) return error.Invalid;
++    const items = grouped.maxItems(rows * plan_slots, plan_experts, prompt_tile);
++    const grid = @min(items * (n / (8 * promptGuTiles(sh))), k.pgu_blocks);
++    if (grid < 1) return;
++    var a: launch_.Args = .{};
++    a.add(x);
++    a.add(int(x_stride));
++    a.add(int(plan_slots));
++    a.add(ex.up);
++    a.add(ex.up_s);
++    a.add(int(ex.dims));
++    a.add(int(n));
++    a.add(p.items);
++    a.add(p.counts);
++    a.add(p.members);
++    a.add(out);
++    a.add(int(n));
++    a.add(@as(f32, 0));
++    a.add(skip);
++    try launch_.launch(k.pgu_fn, .{ .grid = .{ .x = @intCast(grid), .y = 1, .z = 1 }, .block = .{ .x = @intCast(sh.wr * sh.wc * 32), .y = 1, .z = 1 }, .shared = promptGuSmem(sh) }, s, &a);
++}
++
++/// A dense matmul (the head): x [rows, k] -> out [rows, n] bf16 (or fp32), rows `x_stride` apart.
++pub fn dense(k: *const Kernels, s: stream_.Stream, x: u64, x_stride: usize, m: Mat, out: u64, f32_out: bool, rows: usize) !void {
++    if (rows == 0) return;
++    const kind: usize = if (f32_out) 1 else 2;
++    try launch(k, s, kind, (rows + 15) / 16, x, if (rows == 1) m.k else x_stride, 0, m.w, m.s, m.k, m.n, null, rows, out, m.n, -1, 1);
++}
++
++test {
++    _ = @import("int4_test.zig");
++}
+diff --git a/zig/src/cuda/int4_test.zig b/zig/src/cuda/int4_test.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/src/cuda/int4_test.zig
+@@ -0,0 +1,280 @@
++//! int4.zig's host tests: the packer, the scales, the stored codes, their binary64 reference, the symbols; no device.
++const std = @import("std");
++const int4 = @import("int4.zig");
++
++/// The INT4-AutoRound checkpoint this kernel is for: hidden 2,560, experts of width 640, a head of 248,320 rows.
++const checkpoint = struct {
++    const dims = 2560;
++    const width = 640;
++    const vocab = 248320;
++    const experts = 512;
++};
++
++/// A synthetic matrix: `n` columns of `k` inputs, every code and scale drawn from `seed`.
++const Synth = struct {
++    qw: []u8,
++    sc: []u8,
++    src: int4.Source,
++
++    fn init(a: std.mem.Allocator, n: usize, k: usize, seed: u64) !Synth {
++        var s = Synth{ .qw = try a.alloc(u8, k / 8 * n * 4), .sc = try a.alloc(u8, k / 128 * n * 2), .src = undefined };
++        var prng = std.Random.DefaultPrng.init(seed);
++        prng.random().bytes(s.qw);
++        for (0..s.sc.len / 2) |i| std.mem.writeInt(u16, s.sc[2 * i ..][0..2], @intCast((i * 977 + seed) % 4096), .little);
++        s.src = .{ .qweight = s.qw, .scales = s.sc, .n_full = n, .k_full = k };
++        return s;
++    }
++
++    fn deinit(s: *const Synth, a: std.mem.Allocator) void {
++        a.free(s.qw);
++        a.free(s.sc);
++    }
++};
++
++test "int4: shuffle puts input 2i at nibble i and 2i + 1 at nibble i + 4" {
++    var w: u32 = 0;
++    for (0..8) |j| w |= @as(u32, @intCast(j + 1)) << @intCast(4 * j);
++    const s = int4.shuffle(w);
++    for (0..4) |i| {
++        try std.testing.expectEqual(@as(u32, @intCast(2 * i + 1)), (s >> @intCast(4 * i)) & 0xF);
++        try std.testing.expectEqual(@as(u32, @intCast(2 * i + 2)), (s >> @intCast(4 * (i + 4))) & 0xF);
++    }
++}
++
++test "int4: shuffle carries every code to its pair and reverses exactly" {
++    var prng = std.Random.DefaultPrng.init(11);
++    for (0..64) |_| {
++        const w = prng.random().int(u32);
++        const s = int4.shuffle(w);
++        for (0..4) |i| {
++            try std.testing.expectEqual((w >> @intCast(8 * i)) & 0xF, (s >> @intCast(4 * i)) & 0xF);
++            try std.testing.expectEqual((w >> @intCast(8 * i + 4)) & 0xF, (s >> @intCast(4 * (i + 4))) & 0xF);
++        }
++    }
++}
++
++test "int4: packWords keeps each lane's word at its column and inputs" {
++    const gpa = std.testing.allocator;
++    const s = try Synth.init(gpa, 16, 512, 7);
++    defer s.deinit(gpa);
++    const sl: int4.Slice = .{ .n0 = 8, .n = 8, .k0 = 128, .k = 256, .gs = 128 };
++    const out = try gpa.alloc(u32, int4.wordsOf(sl.n, sl.k));
++    defer gpa.free(out);
++    try int4.packWords(s.src, sl, out);
++    for (0..sl.k / sl.gs) |g| for (0..32) |lane| for (0..sl.gs / 32) |b| {
++        const word = out[(g * 32 + lane) * (sl.gs / 32) + b];
++        for (0..8) |j| {
++            const nib: usize = if (j % 2 == 0) j / 2 else j / 2 + 4;
++            const got: u4 = @intCast((word >> @intCast(4 * nib)) & 0xF);
++            const kin = sl.k0 + g * sl.gs + b * 32 + 8 * (lane % 4) + j;
++            try std.testing.expectEqual(int4.code(s.src, sl.n0 + lane / 4, kin), got);
++        }
++    };
++}
++
++test "int4: a whole matrix packs once, and packScales carries each column's own group" {
++    const gpa = std.testing.allocator;
++    const s = try Synth.init(gpa, checkpoint.width, checkpoint.dims, 3);
++    defer s.deinit(gpa);
++    const sl: int4.Slice = .{ .n0 = 0, .n = checkpoint.width, .k0 = 0, .k = checkpoint.dims, .gs = int4.checkpoint_group };
++    const w = try gpa.alloc(u32, int4.wordsOf(sl.n, sl.k));
++    defer gpa.free(w);
++    try int4.packWords(s.src, sl, w);
++    const sc = try gpa.alloc(u16, int4.scalesOf(sl.n, sl.k));
++    defer gpa.free(sc);
++    try int4.packScales(s.src, sl, sc);
++    try std.testing.expectEqual(@as(usize, 204800), w.len);
++    try std.testing.expectEqual(@as(usize, 12800), sc.len);
++    const kg = sl.k / sl.gs;
++    for ([_]usize{ 0, 1, 639 }) |col| for ([_]usize{ 0, 127, 128, 2559 }) |k| {
++        const want: u16 = @intCast((((k / 128) * s.src.n_full + col) * 977 + 3) % 4096);
++        try std.testing.expectEqual(want, sc[(col / 8 * kg + k / 128) * 8 + col % 8]);
++    };
++    // one word of the last column and group, read back through code()
++    const col = 637;
++    const kin = 2559;
++    const lane = 4 * (col % 8) + (kin % 32) / 8;
++    const word = w[(col / 8 * kg + kin / 128) * 32 * 4 + lane * 4 + (kin % int4.checkpoint_group) / 32];
++    const j = kin % 8;
++    const nib: usize = if (j % 2 == 0) j / 2 else j / 2 + 4;
++    try std.testing.expectEqual(int4.code(s.src, col, kin), @as(u4, @intCast((word >> @intCast(4 * nib)) & 0xF)));
++}
++
++test "int4: packScales copies the group's own fp16 bits, and both packers refuse a short buffer" {
++    const gpa = std.testing.allocator;
++    const s = try Synth.init(gpa, 16, 512, 5);
++    defer s.deinit(gpa);
++    const sl: int4.Slice = .{ .n0 = 8, .n = 8, .k0 = 256, .k = 128, .gs = 128 };
++    var sc: [8]u16 = undefined;
++    try int4.packScales(s.src, sl, &sc);
++    for (0..8) |c| {
++        const want: u16 = @intCast((((sl.k0 / 128) * s.src.n_full + sl.n0 + c) * 977 + 5) % 4096);
++        try std.testing.expectEqual(want, sc[c]);
++    }
++    var short: [7]u16 = undefined;
++    try std.testing.expectError(error.BadLength, int4.packScales(s.src, sl, &short));
++    var words: [5]u32 = undefined;
++    try std.testing.expectError(error.BadLength, int4.packWords(s.src, sl, &words));
++}
++
++test "int4: a slice outside the dialect is refused by name" {
++    const gpa = std.testing.allocator;
++    const s = try Synth.init(gpa, 16, 512, 9);
++    defer s.deinit(gpa);
++    const ok: int4.Slice = .{ .n0 = 0, .n = 8, .k0 = 0, .k = 128, .gs = 128 };
++    const out = try gpa.alloc(u32, int4.wordsOf(ok.n, ok.k));
++    defer gpa.free(out);
++    try int4.packWords(s.src, ok, out);
++    for ([_]int4.Slice{
++        .{ .n0 = 0, .n = 8, .k0 = 0, .k = 128, .gs = 64 }, // a group of 64 is a TP=2 rank's, refused here
++        .{ .n0 = 0, .n = 7, .k0 = 0, .k = 128, .gs = 128 }, // a part n8 tile
++        .{ .n0 = 0, .n = 8, .k0 = 0, .k = 96, .gs = 128 }, // k not whole groups
++        .{ .n0 = 0, .n = 8, .k0 = 64, .k = 128, .gs = 128 }, // k0 inside a group
++        .{ .n0 = 8, .n = 16, .k0 = 0, .k = 128, .gs = 128 }, // past the source's columns
++        .{ .n0 = 0, .n = 8, .k0 = 384, .k = 256, .gs = 128 }, // past the source's inputs
++        .{ .n0 = 0, .n = 0, .k0 = 0, .k = 128, .gs = 128 }, // no columns
++    }) |bad| try std.testing.expectError(error.BadSlice, int4.checkSlice(s.src, bad));
++    var odd = s.src;
++    odd.k_full = 384;
++    try std.testing.expectError(error.BadLength, int4.checkSlice(odd, ok));
++    var qw = s.src;
++    qw.qweight = s.qw[0 .. s.qw.len - 1];
++    try std.testing.expectError(error.BadLength, int4.checkSlice(qw, ok));
++    var sc = s.src;
++    sc.scales = s.sc[0 .. s.sc.len - 1];
++    try std.testing.expectError(error.BadLength, int4.checkSlice(sc, ok));
++}
++
++test "int4: stored codes, scales and the binary64 reference are exact" {
++    const gpa = std.testing.allocator;
++    const n = 8;
++    const k = 256;
++    const qw = try gpa.alloc(u8, k / 8 * n * 4);
++    defer gpa.free(qw);
++    const sc = try gpa.alloc(u8, k / 128 * n * 2);
++    defer gpa.free(sc);
++    @memset(qw, 0);
++    var w: u32 = 0;
++    for (0..8) |j| w |= @as(u32, @intCast(j)) << @as(u5, @intCast(4 * j));
++    std.mem.writeInt(u32, qw[(0 * n + 0) * 4 ..][0..4], w, .little);
++    std.mem.writeInt(u32, qw[(0 * n + 1) * 4 ..][0..4], (w & ~@as(u32, 0xF)) | 8, .little);
++    std.mem.writeInt(u32, qw[(0 * n + 3) * 4 ..][0..4], 9, .little);
++    // group 0: 1, 0.5, 0.1's fp16 bits, fp16's least subnormal, -2, +inf, 1024, 2^-14
++    const s0 = [_]u16{ 0x3C00, 0x3800, 0x2E66, 0x0001, 0xC000, 0x7C00, 0x6400, 0x0400 };
++    // group 1: the same scales a column over
++    for (0..n) |c| {
++        std.mem.writeInt(u16, sc[(0 * n + c) * 2 ..][0..2], s0[c], .little);
++        std.mem.writeInt(u16, sc[(1 * n + c) * 2 ..][0..2], s0[n - 1 - c], .little);
++    }
++    const src: int4.Source = .{ .qweight = qw, .scales = sc, .n_full = n, .k_full = k };
++    // codes 0..7 at column 0 under a scale of 1: the weight is the code minus 8, exactly
++    for (0..8) |j| {
++        try std.testing.expectEqual(@as(u4, @intCast(j)), int4.code(src, 0, j));
++        try std.testing.expectEqual(@as(f32, 1.0), int4.scale(src, 0, j));
++        try std.testing.expectEqual(@as(f32, @floatFromInt(@as(i32, @intCast(j)) - 8)), int4.weight(src, 0, j));
++        try std.testing.expectEqual(@as(f64, @floatFromInt(@as(i32, @intCast(j)) - 8)), int4.weight64(src, 0, j));
++    }
++    // the zero point itself: code 8 at column 1, and code 9 at column 3, are 0 and 1 times the scale
++    try std.testing.expectEqual(@as(u4, 8), int4.code(src, 1, 0));
++    try std.testing.expectEqual(@as(f32, 0.0), int4.weight(src, 1, 0));
++    try std.testing.expectEqual(@as(f64, 0.0), int4.weight64(src, 1, 0));
++    try std.testing.expectEqual(@as(u4, 9), int4.code(src, 3, 0));
++    try std.testing.expectEqual(0x1p-24, int4.weight64(src, 3, 0));
++    // 0.1 is fp16 0x2E66: the binary64 product is that widening times -8, and the f32 form rounds once
++    const tenth: f64 = @floatCast(@as(f16, @bitCast(@as(u16, 0x2E66))));
++    try std.testing.expectEqual(@as(u4, 0), int4.code(src, 2, 7));
++    try std.testing.expectEqual(@as(f32, @floatCast(tenth)), int4.scale(src, 2, 7));
++    try std.testing.expectEqual(-8.0 * tenth, int4.weight64(src, 2, 7));
++    try std.testing.expectEqual(@as(f32, @floatCast(-8.0 * tenth)), int4.weight(src, 2, 7));
++    // a negative scale, fp16's least subnormal, an infinite scale and 1024 all survive exactly
++    try std.testing.expectEqual(@as(u4, 0), int4.code(src, 4, 0));
++    try std.testing.expectEqual(@as(f32, -2.0), int4.scale(src, 4, 0));
++    try std.testing.expectEqual(-8.0 * -2.0, int4.weight64(src, 4, 0));
++    try std.testing.expectEqual(-8.0 * 0x1p-24, int4.weight64(src, 3, 1));
++    try std.testing.expect(std.math.isInf(int4.weight(src, 5, 7)));
++    try std.testing.expectEqual(-8.0 * 1024.0, int4.weight64(src, 6, 0));
++    // the second group's scales are its own: column 7's group-1 scale is group 0's column 0, 1.0
++    try std.testing.expectEqual(@as(f32, 1.0), int4.scale(src, 7, 128));
++    try std.testing.expectEqual(-8.0, int4.weight64(src, 7, 255));
++}
++
++test "int4: a packed matrix of the checkpoint's shapes is sized as the kernel reads it" {
++    try std.testing.expectEqual(@as(usize, 204800), int4.wordsOf(checkpoint.width, checkpoint.dims));
++    try std.testing.expectEqual(@as(usize, 12800), int4.scalesOf(checkpoint.width, checkpoint.dims));
++    try std.testing.expectEqual(@as(usize, 204800), int4.wordsOf(checkpoint.dims, checkpoint.width));
++    try std.testing.expectEqual(@as(usize, 12800), int4.scalesOf(checkpoint.dims, checkpoint.width));
++    try std.testing.expectEqual(@as(usize, 0), checkpoint.vocab % 8); // the head's n8 tiles are whole
++    try std.testing.expectEqual(@as(usize, 0), checkpoint.dims % 128); // and its groups too
++    var z: [20]u8 = @splat(0x77);
++    try std.testing.expect(int4.zerosAreSymmetric(&z));
++    z[19] = 0x87;
++    try std.testing.expect(!int4.zerosAreSymmetric(&z));
++    z[19] = 0x77;
++    z[0] = 0x70;
++    try std.testing.expect(!int4.zerosAreSymmetric(&z));
++}
++
++test "int4: every symbol is the compiler's mangling of a kept instantiation" {
++    // one per kernel shape, copied from a compiler's Itanium mangling of fn_int4.cu's two templates
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi4ELi1ELi2ELi2ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", int4.symbols[0][2][0]);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi2ELi2ELi1ELi0ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", int4.symbols[1][1][1]);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int411int4_kernelILi128ELi1ELi1ELi1ELi3ELi4EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_iPvifi", int4.symbols[2][0][0]);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi1ELi0ELi2ELi4ELi2ELi4ELi2EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", int4.prompt_symbols[0]);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi1ELi3ELi2ELi4ELi2ELi4ELi2EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", int4.prompt_symbols[1]);
++    try std.testing.expectEqualStrings("_ZN10tf_fn_int418int4_prompt_kernelILi128ELi2ELi2ELi2ELi4ELi2ELi4ELi3EEEvPK13__nv_bfloat16iiPKjPK6__halfiiPKiSA_SA_Pvifi", int4.prompt_gu_symbol);
++    // every kept pairing present, distinct, and its own template arguments in it
++    var seen: [int4.symbols.len * int4.symbols[0].len * int4.symbols[0][0].len + 3][:0]const u8 = undefined;
++    var at: usize = 0;
++    for (int4.symbols) |row| for (row) |col| for (col) |s| {
++        seen[at] = s;
++        at += 1;
++    };
++    for (int4.prompt_symbols) |s| {
++        seen[at] = s;
++        at += 1;
++    }
++    seen[at] = int4.prompt_gu_symbol;
++    at += 1;
++    try std.testing.expectEqual(@as(usize, 21), at);
++    for (seen[0..at], 0..) |s, i| {
++        for (seen[i + 1 .. at]) |t| try std.testing.expect(!std.mem.eql(u8, s, t));
++        try std.testing.expect(std.mem.startsWith(u8, s, "_ZN10tf_fn_int41"));
++        try std.testing.expect(std.mem.endsWith(u8, s, "Pvifi"));
++    }
++    try std.testing.expect(std.mem.indexOf(u8, int4.symbols[1][2][1], "ILi128ELi4ELi2ELi1ELi0ELi4") != null);
++    try std.testing.expect(std.mem.indexOf(u8, int4.symbols[0][0][1], "ILi128ELi1ELi2ELi2ELi2ELi4") != null);
++}
++
++test "int4: prompt shared memory and the gate/up launch admit the checkpoint's shapes" {
++    const sh = int4.prompt_gu;
++    try std.testing.expectEqual(@as(usize, 256), sh.wr * sh.wc * 32);
++    try std.testing.expectEqual(@as(usize, 64), int4.promptGuRows(sh));
++    try std.testing.expectEqual(@as(usize, 16), int4.promptGuTiles(sh));
++    try std.testing.expect(int4.promptGuSmem(sh) <= int4.sm121_smem_optin);
++    try std.testing.expect(int4.promptGuFits(0, int4.sm121_smem_optin));
++    try std.testing.expect(!int4.promptGuFits(int4.sm121_smem_optin, int4.sm121_smem_optin));
++    // the exact bytes each prompt launch asks the driver for, as int4_records.zig declares them
++    try std.testing.expectEqual(@as(u32, 49664), int4.promptSmem(2));
++    try std.testing.expectEqual(@as(u32, 99840), int4.promptGuSmem(sh));
++    try std.testing.expectEqual(int4.promptSmemOf(1, 64, 16, 2), int4.promptSmem(2));
++    const ex: int4.Experts = .{ .up = 4096, .up_s = 2048, .down = 4096, .down_s = 2048, .width = checkpoint.width, .dims = checkpoint.dims };
++    try std.testing.expect(int4.gateUpPromptFits(ex, 65536, checkpoint.dims, 8192));
++    for ([_]int4.Experts{
++        .{ .up = 4096, .up_s = 2048, .down = 4096, .down_s = 2048, .width = 648, .dims = checkpoint.dims },
++        .{ .up = 4096, .up_s = 2048, .down = 4096, .down_s = 2048, .width = checkpoint.width, .dims = 2561 },
++        .{ .up = 8, .up_s = 2048, .down = 4096, .down_s = 2048, .width = checkpoint.width, .dims = checkpoint.dims },
++        .{ .up = 4096, .up_s = 2, .down = 4096, .down_s = 2048, .width = checkpoint.width, .dims = checkpoint.dims },
++    }) |bad| try std.testing.expect(!int4.gateUpPromptFits(bad, 65536, checkpoint.dims, 8192));
++    try std.testing.expect(!int4.gateUpPromptFits(ex, 8, checkpoint.dims, 8192));
++    try std.testing.expect(!int4.gateUpPromptFits(ex, 65536, 7, 8192));
++    try std.testing.expect(!int4.gateUpPromptFits(ex, 65536, checkpoint.dims, 4));
++}
++
++test "int4: the module's constants are the checkpoint's dialect" {
++    try std.testing.expectEqual(@as(usize, 128), int4.checkpoint_group);
++    try std.testing.expectEqual(@as(usize, 16), int4.plan_tile);
++    try std.testing.expectEqual(@as(usize, 64), int4.prompt_tile);
++    try std.testing.expectEqual(@as(usize, 4), int4.warps);
++    try std.testing.expectEqualSlices(usize, &.{ 1, 2, 4 }, &int4.nts);
++    try std.testing.expectEqualSlices(usize, &.{ 1, 2 }, &int4.mts);
++}
+diff --git a/zig/src/cuda/root.zig b/zig/src/cuda/root.zig
+--- a/zig/src/cuda/root.zig
++++ b/zig/src/cuda/root.zig
+@@ -56,6 +56,8 @@
+ pub const gdn_prep = @import("gdn_prep.zig");
+ pub const qk_rows = @import("qk_rows.zig");
+ pub const experts = @import("experts.zig");
++/// GPTQ int4 g128 routed experts and the dense head (fn_int4.cu): the packer and the launches.
++pub const int4 = @import("int4.zig");
+ pub const experts32 = @import("experts32.zig");
+ pub const experts_waves = @import("experts_waves.zig");
+ pub const sample = @import("sample.zig");
+@@ -116,6 +118,7 @@
+     _ = @import("experts.zig");
+     _ = @import("experts32.zig");
+     _ = @import("experts_waves.zig");
++    _ = int4;
+     _ = @import("sample.zig");
+     _ = @import("roce.zig");
+     _ = @import("roce_nap.zig");
+diff --git a/zig/tests/cuda/contract_after.zig b/zig/tests/cuda/contract_after.zig
+--- a/zig/tests/cuda/contract_after.zig
++++ b/zig/tests/cuda/contract_after.zig
+@@ -15,7 +15,7 @@
+     kernels.shrinkRetainingCapacity(kept);
+ }
+ 
+-/// The served, paged, pending, learning, lane and SwiGLU pair suites of a full run.
++/// The served, paged, pending, learning, lane, SwiGLU pair and int4 suites of a full run.
+ pub fn suites(gpu: check.Gpu) !void {
+     try @import("contract_qwen_served.zig").run(gpu);
+     try @import("contract_qwen_pages.zig").run(gpu);
+@@ -24,4 +24,5 @@
+     try @import("contract_qwen_learning.zig").numerical(gpu);
+     try @import("contract_fn_lanes.zig").run(gpu);
+     try @import("contract_prompt_swiglu.zig").run(gpu);
++    try @import("contract_int4.zig").run(gpu);
+ }
+diff --git a/zig/tests/cuda/contract_int4.zig b/zig/tests/cuda/contract_int4.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/tests/cuda/contract_int4.zig
+@@ -0,0 +1,589 @@
++//! fn_int4.cu under the contract at the checkpoint's shapes, with two planted controls and a skipped expert's rows.
++const std = @import("std");
++const cuda = @import("cuda");
++const core = @import("core");
++const check = @import("check.zig");
++const rig_ = @import("contract_rig.zig");
++const ir = @import("int4_ref.zig");
++
++const contract = core.contract;
++const c = contract.spec;
++const g = contract.gates;
++const grouped = cuda.grouped;
++const int4 = cuda.int4;
++
++/// The form a registration runs.
++pub const Kind = enum { gu, down_f32, down_bf16, head, prompt_down, prompt_gu };
++
++/// A planted fault: gate 4's control kernel, or a head packed with its nibbles unshuffled (gate 3 must catch it).
++pub const Fault = enum { none, bf16_group_sums, unshuffled_nibbles };
++
++pub const Entry = struct { name: []const u8, kind: Kind, tile: usize = int4.plan_tile, fault: Fault = .none };
++
++/// The checkpoint's shapes: hidden 2,560, experts of width 640, a head of 248,320 rows (its config.json).
++const dims = 2560;
++const width = 640;
++const vocab = 248320;
++/// Experts the tables hold: every expert the plan's picks name. The plan itself routes over the checkpoint's 512.
++const used = 8;
++/// Pairs a token row: five routed picks and the shared expert, whose slot is skipped.
++const slots = 6;
++const shared = used - 1;
++/// The inputs whose mirror carries the nudge: small, so the nudge 4 is exact in bf16 at their size.
++const nudged = 8;
++/// Gate 4's bf16 proof for a bf16 SwiGLU output: its own roundings leave the gate no wider margin to prove.
++const gate_up_why = "a mirrored row cancels exactly in the halves order, so a low-precision sum's largest miss is want itself, and the epilogue's roundings and the store already allow 4.1 u of it: at most 1 / (4.1 u) = 62x is provable";
++
++const up_rows = [4]c.Shape{ .{ .rows = 1, .n = width, .k = dims }, .{ .rows = 3, .n = width, .k = dims }, .{ .rows = 16, .n = width, .k = dims }, .{ .rows = 64, .n = width, .k = dims } };
++const prompt_rows = [2]c.Shape{ .{ .rows = 64, .n = width, .k = dims }, .{ .rows = 200, .n = width, .k = dims } };
++const down_rows = [4]c.Shape{ .{ .rows = 1, .n = dims, .k = width }, .{ .rows = 3, .n = dims, .k = width }, .{ .rows = 16, .n = dims, .k = width }, .{ .rows = 64, .n = dims, .k = width } };
++const prompt_down_rows = [2]c.Shape{ .{ .rows = 64, .n = dims, .k = width }, .{ .rows = 200, .n = dims, .k = width } };
++const head_rows = [4]c.Shape{ .{ .rows = 1, .n = 2560, .k = dims }, .{ .rows = 16, .n = 2560, .k = dims }, .{ .rows = 32, .n = 2560, .k = dims }, .{ .rows = 1, .n = vocab, .k = dims } };
++
++/// An mma k16 step and one fma a group, plus one step's error over its own products.
++fn depth(s: c.Shape) usize {
++    return s.k / 16 + s.k / 128 + core.attention_range.mma_step;
++}
++
++fn tiles(e: Entry) [3]c.Tile {
++    return switch (e.kind) {
++        .head => .{ .{}, .{ .size = 128, .step = 128, .min = 128 }, .{ .size = 128, .step = 128, .min = 128 } },
++        .prompt_down, .prompt_gu => .{ .{ .size = 64, .step = 64, .min = 64 }, .{ .size = 128, .step = 128, .min = 128 }, .{ .size = 128, .step = 128, .min = 128 } },
++        else => .{ .{ .size = 16, .step = 1, .min = 1 }, .{ .size = 128, .step = 128, .min = 128 }, .{ .size = 128, .step = 128, .min = 128 } },
++    };
++}
++
++fn served(e: Entry) []const c.Shape {
++    return switch (e.kind) {
++        .head => &head_rows,
++        .down_f32, .down_bf16 => if (e.tile == int4.prompt_tile) &prompt_rows else &down_rows,
++        .prompt_down => &prompt_down_rows,
++        else => if (e.tile == int4.prompt_tile) &prompt_rows else &up_rows,
++    };
++}
++
++/// The prompt forms must give the plain form's bytes; the others are checked against float64 at their own bound.
++fn replaces(e: Entry) ?[]const u8 {
++    if (e.fault != .none) return null;
++    return switch (e.kind) {
++        .prompt_down => "the routed down of 16-pair items",
++        .prompt_gu => "the routed gate/up of 16-pair items",
++        else => null,
++    };
++}
++
++pub fn spec(e: Entry) c.Spec {
++    const base: c.Spec = .{ .name = e.name, .accum = .f32, .depth = depth, .out = .f32, .tiles = tiles(e), .served = served(e), .replaces = replaces(e) };
++    var s = base;
++    switch (e.kind) {
++        // exp's 2 ulps, 1 + e, the quotient and the product; gate, up and silu rounded to bf16 before the product
++        .gu, .prompt_gu => {
++            s.out = .bf16;
++            s.ops = 5;
++            s.mids = 3;
++            s.sums = .{ .bf16 = 60, .why = gate_up_why };
++        },
++        .down_bf16, .head => s.out = .bf16,
++        .down_f32, .prompt_down => {},
++    }
++    return s;
++}
++
++pub const entries = [_]Entry{
++    .{ .name = "cuda int4 routed gate/up SwiGLU (int4_kernel, 16-pair items)", .kind = .gu },
++    .{ .name = "cuda int4 routed gate/up SwiGLU (int4_kernel, 64-pair items)", .kind = .gu, .tile = int4.prompt_tile },
++    .{ .name = "cuda int4 routed down to fp32 (int4_kernel)", .kind = .down_f32 },
++    .{ .name = "cuda int4 routed down to bf16 (int4_kernel)", .kind = .down_bf16 },
++    .{ .name = "cuda int4 lm head to bf16 (int4_kernel, dense items)", .kind = .head },
++    .{ .name = "cuda int4 routed down to fp32 (int4_prompt_kernel, 64-pair items)", .kind = .prompt_down },
++    .{ .name = "cuda int4 routed gate/up SwiGLU (int4_prompt_kernel, 64-pair items)", .kind = .prompt_gu },
++    .{ .name = "control: int4 routed down with each group's sum rounded to bf16", .kind = .down_f32, .fault = .bf16_group_sums },
++    .{ .name = "control: int4 lm head with each word's nibbles unshuffled", .kind = .head, .fault = .unshuffled_nibbles },
++};
++
++/// swiglu as float64 keeps it: silu of the gate sum times the up sum.
++fn swiglu(gv: f64, uv: f64) f64 {
++    return gv / (1 + @exp(-gv)) * uv;
++}
++
++/// One call's buffers: the checkpoint matrices the plan's picks name, the rows in, the plan and the output.
++pub const Fixture = struct {
++    rig: rig_.Rig,
++    entry: Entry,
++    kx: *const int4.Kernels,
++    router: grouped.Router,
++    ctl: ?cuda.Function = null,
++    shape: c.Shape = undefined,
++    pairs: usize = 0,
++    mats: usize = 1,
++    qw: []u8 = &.{},
++    sc: []u8 = &.{},
++    src: []int4.Source = &.{},
++    x: []u16 = &.{},
++    ids: []i32 = &.{},
++    ex: int4.Experts = .{},
++    mat: int4.Mat = .{},
++    plan: grouped.Plan = undefined,
++    plan16: grouped.Plan = undefined,
++    /// the expert id whose slot is left untouched (the shared expert), or -1
++    skip: c_int = -1,
++    xd: u64 = 0,
++    tab: u64 = 0,
++    out: u64 = 0,
++    base: u64 = 0,
++    /// what a gate asked the inputs to hold: gate 4's stress rows make the sums exact in fp32
++    fill: g.Fill = .random,
++    /// every output's derived allowance, from its own terms (reference), which `bounds` hands the harness
++    allow: []f64 = &.{},
++    msg: [192]u8 = undefined,
++
++    pub fn deinit(self: *Fixture) void {
++        self.free();
++        self.rig.deinit();
++    }
++
++    fn free(self: *Fixture) void {
++        const a = self.rig.gpu.gpa;
++        a.free(self.qw);
++        a.free(self.sc);
++        a.free(self.src);
++        a.free(self.x);
++        a.free(self.ids);
++        a.free(self.allow);
++        self.qw = &.{};
++        self.sc = &.{};
++        self.src = &.{};
++        self.x = &.{};
++        self.ids = &.{};
++        self.allow = &.{};
++    }
++
++    pub fn kernel(self: *Fixture) g.Kernel {
++        const control: ?g.Gate = switch (self.entry.fault) {
++            .none => null,
++            .unshuffled_nibbles => .shapes,
++            .bf16_group_sums => .sums,
++        };
++        return .{ .spec = spec(self.entry), .ctx = self, .vt = &vt, .control = control };
++    }
++
++    const vt = g.hooks(Fixture);
++
++    fn up(self: *const Fixture) bool {
++        return self.entry.kind == .gu or self.entry.kind == .prompt_gu;
++    }
++
++    fn prompt(self: *const Fixture) bool {
++        return self.entry.kind == .prompt_down or self.entry.kind == .prompt_gu;
++    }
++
++    fn elem(self: *const Fixture) usize {
++        return c.size(spec(self.entry).out);
++    }
++
++    /// One checkpoint matrix of the shapes a call reads: rows in, the matrix out, its codes and scales.
++    fn matrices(self: *Fixture, a: std.mem.Allocator, n: usize, k: usize, seed: u64) !void {
++        self.mats = if (self.up()) 2 else 1;
++        const per_qw = k / 8 * n * 4;
++        const per_sc = k / 128 * n * 2;
++        self.qw = try a.alloc(u8, used * self.mats * per_qw);
++        self.sc = try a.alloc(u8, used * self.mats * per_sc);
++        self.src = try a.alloc(int4.Source, used * self.mats);
++        var prng = std.Random.DefaultPrng.init(seed | 0x1_0000);
++        const rng = prng.random();
++        for (0..used * self.mats) |m| {
++            const q = self.qw[m * per_qw ..][0..per_qw];
++            const s = self.sc[m * per_sc ..][0..per_sc];
++            rng.bytes(q);
++            for (0..s.len / 2) |i| {
++                // the format's own scales: 0.25 to 0.5, well inside fp16 and away from zero
++                const bits: u16 = @intCast(0x3400 + rng.uintLessThan(u16, 0x0400));
++                std.mem.writeInt(u16, s[2 * i ..][0..2], bits, .little);
++            }
++            self.src[m] = .{ .qweight = q, .scales = s, .n_full = n, .k_full = k };
++        }
++    }
++
++    /// Gate 4's inputs: integers whose terms cancel in pairs, so a low-precision sum loses the whole result.
++    fn stress(self: *Fixture, rng: std.Random) void {
++        const k = self.shape.k;
++        const h = k / 2;
++        for (0..self.x_rows()) |r| for (0..h) |i| {
++            const small = i < nudged;
++            const v: f32 = @floatFromInt(if (small) 4 * (1 + rng.uintLessThan(u32, 4)) else 8 * (1 + 2 * rng.uintLessThan(u32, 128)));
++            self.x[r * k + i] = c.toBf16(v);
++            self.x[r * k + h + i] = c.toBf16(if (small) 4 - v else -v);
++        };
++        // the same code at both halves of an input pair, so a column's sums cancel to a small integer
++        for (self.src) |s| {
++            const q = @constCast(s.qweight);
++            for (0..self.shape.n) |col| for (0..k / 2 / 8) |w| {
++                const a = (w * self.shape.n + col) * 4;
++                const b = ((w + h / 8) * self.shape.n + col) * 4;
++                var word: u32 = 0;
++                for (0..8) |j| word |= @as(u32, 9 + rng.uintLessThan(u32, 3)) << @intCast(4 * j);
++                std.mem.writeInt(u32, q[a..][0..4], word, .little);
++                std.mem.writeInt(u32, q[b..][0..4], word, .little);
++            };
++            const sc = @constCast(s.scales);
++            for (0..sc.len / 2) |i| std.mem.writeInt(u16, sc[2 * i ..][0..2], 0x3C00, .little);
++        }
++    }
++
++    fn x_rows(self: *const Fixture) usize {
++        return if (self.entry.kind == .head) self.shape.rows else self.pairs;
++    }
++
++    /// Random or planted rows, the checkpoint matrices of the shape, the plan at the entry's tile and the buffers.
++    pub fn prepare(self: *Fixture, shape: c.Shape, fill: g.Fill, seed: u64) !bool {
++        if (shape.rows == 0 or shape.n == 0 or shape.k == 0) return false;
++        if (shape.n % 8 != 0 or shape.k % int4.checkpoint_group != 0) return false;
++        if (self.prompt() and shape.n % 128 != 0) return false;
++        self.free();
++        self.rig.reset();
++        self.shape = shape;
++        self.fill = fill;
++        const a = self.rig.gpu.gpa;
++        var prng = std.Random.DefaultPrng.init(seed);
++        const rng = prng.random();
++        self.pairs = shape.rows * slots;
++        try self.matrices(a, shape.n, shape.k, seed);
++        // the rows in: gate/up read a token row a pair, down reads its own row a pair, the head a row
++        const rows = if (self.entry.kind == .head) shape.rows else self.pairs;
++        self.x = try a.alloc(u16, rows * shape.k);
++        for (self.x) |*v| v.* = c.toBf16(rng.float(f32) * 2 - 1);
++        self.ids = try a.alloc(i32, @max(1, self.pairs));
++        for (0..shape.rows) |r| for (0..slots) |s| {
++            self.ids[r * slots + s] = @intCast(if (s == slots - 1) shared else (r * 3 + s) % (used - 1));
++        };
++        switch (fill) {
++            .random => {},
++            .nonfinite => {
++                const planted = [_]struct { usize, usize, f32 }{ .{ 0, shape.k / 3, std.math.nan(f32) }, .{ 1, shape.k / 2, std.math.inf(f32) }, .{ 2, 1, std.math.inf(f32) }, .{ 2, shape.k - 1, -std.math.inf(f32) } };
++                for (planted) |p| if (p[0] < rows) {
++                    self.x[p[0] * shape.k + p[1]] = c.toBf16(p[2]);
++                };
++            },
++            .stress => self.stress(rng),
++        }
++        // the packed matrices the kernel reads: every picked expert's, at one or two matrices an expert
++        const words = try a.alloc(u32, used * self.mats * int4.wordsOf(shape.n, shape.k));
++        defer a.free(words);
++        const scales = try a.alloc(u16, used * self.mats * int4.scalesOf(shape.n, shape.k));
++        defer a.free(scales);
++        const sl: int4.Slice = .{ .n0 = 0, .n = shape.n, .k0 = 0, .k = shape.k, .gs = int4.checkpoint_group };
++        for (0..used * self.mats) |m| {
++            const w = words[m * int4.wordsOf(shape.n, shape.k) ..][0..int4.wordsOf(shape.n, shape.k)];
++            const s = scales[m * int4.scalesOf(shape.n, shape.k) ..][0..int4.scalesOf(shape.n, shape.k)];
++            if (self.entry.fault == .unshuffled_nibbles) {
++                try packRaw(self.src[m], sl, w);
++            } else try int4.packWords(self.src[m], sl, w);
++            try int4.packScales(self.src[m], sl, s);
++        }
++        self.xd = try self.rig.input(std.mem.sliceAsBytes(self.x));
++        self.tab = try self.rig.input(std.mem.sliceAsBytes(words));
++        const tab_s = try self.rig.input(std.mem.sliceAsBytes(scales));
++        self.mat = .{ .w = self.tab, .s = tab_s, .n = @intCast(shape.n), .k = @intCast(shape.k) };
++        self.ex = .{
++            .up = self.tab,
++            .up_s = tab_s,
++            .down = self.tab,
++            .down_s = tab_s,
++            .width = @intCast(if (self.up()) shape.n else shape.k),
++            .dims = @intCast(if (self.up()) shape.k else shape.n),
++        };
++        const items64 = grouped.maxItems(self.pairs, 512, int4.prompt_tile);
++        const items16 = grouped.maxItems(self.pairs, 512, int4.plan_tile);
++        const zeros = try a.alloc(u8, @max(@max(self.pairs * 4, items64 * 12), items16 * 12 + 8));
++        defer a.free(zeros);
++        @memset(zeros, 0);
++        const ids = try self.rig.input(std.mem.sliceAsBytes(self.ids));
++        self.plan16 = .{ .members = try self.rig.input(zeros[0 .. self.pairs * 4]), .items = try self.rig.input(zeros[0 .. items16 * 12]), .counts = try self.rig.input(zeros[0..8]), .rank = try self.rig.scratch(@max(4, self.pairs * 4)), .hist = try self.rig.scratch(((self.pairs + 1023) / 1024) * 512 * 4) };
++        self.plan = self.plan16;
++        try self.router.route(self.rig.s, ids, self.pairs, 512, int4.plan_tile, self.plan16);
++        if (items64 != items16) {
++            self.plan = .{ .members = self.plan16.members, .items = try self.rig.input(zeros[0 .. items64 * 12]), .counts = try self.rig.input(zeros[0..8]), .rank = self.plan16.rank, .hist = self.plan16.hist };
++            try self.router.route(self.rig.s, ids, self.pairs, 512, int4.prompt_tile, self.plan);
++        }
++        try self.rig.s.synchronize();
++        self.allow = try a.alloc(f64, self.count());
++        self.out = try self.rig.output(self.count() * self.elem());
++        self.base = try self.rig.scratch(self.count() * self.elem());
++        return true;
++    }
++
++    fn launch(self: *Fixture) !void {
++        const sh = self.shape;
++        switch (self.entry.kind) {
++            .gu => try int4.gateUp(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan, slots, 512, self.out, sh.rows, self.skip, self.entry.tile),
++            .down_f32, .down_bf16 => try int4.down(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan, slots, 512, self.out, self.entry.kind == .down_f32, sh.rows, self.skip, self.entry.tile),
++            .prompt_down => try int4.downPrompt(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan, slots, 512, self.out, true, sh.rows, self.skip),
++            .prompt_gu => try int4.gateUpPrompt(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan, slots, 512, self.out, sh.rows, self.skip),
++            .head => try int4.dense(self.kx, self.rig.s, self.xd, sh.k, self.mat, self.out, false, sh.rows),
++        }
++    }
++
++    pub fn run(self: *Fixture) !void {
++        switch (self.entry.fault) {
++            .bf16_group_sums => try self.controlSums(),
++            .none, .unshuffled_nibbles => try self.launch(),
++        }
++        try self.rig.s.synchronize();
++    }
++
++    /// The control's own launch: the down form with each group's sum rounded to bf16 before its scale.
++    fn controlSums(self: *Fixture) !void {
++        const sh = self.shape;
++        var a: cuda.Args = .{};
++        a.add(self.xd);
++        a.add(@as(i32, @intCast(sh.k)));
++        a.add(@as(i32, 0));
++        a.add(self.tab);
++        a.add(self.ex.down_s);
++        a.add(@as(i32, @intCast(sh.k)));
++        a.add(@as(i32, @intCast(sh.n)));
++        a.add(self.plan.items);
++        a.add(self.plan.counts);
++        a.add(self.plan.members);
++        a.add(@as(i32, @intCast(self.pairs)));
++        a.add(self.out);
++        a.add(@as(i32, @intCast(sh.n)));
++        a.add(@as(f32, 0));
++        a.add(@as(c_int, -1));
++        try cuda.launch.launch(self.ctl.?, .{ .grid = .{ .x = @intCast((sh.n + 255) / 256), .y = 1, .z = 1 }, .block = .{ .x = 256, .y = 1, .z = 1 } }, self.rig.s, &a);
++    }
++
++    pub fn count(self: *Fixture) usize {
++        return if (self.entry.kind == .head) self.shape.rows * self.shape.n else self.pairs * self.shape.n;
++    }
++
++    /// The rows a pair's products read: its token row for gate/up, its own row for down.
++    fn xrow(self: *const Fixture, p: usize) usize {
++        return if (self.up()) p / slots else p;
++    }
++
++    /// Pair p's expert, and the matrix of its gate and up (or its down).
++    fn srcOf(self: *const Fixture, p: usize, m: usize) int4.Source {
++        const e: usize = @intCast(self.ids[p] & (used - 1));
++        return self.src[e * self.mats + m];
++    }
++
++    /// Pair p's terms against one column, in input order.
++    fn terms(self: *const Fixture, p: usize, j: usize, m: usize, t: []f64) void {
++        const k = self.shape.k;
++        const src = self.srcOf(p, m);
++        const xr = self.xrow(p) * k;
++        for (t, 0..) |*o, i| o.* = int4.weight64(src, j, i) * c.fromBf16(self.x[xr + i]);
++    }
++
++    /// The head's rows are its own, its one matrix the first.
++    fn headTerms(self: *const Fixture, r: usize, j: usize, t: []f64) void {
++        const k = self.shape.k;
++        for (t, 0..) |*o, i| o.* = int4.weight64(self.src[0], j, i) * c.fromBf16(self.x[r * k + i]);
++    }
++
++    pub fn reference(self: *Fixture, want: []f64, mag: []f64) !void {
++        const gpa = self.rig.gpu.gpa;
++        const t = try gpa.alloc(f64, self.shape.k);
++        defer gpa.free(t);
++        const u = try gpa.alloc(f64, self.shape.k);
++        defer gpa.free(u);
++        const sp = spec(self.entry);
++        const d = depth(self.shape);
++        // gate 4's stress inputs are integers whose partial sums are exact in fp32 in any order
++        const ex = self.fill == .stress;
++        if (self.entry.kind == .head) {
++            for (0..self.shape.rows) |r| for (0..self.shape.n) |j| {
++                self.headTerms(r, j, t);
++                var sum: f64 = 0;
++                var abs: f64 = 0;
++                for (t) |v| {
++                    sum += v;
++                    abs += @abs(v);
++                }
++                const o = r * self.shape.n + j;
++                want[o] = sum;
++                mag[o] = abs;
++                self.allow[o] = ir.rows(d, abs, sum, sp.out, ex);
++            };
++            return;
++        }
++        for (0..self.pairs) |p| for (0..self.shape.n) |j| {
++            const o = p * self.shape.n + j;
++            self.terms(p, j, 0, t);
++            var sum: f64 = 0;
++            var abs: f64 = 0;
++            for (t) |v| {
++                sum += v;
++                abs += @abs(v);
++            }
++            if (!self.up()) {
++                want[o] = sum;
++                mag[o] = abs;
++                self.allow[o] = ir.rows(d, abs, sum, sp.out, ex);
++                continue;
++            }
++            self.terms(p, j, 1, u);
++            var usum: f64 = 0;
++            var uabs: f64 = 0;
++            for (u) |v| {
++                usum += v;
++                uabs += @abs(v);
++            }
++            want[o] = swiglu(sum, usum);
++            mag[o] = abs + uabs;
++            self.allow[o] = ir.gateUp(d, sp.ops, sum, usum, abs, uabs, want[o], ex);
++        };
++    }
++
++    /// Each output's derived allowance (from reference): the generic formula counts a SwiGLU's roundings at |want|.
++    pub fn bounds(self: *Fixture, want: []const f64, _: []const f64, allow: []f64) !void {
++        if (want.len != self.allow.len or allow.len != self.allow.len) return error.BadLength;
++        @memcpy(allow, self.allow);
++    }
++
++    pub fn simulate(self: *Fixture, acc: c.Accum, order: g.Order, out: []f64) !void {
++        const t = try self.rig.gpu.gpa.alloc(f64, self.shape.k);
++        defer self.rig.gpu.gpa.free(t);
++        const u = try self.rig.gpu.gpa.alloc(f64, self.shape.k);
++        defer self.rig.gpu.gpa.free(u);
++        if (self.entry.kind == .head) {
++            for (0..self.shape.rows) |r| for (0..self.shape.n) |j| {
++                self.headTerms(r, j, t);
++                out[r * self.shape.n + j] = contract.rows.sumIn(acc, order, t);
++            };
++            return;
++        }
++        for (0..self.pairs) |p| for (0..self.shape.n) |j| {
++            self.terms(p, j, 0, t);
++            const sum = contract.rows.sumIn(acc, order, t);
++            if (!self.up()) {
++                out[p * self.shape.n + j] = sum;
++                continue;
++            }
++            self.terms(p, j, 1, u);
++            out[p * self.shape.n + j] = swiglu(sum, contract.rows.sumIn(acc, order, u));
++        };
++    }
++
++    /// The plain form's bytes on the same inputs: the prompt kernels must equal them.
++    pub fn replaced(self: *Fixture) ![]const u8 {
++        const sh = self.shape;
++        switch (self.entry.kind) {
++            .prompt_down => try int4.down(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan16, slots, 512, self.base, true, sh.rows, -1, int4.plan_tile),
++            .prompt_gu => try int4.gateUp(self.kx, self.rig.s, self.xd, sh.k, self.ex, self.plan16, slots, 512, self.base, sh.rows, -1, int4.plan_tile),
++            else => return error.NoBaseline,
++        }
++        return self.rig.bytes(self.base, self.count() * self.elem());
++    }
++};
++
++/// The kernel's word order skipped: the GPTQ word as stored, which reads nibble i as input 2i (gate 3 must catch it).
++fn packRaw(src: int4.Source, sl: int4.Slice, out: []u32) !void {
++    try int4.checkSlice(src, sl);
++    if (out.len != int4.wordsOf(sl.n, sl.k)) return error.BadLength;
++    var at: usize = 0;
++    for (0..sl.n / 8) |nt| for (0..sl.k / sl.gs) |grp| for (0..32) |lane| {
++        const col = sl.n0 + nt * 8 + lane / 4;
++        const t = lane % 4;
++        for (0..sl.gs / 32) |b| {
++            const kp = (sl.k0 + grp * sl.gs + b * 32) / 8 + t;
++            out[at] = std.mem.readInt(u32, src.qweight[(kp * src.n_full + col) * 4 ..][0..4], .little);
++            at += 1;
++        }
++    };
++}
++
++/// Every registration, its modules and its launched control.
++pub const Set = struct {
++    gpa: std.mem.Allocator,
++    kx: int4.Kernels,
++    mod: cuda.Module,
++    ctl: cuda.Module,
++    items: [entries.len]Fixture = undefined,
++
++    const controls = struct {
++        pub const bytes align(16) = @embedFile("fatbin_contract_controls").*;
++    };
++
++    pub fn init(gpu: check.Gpu, s: cuda.Stream, a: std.mem.Allocator, list: *std.ArrayList(g.Kernel)) !*Set {
++        const set = try gpu.gpa.create(Set);
++        errdefer gpu.gpa.destroy(set);
++        var kx = try int4.Kernels.load(gpu.d);
++        errdefer kx.deinit();
++        var mod = try cuda.Module.load(gpu.d, cuda.kernels.experts);
++        errdefer mod.unload();
++        var ctl = try cuda.Module.load(gpu.d, &controls.bytes);
++        errdefer ctl.unload();
++        set.* = .{ .gpa = gpu.gpa, .kx = kx, .mod = mod, .ctl = ctl };
++        const router = try grouped.Router.resolve(set.mod);
++        const sums = try set.ctl.function("tf_ctl_int4_bf16_sums");
++        for (&set.items, entries) |*x, e| x.* = .{ .rig = .{ .gpu = gpu, .s = s }, .entry = e, .kx = &set.kx, .router = router, .ctl = if (e.fault == .bf16_group_sums) sums else null };
++        for (&set.items) |*x| try list.append(a, x.kernel());
++        return set;
++    }
++
++    pub fn deinit(set: *Set) void {
++        for (&set.items) |*x| x.deinit();
++        set.ctl.unload();
++        set.mod.unload();
++        set.kx.deinit();
++        set.gpa.destroy(set);
++    }
++};
++
++/// A plan whose shared expert's slot is skipped: those rows stay 0xff, and every other row equals the all-live run.
++fn skipped(set: *Set) !void {
++    const a = set.gpa;
++    var f = Fixture{ .rig = .{ .gpu = set.items[0].rig.gpu, .s = set.items[0].rig.s }, .entry = entries[0], .kx = &set.kx, .router = set.items[0].router };
++    defer f.deinit();
++    const sh: c.Shape = .{ .rows = 16, .n = width, .k = dims };
++    if (!try f.prepare(sh, .random, 0x51ce)) return check.expect(false, "int4 skipped slot: refused a served shape", .{});
++    const all = f.out;
++    try f.launch();
++    try f.rig.s.synchronize();
++    const want = try a.dupe(u8, try f.rig.bytes(all, f.count() * 2));
++    defer a.free(want);
++    f.out = try f.rig.output(f.count() * 2);
++    f.skip = shared;
++    try f.launch();
++    try f.rig.s.synchronize();
++    const got = try f.rig.bytes(f.out, f.count() * 2);
++    var skipped_rows: usize = 0;
++    var differ: usize = 0;
++    for (0..f.pairs) |p| {
++        const row = got[p * sh.n * 2 ..][0 .. sh.n * 2];
++        const live = f.ids[p] != shared;
++        if (live) {
++            if (!std.mem.eql(u8, row, want[p * sh.n * 2 ..][0 .. sh.n * 2])) differ += 1;
++            continue;
++        }
++        skipped_rows += 1;
++        // the skip run leaves the row at its poison, and the all-live run wrote it: a 0xff byte is a value too
++        const base = want[p * sh.n * 2 ..][0 .. sh.n * 2];
++        if (std.mem.indexOfNone(u8, row, &.{0xff}) != null or std.mem.indexOfNone(u8, base, &.{0xff}) == null) differ += 1;
++    }
++    try check.expect(skipped_rows > 0, "int4 skipped slot: the plan has no skipped pair", .{});
++    try check.expect(differ == 0, "int4 skipped slot: {d} of {d} skipped rows differ from the all-live run", .{ differ, skipped_rows });
++    std.debug.print("PASS int4 skipped slot: {d} of {d} pair rows left at 0xff, the others byte-equal to the all-live run\n", .{ skipped_rows, f.pairs });
++}
++
++/// The int4 kernel's gates 1-4, its controls and the skipped expert's rows alone.
++pub fn run(gpu: check.Gpu) !void {
++    const a = gpu.gpa;
++    var s = try cuda.Stream.init(gpu.d, false);
++    defer s.deinit();
++    var list: std.ArrayList(g.Kernel) = .empty;
++    defer list.deinit(a);
++    const set = try Set.init(gpu, s, a, &list);
++    defer set.deinit();
++    var t: g.Tally = .{};
++    try g.runAll(a, list.items, 0x696e7434, &t);
++    try skipped(set);
++    std.debug.print("SUMMARY int4: {d} kernels, {d} pass gates 1-4, {d} fail, {d} known findings; {d} controls: {d} red as planted, {d} missed\n", .{ t.kernels, t.passed, t.failed, t.known, t.controls, t.caught, t.missed });
++    try check.expect(t.problems() == 0, "int4 contract: {d} gate failures, {d} controls missed", .{ t.failed, t.missed });
++}
++
++test "every control is named one, and only the controls plant a fault" {
++    for (entries) |e| try std.testing.expectEqual(e.fault != .none, std.mem.startsWith(u8, e.name, "control: "));
++}
+diff --git a/zig/tests/cuda/contract_limits.zig b/zig/tests/cuda/contract_limits.zig
+--- a/zig/tests/cuda/contract_limits.zig
++++ b/zig/tests/cuda/contract_limits.zig
+@@ -26,6 +26,7 @@
+     if (std.mem.eql(u8, name, "window_rows")) return kk.window_rows;
+     if (std.mem.eql(u8, name, "joint_schema")) return kk.joint_schema;
+     if (std.mem.eql(u8, name, "fp8_experts")) return kk.fp8_experts;
++    if (std.mem.eql(u8, name, "fn_int4")) return kk.fn_int4;
+     if (std.mem.eql(u8, name, "mla")) return kk.mla;
+     if (std.mem.eql(u8, name, "h3")) return &h3_image.bytes;
+     if (std.mem.eql(u8, name, "flashnext_hcn")) return kk.flashnext_hcn;
+diff --git a/zig/tests/cuda/int4_ref.zig b/zig/tests/cuda/int4_ref.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/tests/cuda/int4_ref.zig
+@@ -0,0 +1,94 @@
++//! fn_int4.cu's output allowance: its sums through the gate/up epilogue, that epilogue's bf16 roundings and the store.
++const std = @import("std");
++const core = @import("core");
++
++const c = core.contract.spec;
++
++/// bf16's unit roundoff: half an ulp at 1, the most one rounding moves a value.
++const unit_bf16 = 0x1p-8;
++/// fp32's unit roundoff.
++const unit_f32 = 0x1p-24;
++/// expf overflows fp32 above 88.72: there the kernel's silu is 0 where float64 keeps a denormal-sized value.
++const exp_overflow = 88.0;
++
++/// silu as float64 keeps it.
++pub fn silu(g: f64) f64 {
++    return g / (1 + @exp(-g));
++}
++
++/// silu's slope, sigmoid(x) (1 + x (1 - sigmoid(x))): at most 1.0998, at x = 2.3994.
++fn slopeAt(x: f64) f64 {
++    const sg = 1 / (1 + @exp(-x));
++    return sg * (1 + x * (1 - sg));
++}
++
++/// The largest |silu'| on [lo, hi]: its ends, and its two turning points where they lie inside.
++fn slopeOn(lo: f64, hi: f64) f64 {
++    var m = @max(@abs(slopeAt(lo)), @abs(slopeAt(hi)));
++    for ([_]f64{ 2.3993572805, -2.3993572805 }) |t| {
++        if (lo <= t and t <= hi) m = @max(m, @abs(slopeAt(t)));
++    }
++    return m;
++}
++
++/// bf16 round to nearest even, as the kernel's bf() does through fp32.
++fn bf(x: f64) f64 {
++    return @as(f64, @floatCast(c.fromBf16(c.toBf16(@floatCast(x)))));
++}
++
++/// One gate/up output's allowance: bf(g), bf(u), bf(silu) and the store at their own sizes, and both sums' error.
++pub fn gateUp(depth: usize, ops: f64, g: f64, u: f64, abs_g: f64, abs_u: f64, want: f64, exact: bool) f64 {
++    const gam: f64 = if (exact) 0 else c.gamma(@floatFromInt(depth), unit_f32);
++    // |bf(x + e) - x|: the sum's own error, then the rounding of the value it landed on
++    const dg = unit_bf16 * @abs(g) + gam * abs_g * (1 + unit_bf16);
++    const du = unit_bf16 * @abs(u) + gam * abs_u * (1 + unit_bf16);
++    const s = @abs(silu(g));
++    const d = slopeOn(g - dg, g + dg);
++    const span = @abs(u) + du;
++    const mag = d * abs_g * span + abs_u * (s + d * dg);
++    var epi = (d * dg + unit_bf16 * s) * (1 + 2 * unit_bf16) * span + s * du;
++    if (g - dg < -exp_overflow) epi += (s + d * dg) * span;
++    const work = gam * mag + epi + ops * unit_f32 * @abs(want);
++    return work + unit_bf16 * (@abs(want) + work) + 0x1p-133;
++}
++
++/// One down or head output's allowance: the sum's error and the store's rounding, nothing else.
++pub fn rows(depth: usize, abs: f64, want: f64, out: c.Elem, exact: bool) f64 {
++    const gam: f64 = if (exact) 0 else c.gamma(@floatFromInt(depth), unit_f32);
++    const unit: f64 = if (out == .bf16) unit_bf16 else unit_f32;
++    const work = gam * abs;
++    return work + unit * (@abs(want) + work) + (if (out == .bf16) @as(f64, 0x1p-133) else @as(f64, 0x1p-149));
++}
++
++/// The kernel's own arithmetic on one output: bf(g), bf(u), bf(silu), the product, the store.
++fn epilogue(g: f64, u: f64) f64 {
++    const gv = bf(g);
++    return bf(bf(gv / (1 + @exp(-gv))) * bf(u));
++}
++
++fn fixedDepth(_: c.Shape) usize {
++    return 45;
++}
++
++test "the derived allowance covers every epilogue rounding the generic bound does not" {
++    const spec: c.Spec = .{ .name = "t", .accum = .f32, .depth = fixedDepth, .ops = 5, .mids = 3, .out = .bf16, .served = &.{} };
++    var prng = std.Random.DefaultPrng.init(0x696e7434);
++    const rng = prng.random();
++    var short: usize = 0;
++    for (0..4000) |_| {
++        const g = rng.float(f64) * 60 - 30;
++        const u = rng.float(f64) * 60 - 30;
++        const want = silu(g) * u;
++        const got = epilogue(g, u);
++        const allow = gateUp(45, 5, g, u, @abs(g), @abs(u), want, true);
++        try std.testing.expect(@abs(got - want) <= allow);
++        if (@abs(got - want) > c.boundExact(spec, want)) short += 1;
++    }
++    try std.testing.expect(short > 0);
++}
++
++test "a down's allowance is the store's rounding of an exact sum" {
++    const a = rows(45, 96, 96, .bf16, true);
++    try std.testing.expect(a > 0.9 * unit_bf16 * 96);
++    try std.testing.expect(a < 2 * unit_bf16 * 96);
++}
+diff --git a/THIRD_PARTY_NOTICES.md b/THIRD_PARTY_NOTICES.md
+--- a/THIRD_PARTY_NOTICES.md
++++ b/THIRD_PARTY_NOTICES.md
+@@ -459,6 +459,20 @@
+ arithmetic and staging design. Copyright (c) 2026 MiaAI-Lab and Copyright (c) 2026 TensorFold contributors.
+ The complete original MIT notices and permission text are retained in [Mia-FlashNext-MIT.txt](LICENSES/Mia-FlashNext-MIT.txt).
+ 
++## MiaAI-Lab Flash Next int4 kernel
++
++`zig/kernels/cuda/fn_int4.cu` is the `fn_int4.cu` that patch 0002 of
++[MiaAI-Lab's dual-Spark recipe](https://github.com/MiaAI-Lab/Qwen3.8-Flash-Dual-DGX-Sparks-TensorFold) creates, at
++recipe commit `04f2b53826dca9a52893f2bce9d49bb3d1828e88`, under the Apache License 2.0, Copyright 2026 MiaAI-Lab.
++That recipe's NOTICE reads "Qwen3.8-Flash-Next on 2x DGX Spark with TensorFold / Copyright 2026 MiaAI-Lab" and asks a
++redistributor to keep it and to state what changed, which this section and the file's own header do. The license text
++is [Apache-2.0.txt](LICENSES/Apache-2.0.txt). TensorFold's three changes: the head's dense items hold 16 MT rows rather
++than 16, one more `int4_prompt_kernel` instantiation builds for the routed gate/up (both marked `TF:` in the file), and
++the local copies of the mma, the non-allocating load and the `cp.async` copies are replaced by the shared ones in
++`zig/kernels/cuda/common/`, whose instruction text is the same. The groups-of-64 instantiations a two-rank serve slices
++the width with are built as well. The host packers and launchers in `zig/src/families/flashnext/cuda_int4.zig` and
++`zig/src/cuda/int4.zig` are TensorFold's.
++
+ ## Ling-3.0-tiny and Ling-3.1-flash
+ 
+ Ling-3.0-tiny and Ling-3.1-flash are MIT licensed by inclusionAI. The host family package

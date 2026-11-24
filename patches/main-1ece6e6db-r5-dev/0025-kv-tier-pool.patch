@@ -1,0 +1,85 @@
+diff --git a/docs/recipes/flash-next-cuda.md b/docs/recipes/flash-next-cuda.md
+index e42e5ec..4cc7bb4 100644
+--- a/docs/recipes/flash-next-cuda.md
++++ b/docs/recipes/flash-next-cuda.md
+@@ -104,6 +104,11 @@ its path.
+ - `TF_FLASHNEXT_KV_PAGES=n` with `--kv-cache fp8`: the pool's pages hold the 12 layers' keys and values as the e4m3 rows below
+   (18,880 bytes a token with the MTP head's bf16 layer, against 30,784) and attention reads them through each stream's
+   page table with the contiguous fp8 kernels' sums; a capacity setting, off unless set.
++- `--learn-conversations` composes with the pool: a state is copied out of a stream's pages row by row into the
++  contiguous image the store keeps, and a resume scatters it back into the pages the new stream takes, so the pages
++  are stored losslessly. The plan spends the budget on the streams' pages first, so name `--prompt-cache-gib N`
++  beside them: a state is kept and resumed only inside the prompt cache, and a shape whose plan leaves the cache no
++  bytes is refused by name rather than served with the tier inert.
+ - `--kv-cache fp8` (one rank, the engine's own glue; not with `--slide` or a captured set) keeps keys and values as
+   e4m3 codes with a power-of-two scale a position and KV head: 1,056 bytes
+   a position and layer instead of 2,048, so a token's caches take about 18.4 KiB instead of 30 KiB (the 12 layers';
+diff --git a/zig/src/native/cuda.zig b/zig/src/native/cuda.zig
+index 54fd561..cddf318 100644
+--- a/zig/src/native/cuda.zig
++++ b/zig/src/native/cuda.zig
+@@ -385,6 +385,11 @@ fn openWith(comptime F: type, a: Allocator, gpa: Allocator, io: std.Io, asked: a
+     const kept = if (host_cache) kv_pages.kept(F, loaded, paged, o, room, held, final_host_budget, true) else if (counted.ledger) |lp| lp.kept else kv_pages.kept(F, loaded, paged, o, room, held, 0, false);
+     if (h.kv_plan) |*lp| lp.kept = kept;
+     const cache = kept.copied;
++    // a tier with no cache to keep a state in would write and resume nothing: refused, with the flag that buys one
++    if (try @import("cuda_streams.zig").learningRefusal(a, o, counted, kept, room, @intCast(window))) |why| {
++        problem.* = why;
++        return null;
++    }
+     const cache_capacity = kv_pages.capacity(F, loaded, kept, @intCast(window));
+     try kv_pages.report(a, layout, paged);
+     var shown = try kv_pages.text(F, a, served.stream_bytes, layout, paged, kv_pages.enginePaged(loaded), kv_pages.allOnPages(loaded), @intCast(window), kept, o.kv8);
+diff --git a/zig/src/native/cuda_streams.zig b/zig/src/native/cuda_streams.zig
+index 303354e..e025c61 100644
+--- a/zig/src/native/cuda_streams.zig
++++ b/zig/src/native/cuda_streams.zig
+@@ -168,3 +168,48 @@ test "CUDA cache default uses the declared request ledger windows and scratch" {
+     try std.testing.expectEqual(@as(u64, 42 * GiB), actual.streams);
+     try std.testing.expectEqual(@as(u64, 22 * GiB), budget.hostCacheBudget(null, 96 * GiB, actual.room, actual.streams, true));
+ }
++
++/// --learn-conversations keeps a state in the prompt cache: a plan that leaves it no bytes is refused by name.
++pub fn learningRefusal(a: Allocator, o: api.Open, counted: Count, kept: kv_pages.Kept, room: u64, window: u64) !?[]const u8 {
++    if (!o.learn_conversations or o.learn == null or kept.copied > 0) return null;
++    const state: u64 = if (counted.layout) |l| l.snap_bytes + l.token_bytes *| window else 0;
++    const plain = "--learn-conversations keeps each conversation state in the prompt cache before its disk writer " ++
++        "takes it, and this shape's plan leaves the cache no bytes of the {d:.1} GiB the CUDA memory budget leaves: " ++
++        "serve with --prompt-cache-gib N, or without --learn-conversations";
++    const pooled = "--learn-conversations keeps each conversation state in the prompt cache before its disk writer " ++
++        "takes it, and this shape's plan leaves the cache no bytes: {d} streams take {d} pages of {d} rows of the " ++
++        "{d:.1} GiB the CUDA memory budget leaves; serve with --prompt-cache-gib N, where a state at the " ++
++        "{d}-token window takes about {d:.1} GiB, or without --learn-conversations";
++    if (counted.layout) |l| if (counted.paged) |p|
++        return try std.fmt.allocPrint(a, pooled, .{ p.lanes, p.pages, l.page_tokens, toGib(room), window, toGib(state) });
++    return try std.fmt.allocPrint(a, plain, .{toGib(room)});
++}
++
++test "CUDA cache default: a tier whose plan leaves the cache no bytes is refused by name" {
++    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
++    defer arena.deinit();
++    const a = arena.allocator();
++    const mib: u64 = 1 << 20;
++    // an INT4 checkpoint at --parallel 8 and a 262144-token window: 33.1 GiB left, 389 pages, no cache
++    const l: kv_pool.Layout = .{ .fixed_bytes = 0, .token_bytes = 18_880, .page_tokens = 4096, .snap_bytes = 113 * mib };
++    const counted: Count = .{ .streams = 8, .paged = .{ .lanes = 8, .snaps = 0, .copied = 0, .pages = 389 }, .layout = l };
++    const learning: api.Open = .{ .dir = "", .model_type = "qwen4_exp", .learn = "/cache/kv", .learn_conversations = true };
++    const none: kv_pages.Kept = .{ .snaps = 0, .copied = 0, .snap_bytes = 0 };
++    const why = (try learningRefusal(a, learning, counted, none, 33 << 30, 262_144)).?;
++    try std.testing.expect(std.mem.indexOf(u8, why, "389 pages of 4096 rows") != null);
++    try std.testing.expect(std.mem.indexOf(u8, why, "--prompt-cache-gib N") != null);
++    try std.testing.expect(std.mem.indexOf(u8, why, "4.7 GiB") != null); // 113 MiB plus 262144 x 18880 bytes
++    // a cache the plan leaves a byte of: nothing to refuse
++    try std.testing.expectEqual(@as(?[]const u8, null), try learningRefusal(a, learning, counted, .{ .snaps = 0, .copied = 1, .snap_bytes = 0 }, 33 << 30, 262_144));
++    // the tier off, or no root for its writer: neither is this refusal's business
++    var off = learning;
++    off.learn_conversations = false;
++    try std.testing.expectEqual(@as(?[]const u8, null), try learningRefusal(a, off, counted, none, 33 << 30, 262_144));
++    var rootless = learning;
++    rootless.learn = null;
++    try std.testing.expectEqual(@as(?[]const u8, null), try learningRefusal(a, rootless, counted, none, 33 << 30, 262_144));
++    // no pool: the message names the budget, never pages
++    const bare = (try learningRefusal(a, learning, .{ .streams = 1, .paged = null, .layout = null }, none, 8 << 30, 32_768)).?;
++    try std.testing.expect(std.mem.indexOf(u8, bare, "--prompt-cache-gib N") != null);
++    try std.testing.expect(std.mem.indexOf(u8, bare, "pages") == null);
++}

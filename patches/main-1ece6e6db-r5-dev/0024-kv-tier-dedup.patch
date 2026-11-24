@@ -1,0 +1,82 @@
+diff --git a/zig/src/core/prompt_cache.zig b/zig/src/core/prompt_cache.zig
+index 6e776cb..32cb822 100644
+--- a/zig/src/core/prompt_cache.zig
++++ b/zig/src/core/prompt_cache.zig
+@@ -331,10 +331,17 @@ pub const Store = struct {
+         {
+             kept.rewind = true;
+         };
++        const ram = s.find(prompt, starts, spans);
+         const e = if (disk)
+-            rows.read.recall(s, prompt, born, starts, spans, s.recall(prompt, born, starts, spans, s.find(prompt, starts, spans)))
++            rows.read.recall(s, prompt, born, starts, spans, s.recall(prompt, born, starts, spans, ram))
+         else
+-            s.find(prompt, starts, spans);
++            ram;
++        // a state recalled under min_gap before the rewind is the rewind state: no second copy (keptNear's rule)
++        if (e) |x| if (x != ram and x.at <= s.active_rewind_at and s.active_rewind_at - x.at < s.rules.min_gap) {
++            x.rewind = true;
++            s.active_rewind_at = x.at;
++            s.active_rewind_key = sharedKey(prompt[0 .. x.at + s.rules.lookahead]);
++        };
+         @import("prompt_cache_divergence.zig").report(s, prompt, spans, e);
+         if (e == null) s.counts.misses += 1;
+         const miss = @import("prompt_cache_miss.zig").derive(s, prompt, starts, spans, e);
+diff --git a/zig/src/core/prompt_cache_rewind_test.zig b/zig/src/core/prompt_cache_rewind_test.zig
+index b14b0a3..32ca928 100644
+--- a/zig/src/core/prompt_cache_rewind_test.zig
++++ b/zig/src/core/prompt_cache_rewind_test.zig
+@@ -1,6 +1,9 @@
+ //! Rewind states: kept before the latest user message, so an edited or deleted last turn resumes there.
+ const std = @import("std");
++const platform = @import("sys");
+ const pc = @import("prompt_cache.zig");
++const imprint = @import("prompt_imprint.zig");
++const rmTree = @import("prompt_imprint_test.zig").rmTree;
+ const Fake = @import("prompt_cache_test.zig").Fake;
+ const fresh = @import("prompt_cache_test.zig").fresh;
+ const Store = pc.Store;
+@@ -201,3 +204,43 @@ test "the warm pass after a turn keeps that turn's rewind state, though it resum
+     try std.testing.expectEqual(@as(u32, 6), q.from);
+     try std.testing.expectEqual(fresh(&edited), f.pass(&s, &edited, q));
+ }
++
++test "a state recalled from disk under min_gap before the rewind is the rewind: one keep, no second copy" {
++    const gpa = std.testing.allocator;
++    var arena: std.heap.ArenaAllocator = .init(gpa);
++    defer arena.deinit();
++    const a = arena.allocator();
++    var root_buf: [128]u8 = undefined;
++    const root = try std.fmt.bufPrint(&root_buf, "/tmp/tf-rewind-recall-{d}", .{platform.c.getpid()});
++    defer rmTree(root);
++    const rules: pc.Rules = .{ .lookahead = 1, .min_prompt = 0, .min_gap = 4 };
++    const sys = [_]u32{ 7, 7, 7, 7, 7, 7 }; // the system block both sessions share: a state at 6 reads it whole
++    var im = try imprint.Imprint.open(gpa, root, 3, 1 << 30);
++    defer im.deinit();
++    im.admission.floor = 1 << 20;
++    {
++        var seed: Fake = .{ .gpa = gpa };
++        var s = Store.init(gpa, seed.learned(), rules, 1 << 20);
++        defer s.deinit();
++        s.imprint = &im;
++        const first = sys ++ [_]u32{ 1, 2, 3, 4, 5 };
++        _ = seed.pass(&s, &first, try s.beginRewind(a, &first, 10, 0, &.{6}, &.{}, null, &.{}));
++        try std.testing.expect(im.has(imprint.Imprint.keyOf(first[0..7])));
++    }
++    var f: Fake = .{ .gpa = gpa };
++    var s = Store.init(gpa, f.learned(), rules, 1 << 20); // a fresh boot: RAM holds nothing, the state is on disk
++    defer s.deinit();
++    s.imprint = &im;
++    const turn = sys ++ [_]u32{ 1, 2, 3, 4, 5, 6, 7, 8 }; // the same 7-token prefix, the user's text from 8
++    const p = try s.beginRewind(a, &turn, 13, 9, &.{}, &.{}, null, &.{});
++    try std.testing.expectEqual(@as(u32, 6), p.from); // resumed from disk, 2 tokens under the rewind at 8
++    try std.testing.expectEqualSlices(u32, &.{13}, p.marks); // the endpoint alone: the recalled state serves the rewind
++    try std.testing.expectEqual(@as(u32, 6), s.active_rewind_at);
++    var recalled: ?*pc.Entry = null;
++    for (s.entries.items) |e| if (e.at == 6) {
++        recalled = e;
++    };
++    try std.testing.expect(recalled.?.rewind);
++    try std.testing.expectEqual(fresh(&turn), f.pass(&s, &turn, p));
++    try std.testing.expectEqual(@as(u64, 1), s.counts.kept); // one state written, not the rewind's copy beside it
++}

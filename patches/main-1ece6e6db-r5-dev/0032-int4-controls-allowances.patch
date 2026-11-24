@@ -1,0 +1,351 @@
+diff --git a/docs/int4-contract-allowances.md b/docs/int4-contract-allowances.md
+new file mode 100644
+--- /dev/null
++++ b/docs/int4-contract-allowances.md
+@@ -0,0 +1,128 @@
++# int4 contract allowances
++
++`fn_int4.cu`'s gate/up form rounds its gate sum, its up sum and silu to bf16 before the store, and the kernel contract
++compares each output with float64, so those roundings need an allowance. This page derives that allowance, and gate
++4's bf16 margin for the same form, from the kernel's arithmetic alone. Every constant below is a format constant, a
++property of the reduction, or the accuracy the CUDA library states for `expf`. No number here comes from a device
++run, and none changes with one: the device lines in the pull request are receipts of this arithmetic, not inputs to it.
++
++The contract's rule for every allowance is the same: it is the worst case of the arithmetic the kernel performs,
++written before any output is compared with it. Where the worst case of a stated form differs from the generic formula
++in `contract.zig`, the registration derives its own (`VTable.bounds`), and this page is that derivation.
++
++## What one gate/up output computes
++
++Source: `zig/kernels/cuda/fn_int4.cu`, `pair`, `compute_stage` and `store` with `EPI` 2.
++
++- A stored code `q` (0 to 15) enters a bf16 MMA as `128 + q`, and `136` is subtracted in bf16. Both are exact and
++  leave `q - 8`. A product `x (q - 8)` has at most 12 significant bits, so fp32 holds it exactly.
++- A group of 128 inputs is four k32 blocks in order, each two k16 MMA steps in order, each step `D = A B + D`; then
++  `acc = fmaf(group sum, scale, acc)` with the fp16 scale widened exactly. The longest chain of roundings a term
++  passes is `k / 16 + k / 128 + 36`: one MMA step an input's 16 products, one fma a group, and one step's error over
++  its own products (`attention_range.mma_step`, the count every CUDA expert registers).
++- The epilogue, with `u_b = 2^-8` for bf16's unit roundoff: `gv = bf(g)`, `uv = bf(u)`,
++  `act = gv / (1 + expf(-gv))` in fp32, `s = bf(act)`, `p = s uv` in fp32, `out = bf(p)`.
++- The reference is `want = silu(g*) u*` with `silu(x) = x / (1 + exp(-x))` in float64 and `g*`, `u*` its sums.
++
++With `v = 2^-24` and `gamma(n) = n v / (1 - n v)`, the fp32 sums satisfy `|g - g*| <= gamma(depth) A_g` and
++`|u - u*| <= gamma(depth) A_u`, where `A_g`, `A_u` are the sums of the terms' magnitudes.
++
++## The allowance, term by term
++
++`zig/tests/cuda/int4_ref.zig` `gateUp`. Each line says which rounding it bounds; `s = |silu(g*)|`.
++
++| term | bounds |
++|---|---|
++| `dg = u_b \|g*\| + gamma(depth) A_g (1 + u_b)` | `\|bf(g) - g*\|`: the sum's error, then bf16's rounding of the value it landed on |
++| `du` | the same for the up sum |
++| `d = max \|silu'\|` on `[g* - dg, g* + dg]` | the slope: at the interval's ends and at its turning points, `+-2.3993572805` |
++| `span = \|u*\| + du` | the largest up value the rounded silu meets |
++| `d dg span` | the gate's fp32 error and its bf16 rounding, through the slope and times the up value |
++| `u_b s span` | silu's bf16 rounding, at silu's own size |
++| `(s + d dg) du` | the up sum's fp32 error and its bf16 rounding, times silu |
++| `(1 + 2 u_b)` on the three lines above | those roundings evaluated at `s + d dg` rather than `s`, and the fp32 operations |
++| `+ (s + d dg) span` where `g - dg < -88` | `expf` overflows fp32 above 88.72: the kernel's silu is 0 where float64 keeps a value |
++| `5 v \|want\|` | `expf` (2 ulps, the CUDA library's bound), `1 + e`, the quotient, the product |
++| `+ u_b (\|want\| + work)` | the store's bf16 rounding of a value already `work` from `want` |
++| `+ 2^-133` | bf16's smallest step near zero (`outFloor`) |
++
++Why the epilogue lines cover their roundings: `act` is within `5 v` of `silu(gv)` in relative terms, so `s` is within
++`(u_b + 5 v) (s + d dg)` of `silu(g*)` once the gate's own `d dg` is counted, and `(d dg + u_b s) (1 + 2 u_b)` is
++larger than `d dg + (u_b + 5 v) (s + d dg)` because `u_b d dg + 2 u_b^2 s` exceeds the `5 v` terms. The product of
++two bf16 values is exact in fp32, so the product's rounding is counted and never spent. Each sum's error is counted
++once: inside `dg` and `du`, where it enters.
++
++## Why the generic bound is no bound for this epilogue
++
++`contract.zig` `bound` counts the roundings between the sums and the store at the output's size: `mids u_b |want|`.
++That is right when the rounded value has the output's size. The gate has not: the kernel rounds `g`, and that
++rounding reaches the output as `u_b |g| |silu'(g)| |u|`, which is `u_b |want| |1 + g (1 - sigmoid(g))|`. The factor
++is at most 1.1 for a positive gate and about `|g| - 1` for a negative one: 1.86 at `g = -3`, 9.5 at `g = -10.5`. So
++for every gate below about `-2.2` the generic bound is short of the epilogue's own worst case by
++`(factor - 1) u_b |want|`, before any sum error is considered. It also has no term for the up sum's fp32 error
++carried by `silu(g)`, `gamma(depth) A_u |silu(g*)|`.
++
++One stated gate shows the first gap with exact sums and no device (a host test in `int4_ref.zig`): at `g = -10.53`,
++`u = -28.75`, `bf(g)` is `-10.5`, and that one rounding moves the output to 1.76 times `boundExact`; the whole
++epilogue lands at 2.15 times it, and at 0.66 of the derived allowance.
++
++The generic bound's absolute term, `gamma(depth) A_g (|u| + 1)`, hides the gap at the served width, where it is larger
++than everything else. At the least `k` it is about 100 times smaller and the gap is the whole story. The gap needs the
++roundings to agree in direction, so the form passes the generic bound on most shapes and fails it on one that holds
++enough outputs: a bound that sometimes holds is not a bound.
++
++The derived allowance holds on every output by construction, and it is the generic bound wherever the generic bound
++was right. For a gate above 1 it is 1.05 to 1.09 times the generic bound at the served width: the up sum's error
++through `silu(g)`, and nothing else. For a gate below 0 it is smaller, down to orders of magnitude smaller for a
++strongly negative gate, whose output is tiny while the generic term still grows with `A_g |u|`.
++
++## Gate 4's bf16 margin
++
++Gate 4 replays each stress row's sums in fp16 and bf16 and requires each to miss by at least the registered factor
++times the exact-sum allowance, so that a kernel summing in that precision cannot pass. The default factor is 100.
++
++On the stress rows a gate sum and an up sum are 4 times eight codes of 1 to 3: 32 to 96, with `d = 1` and exact sums.
++The allowance at `exact` is `((1 + u_b) (3 + 4 u_b) u_b + 5 v) (1 + u_b) + u_b` times `|want|`, which is
++`4.039307 u_b |want|`. A low-precision sum that returns 0 misses by `|want|` itself, which is
++`1 / (4.039307 u_b) = 63.38` times the allowance. That is the most any input can prove of a bf16 SwiGLU output whose
++low-precision sum is 0, and a mirrored row makes it 0: in the halves order the two halves of the row are rounded
++alike with opposite signs, so they cancel and the bf16 sum is 0 unless a rounding boundary falls between them, where
++it is one bf16 spacing. An output misses by more than `|want|` only when both of its sums keep such a residual.
++100 asks for a miss of `1.57 |want|`, which no sum returning 0 makes. fp16 overflows on these rows, where the partial
++sums reach `5.6e6`, so its 100 holds.
++
++The registration states 60, the largest multiple of 10 under the 63.38 ceiling, leaving 5 percent for the constants
++above. The same registration shape is the relu^2 up of `experts_bf16.cu`, whose three bf16 roundings allow `3 u_b`
++and whose stated 30 sits under its own ceiling of 85. The generic `boundExact` gives 63.81 on the same rows, so the
++margin did not move with the allowance: it was 100 against a ceiling near 64 before the allowance was derived.
++
++The stress rows themselves are integers from 8 to 2,040 with the eight nudged inputs at 4 to 16. Every partial sum
++stays below `2^24`, so fp32 is exact in any order, and the larger the integers the further the fp16 and bf16 chains
++land from the small result.
++
++## The controls
++
++The gates must still go red under this allowance, and they do, by arithmetic first:
++
++- `tf_ctl_int4_swiglu` at fault 0 is the epilogue's scalar model: the same group sums in input order and the same
++  epilogue, registered as a kernel. It passes gates 1 to 4, so the faults below are the only difference between it
++  and the controls.
++- Fault 1 takes silu of the up sum times the gate sum (gate and up swapped). Silu is not symmetric: where the gate
++  is negative its silu is tiny, and the swapped output is the up sum's silu times a gate of full size.
++- Fault 2 cuts gate, up and silu toward zero where the kernel rounds to nearest: one rounding mode away from the
++  kernel. Its four errors all shrink the output's magnitude, each by up to twice the unit the allowance grants that
++  rounding, so on a shape of any size some outputs are outside the allowance. The first served shape holds 3,840.
++- Fault 3 rounds each group's sums to bf16 before their scales (gate 4): the group sums of a stress row reach
++  `2.5e5`, where one bf16 rounding is hundreds, against an exact-sum allowance near 65.
++
++Both gate 3 controls are outside the generic bound of the kernel's first commit too, so they were red before the
++allowance was derived and stay red after it.
++
++## What pins it on the host
++
++`zig build test-int4-host` runs `int4_ref.zig`'s tests with no device:
++
++- the derived allowance covers 4,000 epilogue draws, and the generic `boundExact` is short on some of them;
++- the stated gate above: outside the generic bound twice over, inside the derived allowance;
++- gate 4's ceiling on every stress sum of the form: between 60 and 64, and under 64 with the generic `boundExact` too;
++- the planted faults outside the allowance on 4,000 seeded draws: the cut epilogue on some, the swap on most.
+diff --git a/docs/kernel-contract.md b/docs/kernel-contract.md
+--- a/docs/kernel-contract.md
++++ b/docs/kernel-contract.md
+@@ -474,11 +474,15 @@
+ CUDA also checks Flash Next's GPTQ int4 experts and head (`fn_int4.cu`, `zig/tests/cuda/contract_int4.zig`) at the
+ checkpoint's widths: gate/up with SwiGLU, down to fp32 and bf16, the head's dense rows and the two prompt forms
+ bit-equal to the plain ones, each output against float64 at the weights `qweight` and the fp16 scales store. A gate/up
+-output's allowance is derived from its own epilogue (`int4_ref.zig`): the two fp32 sums through silu's slope and the up
+-value, then bf(g), bf(u), bf(silu) and the store, each at its own value's size, and the silu 0 that expf's fp32
+-overflow leaves where float64 keeps a denormal-sized value. Gate 4's bf16 proof of that epilogue stops at
+-1 / (4.1 u) = 62x, because a mirrored row cancels exactly in the halves order, so the registration states 60. Two
+-controls: a group sum rounded to bf16 before its scale (gate 4), and a head whose words are packed unshuffled (gate 3).
++output's allowance is its epilogue's own worst case (`int4_ref.zig`; the arithmetic is in
++[int4 contract allowances](int4-contract-allowances.md)): the two fp32 sums through silu's slope and the up value,
++then bf(g), bf(u), bf(silu) and the store, each at its own value's size, and the silu 0 that expf's fp32 overflow
++leaves where float64 keeps a denormal-sized value. Gate 4's bf16 proof of that epilogue stops at 1 / (4.0393 u) =
++63.4x, because the halves of a mirrored row cancel and a bf16 sum misses by want itself, so the registration states
++60. The epilogue's scalar model (`tf_ctl_int4_swiglu` at fault 0) passes the same gates. Five controls: a group sum
++rounded to bf16 before its scale (gate 4, the down), each group's sums rounded to bf16 (gate 4, the gate/up), a head
++whose words are packed unshuffled (gate 3), and on the gate/up silu of the up sum times the gate sum (gate 3) and
++gate, up and silu cut toward zero (gate 3).
+ A plan whose shared expert's slot is skipped must leave those rows untouched. nvcc 13.3's usage of its 21 launches is in
+ `measurements/pending_133.zig`; a 13.0 record stays pending.
+ CUDA also checks the bf16 experts (`experts_bf16.cu`, a checkpoint's own bf16 weights: Nemotron 3.5 Transcribe's routed
+diff --git a/zig/kernels/cuda/contract_int4_controls.cuh b/zig/kernels/cuda/contract_int4_controls.cuh
+--- a/zig/kernels/cuda/contract_int4_controls.cuh
++++ b/zig/kernels/cuda/contract_int4_controls.cuh
+@@ -37,3 +37,63 @@
+     }
+   }
+ }
++
++__device__ __forceinline__ float tf_ctl_int4_rn(float x) { return __bfloat162float(__float2bfloat16_rn(x)); }
++
++__device__ __forceinline__ float tf_ctl_int4_rz(float x) { return __bfloat162float(__float2bfloat16_rz(x)); }
++
++// One matrix's column `col` for the input row at `x`: each group's 128 products in input order, then its scale.
++__device__ __forceinline__ float tf_ctl_int4_sum(const __nv_bfloat16* X, int64_t x, const uint32_t* w, const __half* s,
++                                                   int col, int KG, int fault) {
++  const int nt = col / 8, lane = 4 * (col % 8);
++  float acc = 0.0f;
++  for (int g = 0; g < KG; ++g) {
++    float sum = 0.0f;
++    for (int b = 0; b < 4; ++b)
++      for (int t = 0; t < 4; ++t) {
++        const uint32_t word = w[((size_t)(nt * KG + g) * 32 + lane + t) * 4 + b];
++        for (int j = 0; j < 8; ++j) {
++          const int nib = (j % 2 == 0) ? j / 2 : j / 2 + 4;
++          const int code = (word >> (4 * nib)) & 0xF;
++          const float xv = tf_ctl_x(X, x + g * 128 + b * 32 + 8 * t + j);
++          sum += (float)(code - 8) * xv;
++        }
++      }
++    const float sc = __half2float(s[(size_t)(nt * KG + g) * 8 + (col % 8)]);
++    acc = fmaf(fault == 3 ? tf_ctl_int4_rn(sum) : sum, sc, acc);
++  }
++  return acc;
++}
++
++// The routed gate/up as one thread an output and a block row a pair: fn_int4.cu's swiglu at limit 0 on two fp32 sums.
++
++// fault 1: silu of the up sum times the gate sum; 2: gate, up and silu cut toward zero; 3: each group's sum in bf16.
++extern "C" __global__ void tf_ctl_int4_swiglu(const __nv_bfloat16* X, int x_stride, int slots, const uint32_t* W,
++                                               const __half* S, int K, int N, const int* items,
++                                               const int* counts, const int* members, __nv_bfloat16* out,
++                                               int out_stride, int fault) {
++  const int col = blockIdx.x * blockDim.x + threadIdx.x, p = blockIdx.y;
++  if (col >= N) return;
++  int e = -1, row = -1;
++  for (int it = 0; it < __ldg(counts); ++it) {
++    const int first = __ldg(items + 3 * it + 1), cnt = __ldg(items + 3 * it + 2);
++    if (p >= first && p < first + cnt) {
++      e = __ldg(items + 3 * it);
++      row = __ldg(members + p);
++    }
++  }
++  if (e < 0) return;
++  const int KG = K / 128;
++  const size_t mat_words = (size_t)N * K / 8, mat_scales = (size_t)N * KG;
++  const int64_t x = (int64_t)(slots ? row / slots : row) * x_stride;
++  const int gate_matrix = fault == 1 ? 1 : 0;
++  const float gate = tf_ctl_int4_sum(X, x, W + ((size_t)2 * e + gate_matrix) * mat_words,
++                                     S + ((size_t)2 * e + gate_matrix) * mat_scales, col, KG, fault);
++  const float up = tf_ctl_int4_sum(X, x, W + ((size_t)2 * e + 1 - gate_matrix) * mat_words,
++                                   S + ((size_t)2 * e + 1 - gate_matrix) * mat_scales, col, KG, fault);
++  const float gv = fault == 2 ? tf_ctl_int4_rz(gate) : tf_ctl_int4_rn(gate);
++  const float uv = fault == 2 ? tf_ctl_int4_rz(up) : tf_ctl_int4_rn(up);
++  const float act = gv / (1.0f + expf(-gv));
++  out[(size_t)row * out_stride + col] =
++      __float2bfloat16_rn((fault == 2 ? tf_ctl_int4_rz(act) : tf_ctl_int4_rn(act)) * uv);
++}
+diff --git a/zig/tests/cuda/contract_int4.zig b/zig/tests/cuda/contract_int4.zig
+--- a/zig/tests/cuda/contract_int4.zig
++++ b/zig/tests/cuda/contract_int4.zig
+@@ -1,10 +1,11 @@
+-//! fn_int4.cu under the contract at the checkpoint's shapes, with two planted controls and a skipped expert's rows.
++//! fn_int4.cu under the contract at the checkpoint's shapes: five controls, the epilogue's model, a skipped slot.
+ const std = @import("std");
+ const cuda = @import("cuda");
+ const core = @import("core");
+ const check = @import("check.zig");
+ const rig_ = @import("contract_rig.zig");
+ const ir = @import("int4_ref.zig");
++const scalar = @import("int4_controls.zig");
+ 
+ const contract = core.contract;
+ const c = contract.spec;
+@@ -18,7 +19,8 @@
+ /// A planted fault: gate 4's control kernel, or a head packed with its nibbles unshuffled (gate 3 must catch it).
+ pub const Fault = enum { none, bf16_group_sums, unshuffled_nibbles };
+ 
+-pub const Entry = struct { name: []const u8, kind: Kind, tile: usize = int4.plan_tile, fault: Fault = .none };
++/// A registration: its form, a planted `fault`, or the controls image's scalar gate/up at `gu` (`epilogue`: its model).
++pub const Entry = struct { name: []const u8, kind: Kind, tile: usize = int4.plan_tile, fault: Fault = .none, gu: ?scalar.Fault = null };
+ 
+ /// The checkpoint's shapes: hidden 2,560, experts of width 640, a head of 248,320 rows (its config.json).
+ const dims = 2560;
+@@ -97,8 +99,12 @@
+     .{ .name = "cuda int4 lm head to bf16 (int4_kernel, dense items)", .kind = .head },
+     .{ .name = "cuda int4 routed down to fp32 (int4_prompt_kernel, 64-pair items)", .kind = .prompt_down },
+     .{ .name = "cuda int4 routed gate/up SwiGLU (int4_prompt_kernel, 64-pair items)", .kind = .prompt_gu },
++    .{ .name = "cuda int4 routed gate/up SwiGLU (the epilogue's scalar model, int4_controls)", .kind = .gu, .gu = .epilogue },
+     .{ .name = "control: int4 routed down with each group's sum rounded to bf16", .kind = .down_f32, .fault = .bf16_group_sums },
+     .{ .name = "control: int4 lm head with each word's nibbles unshuffled", .kind = .head, .fault = .unshuffled_nibbles },
++    .{ .name = "control: int4 routed gate/up with silu of the up sum times the gate sum (gate and up swapped)", .kind = .gu, .gu = .swapped },
++    .{ .name = "control: int4 routed gate/up with gate, up and silu cut toward zero to bf16", .kind = .gu, .gu = .cut },
++    .{ .name = "control: int4 routed gate/up with each group's sums rounded to bf16", .kind = .gu, .gu = .bf16_sums },
+ };
+ 
+ /// swiglu as float64 keeps it: silu of the gate sum times the up sum.
+@@ -113,6 +119,7 @@
+     kx: *const int4.Kernels,
+     router: grouped.Router,
+     ctl: ?cuda.Function = null,
++    gu_ctl: ?cuda.Function = null,
+     shape: c.Shape = undefined,
+     pairs: usize = 0,
+     mats: usize = 1,
+@@ -159,7 +166,7 @@
+     }
+ 
+     pub fn kernel(self: *Fixture) g.Kernel {
+-        const control: ?g.Gate = switch (self.entry.fault) {
++        const control: ?g.Gate = if (scalar.gate(self.entry.gu)) |at| at else switch (self.entry.fault) {
+             .none => null,
+             .unshuffled_nibbles => .shapes,
+             .bf16_group_sums => .sums,
+@@ -326,7 +333,7 @@
+     pub fn run(self: *Fixture) !void {
+         switch (self.entry.fault) {
+             .bf16_group_sums => try self.controlSums(),
+-            .none, .unshuffled_nibbles => try self.launch(),
++            .none, .unshuffled_nibbles => if (self.entry.gu) |f| try scalar.launch(self.rig.s, self.gu_ctl.?, self.xd, self.shape, slots, self.ex, self.plan, self.out, self.pairs, f) else try self.launch(),
+         }
+         try self.rig.s.synchronize();
+     }
+@@ -518,7 +525,8 @@
+         set.* = .{ .gpa = gpu.gpa, .kx = kx, .mod = mod, .ctl = ctl };
+         const router = try grouped.Router.resolve(set.mod);
+         const sums = try set.ctl.function("tf_ctl_int4_bf16_sums");
+-        for (&set.items, entries) |*x, e| x.* = .{ .rig = .{ .gpu = gpu, .s = s }, .entry = e, .kx = &set.kx, .router = router, .ctl = if (e.fault == .bf16_group_sums) sums else null };
++        const gu_kernel = try set.ctl.function("tf_ctl_int4_swiglu");
++        for (&set.items, entries) |*x, e| x.* = .{ .rig = .{ .gpu = gpu, .s = s }, .entry = e, .kx = &set.kx, .router = router, .ctl = if (e.fault == .bf16_group_sums) sums else null, .gu_ctl = if (e.gu != null) gu_kernel else null };
+         for (&set.items) |*x| try list.append(a, x.kernel());
+         return set;
+     }
+@@ -585,5 +593,5 @@
+ }
+ 
+ test "every control is named one, and only the controls plant a fault" {
+-    for (entries) |e| try std.testing.expectEqual(e.fault != .none, std.mem.startsWith(u8, e.name, "control: "));
+-}
++    for (entries) |e| try std.testing.expectEqual(e.fault != .none or (e.gu != null and e.gu.? != .epilogue), std.mem.startsWith(u8, e.name, "control: "));
++}
+diff --git a/zig/tests/cuda/int4_controls.zig b/zig/tests/cuda/int4_controls.zig
+new file mode 100644
+--- /dev/null
++++ b/zig/tests/cuda/int4_controls.zig
+@@ -0,0 +1,39 @@
++//! fn_int4.cu's controls on the host side: the controls image's scalar gate/up (tf_ctl_int4_swiglu).
++const std = @import("std");
++const cuda = @import("cuda");
++const core = @import("core");
++const grouped = cuda.grouped;
++const int4 = cuda.int4;
++
++const g = core.contract.gates;
++
++/// tf_ctl_int4_swiglu's `fault`: fn_int4.cu's epilogue on fp32 sums (the epilogue's model), or a planted one.
++pub const Fault = enum(i32) { epilogue = 0, swapped = 1, cut = 2, bf16_sums = 3 };
++
++/// The gate a planted scalar gate/up must fail; the epilogue's model is a kernel and fails none.
++pub fn gate(f: ?Fault) ?g.Gate {
++    return switch (f orelse return null) {
++        .epilogue => null,
++        .swapped, .cut => .shapes,
++        .bf16_sums => .sums,
++    };
++}
++
++/// The scalar gate/up on a plan's pairs: x [R, D] token rows -> out [R * slots, width] bf16, laid out as `gateUp` does.
++pub fn launch(s: cuda.Stream, f: cuda.Function, x: u64, shape: core.contract.spec.Shape, slots: usize, ex: int4.Experts, p: grouped.Plan, out: u64, pairs: usize, fault: Fault) !void {
++    var a: cuda.Args = .{};
++    a.add(x);
++    a.add(@as(i32, @intCast(shape.k)));
++    a.add(@as(i32, @intCast(slots)));
++    a.add(ex.up);
++    a.add(ex.up_s);
++    a.add(@as(i32, @intCast(shape.k)));
++    a.add(@as(i32, @intCast(shape.n)));
++    a.add(p.items);
++    a.add(p.counts);
++    a.add(p.members);
++    a.add(out);
++    a.add(@as(i32, @intCast(shape.n)));
++    a.add(@backingInt(fault));
++    try cuda.launch.launch(f, .{ .grid = .{ .x = @intCast((shape.n + 255) / 256), .y = @intCast(pairs), .z = 1 }, .block = .{ .x = 256, .y = 1, .z = 1 } }, s, &a);
++}

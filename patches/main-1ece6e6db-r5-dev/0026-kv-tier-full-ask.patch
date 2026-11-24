@@ -1,0 +1,106 @@
+diff --git a/zig/src/core/kv_pool.zig b/zig/src/core/kv_pool.zig
+index 19784f6..819365e 100644
+--- a/zig/src/core/kv_pool.zig
++++ b/zig/src/core/kv_pool.zig
+@@ -92,7 +92,7 @@ pub const Budget = struct {
+     fixed: bool = false,
+     /// The prompt cache's budget: its snapshot slots and its copied KV.
+     cache: u64 = 0,
+-    /// Snapshot slots (null: half the cache's bytes in slots); most_snaps at most.
++    /// Snapshot slots (null: half the cache's bytes in slots; 0: none, a family without them); most_snaps at most.
+     snaps: ?usize = null,
+     /// Rows one stream holds at most (0: no bound): pages past what the paged streams hold at once stay unmade.
+     window: u64 = 0,
+@@ -116,11 +116,12 @@ pub const Plan = struct {
+     taken: u64 = 0, // the cache bytes the windows past the engine's own took before it (0 when it was asked)
+ };
+ 
+-/// The prompt cache's split: slots for its snapshots, the rest for their copied KV rows (no slot: no cache).
++/// The prompt cache's split: `named` slots of `snap_bytes` (null: half the cache; 0: none), the rest as copied KV rows.
+ pub fn split(cache: u64, snap_bytes: u64, named: ?usize) struct { snaps: usize, copied: u64 } {
+     if (snap_bytes == 0) return .{ .snaps = 0, .copied = cache }; // a family without slots: its states are all copies
+     const snaps = @min(most_snaps, named orelse cache / 2 / snap_bytes, cache / snap_bytes);
+-    return .{ .snaps = @intCast(snaps), .copied = if (snaps > 0) cache - snaps * snap_bytes else 0 };
++    if (snaps == 0) return .{ .snaps = 0, .copied = cache }; // no slot fits or none is declared: the whole cache is copies
++    return .{ .snaps = @intCast(snaps), .copied = cache - snaps * snap_bytes };
+ }
+ 
+ /// The pool as room - engine - (lanes - 1) x fixed - snaps x snap_bytes - copied, a page a stream beside it at least.
+diff --git a/zig/src/core/kv_pool_test.zig b/zig/src/core/kv_pool_test.zig
+index d2b2171..c424f8b 100644
+--- a/zig/src/core/kv_pool_test.zig
++++ b/zig/src/core/kv_pool_test.zig
+@@ -70,6 +70,26 @@ test "a family without snapshot slots (snap_bytes 0) keeps its whole cache as co
+     try expectEqual(@as(usize, @intCast((44 * g - 3 * 180 * mib) / copies.pageBytes())), p.pages);
+ }
+ 
++test "a cache whose family declares no slots reserves none: the whole ask is copies and the pages are unchanged" {
++    const g: u64 = 1 << 30;
++    // Flash Next at the 262,144-token window: a state's fixed part 115,642,400 B, the served 6 GiB ask
++    const fnx: kv.Layout = .{ .fixed_bytes = 0, .token_bytes = 18_880, .page_tokens = 4096, .snap_bytes = 115_642_368 };
++    const s = kv.split(6 * g, fnx.snap_bytes, 0); // a family that declares no snap_slots passes zero slots
++    try expectEqual(@as(usize, 0), s.snaps);
++    try expectEqual(6 * g, s.copied);
++    // the half a null still names for a family that declares slots: 27 of them at this size, 2,977.65 MiB
++    try expectEqual(@as(usize, 27), kv.split(6 * g, fnx.snap_bytes, null).snaps);
++    try expectEqual(6 * g - 27 * fnx.snap_bytes, kv.split(6 * g, fnx.snap_bytes, null).copied);
++    // the same pages either way: the slot half was never pages, so only the store's share of the cache changes hands
++    const none = try kv.plan(fnx, .{ .room = 31 * g, .engine = 5 * g, .lanes = 8, .cache = 6 * g, .snaps = 0, .asked = true });
++    const half = try kv.plan(fnx, .{ .room = 31 * g, .engine = 5 * g, .lanes = 8, .cache = 6 * g, .snaps = null, .asked = true });
++    try expectEqual(none.pages, half.pages);
++    try expectEqual(@as(usize, 0), none.snaps);
++    try expectEqual(6 * g, none.copied);
++    try expectEqual(@as(usize, 27), half.snaps);
++    try expectEqual(3_320_107_008, half.copied); // the budget the shipped store's /stats reported before this fix
++}
++
+ test "the engine's own sequence on pages: a window of them comes first, then the others' fixed parts, the cache, the rest" {
+     const g: u64 = 1 << 30;
+     // GLM-5.3-Flash on CUDA at TP=3, a 1M window and a verify window; the engine's own fixed part is in the model
+diff --git a/zig/src/native/cuda_cache_capacity_test.zig b/zig/src/native/cuda_cache_capacity_test.zig
+index d41873b..c8183f8 100644
+--- a/zig/src/native/cuda_cache_capacity_test.zig
++++ b/zig/src/native/cuda_cache_capacity_test.zig
+@@ -55,3 +55,29 @@ test "cache capacity: 256K context, four streams, 0.3 GiB cannot retain one plan
+     try t.expectEqual(@as(?api.PromptCacheCapacity, null), pool.capacity(struct {}, loaded, kept, 262144));
+     try t.expectEqual(@as(?api.PromptCacheCapacity, null), pool.capacity(Fake, loaded, kept, 2048));
+ }
++
++test "CUDA cache default: a family without snapshot slots budgets its whole ask, one that declares them still half" {
++    // no snap_slots: its states are copies, the cache the store's
++    const Copies = struct {
++        pub const snap_save = 1;
++    };
++    const Slots = struct {
++        pub const snap_save = 1;
++        pub const snap_slots = 1;
++    };
++    const o: api.Open = .{ .dir = "", .model_type = "qwen4_exp", .prompt_cache_gib = 6 };
++    // the served shape's layout: 18,880 bytes a token, 4,096-token pages, a state's 110.28 MiB fixed part
++    const l: @import("core").kv_pool.Layout = .{ .fixed_bytes = 0, .token_bytes = 18_880, .page_tokens = 4096, .snap_bytes = 115_642_368 };
++    var problem: []const u8 = "";
++    const copies = (try pool.plan(Copies, std.testing.allocator, l, 31 << 30, o, 262_144, &problem, false, false, 0, null)).?;
++    try t.expectEqual(@as(usize, 0), copies.snaps);
++    try t.expectEqual(@as(u64, 6 << 30), copies.copied); // the whole 6 GiB ask is the store's budget
++    const slots = (try pool.plan(Slots, std.testing.allocator, l, 31 << 30, o, 262_144, &problem, false, false, 0, null)).?;
++    try t.expectEqual(@as(usize, 27), slots.snaps); // a family that declares slots still reserves the half
++    try t.expectEqual(@as(u64, 3_320_107_008), slots.copied); // the /stats budget the kvtier-pool window read
++    try t.expectEqual(copies.pages, slots.pages); // the same pages: 2,977.7 MiB changes hands, not the plan
++    // a family that declares slots and names a count keeps exactly that many, as before
++    const named8 = (try pool.plan(Slots, std.testing.allocator, l, 31 << 30, o, 262_144, &problem, false, false, 0, 8)).?;
++    try t.expectEqual(@as(usize, 8), named8.snaps);
++    try t.expectEqual(@as(u64, (6 << 30) - 8 * 115_642_368), named8.copied);
++}
+diff --git a/zig/src/native/cuda_kv_pool.zig b/zig/src/native/cuda_kv_pool.zig
+index b02d2e4..2c01bf8 100644
+--- a/zig/src/native/cuda_kv_pool.zig
++++ b/zig/src/native/cuda_kv_pool.zig
+@@ -165,7 +165,7 @@ fn fits(comptime F: type, loaded: anytype, o: api.Open, room: u64, window: u64,
+ pub fn budgetOf(comptime F: type, l: kv_pool.Layout, room: u64, o: api.Open, window: u64, host_mode: bool, engine_paged: bool, kept_ppm: u32, slots: ?usize) kv_pool.Budget {
+     const rows: u64 = if (comptime @hasDecl(F, "window_rows")) F.window_rows else 0;
+     const want = if (host_mode) 0 else cacheWanted(F, o);
+-    var out: kv_pool.Budget = .{ .room = room, .engine = 0, .lanes = o.lanes, .fixed = o.lanes_fixed, .cache = want, .snaps = slots orelse named(o), .window = window + rows, .engine_paged = engine_paged, .kept_ppm = if (host_mode) 0 else kept_ppm, .slots_only = slots != null, .asked = o.prompt_cache_gib != null };
++    var out: kv_pool.Budget = .{ .room = room, .engine = 0, .lanes = o.lanes, .fixed = o.lanes_fixed, .cache = want, .snaps = if (comptime @hasDecl(F, "snap_slots")) slots orelse named(o) else 0, .window = window + rows, .engine_paged = engine_paged, .kept_ppm = if (host_mode) 0 else kept_ppm, .slots_only = slots != null, .asked = o.prompt_cache_gib != null };
+     if (out.asked or host_mode or comptime keepsNoPrompts(F)) return out;
+     var probe = out;
+     probe.cache = std.math.maxInt(u64);
