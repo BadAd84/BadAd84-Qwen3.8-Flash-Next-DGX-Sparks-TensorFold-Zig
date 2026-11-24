@@ -22,8 +22,10 @@ matches or beats `production/SPEED-TARGET.md` at 1, 2, 4, 6 and 8 streams.
 - That label is the sha256 of the build's source tar (`e5139fcd8c6101c776d9c600021228d389e648f58a398842498d95c3ebcccecc`).
   The tar was unpacked and compared with this tree at `5c3e3e29`: 1,640 files, 0 differences. So the tree here is
   the source of the serving binary, file for file.
-- Serves: checkpoint `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` (`14642741`), 8 streams, bf16 KV,
-  262,144-token window (the serve's boot banner).
+- Serves: checkpoint `azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound` (`14642741`), 8 streams, fp8 KV
+  (1,056 bytes a position a layer; the engine's own boot line reads `fp8 KV cache`, 1,024 bytes plus 32 of scales),
+  262,144-token window. The recipe's banner line prints `bf16 KV` from its own `KV_DTYPE` default while the argv
+  passes `--kv-cache fp8`: a third-party cosmetic bug, and not the served format.
 - The files under `production/` are the box's own copies (the launcher, the Dockerfile and the build script) and
   `main`'s copies of the overlay tool and the target document.
 - Not reproducible from this branch alone: the base image `tensorfold-qwen38:zmerge8` (the recipe's Python package
