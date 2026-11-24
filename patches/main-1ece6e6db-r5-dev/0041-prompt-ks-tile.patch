@@ -135,6 +135,19 @@ index f525e28..edfe648 100644
          const busy = try chunkRows();
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
+diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
+index 2984649..f7ae5df 100644
+--- a/zig/src/platform/environment.zig
++++ b/zig/src/platform/environment.zig
+@@ -75,6 +75,8 @@ pub const rules = [_]Rule{
+     .{ .name = "TF_FLASHNEXT_GATHER_LOCK_SCALES", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_SYNC", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_MX128", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column count (default 0: the exact kernels; N or more takes the relaxed prompt tile)" },
++    .{ .name = "TF_FLASHNEXT_PROMPT_KS_N", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size column block (0 keeps the engine's 128-column prompt tile; 64 takes the captured prompt matmul's 64-column fused tile)" },
++    .{ .name = "TF_FLASHNEXT_PROMPT_KS_GROUP", .scope = .cuda, .kind = .size, .forms = "a whole nonnegative native-size row-tile band (0 keeps the launcher's own sweep; read only when PROMPT_KS_N selects the 64-column tile)" },
+     .{ .name = "TF_FLASHNEXT_PROMPT_GEMM2", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_FUSED_SPLIT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
+     .{ .name = "TF_FLASHNEXT_READOUT_FUSE", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
 diff --git a/zig/tests/fixtures/gradient-serving.tsv b/zig/tests/fixtures/gradient-serving.tsv
 index 0d47475..b103e57 100644
 --- a/zig/tests/fixtures/gradient-serving.tsv
