@@ -5,6 +5,20 @@ is only worth anything once it is in the tree every later boot inherits, and bec
 knob measured better stayed a per-arm flag, and a setting production runs stayed off in every arm, so the cells
 described a serve nobody ships.
 
+## The default is upstream, not local
+
+**The target is as close to zero local engine patches as possible.** Upstream must be as fast as our local serve, so a
+lever upstream would take is submitted, not held: every local patch costs a re-seat on each upstream bump and drifts from
+the code everyone else is improving.
+
+1. Submit anything they will accept, as its own pull request, ahead of more local work.
+2. Rework what they would not accept into a shape they would, while the trade is small: losing 0.7 percent of speed to
+   have the patch accepted is worth more than keeping it local. Record the reworked lever's cells beside the original's.
+3. Only a lever that cannot be made acceptable and carries a real measured gain stays local, and that is the owner's
+   decision case by case. Its RECORD says why it cannot go upstream, so the local set is auditable.
+
+A local-only patch is the exception that needs an argument, never the default.
+
 ## The rule, in one paragraph
 
 Every setting the served engine reads is set explicitly, and every measured winner is promoted into the default path -
