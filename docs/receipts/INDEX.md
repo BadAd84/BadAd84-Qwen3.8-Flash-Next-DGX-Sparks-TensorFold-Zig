@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 87 files, about 2.6 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 128 files, about 3.7 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -84,6 +84,47 @@ listed at the end as deliberately untracked.
 | `docs/receipts/P5Gpu/CLOSED.md` | `work/P5Gpu/CLOSED.md` | `ab53790599920ac5` | `docs/KNOB-COVERAGE.md` |
 | `docs/receipts/PartFix/REBASE.md` | `work/PartFix/REBASE.md` | `6004e77ff8308f4b` | `docs/OPEN-PR-COVERAGE.md` |
 | `docs/receipts/PatchBisect/RESULT.md` | `work/PatchBisect/RESULT.md` | `4f1a5698ed8313f1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/ProdEnvAudit/RESULT.md` | `work/ProdEnvAudit/RESULT.md` | `0f23ad6565b42b2a` | `scripts/qwen38/README.md` |
+| `docs/receipts/ProdEnvAudit/check-prod-env-selftest.sh` | `work/ProdEnvAudit/check-prod-env-selftest.sh` | `76a1eba724199923` | `docs/ENV-REGISTER.md` |
+| `docs/receipts/ProdEnvAudit/check-prod-rows.py` | `work/ProdEnvAudit/check-prod-rows.py` | `aab7ba16df1104e4` | `scripts/qwen38/README.md` |
+| `docs/receipts/ProdEnvAudit/coverage-dev.txt` | `work/ProdEnvAudit/coverage-dev.txt` | `9df1554f028c73a9` | (index only) |
+| `docs/receipts/ProdEnvAudit/coverage-prod.txt` | `work/ProdEnvAudit/coverage-prod.txt` | `af4407b5a152a0f2` | (index only) |
+| `docs/receipts/ProdEnvAudit/dev-neutral.txt` | `work/ProdEnvAudit/dev-neutral.txt` | `1a6eb131966d6603` | (index only) |
+| `docs/receipts/ProdEnvAudit/drift-prod.txt` | `work/ProdEnvAudit/drift-prod.txt` | `5c4e977b84a66caa` | (index only) |
+| `docs/receipts/ProdEnvAudit/drift-selftest.txt` | `work/ProdEnvAudit/drift-selftest.txt` | `a24fb2a45bd39371` | (index only) |
+| `docs/receipts/ProdEnvAudit/envstr-P.txt` | `work/ProdEnvAudit/envstr-P.txt` | `8a7764cf2f823cab` | (index only) |
+| `docs/receipts/ProdEnvAudit/gen.py` | `work/ProdEnvAudit/gen.py` | `d772cf60e314cf5a` | (index only) |
+| `docs/receipts/ProdEnvAudit/live-env.txt` | `work/ProdEnvAudit/live-env.txt` | `30e8dc9ac90c9145` | (index only) |
+| `docs/receipts/ProdEnvAudit/names-P.txt` | `work/ProdEnvAudit/names-P.txt` | `42f4ff8a6ba0cf9f` | (index only) |
+| `docs/receipts/ProdEnvAudit/prod-launcher.env` | `work/ProdEnvAudit/prod-launcher.env` | `b4e85fbe9f8d94e4` | (index only) |
+| `docs/receipts/ProdEnvAudit/prod-settings-table.zig` | `work/ProdEnvAudit/prod-settings-table.zig` | `d828a7278389bc49` | `docs/ENV-REGISTER.md`, `scripts/qwen38/README.md` |
+| `docs/receipts/ProdEnvAudit/provenance-tar.txt` | `work/ProdEnvAudit/provenance-tar.txt` | `6217fd3943b0b6e9` | (index only) |
+| `docs/receipts/ProdEnvAudit/provenance.txt` | `work/ProdEnvAudit/provenance.txt` | `f20f678b8570a894` | (index only) |
+| `docs/receipts/ProdEnvAudit/qwen6-start-prod.sh` | `work/ProdEnvAudit/qwen6-start-prod.sh` | `93f1a2077ffedc4d` | (index only) |
+| `docs/receipts/ProdEnvAudit/rows-check.txt` | `work/ProdEnvAudit/rows-check.txt` | `72d08eab804d851e` | (index only) |
+| `docs/receipts/ProdEnvAudit/scope-check.txt` | `work/ProdEnvAudit/scope-check.txt` | `f36b7c153a518412` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/src/tensorfold/vision/qwen_cuda.py` | `work/ProdEnvAudit/src/src/tensorfold/vision/qwen_cuda.py` | `019cc39ff2c22460` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/src/tensorfold/vision/qwen_processing.py` | `work/ProdEnvAudit/src/src/tensorfold/vision/qwen_processing.py` | `e27b2128aad77018` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_comm.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_comm.zig` | `58eaf96d3d0ea87c` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_engine.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_engine.zig` | `c83295dcc2ec34c7` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_forward.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_forward.zig` | `85d03c5963539cfa` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_fp8.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_fp8.zig` | `890e070d9a34b3a6` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_int4.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_int4.zig` | `7e619c450d106faf` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_kernels.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_kernels.zig` | `e01e360f25f13685` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_lanes.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_lanes.zig` | `ca55481bd23e6358` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_mirror.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_mirror.zig` | `393f25fe93317123` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_moe_prompt.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_moe_prompt.zig` | `7f74401f0334ac00` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_native.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_native.zig` | `2f72486e978a4dbd` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_ngram_host.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_ngram_host.zig` | `119f3532620ade2a` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_prof.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_prof.zig` | `3ce15637a61b41e6` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_prompt.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_prompt.zig` | `281f9772dbab5c47` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/families/flashnext/cuda_rope.zig` | `work/ProdEnvAudit/src/zig/src/families/flashnext/cuda_rope.zig` | `a63f38b12d23af57` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/native/cuda.zig` | `work/ProdEnvAudit/src/zig/src/native/cuda.zig` | `d73d1048765c53a2` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/server/main.zig` | `work/ProdEnvAudit/src/zig/src/server/main.zig` | `611ec2d0c0fb9d89` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/server/serve.zig` | `work/ProdEnvAudit/src/zig/src/server/serve.zig` | `2fe3d1ff445a2a59` | (index only) |
+| `docs/receipts/ProdEnvAudit/src/zig/src/server/vision.zig` | `work/ProdEnvAudit/src/zig/src/server/vision.zig` | `68136236889edbc7` | (index only) |
+| `docs/receipts/ProdEnvAudit/strings-P.txt` | `work/ProdEnvAudit/strings-P.txt` | `43dad35b649c015c` | (index only) |
+| `docs/receipts/ProdEnvAudit/tree-compare.txt` | `work/ProdEnvAudit/tree-compare.txt` | `f9ad95e49d8e546a` | (index only) |
 | `docs/receipts/ProseDraft/out.fetched/out/B0a/env.txt` | `work/ProseDraft/out.fetched/out/B0a/env.txt` | `2a7043efe18f2149` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProseDraft/POLICY.md` | `work/ProseDraft/POLICY.md` | `96a68754dec63d19` | `docs/ENV-REGISTER.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProseDraft/RESULT.md` | `work/ProseDraft/RESULT.md` | `5ff75439aa38b26a` | `docs/ENV-REGISTER.md`, `docs/INT4-PORT.md`, `docs/KNOB-COVERAGE.md`, `docs/KNOB-SCREEN.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
@@ -115,6 +156,7 @@ listed at the end as deliberately untracked.
 | `work/Fuse0018Fix/box`, `work/KnobTest/box`, `work/KvTierW5/box` and the other `box/` trees | hundreds of MiB | remote build trees and fetched frames; only their `RESULT.md` and `GATES.md` are evidence. |
 | `work/int4/bench-*`, `work/target/bench-*`, `work/bench/rigmark/runs/` | per-run JSON and logs | each run is regenerated by its window script; the committed `docs/INT4-PORT.md` and patch RECORDs carry the verdicts and the cells that matter. |
 | `work/KnobScreen/out/` | no window yet | the screen has not run: the kit is tracked at `scripts/qwen38/zig/target/screen/`, the failed preflights are preserved on the box, their env and settings checks and the dry-run transcript are tracked above, and the window's own boot records become a receipt when it runs. |
+| `work/ProdEnvAudit/src.tar` | 28.6 MiB | the zmerge8 build source, sha256 `e5139fcd...` equal to the image's label; the derived table and 20 cited files are tracked. |
 | `work/prod`, `work/lanes/rpr/recipe`, model caches under `~/.cache` | trees and weights | other engines' source and model data; never evidence for our numbers. |
 
 ## How to use
