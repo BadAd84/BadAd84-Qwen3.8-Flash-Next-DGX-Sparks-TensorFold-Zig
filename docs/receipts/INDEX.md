@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 131 files, about 3.8 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 162 files, about 4.3 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -82,6 +82,37 @@ listed at the end as deliberately untracked.
 | `docs/receipts/KvTierW5/RESULT.md` | `work/KvTierW5/RESULT.md` | `0a75f4ed82f2e9b9` | `scripts/qwen38/README.md` |
 | `docs/receipts/KvTierW5/tables.md` | `work/KvTierW5/tables.md` | `f5f767e52ad99a8a` | (index only) |
 | `docs/receipts/P5Gpu/CLOSED.md` | `work/P5Gpu/CLOSED.md` | `ab53790599920ac5` | `docs/KNOB-COVERAGE.md` |
+| `docs/receipts/ParityAB/RESULT.md` | `work/ParityAB/RESULT.md` | `ad45cace3fececa9` | (index only) |
+| `docs/receipts/ParityAB/ev.tgz` | `work/ParityAB/ev.tgz` | `b7e4be66df81ae4c` | (index only) |
+| `docs/receipts/ParityAB/in/SHA256SUMS` | `work/ParityAB/in/SHA256SUMS` | `cfc847d66f1478d1` | (index only) |
+| `docs/receipts/ParityAB/in/argv.py` | `work/ParityAB/in/argv.py` | `729c4d6e9a85d271` | (index only) |
+| `docs/receipts/ParityAB/in/boot_env.sh` | `work/ParityAB/in/boot_env.sh` | `66f8ca128cff30d9` | (index only) |
+| `docs/receipts/ParityAB/in/check-prod-env.py` | `work/ParityAB/in/check-prod-env.py` | `3b19dad0faf8bd8a` | (index only) |
+| `docs/receipts/ParityAB/in/decompose.py` | `work/ParityAB/in/decompose.py` | `a4fdd51550a64b46` | (index only) |
+| `docs/receipts/ParityAB/in/dev.env` | `work/ParityAB/in/dev.env` | `6f0f5156c44fa116` | (index only) |
+| `docs/receipts/ParityAB/in/doc_target.json` | `work/ParityAB/in/doc_target.json` | `b5818ed597d662cb` | (index only) |
+| `docs/receipts/ParityAB/in/envnames.py` | `work/ParityAB/in/envnames.py` | `659c649536fdeecc` | (index only) |
+| `docs/receipts/ParityAB/in/flags.sh` | `work/ParityAB/in/flags.sh` | `cb7882b1c2bc73bd` | (index only) |
+| `docs/receipts/ParityAB/in/meta.py` | `work/ParityAB/in/meta.py` | `5c2f87ce84405855` | (index only) |
+| `docs/receipts/ParityAB/in/prod.env` | `work/ParityAB/in/prod.env` | `11778f8a6902a742` | (index only) |
+| `docs/receipts/ParityAB/in/qf_harness.py` | `work/ParityAB/in/qf_harness.py` | `4606732e34f6d2cb` | (index only) |
+| `docs/receipts/ParityAB/in/score_cells.py` | `work/ParityAB/in/score_cells.py` | `735b9ffc9ffc7b46` | (index only) |
+| `docs/receipts/ParityAB/in/summarise_parity.py` | `work/ParityAB/in/summarise_parity.py` | `58bfaf6b5e20fd23` | (index only) |
+| `docs/receipts/ParityAB/in/tfm_decode.py` | `work/ParityAB/in/tfm_decode.py` | `3e535944abdd33b3` | (index only) |
+| `docs/receipts/ParityAB/in/tfm_decode_ids.py` | `work/ParityAB/in/tfm_decode_ids.py` | `6b81cf33090a5eef` | (index only) |
+| `docs/receipts/ParityAB/in/ttft.py` | `work/ParityAB/in/ttft.py` | `7fd729adb59f40d6` | (index only) |
+| `docs/receipts/ParityAB/in/zgold-base-c1.json` | `work/ParityAB/in/zgold-base-c1.json` | `bb7aa058983dd07f` | (index only) |
+| `docs/receipts/ParityAB/in/zgold_cmp.py` | `work/ParityAB/in/zgold_cmp.py` | `d76590633cf020ed` | (index only) |
+| `docs/receipts/ParityAB/rerun1.levels` | `work/ParityAB/rerun1.levels` | `84f019f9b41583ee` | (index only) |
+| `docs/receipts/ParityAB/restored/envcheck.txt` | `work/ParityAB/restored/envcheck.txt` | `f2843c214ee37dc1` | (index only) |
+| `docs/receipts/ParityAB/restored/health.json` | `work/ParityAB/restored/health.json` | `d23898b4e1972ec6` | (index only) |
+| `docs/receipts/ParityAB/restored/image.txt` | `work/ParityAB/restored/image.txt` | `e52e61777c95e8c9` | (index only) |
+| `docs/receipts/ParityAB/restored/prod-inspect.json` | `work/ParityAB/restored/prod-inspect.json` | `05b40001550216b0` | (index only) |
+| `docs/receipts/ParityAB/run.log` | `work/ParityAB/run.log` | `44ce609735ce8f4f` | (index only) |
+| `docs/receipts/ParityAB/score1.txt` | `work/ParityAB/score1.txt` | `b0b35d5ad3224d47` | (index only) |
+| `docs/receipts/ParityAB/score2.txt` | `work/ParityAB/score2.txt` | `fd99f40b1aeb52e4` | (index only) |
+| `docs/receipts/ParityAB/tables.md` | `work/ParityAB/tables.md` | `5fd08f1532d40a67` | (index only) |
+| `docs/receipts/ParityAB/window.sh` | `work/ParityAB/window.sh` | `e8239d92fb1dadd0` | (index only) |
 | `docs/receipts/PartFix/REBASE.md` | `work/PartFix/REBASE.md` | `6004e77ff8308f4b` | `docs/OPEN-PR-COVERAGE.md` |
 | `docs/receipts/PatchBisect/RESULT.md` | `work/PatchBisect/RESULT.md` | `4f1a5698ed8313f1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProdEnvAudit/RESULT.md` | `work/ProdEnvAudit/RESULT.md` | `0f23ad6565b42b2a` | `scripts/qwen38/README.md` |
