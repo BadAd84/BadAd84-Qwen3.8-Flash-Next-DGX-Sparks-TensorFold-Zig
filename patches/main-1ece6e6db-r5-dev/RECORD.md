@@ -136,7 +136,7 @@ is `~/work/DevComp/gate2.sh`; every line below is the run's own (`~/work/DevComp
 | `compile-cuda-tests -Dtarget=aarch64-linux-gnu` | 0 | 294 s |
 | `compile-cuda-tests -Dnvcc=<13.3>` | 0 | 969 s |
 | `compile-cuda-tests -Dnvcc=<13.3> -Dtarget=aarch64-linux-gnu` | 0 | 945 s |
-| `test-cuda-host` | 1 | `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)` on the 35-patch tree. This run found 0034, 0035 and 0036; after 0034 the cache-budget step reads `22/22 tests passed`. 0035 fixes the config fixture; 0036 fixes the paged-prompt failure (`cuda_paging_batch_test.zig:176`, `cuda_int4.dense` refusing a fixture with no group) and the split-lane panic (`cuda_split_lane_test.zig:289`, `shared_width` read from `undefined`). A run with all three applied was in flight at hand-off; the log is `~/work/DevComp/gate2.log` |
+| `test-cuda-host` | 1 | with 0034-0036 applied: `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`. 0034's cache-budget step reads `22/22 tests passed`; 0035's config test and the int4 fixture changes of 0036 compile and run (`test-flashnext-int4-host` `26/26`), but the split-lane panic (`cuda_split_lane_test.zig:289`) and the paged-prompt failure (`cuda_paging_batch_test.zig:176`, still entering `cuda_int4.dense` from a call site the group guard does not cover) persist, and a new `cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read` failure appears. The earlier 35-patch run read `7666/7715 (44 skipped, 4 failed, 1 crashed)`; the smaller total is the two failing modules aborting their runs early |
 
 The package's own gates: `scripts/check-patch-packages.sh` reads `check-patch-packages: CLEAN (19 package dirs
 checked, 1 grandfathered)`; `scripts/check-patch-reverts.py` reads `34 patches, 124 findings, 124 allowed, 0 open,
@@ -147,8 +147,9 @@ The env coverage gate against the applied tree is red on four of 0021's rows and
 names `TF_FLASHNEXT_HEAD_ROW_TILES`, `TF_FLASHNEXT_INT4_PROMPT_DOWN`, `TF_FLASHNEXT_INT4_PROMPT_GATE_UP`,
 `TF_FLASHNEXT_INT4_TILE`. `check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
 
-What the gate does not prove: no device run of this composition, and `test-cuda-host` is not yet observed green. The
-contract suite's device receipt is the tolerance branch's head (`work/Int4Tolerance/RESULT.md`); here the suite is
-exercised on the host and by the nvcc compile legs. The four full-suite findings are addressed by 0034-0036; 0034 is
-observed at `22/22`, and the run that observes 0035 and 0036 was in flight at hand-off.
+What the gate does not prove: no device run of this composition, and `test-cuda-host` is not green. The contract
+suite's device receipt is the tolerance branch's head (`work/Int4Tolerance/RESULT.md`); here the suite is exercised on
+the host and by the nvcc compile legs. 0034 is observed at `22/22` and 0035/0036 compile and run, but the final run
+still fails the split-lane panic and the paged-prompt route, and adds a `cli_config` serve-config failure; those are
+the open work on this composition, with the exact stacks in the run log (`~/work/DevComp/full36b.log` on Paperclip).
 

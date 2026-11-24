@@ -125,7 +125,7 @@ blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `
 | `zig build compile-cuda-tests`, `-Dtarget=aarch64-linux-gnu` | rc 0 |
 | `zig build -Dnvcc=... compile-cuda-tests` native | rc 0, 969 s |
 | the same, `-Dtarget=aarch64-linux-gnu` | rc 0, 945 s |
-| `zig build -Dfixed-cpu test-cuda-host` | rc 1 on the 35-patch tree: `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)`. 0034's step reads `22/22` after its fix; 0035 and 0036 target the other failures (the config fixture, the int4 dense dispatch and the split-lane `shared_width`), and the run that observes them had not completed at hand-off; the log is `~/work/DevComp/gate2.log` on Paperclip |
+| `zig build -Dfixed-cpu test-cuda-host` | rc 1 with 0034-0036 applied: `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`. 0034's step reads `22/22`; 0035 and 0036 compile and run, but the split-lane panic (`cuda_split_lane_test.zig:289`) and the paged-prompt failure (`cuda_paging_batch_test.zig:176`) persist, and a `cli_config` serve-config test now fails. `RECORD.md` has the full finding list |
 
 ## What this package does not do
 
