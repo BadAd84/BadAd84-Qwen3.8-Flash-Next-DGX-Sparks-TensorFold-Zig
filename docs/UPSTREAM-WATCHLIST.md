@@ -18,6 +18,20 @@ patches remain the delivery mechanism and each retires the moment the stack move
 
 The re-seat re-tests the remaining stack on the new base rather than assuming any gain survives; the retiring
 patches are recorded with their absorbing commit in the package `RETIRED.md` when it happens.
+
+## 2026-11-24: two more merged, with their retirement candidates
+
+Upstream merged #4799 (`TF_FLASHNEXT_READOUT_FUSED` defaults on) as `9edf2f89d45b3620c9b65195e802530250a6f09e`
+and #4801 (the MTP head's `fc_h` lane is sized for its own `part` rows) as
+`cb440a086f42590d4e22190fc1dabe1e0d7f3890`. Both are in `up/main` at `9a38b1f7b` and neither is in the r5 base
+`1ece6e6d` (`git merge-base --is-ancestor` per sha: yes and no), so the patches remain the delivery until the
+next re-seat.
+
+| change | upstream commit | our candidate patch | note |
+|---|---|---|---|
+| `TF_FLASHNEXT_READOUT_FUSED` defaults on | `9edf2f89` (#4799) | 0018-readout-fuse | our own commit; the name check decides at the re-seat whether the fusion code matches or only the default line retires |
+| the MTP head's `fc_h` lane sized for its own `part` rows | `cb440a08` (#4801) | 0008-shared-direct-head-piece | 0008's own text states the `part` sizing and carries its part-rows test; retire that piece if the merged code is the same |
+
 ## 2026-10-25
 
 - Upstream re-tested #34 (`TF_FLASHNEXT_CONFIDENCE=-0.15`) on current main `656879f` / the NVFP4 checkpoint: no
