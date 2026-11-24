@@ -18,11 +18,20 @@ is `bf16|int8|int4` only and it has no `--learn-*` or `--prompt-cache-disk` flag
 
 ## Our arm (`main`)
 
-- **Series.** The dev engine is `patches/main-1ece6e6db-r5-dev`: one directory of 36 patches on upstream main
+- **Series.** The dev engine is `patches/main-1ece6e6db-r5-dev`: one directory of 40 patches on upstream main
   `1ece6e6db`, the r5 core levers (0001 to 0020), the INT4-AutoRound port and its serving pins (0021, 0022), the NVMe
   KV tier with the pool's cache refusal and the whole-ask budget (0023 to 0026), the bf16 draft-head fix (0027, 0028),
   the int4 contract suite with the tolerance branch's three commits (0029 to 0032), the merged serving pins (0033),
-  and the three composed-gate corrections (0034 to 0036).
+  the composed-gate corrections (0034 to 0036), and the green-up fixes for the int4 fixtures, the regenerated
+  serving pins and the CLI fixture mode (0037 to 0040).
+- **The dev arm is proved.** Image `tensorfold-qwen38:r5dev40` (`sha256:adc40fe3ea7b...`, 459 s build) from these
+  40 patches boots at 8 x 262144 with fp8 KV: window self-check 1176 of 1176, five exactness cells EQ with 404
+  drafts, `SUMMARY int4: 8 kernels, 8 pass gates 1-4, 0 fail, 0 known findings; 5 controls: 5 red as planted`,
+  the tier budget equal to the 6 GiB ask, and a 129k conversation resuming in 0.176 s against 52.487 s cold with
+  both its states surviving under that budget. Receipts: `docs/receipts/DevBootComp/`. The dev launcher passes no
+  `--dashboard`, so `/stats` is 404 on this boot and the tier numbers come from its own log lines.
+  Build gotcha: BuildKit served a cached fetch keyed to the command string's ref, so build with a unique ref per
+  attempt or the tree starts from another lane's base.
   Build: `zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf 1ece6e6db patches/main-1ece6e6db-r5-dev`.
   `patches/main-1ece6e6db-r5` (the twenty core levers), `patches/main-1ece6e6db-r5-int4`,
   `patches/main-1ece6e6db-r5-kvtier`, `patches/main-1ece6e6db-r5-kvtier-pool`,
