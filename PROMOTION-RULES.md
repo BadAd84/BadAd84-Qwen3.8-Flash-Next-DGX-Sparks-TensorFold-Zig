@@ -26,6 +26,32 @@ env file or launcher - in the commit that carries its cells. Nothing that won st
 cell measured before a promotion and a cell measured after it describe two different serves, and any table that mixes
 them says so.
 
+## One lever an arm, before any number leaves this repo (owner 2026-11-24)
+
+A figure we publish - in a PR body, an issue title or body, a receipt, a README or an env row's citation - names the
+ONE setting it is attributed to, and the arms behind it differ in that setting and nothing else. Two settings that
+travel together are measured as one arm against one control and reported as a pair, never as a win for one of them.
+
+Why, measured: #4803 claimed 7 to 11 percent for `TF_FLASHNEXT_SHARED_DRAFTS`, from arms that also differed in
+`TF_FLASHNEXT_CONFIDENCE` (the flag unset, the control off). The maintainer asked for the flag alone on main's own
+checkpoint; with fresh servers at 1, 2, 4 and 8 streams and the re-boot the noise rule requires, the flag alone reads
+S1/S0 decode 0.91, 1.03, 0.96, 1.02 with replies identical, so the effect the issue named does not reproduce for the
+setting the issue named. The issue's own audit table shows why the original figure existed at all: three records of
+the same lever disagree (INT4-AutoRound `-0.15` +11.2/+10.3/+8.3/+7.3, an `int4d` record with different drafter
+settings +10.0/+7.6/+4.4/+0.9, FP4 `rq18` at `-0.4` +1.3/+0.8/+3.2/+2.3), and the mechanism is that the 0.6 floor's
+cost tracks how far `CONFIDENCE` sits from it, so the flag's price is a property of the pair, not of the flag.
+
+Mechanical form:
+- An arm table names, per arm, every setting that differs from its control. More than one, and the row is reported as
+  a pair or split into two arms.
+- A single-setting claim is measured on the stack it is claimed for, with the checkpoint and `CONFIDENCE` stated,
+  fresh servers, declared repeats, the re-boot the noise rule asks for, and the counters that show the setting
+  reached the path it is supposed to change. A cell set that cannot show that is a lead, not a result.
+- A figure quoted from an earlier record states that record's stack, checkpoint and confidence beside it, or is not
+  quoted at all.
+- A claim that fails its isolating arm is withdrawn in the same place the claim was made: the PR, issue or receipt
+  gets the corrected number, not a footnote.
+
 ## Env rows
 
 - **Complete.** Every row of the served engine's settings table whose scope this serve reads is SET in both env files
