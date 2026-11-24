@@ -5,7 +5,7 @@ numbering and text, which collisions it resolved, and what it does not carry.
 
 ## 1. The series and its numbering
 
-One directory of 35 patches, applied in filename order to `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`:
+One directory of 36 patches, applied in filename order to `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`:
 
 | range | content | source |
 |---|---|---|
@@ -18,6 +18,7 @@ One directory of 35 patches, applied in filename order to `1ece6e6dbbc073582d507
 | 0033 | the merged serving pins | this package |
 | 0034 | the pool test's named-slots expectation | this package (the composed gate's finding, section 6) |
 | 0035 | the int4 config test's shared-width fixture | this package (the composed gate's finding, section 6) |
+| 0036 | the int4 dense dispatch guard and the split-lane fixture | this package (the composed gate's finding, section 6) |
 
 There is no number collision: the int4-kvtier package's `0028` (the whole-ask patch) is `0026` here, the draft-head
 package's `0026`/`0027` are `0027`/`0028` here, and every appended patch has a number no other directory of this r5
@@ -25,12 +26,12 @@ family uses. The order follows the dependency the int4-kvtier package states: th
 tier is measured on), the tier's fp8 image, the dedup, the pool's refusal, the whole-ask budget; then the draft-head
 pair, which touches `cuda_mtp.zig` after the INT4 port's line there; then the contract suite and its three tolerance
 commits, which are the only patches that add the `int4-contract` verb; then the pins, last, because they hash the
-merged tree; then the two source-test corrections the composed gate forced (0034, 0035).
+merged tree; then the three source-test corrections the composed gate forced (0034-0036).
 
-`REVERTS.allow` records the series' 125 reviewed `check-patch-reverts.py` findings: 88 keep the reason
-`patches/main-964174ea05/REVERTS.allow` gave them (the r5 levers re-seat those lines), and 36 are the INT4, KV-tier,
-draft-head and tolerance ports' own edits, each keyed to the document that records it. The checker reads
-`125 findings, 125 allowed, 0 open, 0 stale`.
+`REVERTS.allow` records the series' 126 reviewed `check-patch-reverts.py` findings: 88 keep the reason
+`patches/main-964174ea05/REVERTS.allow` gave them (the r5 levers re-seat those lines), and 38 are the INT4, KV-tier,
+draft-head, tolerance and composed-gate edits' own, each keyed to the document that records it. The checker reads
+`126 findings, 126 allowed, 0 open, 0 stale`.
 
 ## 2. Collision 1: `zig/build/cuda.zig`'s test-step block
 
@@ -131,14 +132,15 @@ in 0033 by the rule in section 3).
 value from section 3 (`1ad421280fa1090549d5150209241b99c5678e6721c2c71c33b811577bea117c`). 0029-0034 are constructed
 here; the source shas and the suite's own identity are in `RECORD.md`.
 
-The applied-result identity, measured: applying the 35 patches in order to a fresh worktree at `1ece6e6d` reproduces
+The applied-result identity, measured: applying the 36 patches in order to a fresh worktree at `1ece6e6d` reproduces
 the gated tree file for file (the manifest comparison reads one difference, the worktree's `.git` pointer, and
 nothing else). `RECORD.md` has the manifest hash and the gate run.
 
-## 6. The composed gate's two test-expectation fixes: 0034 and 0035
+## 6. The composed gate's three corrections: 0034, 0035 and 0036
 
-The full `test-cuda-host` on the composition exposed two source tests whose fixtures encode a tree the composition is
-not. Neither is an engine defect, and neither patch changes an engine line.
+The full `test-cuda-host` on the composition exposed three fixture defects in the int4 port's wake. 0034 and 0035
+are test-expectation corrections and change no engine line; 0036 narrows one dispatch guard in `cuda_batch.zig` so a
+view with no kernel group keeps the normal lane, and sets the split test's `shared_width`.
 
 - **0034, the pool package's named-slots test.** `cuda_cache_capacity_test.zig`'s `named8` arm expected an asked
   `--prompt-cache-gib 6` beside a named `TF_KV_SHARE` of 8 to leave `6 GiB - 8 x 115,642,368` as *copied rows*. That
@@ -155,6 +157,12 @@ Both were found by the composed gate, not by any source package's own gate: each
 tree without the other patch, and this is the first tree where the full suite runs them together. Before 0034 the gate
 read `21 pass, 1 fail (22 total)`; after it, `22/22`. 0035's evidence is the full-suite run in `RECORD.md` (its test
 fails before the change with `expected null, found { ... "shared_expert_intermediate_size" }`).
+
+0036 is the same class for the run's other two findings. `cuda_batch.lane` routed every `Q4` carrying an int4 view to
+`cuda_int4.dense`, whose group switch returns `error.Invalid` for a fixture with no 64/128 group; the dispatch is now
+narrowed to those two groups, so a fixture (and any non-int4 matrix) keeps the normal lane. The split-lane test built
+`Owned` from `undefined` and never set `shared_width`, the field the int4 port reads; it now sets `wt.moe_w`. Both are
+fixture compatibility with the port, not behaviour changes; the run that observes them is named in `RECORD.md`.
 
 ## 7. What the composition does not change
 

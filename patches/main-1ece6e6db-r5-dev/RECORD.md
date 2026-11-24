@@ -2,10 +2,10 @@
 
 ## What this is
 
-Upstream TensorFold `main` at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then 35 patches in filename order: the r5
+Upstream TensorFold `main` at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then 36 patches in filename order: the r5
 core levers (0001-0020), the INT4 and KV-tier six (0021-0026), the bf16 draft-head pair (0027-0028), the int4
-contract suite with the tolerance branch's three commits (0029-0032), the merged serving pins (0033), and the two
-source-test corrections the composed gate forced (0034-0035). It is the dev
+contract suite with the tolerance branch's three commits (0029-0032), the merged serving pins (0033), and the three
+composed-gate corrections (0034-0036). It is the dev
 engine: the one directory a device build applies, and the one stack whose gates decide whether the dev arm is good.
 
 Every row of the table below names the source, whether this package edited the text, the measured benefit and the
@@ -52,6 +52,7 @@ byte, 0027-0032 with the edits `CHANGES.md` names), and the benefit/evidence rec
 | 0033 | this package (the INT4 package's pin convention, regenerated) | yes: generated from the merged bytes | the `root.zig` pin row after the contract export: `167d76c511f03e5ce78747066a1243dd187ecd6c6731fdd62f406f0f60c4d93b` | `zig/tests/fixtures/gradient-serving.tsv:109`, `test-gradient-serving` |
 | 0034 | this package (the composed gate's finding) | yes: the test's last arm | the pool's `named8` arm now pins the #2987 behaviour: an asked cache beside TF_KV_SHARE keeps the remainder as pages (`kept = 6 GiB - 8 slots`), copied 0; before, the test expected the remainder as copies and failed (`21 pass, 1 fail (22 total)`); after, `22/22 tests passed` | `zig/src/native/cuda_cache_capacity_test.zig:79-84`, `cuda_cache_capacity_test`, gate log |
 | 0035 | this package (the composed gate's finding) | yes: the test's fixture value | the int4 port splits the shared expert's width from the routed experts' (1,280 against 640); the wider-shared fixture now starts from `wt.shared_w + 64`, the value `mismatch` compares, instead of `wt.moe_w + 64` | `zig/src/families/flashnext/cuda_config.zig:349`, gate log |
+| 0036 | this package (the composed gate's finding) | yes: one dispatch guard and one fixture field | the int4 dense dispatch now applies only to the 64/128 groups `fn_int4.cu` builds, so a fixture with no group keeps the normal lane (the paged-prompt test); the split-lane fixture sets `shared_width = wt.moe_w`, the field the port reads (before, `Owned` was `undefined` there and the run overflowed at `cuda_split_lane_test.zig:289`) | `zig/src/families/flashnext/cuda_batch.zig:135`, `zig/src/families/flashnext/cuda_split_lane_test.zig:284`, gate log |
 
 ## The tolerance port's outcome
 
@@ -135,7 +136,7 @@ is `~/work/DevComp/gate2.sh`; every line below is the run's own (`~/work/DevComp
 | `compile-cuda-tests -Dtarget=aarch64-linux-gnu` | 0 | 294 s |
 | `compile-cuda-tests -Dnvcc=<13.3>` | 0 | 969 s |
 | `compile-cuda-tests -Dnvcc=<13.3> -Dtarget=aarch64-linux-gnu` | 0 | 945 s |
-| `test-cuda-host` | 1 | `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)`. This run found 0034 and 0035; after 0034 the cache-budget step reads `22/22 tests passed`. Two failures remain open and are not silently carried: `cuda_split_lane_test.zig:289` (`shared expert composition keeps whole direct slots and split full-K output copies`, a panic inside `cuda_shared_split.run`, the int4 port's widths) and `cuda_paging_batch_test.zig:176` (`paged grouped prompts: every current attention route receives the sequence page table`) |
+| `test-cuda-host` | 1 | `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)` on the 35-patch tree. This run found 0034, 0035 and 0036; after 0034 the cache-budget step reads `22/22 tests passed`. 0035 fixes the config fixture; 0036 fixes the paged-prompt failure (`cuda_paging_batch_test.zig:176`, `cuda_int4.dense` refusing a fixture with no group) and the split-lane panic (`cuda_split_lane_test.zig:289`, `shared_width` read from `undefined`). A run with all three applied was in flight at hand-off; the log is `~/work/DevComp/gate2.log` |
 
 The package's own gates: `scripts/check-patch-packages.sh` reads `check-patch-packages: CLEAN (19 package dirs
 checked, 1 grandfathered)`; `scripts/check-patch-reverts.py` reads `34 patches, 124 findings, 124 allowed, 0 open,
@@ -146,10 +147,8 @@ The env coverage gate against the applied tree is red on four of 0021's rows and
 names `TF_FLASHNEXT_HEAD_ROW_TILES`, `TF_FLASHNEXT_INT4_PROMPT_DOWN`, `TF_FLASHNEXT_INT4_PROMPT_GATE_UP`,
 `TF_FLASHNEXT_INT4_TILE`. `check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
 
-What the gate does not prove: no device run of this composition, and `test-cuda-host` is not yet fully green. The
+What the gate does not prove: no device run of this composition, and `test-cuda-host` is not yet observed green. The
 contract suite's device receipt is the tolerance branch's head (`work/Int4Tolerance/RESULT.md`); here the suite is
-exercised on the host and by the nvcc compile legs. Two int4-port failures are open and reported, not waived: the
-split-lane panic at `cuda_split_lane_test.zig:289` (inside `cuda_shared_split.run` with the int4 widths) and the paged
-prompt failure at `cuda_paging_batch_test.zig:176`. A run with 0034 and 0035 applied is in flight at hand-off; its
-result supersedes the count above when it lands.
+exercised on the host and by the nvcc compile legs. The four full-suite findings are addressed by 0034-0036; 0034 is
+observed at `22/22`, and the run that observes 0035 and 0036 was in flight at hand-off.
 

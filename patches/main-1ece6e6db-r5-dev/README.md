@@ -6,7 +6,7 @@ int4 contract suite with the tolerance branch's allowance, controls and gate-4 m
 composed gate forced. One directory, one series, unique numbers, and the tree a device build reads when it applies a
 patch directory in glob order.
 
-    ./apply.sh --check TREE     # all 35 apply in order, nothing written
+    ./apply.sh --check TREE     # all 36 apply in order, nothing written
     ./apply.sh TREE             # apply them on a pristine checkout at 1ece6e6d
 
 Base: upstream TensorFold `main` `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. An image of this series serves
@@ -62,6 +62,7 @@ edited in the port, so removing a source package or branch cannot lose the recor
 | 0033 | `serving-pins` | the merged serving pins (`root.zig`) |
 | 0034 | `cache-slots-asked` | the pool package's own named-slots test: its `named8` arm expected an asked cache beside TF_KV_SHARE as copies, contradicting the kept-pages behaviour #2987 pins; the test now pins copied 0 and the rest as kept pages, the engine untouched |
 | 0035 | `int4-config-shared-width` | the int4 port splits the shared expert's width from the routed experts'; the config test's wider-shared fixture now starts from `wt.shared_w` (the value the check compares), not `wt.moe_w` |
+| 0036 | `int4-test-fixtures` | the other two full-suite findings: the int4 dense dispatch is narrowed to the group sizes the kernel builds (64 or 128), and the split-lane fixture sets `shared_width`, the field the int4 port reads; both tests predate those fields |
 
 ## The serve shape and what the env and launcher do not state
 
@@ -124,7 +125,7 @@ blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `
 | `zig build compile-cuda-tests`, `-Dtarget=aarch64-linux-gnu` | rc 0 |
 | `zig build -Dnvcc=... compile-cuda-tests` native | rc 0, 969 s |
 | the same, `-Dtarget=aarch64-linux-gnu` | rc 0, 945 s |
-| `zig build -Dfixed-cpu test-cuda-host` | rc 1: `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)`. 0034 and 0035 come from this run; 0034's step reads `22/22` after its fix. Two int4-port failures remain open and are named in `RECORD.md` (`cuda_split_lane_test.zig:289`, `cuda_paging_batch_test.zig:176`) |
+| `zig build -Dfixed-cpu test-cuda-host` | rc 1 on the 35-patch tree: `7666/7715 tests passed (44 skipped, 4 failed, 1 crashed)`. 0034's step reads `22/22` after its fix; 0035 and 0036 target the other failures (the config fixture, the int4 dense dispatch and the split-lane `shared_width`), and the run that observes them had not completed at hand-off; the log is `~/work/DevComp/gate2.log` on Paperclip |
 
 ## What this package does not do
 

@@ -1,0 +1,25 @@
+diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
+--- a/zig/src/families/flashnext/cuda_batch.zig
++++ b/zig/src/families/flashnext/cuda_batch.zig
+@@ -131,8 +131,8 @@
+ 
+         /// qmm.cu's arithmetic over m rows into out (bf16) or part (fp32 K slices); returns the slices (1 when folded).
+         pub fn lane(self: *Self, x: u64, xs: u64, w: Q4, out: u64, part: u64, m: usize, sk: usize) !usize {
+-            // INT4-AutoRound's GPTQ int4 head: fn_int4.cu's dense rows
+-            if (w.int4) |m4| {
++            // INT4-AutoRound's GPTQ int4 head: fn_int4.cu's dense rows, for the group sizes the kernel builds
++            if (w.int4) |m4| if (m4.gs == 64 or m4.gs == 128) {
+                 if (sk != 1) return error.UnexpectedTensor;
+                 try @import("cuda_int4.zig").dense(&self.k.int4, self.stream, x, w.k, m4, out, false, m);
+                 return 1;
+diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
+--- a/zig/src/families/flashnext/cuda_split_lane_test.zig
++++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
+@@ -281,6 +281,7 @@
+         var native: @import("cuda_mixed_experts.zig").Owned = undefined;
+         native.rank = rank;
+         native.split_shared = split;
++        native.shared_width = wt.moe_w;
+         const width: usize = if (split) wt.moe_w / 2 else wt.moe_w;
+         const columns: usize = if (split) dims / 2 else dims;
+         for (0..3) |i| native.shared[i].native = cuda.modelopt.bf16Weight(0x2000, if (i == 2) columns else width, if (i == 2) wt.moe_w else dims);

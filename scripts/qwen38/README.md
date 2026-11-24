@@ -10,11 +10,11 @@ restored from its own launcher.
 
 ## Our arm (`main`)
 
-- **Series.** The dev engine is `patches/main-1ece6e6db-r5-dev`: one directory of 35 patches on upstream main
+- **Series.** The dev engine is `patches/main-1ece6e6db-r5-dev`: one directory of 36 patches on upstream main
   `1ece6e6db`, the r5 core levers (0001 to 0020), the INT4-AutoRound port and its serving pins (0021, 0022), the NVMe
   KV tier with the pool's cache refusal and the whole-ask budget (0023 to 0026), the bf16 draft-head fix (0027, 0028),
   the int4 contract suite with the tolerance branch's three commits (0029 to 0032), the merged serving pins (0033),
-  and the two source-test corrections the composed gate forced (0034, 0035).
+  and the three composed-gate corrections (0034 to 0036).
   Build: `zig/target/build_patches.sh TAG git://192.168.99.16/up-pr/tf 1ece6e6db patches/main-1ece6e6db-r5-dev`.
   `patches/main-1ece6e6db-r5` (the twenty core levers), `patches/main-1ece6e6db-r5-int4`,
   `patches/main-1ece6e6db-r5-kvtier`, `patches/main-1ece6e6db-r5-kvtier-pool`,
