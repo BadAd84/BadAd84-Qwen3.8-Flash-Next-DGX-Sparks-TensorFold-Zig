@@ -4,7 +4,7 @@
 # Production is NOT this file: the box starts production with ~/qwen6-start-prod.sh (recipe ~/qwen-zig-prod,
 # production's 54-name environment, the TF_FLASHNEXT_MTP_FP8 overlay), which stays untouched. This copy carries the
 # dev engine's defaults from scripts/qwen38/zig/target/env/dev.env and PROMOTION-RULES.md, each overridable:
-# CHECKPOINT=int4, VISION=0, KV_DTYPE=fp8, TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 and the persistent KV tier (LEARN=0 turns
+# CHECKPOINT=int4, VISION=0, KV_DTYPE=bf16, TF_FLASHNEXT_MTP_WEIGHTS=mxfp8 and the persistent KV tier (LEARN=0 turns
 # the tier off; MTP_WEIGHTS=bf16 puts the drafter back on the checkpoint's rows).
 #
 # Image: tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 = the recipe's Zig 1.0.0 release + our 0001-0028 + the
@@ -30,7 +30,11 @@ WARM_TURNS=${WARM_TURNS:-0}
 # the dev arm runs text only (dev.env), so the checkpoint and vision are stated here.
 CHECKPOINT=${CHECKPOINT:-int4}
 VISION=${VISION:-0}
-KV_DTYPE=${KV_DTYPE:-fp8}
+# KV_DTYPE=bf16 (owner 2026-11-24): fp8 KV is lossy by design (the engine's own cli help reads about 98.8% top-1
+# agreement with bf16), and the KV dtype is the one lever that moved the dev engine's replies, so the dev arm runs
+# the exact format until the campaign's dev work is done; KV_DTYPE=fp8 restores fp8 in one export. Production's argv
+# also passes fp8, while its recipe banner prints bf16 from its own default (production/PRODUCTION.md).
+KV_DTYPE=${KV_DTYPE:-bf16}
 # The drafter's BF16 linears recoded to MXFP8 at load (patch 0014; the reader is a raw getenv,
 # zig/src/families/flashnext/cuda_mtp_mxfp8.zig:23, default bf16). TF_FLASHNEXT_MTP_FP8, which this file used to set,
 # is production's overlay path and has no reader in this tree.

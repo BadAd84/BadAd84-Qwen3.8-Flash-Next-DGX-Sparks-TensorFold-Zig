@@ -5,7 +5,9 @@
 repo and no change here touches it. The repo's dev launcher is `zig/qwen6-start.sh` (box copy `~/qwen6-start.sh`): the
 same image and the same serve - image `tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7`, INT4-AutoRound, fp8 KV, 8
 streams at a 262,144-token window, thinking on by default (`chat_template_kwargs.enable_thinking=false` turns it
-off) - plus the dev engine's defaults: `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=fp8`,
+off) - plus the dev engine's defaults: `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=bf16` (owner 2026-11-24: fp8 KV is
+lossy by design, about 98.8% top-1 agreement with bf16, and the KV dtype is the one lever that moved the dev engine's
+replies, so the dev arm runs the exact format for the rest of the campaign; `KV_DTYPE=fp8` restores it),
 `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, and the persistent KV tier (`--prompt-cache-gib 6 --prompt-cache-disk /cache/kv
 --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20`), each overridable (`LEARN=0` turns the tier off,
 `MTP_WEIGHTS=bf16` puts the drafter back on the checkpoint's rows). Boot 83 to 90 s at one to eight streams
@@ -239,7 +241,7 @@ vLLM reference: 64K replay 21,923 tok/s); keeping a state for completion prompts
 
   | launcher | box copy | serve | defaults it states |
   |---|---|---|---|
-  | `zig/qwen6-start.sh` | spark6 `~/qwen6-start.sh` | the dev Zig serve (this repo's image + our patches) | `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=fp8`, `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, the KV tier: `--prompt-cache-gib 6 --prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20` (`LEARN=0` off; every value overridable from the environment) |
+  | `zig/qwen6-start.sh` | spark6 `~/qwen6-start.sh` | the dev Zig serve (this repo's image + our patches) | `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=bf16` (flipped from fp8 on 2026-11-24), `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, the KV tier: `--prompt-cache-gib 6 --prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20` (`LEARN=0` off; every value overridable from the environment) |
   | `qwen-start.sh` | spark4, where the retired serve ran (no box copy there today) | the retired Python serve, image `v061-ots` | only `VISION=0` and `KV_DTYPE=int8` (that engine's own default): its recipe `4c0dea8` has no `CHECKPOINT` and its engine TensorFold v0.6.1 has no fp8 KV, no `--learn-*`/`--prompt-cache-disk` and no `TF_FLASHNEXT_MTP_WEIGHTS` reader, so the composition's defaults would be unread or refused there |
   | `~/qwen6-start-prod.sh` | spark6 only (production) | the live serve | production's 54-name environment and its `TF_FLASHNEXT_MTP_FP8` overlay; untouched, and not synced from the repo |
 
