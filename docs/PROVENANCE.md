@@ -86,10 +86,20 @@ Therefore, for classification below:
 | Notice | `patches/main-1ece6e6db-r5-dev/0029-int4-contract-suite.patch:1659-1670` adds a `## MiaAI-Lab Flash Next int4 kernel` section to upstream's `THIRD_PARTY_NOTICES.md` naming the file, the recipe commit, Apache-2.0, the recipe's own NOTICE text, `LICENSES/Apache-2.0.txt`, and the three changes |
 | Status | **DECLARED** (in the patched tree); not present in this repo's own tracked tree |
 
-Owner decision line: keep with notice (the header, the copyright line and the `THIRD_PARTY_NOTICES`
-section already land together, which is exactly the exception the rule requires; the only gap is that
-the notice file is not tracked here), OR rewrite `fn_int4.cu` from TensorFold's own GPTQ spec and drop
-the notice. Do not decide.
+DECISION (owner, 2026-11-24): **keep as declared.** The file stays MiaAI-Lab's, Apache-2.0, Copyright 2026
+MiaAI-Lab, with its three TensorFold changes marked in the file and recorded in the patched tree's
+`THIRD_PARTY_NOTICES.md`, and the PR says so. The owner's ruling is case by case, so it covers this file and
+no other row on any repo's page. The offer behind it: if the separation is ever judged insufficient, the
+kernel is rewritten from TensorFold's own GPTQ group-128 specification on a machine that has never held the
+tree, and the result arrives as a commit for review.
+
+Evidence for the origin question, from `work/Int4Provenance/REPORT.md` (audit 2026-11-24): MiaAI-Lab's
+`patches/0002-kernels.patch` at `04f2b53826` creates the file, every sibling kernel in that patch copied from
+TensorFold's Python engine names its source and appears in `copies.py`, and `fn_int4.cu` instead says `Ours
+(TensorFold Zig engine, no Python counterpart)` with no `copies.py` entry. No distinctive identifier,
+mnemonic, constant or comment line of Marlin, vLLM's marlin or GPTQ paths, or llama.cpp's `mmq` appears in
+it (its matmul constants `0x000F000F`, `0x43004300`, `0x43084308` in none of them), its nibble permutation and
+structure differ, and the accumulator type differs (bf16 against Marlin's f16).
 
 ### 1.2 Everything else in this repo - OURS
 
