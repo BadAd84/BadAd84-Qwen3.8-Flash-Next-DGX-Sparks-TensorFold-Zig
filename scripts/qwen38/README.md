@@ -1,12 +1,20 @@
 # scripts/qwen38 - the Qwen3.8 Flash Next serve
 
-**Live: the Zig serve on spark6 `:8888`.** Production is started by the box's `~/qwen6-start-prod.sh`; the repo's
-launcher is `zig/qwen6-start.sh` (box copy `~/qwen6-start.sh`), the same image and the same serve:
-image `tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7`, INT4-AutoRound, fp8 KV, 8 streams at
-a 262,144-token window, thinking on by default (`chat_template_kwargs.enable_thinking=false` turns it off). Boot 83 to
-90 s at one to eight streams (`docs/SPEED-TARGET-1.2.6.md`); golden 6/6 identical to stock on the first boot. It holds
-the box's GPU lock while it runs, and spark6 has no passwordless sudo, so arms bind to 127.0.0.1 and production is
-restored from its own launcher.
+**Live: the Zig serve on spark6 `:8888`.** Production is started by the box's `~/qwen6-start-prod.sh` (recipe
+`~/qwen-zig-prod`, production's 54-name environment and its `TF_FLASHNEXT_MTP_FP8` overlay); that file is not in this
+repo and no change here touches it. The repo's dev launcher is `zig/qwen6-start.sh` (box copy `~/qwen6-start.sh`): the
+same image and the same serve - image `tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7`, INT4-AutoRound, fp8 KV, 8
+streams at a 262,144-token window, thinking on by default (`chat_template_kwargs.enable_thinking=false` turns it
+off) - plus the dev engine's defaults: `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=fp8`,
+`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, and the persistent KV tier (`--prompt-cache-gib 6 --prompt-cache-disk /cache/kv
+--learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20`), each overridable (`LEARN=0` turns the tier off,
+`MTP_WEIGHTS=bf16` puts the drafter back on the checkpoint's rows). Boot 83 to 90 s at one to eight streams
+(`docs/SPEED-TARGET-1.2.6.md`); golden 6/6 identical to stock on the first boot. It holds the box's GPU lock while it
+runs, and spark6 has no passwordless sudo, so arms bind to 127.0.0.1 and production is restored from its own launcher.
+`scripts/qwen38/qwen-start.sh` is the RETIRED spark4 Python serve's launcher (image `v061-ots`, TensorFold v0.6.1,
+recipe `4c0dea8`) and cannot carry those defaults: that recipe has no `CHECKPOINT` setting, its engine's `--kv-dtype`
+is `bf16|int8|int4` only and it has no `--learn-*` or `--prompt-cache-disk` flag, and nothing there reads
+`TF_FLASHNEXT_MTP_WEIGHTS`. The launcher table under "Build and boot tools" says which file carries what.
 
 ## Our arm (`main`)
 
@@ -46,6 +54,17 @@ The setting-by-setting verdicts and the ranked worklist are in `docs/KNOB-COVERA
 `zig/target/env/check-dev-env.py` fails on a missing setting, on a value carried only by a note in `register.env`, and
 on a worklist line; `update-env-register.py --defaults-from-tree` builds the worklist.
 
+The composition `patches/main-1ece6e6db-r5-dev` adds four rows to that table (99 in scope rather than 95), and all four
+are now stated in `dev.env`: `TF_FLASHNEXT_HEAD_ROW_TILES=2` and `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1` at production's
+served values (read at `zig/src/families/flashnext/cuda_int4.zig:274`/`:432` and `:272`/`:420-421`; every exactness cell
+was taken with them - `docs/receipts/QInt4/RESULT.md`, `docs/INT4-PORT.md`), and `TF_FLASHNEXT_INT4_TILE=16` and
+`TF_FLASHNEXT_INT4_PROMPT_DOWN=1` at the engine's own defaults (`cuda_int4.zig:151-152` and `:386-387`), both still
+unmeasured here. The register's two old `retired` marks for the first pair were wrong - 0021 gives both a reader - and
+are now `measured`. On the applied composition the gate reads `coverage: 99 settings in scope, set 99, missing 0,
+absent 2, annotations 6, worklist markers 0, passage-lost off` against `~/work/DevEnvComp/tree` (the capture and
+its read sites: `work/DevEnvComp/READERS.md`), and
+`check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
+
 | setting | value | measured or carried | record |
 |---|---|---|---|
 | `TF_FLASHNEXT_PROMPT_SHARED_DIRECT` | `1` | +1.2 percent at 8k and +1.0 at 32k cold prefill, decode level | `docs/receipts/SDFix/RESULT.md`, `docs/receipts/PatchBisect/RESULT.md` |
@@ -57,15 +76,19 @@ on a worklist line; `update-env-register.py --defaults-from-tree` builds the wor
 | `TF_FLASHNEXT_SHARED_DRAFTS` | `0` | +7 to +11 percent at 2 to 8 streams; prose 229.0 against 207.8 tokens a second at four | `docs/receipts/ProseDraft/RESULT.md` |
 | `TF_FLASHNEXT_CONFIDENCE` | `-0.15` | production's launcher value, not a measured lever on this tree (-0.20 is level on prose); the FP4 1.2.7 stack's own optimum was -0.4 (`patches/1.2.7/README.md`), so the value is checkpoint-specific | `docs/receipts/ProseDraft/RESULT.md`, `docs/receipts/ProseDraft/POLICY.md` |
 | `TF_FLASHNEXT_BATCH_DRAWS`, `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW`, `TENSORFOLD_MEMORY_RESERVE_GIB`, `TENSORFOLD_NO_UPDATE_CHECK`, `TENSORFOLD_VIDEO_TOKENS` | `1`, `15`, `64`, `10`, `1`, `16384` | production's launcher values carried unchanged; `DEPTH` and `WINDOW` have no reader in this tree | `docs/receipts/ProseDraft/POLICY.md` |
+| `TF_FLASHNEXT_HEAD_ROW_TILES`, `TF_FLASHNEXT_INT4_PROMPT_GATE_UP` | `2`, `1` | production's launcher values carried; every exactness cell ran with them (32-row head items past 16 rows, `int4_prompt_kernel` for the routed gate/up) | `docs/receipts/QInt4/RESULT.md`, `docs/INT4-PORT.md` |
+| `TF_FLASHNEXT_INT4_TILE`, `TF_FLASHNEXT_INT4_PROMPT_DOWN` | `16`, `1` | the engine's own defaults, unmeasured here (debt): 16-pair items every call, the prompt down on at 2,048 pairs and up | `docs/INT4-PORT.md` |
 
 Measured level or negative, deliberately absent with the reason recorded in the file: `CONFIDENCE=-0.20`,
 `CHUNK=1536`, `HC_Q12`, `TF_CACHE_EVICT`, `READOUT_FUSE`, `FUSED_SPLIT`, `GREEDY_WIDE=8`, production's six draft
-names (no reader here) and `MTP_WEIGHTS=mxfp8` (not re-measured on r5).
+names (no reader here) and `MTP_WEIGHTS=mxfp8` (absent from `dev.env` as unmeasured on r5; the dev launcher sets it
+by default, so it is a debt the launcher carries until its own A/B).
 
 ## The persistent NVMe KV tier (dev only)
 
 Shape: 8 streams at a 262,144-token window with the page pool (`TF_FLASHNEXT_KV_PAGES=4096`), `--prompt-cache-gib 6`
-and the launcher's `--prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20`. The
+and the dev launcher's defaults `--prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200
+--learn-min-free-gib 20` (`LEARN=0` boots without them). The
 plan honours the 6 GiB ask (naming it takes 6.0 GiB out of the pool's pages: 361 pages without it, 278 with), and the
 store's budget is the 3,166 MiB `kv_pool.split` hands it - half the ask, the rest set aside for snapshot slots this
 family declares no `snap_slots` for. At that budget a 100k state (2.0 GiB) fits and a 261k state (4.7 GiB) does not.
@@ -186,7 +209,25 @@ vLLM reference: 64K replay 21,923 tok/s); keeping a state for completion prompts
 
 - `zig/target/build_patches.sh TAG REPO BASE PACKAGE` builds one image from a pristine base with a package's patches
   applied in filename order; the TensorFold source is never edited in place.
-- `zig/qwen6-start.sh` is production's launcher (the box runs it as `~/qwen6-start-prod.sh`); the arm's launcher is
-  `zig/target/` with `env/dev.env`, and `~/work/gpu.lock` serialises every window.
+- `zig/qwen6-start.sh` is the DEV launcher (box copy `~/qwen6-start.sh`); production's launcher is the box's
+  `~/qwen6-start-prod.sh`, which is not in this repo and which nothing here edits. The arm's environment is
+  `zig/target/env/dev.env`, and `~/work/gpu.lock` serialises every window.
+
+  | launcher | box copy | serve | defaults it states |
+  |---|---|---|---|
+  | `zig/qwen6-start.sh` | spark6 `~/qwen6-start.sh` | the dev Zig serve (this repo's image + our patches) | `CHECKPOINT=int4`, `VISION=0`, `KV_DTYPE=fp8`, `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, the KV tier: `--prompt-cache-gib 6 --prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20` (`LEARN=0` off; every value overridable from the environment) |
+  | `qwen-start.sh` | spark4, where the retired serve ran (no box copy there today) | the retired Python serve, image `v061-ots` | only `VISION=0` and `KV_DTYPE=int8` (that engine's own default): its recipe `4c0dea8` has no `CHECKPOINT` and its engine TensorFold v0.6.1 has no fp8 KV, no `--learn-*`/`--prompt-cache-disk` and no `TF_FLASHNEXT_MTP_WEIGHTS` reader, so the composition's defaults would be unread or refused there |
+  | `~/qwen6-start-prod.sh` | spark6 only (production) | the live serve | production's 54-name environment and its `TF_FLASHNEXT_MTP_FP8` overlay; untouched, and not synced from the repo |
+
+  Which of those defaults already have cells: the tier (`docs/receipts/KvTierShip/RESULT.md`, `docs/receipts/KvTierDedup/RESULT.md`), the INT4 checkpoint with fp8 KV (`docs/receipts/QInt4/RESULT.md`, `docs/receipts/DevVsProd/RESULT.md`), and `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, which the QInt4 exactness arms ran with (`docs/receipts/QInt4/RESULT.md` env table), so replies are checked with it. It has no own speed A/B on r5, so it is a debt in the register, and `MTP_WEIGHTS=bf16` is its comparison arm. `VISION=0` is the dev serve's shape rather than a measured speed change (`dev.env`; the DevVsProd shape ran vision on and the image's vision helper never came up, so no cell exercised images on either arm).
+
+- **The box copy is the delivery of this launcher.** This file is the record; spark6 runs the copy at `~/qwen6-start.sh`, which on 2026-11-24 was still the pre-promotion file. Before the next dev boot (never mid-window: this file decides the boot's tier, checkpoint and vision), copy it over with `scp scripts/qwen38/zig/qwen6-start.sh adam@spark6.ots-int.net:qwen6-start.sh` and check it landed: `grep -c TIER_ARGS ~/qwen6-start.sh` reads `3` and `grep -c 'TF_FLASHNEXT_MTP_FP8=' ~/qwen6-start.sh` reads `0`. Never copy this file onto `~/qwen6-start-prod.sh`, which is production's own launcher.
+
+- **The tier's spelling in the launchers.** `--prompt-cache-disk DIR` is the engine's own spelling of
+  `--learn-conversations --learn-dir DIR` (`zig/src/server/cli.zig:465-469`), and the two spellings are refused
+  together (`cli.zig:319-325`, `cli_test.zig:529-556`), so the Zig dev launcher passes the disk form: one flag sets
+  `learn_conversations` and the directory, and an engine without the tier patch still takes it (the shipped r5int4
+  image refuses the pair by name, `docs/receipts/ProseDraft/RESULT.md`). `--prompt-cache-gib 6` is dev.env's ask (the
+  plan grants 3.1 GiB of it).
 - The measurement drivers are `zig/target/` (`target_queue.sh`, `zab_rm.sh`'s harnesses, the per-lever arms) and
   `scripts/quality/` (`quality_client.py`, `quality_score.py`, `quality_run_window.sh` for the 1,664-item window).

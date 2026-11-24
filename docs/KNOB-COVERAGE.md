@@ -1,21 +1,32 @@
 # Knob coverage: every setting the served tree reads, its verdict, and what still needs an arm
 
-Current state against the served tree `work/QRerun/trees/fp4/src`, the tree whose manifest hashes to the
-`tf.tree.manifest` label of `tensorfold-qwen38:qr-a-r5-1ece6e6db`
+The state at this document's 2026-11-23 capture, against the served tree `work/QRerun/trees/fp4/src`, the tree whose
+manifest hashes to the `tf.tree.manifest` label of `tensorfold-qwen38:qr-a-r5-1ece6e6db`
 (`b3de0046f8d34c355162d08f8e811d326c08a053e7c13fd4276b0392212cca57`), whose
 `zig/src/platform/environment.zig` carries 95 rows in the `flashnext` (34), `cuda` (49) and `common` (12)
-scopes. The coverage gate prints `coverage: 95 settings in scope, set 95, missing 0, absent 2, annotations 2,
-worklist markers 0, passage-lost 0` and `check-dev-env.py` prints `dev-env: 0 setting(s) without a citation`
+scopes. The coverage gate printed `coverage: 95 settings in scope, set 95, missing 0, absent 2, annotations 2,
+worklist markers 0, passage-lost 0` and `check-dev-env.py` printed `dev-env: 0 setting(s) without a citation`
 against `scripts/qwen38/zig/target/env/dev.env` (both run for this document, 2026-11-23), so this is the
 complete set, not a sample. Every row is classified from its read site, not its name. The 76 rows both trees
 carry were re-checked against the served tree's own line numbers; the 19 rows only the served tree has are
 classified in their own section below. The series tree `work/Int4Step5/tree` (head `987de0084`, 78 rows) is
 not the table this serve validates, and a page classified against it reads 78 where the serve reads 95.
+That 95-row line is the register of that capture; the register now carries 0021's four rows, so the tree to run
+the gate against is the composition's (99 rows, the paragraph after the counts), not this one.
 
 No measurement was taken for this document. It mines the tracked receipts under `docs/receipts/` (the knob
 windows, the prose cells, the tier windows, the int4 windows, the audit), `docs/INT4-PORT.md`, the
 `patches/main-1ece6e6db-r5*` READMEs, `docs/receipts/SpeedAudit/REPORT-kimi.md` and
 `docs/receipts/upsubmit/Triage/`, then reads each setting's own read site in the served tree.
+
+The composition's tree (`patches/main-1ece6e6db-r5-dev` applied to `1ece6e6d`) carries **99** rows in those three
+scopes: 0021 adds four `flashnext` rows (`environment.zig:84-87`), and all four are stated in `dev.env` -
+`TF_FLASHNEXT_HEAD_ROW_TILES=2` and `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1` at production's served values (measured:
+`docs/receipts/QInt4/RESULT.md`, `docs/INT4-PORT.md`) and `TF_FLASHNEXT_INT4_TILE=16` and
+`TF_FLASHNEXT_INT4_PROMPT_DOWN=1` at the engine's defaults (debt). The gate on that applied tree prints
+`coverage: 99 settings in scope, set 99, missing 0, absent 2, annotations 6, worklist markers 0, passage-lost off`
+(`work/DevEnvComp/READERS.md`). The per-row tables below are classified against the fp4 tree named above, not that
+composition.
 
 ## Counts
 
@@ -40,13 +51,18 @@ block, six are the recipe's own served values (`GATHER_READ=pread`, `DRAFT_AHEAD
 `HEAD_PIECE=1536`, `PREFILL_TAIL=512`, `PROMPT_GEMM2=1`), and eleven are the engine's own default written out.
 None is on the worklist: each switch's record already settles it.
 
-Section of `dev.env`: 102 statements, 95 of them rows of the served tree's table (11 in the top block and 84
-in `explicit defaults`, two of the 84 stated as `unset`), and 7 carried names the table does not have. The
-top block's 16 statements hold 11 rows; its five non-rows are `TENSORFOLD_NO_UPDATE_CHECK`,
-`TENSORFOLD_VISION_PYTHONPATH`, `TF_FLASHNEXT_DEPTH`, `TF_FLASHNEXT_WINDOW` and `TF_FLASHNEXT_KV_PAGES`, and
-the two bottom non-rows are `TENSORFOLD_PARALLEL` and `TF_HY4_MEM_FLOOR_GIB`. `TF_FLASHNEXT_DEPTH` and
-`TF_FLASHNEXT_WINDOW` have no reader in this tree, `TENSORFOLD_PARALLEL` has no occurrence anywhere in
-`zig/src`, and `TENSORFOLD_VISION_PYTHONPATH` is carried for parity with a dev serve that runs `VISION=0`.
+Section of `dev.env` today: 114 statements, 99 of them rows of the composition's table (13 in the top block and 86
+in `explicit defaults`, the two `unset` lines below the marker), and 15 carried names that no table has. The
+top block's 26 statements hold 13 rows; its thirteen non-rows are `TENSORFOLD_IMAGE_TOKENS`, `TENSORFOLD_MAX_IMAGES`,
+`TENSORFOLD_NO_UPDATE_CHECK`, `TENSORFOLD_VISION_PYTHONPATH`, `TENSORFOLD_VISION_WORKSPACE_MIB`, `TF_FLASHNEXT_DEPTH`,
+`TF_FLASHNEXT_HOST_DRAW_THREADS`, `TF_FLASHNEXT_KV_PAGES`, `TF_FLASHNEXT_PRODUCT_STREAMS`,
+`TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS`, `TF_FLASHNEXT_PROMPT_HC2`, `TF_FLASHNEXT_SAMPLE_CAND` and
+`TF_FLASHNEXT_WINDOW`, and the two bottom non-rows are `TENSORFOLD_PARALLEL` and `TF_HY4_MEM_FLOOR_GIB`.
+`TF_FLASHNEXT_DEPTH` and `TF_FLASHNEXT_WINDOW` have no reader in this tree, `TENSORFOLD_PARALLEL` has no occurrence
+anywhere in `zig/src`, `TENSORFOLD_VISION_PYTHONPATH` is carried for parity with a dev serve that runs `VISION=0`, the
+eight config.sh names (`SAMPLE_CAND`, `HOST_DRAW_THREADS`, `PROMPT_HC2`, `PROMPT_EXPERT_TILE_ROWS`, `PRODUCT_STREAMS`,
+`MAX_IMAGES`, `IMAGE_TOKENS`, `VISION_WORKSPACE_MIB`) are the recipe launcher's own, `TENSORFOLD_NO_UPDATE_CHECK` is a
+launcher switch, and `TF_FLASHNEXT_KV_PAGES` is the series' page pool.
 
 ## The 76 rows both trees carry
 

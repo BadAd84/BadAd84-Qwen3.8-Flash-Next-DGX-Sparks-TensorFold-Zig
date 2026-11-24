@@ -55,7 +55,7 @@ done < <(env | grep -E '^(TENSORFOLD|TF_)[A-Z0-9_]+=' || true)
 here_cmd=(docker run -d --name "$CONTAINER_NAME" ... "${ENV_ARGS[@]}" "${KEY_ARGS[@]}" ... "$IMAGE" ...)
 ```
 
-Three consequences, and they are the whole presence rule:
+Four consequences, and they are the whole presence rule:
 
 - **Only names present in the launcher's process environment are passed**, each as `-e NAME=value`, and only
   those two prefixes (the secret `TENSORFOLD_API_KEY` is passed as a bare `-e NAME`, so it never appears in
@@ -66,13 +66,15 @@ Three consequences, and they are the whole presence rule:
 - **`export NAME` with no value generates no `-e` at all**: the shell does not export a name it never set,
   so the image's `ENV` value passes through untouched. That is the exact chain EnvBoot's boot hit, and it
   is why the bare form is a failure now rather than a statement.
-- **The filter also decides which of our settings can act.** The recipe's launcher passes only
-  `TENSORFOLD_*` and `TF_FLASHNEXT_*`. `dev.env` states 27 `TF_*` names (26 with a value, `TF_ROCE_GID_INDEX` as
-  `unset`), and those never reach the engine through this launcher. All 26 are in the `explicit
-  defaults` section, so each is the value the engine already uses: inert, and harmless. The gate makes
-  the distinction mechanical: `--passes` takes the launcher's filter, and a value above the defaults
-  marker that the filter cannot carry is `PASSAGE-LOST`, because a measured lever that cannot act is a
-  defect; one below it is reported as an advisory. The gate also fails a setting stated twice
+- **The filter also decides which of our settings can act, and the two launchers differ.** The dev recipe's
+  launcher (`~/qwen-zig/start.sh:172`) passes every `TENSORFOLD_*` and every `TF_*` name, so all of
+  `dev.env`'s `TF_*` rows (`TF_CACHE_EVICT`, `TF_CUDA_*`, `TF_FLASHNEXT_*` and the rest) reach the container
+  and act; `TF_FLASHNEXT_MTP_WEIGHTS`, which the dev launcher sets, is one of them. Production's launcher
+  (`~/qwen-zig-prod/start.sh:173`) passes `TENSORFOLD_*` and `TF_FLASHNEXT_*` only and injects
+  `TENSORFOLD_CUDA_KERNELS=$KERNELS_PATH` itself, so a bare `TF_*` name is inert on a production boot but live
+  on a dev one. The gate makes the distinction mechanical: `--passes` takes the launcher's filter, and a value
+  above the defaults marker that the filter cannot carry is `PASSAGE-LOST`, because a measured lever that cannot
+  act is a defect; one below it is reported as an advisory. The gate also fails a setting stated twice
   (`DUPLICATE`), since the last line silently wins.
 
 ## Presence-tested settings: `unset`, or a value, never a bare `export`
@@ -258,7 +260,12 @@ itself reads 54 equal (rc 0).
    appends a `# missing NAME=<literal>` line, with its read site, for every setting the table now has
    that `dev.env` does not set and the register does not already annotate; a presence test with a
    `null` default is appended as `# missing NAME=presence`.
-3. `python scripts/qwen38/zig/target/env/check-env-coverage.py --table <served tree>/zig/src/platform/environment.zig \
+3. Build the dev tree once (git apply only, no compiler) and gate against ITS table, because the register now
+   names rows the composition adds and the old served r5 table has 95 where this has 99:
+   `rm -rf work/DevTree && mkdir -p work/DevTree && git -C work/upmain archive 1ece6e6d | tar -x -C work/DevTree &&
+   git -C work/DevTree init -q -b main . && for p in patches/main-1ece6e6db-r5-dev/[0-9]*.patch; do
+   git -C work/DevTree apply "$(realpath "$p")"; done`.
+   Then `python scripts/qwen38/zig/target/env/check-env-coverage.py --table work/DevTree/zig/src/platform/environment.zig \
   --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env \
   --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_)'`
    fails while any worklist line remains or a measured value cannot reach the container. `--strict-carried` also fails a `dev.env` export that tree
