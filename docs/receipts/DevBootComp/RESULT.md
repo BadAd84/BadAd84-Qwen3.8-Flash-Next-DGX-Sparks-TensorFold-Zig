@@ -6,6 +6,11 @@ from a pristine TensorFold `1ece6e6d` plus the 40 patches of `patches/main-1ece6
 `ev.tgz` beside this file (118 files: run log, exactness, boot and plan lines, turn2, the contract window and the first
 failed build attempt).
 
+After this boot the package gained a comment-only pass (commit `a68f2d9d`, manifest
+`9e3c2276cbf297d71e3d5b072f801ae18b2309f8b213e9754b8cac3aa1c359e4`): 94 comment lines condensed and five pin rows
+regenerated from the same fixture bytes, no engine line changed. The image above stays the dev arm of record; the next
+rebuild regenerates from the current package.
+
 ## Boot
 
 Through `~/qwen6-start.sh` (the repo copy, `cce62b64...`) with `dev.env` sourced, `LOCK_HOLDER=0 PARALLEL=8
