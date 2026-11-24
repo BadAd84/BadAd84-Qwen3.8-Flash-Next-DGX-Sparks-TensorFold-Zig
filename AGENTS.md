@@ -67,6 +67,10 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
   watchlist.
 - `upstream/` - recipe PR packages; skill `submit-ots-patch-as-miaai-recipe-pr`.
 
+## No copying: our code is written here (owner 2026-11-24)
+
+No source file, kernel or substantial code block is copied or adapted into this repo from another project (engine, library, recipe, vendor sample), permissive licences included. Interfaces, formats, protocols and behaviour are facts we implement ourselves, with the reference source closed while we write. A file that came from elsewhere does not enter a patch series, a PR or this repo; the only exception is the owner's explicit written approval in the session, and then the licence, the upstream copyright line and a `THIRD_PARTY_NOTICES` entry land with it. Every new file names its origin in its patch RECORD (a kernel also in its own header), and a copied file found later is replaced by an original implementation or removed, with the change recorded. This governs incorporation; running or modifying permissively or copyleft-licensed software we deploy is unaffected. The rule exists because PR #4183's int4 kernel was another project's Apache-2.0 file and put that contribution at risk on provenance alone.
+
 ## Conventions
 - **On every TensorFold version bump, re-test the whole patch stack and retire what upstream absorbed (owner
   2026-11-11).** Bring our environment and our patches onto the new base first (``patches/` and `upstream/``), then decide every patch
