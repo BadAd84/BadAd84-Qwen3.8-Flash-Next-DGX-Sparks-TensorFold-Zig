@@ -67,6 +67,7 @@ edited in the port, so removing a source package or branch cannot lose the recor
 | 0038 | `int4-lane-fixture-optionals` | the paged-prompt fixture sets `int4` and `tail` to null on both projections it builds from `Layer = undefined`; an undefined optional sent the lane into `cuda_int4.dense` (before 0036) and then the BF16-tail launch with no slice (after it) |
 | 0039 | `cli-config-fixture-mode` | the serve-config test states its fixture files' mode (0644) instead of inheriting the umask: under a 002 umask `writeFile` leaves a group-writable file, and the guard correctly refuses it, failing the test before it tests anything |
 | 0040 | `serving-pins` | the two rows 0035 and 0036 moved (`cuda_batch.zig`, `cuda_config.zig`), regenerated from the merged bytes with `work/DevComposition/repin.py`; the 34-patch gate's pincheck predated both |
+| 0041 | `prompt-ks-tile` | the captured prompt matmul's 64-column block on the fused K-slice prompt tile (`TF_FLASHNEXT_PROMPT_KS_N=64`; `prompt_mm.py`'s `_b16mm_ks` `BLOCK_N`), banded by `TF_FLASHNEXT_PROMPT_KS_GROUP`; default off keeps the engine's 128-column tile, same sums and bits |
 
 ## The serve shape, and the env and launcher that carry it
 
@@ -132,10 +133,25 @@ test-disk-identity-host test-cuda-disk-open-host`, `test-kernel-contract`, `test
 | the same, `-Dtarget=aarch64-linux-gnu` | rc 0, 945 s |
 | `zig build -Dfixed-cpu test-cuda-host` | **rc 0 at 40 patches**: `Build Summary: 440/440 steps succeeded; 3862/3894 tests passed (32 skipped)`, no `error:` line. The server binary ran `1668 pass, 15 skip (1683 total)` (the failing run read `1667 pass, 15 skip, 1 fail (1683 total)`, the one test being the serve-config case 0039 fixes). At 36 patches the same step read `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`; those three failures are the ones 0037-0039 fix, with the stacks in `RECORD.md` |
 
+## 0041: the prompt-matmul lever and its A/B plan
+
+`TF_FLASHNEXT_PROMPT_KS_N` (default 0) turns the engine's prompt tile from its 128-column form to the captured prompt
+matmul's geometry: one fused K-slice program a (128-row, 64-column) tile, the halves of a 128-column tile in separate
+programs, with `TF_FLASHNEXT_PROMPT_KS_GROUP` (default 0: the engine's own sweep) pinning the band. The sums and bits
+are unchanged (the same K16 MMA chain, an accumulator from zero per slice, the slice totals added in slice order), so
+the lever is output-neutral and its value is speed at cold prefill. The mechanism map, the three tile constants that
+differ from the captured kernel and the route decision are `docs/receipts/PrefillKernelPort/MECHANISM.md`.
+
+The A/B plan for the next free GPU window is `docs/receipts/PrefillKernelPort/AB-PLAN.md`: cells at cold TTFT 8k and
+32k, C=1 and C=8, plus decode at 1, 2, 4, 6 and 8 streams, the lever on against off inside the dev engine with
+replies hashed, and the exact comparison that confirms or refutes the `+0.31 s` (8k) and `+1.31 s` (32k) expectation
+from `docs/receipts/ParityGap/RESULTS.md` ("A2").
+
 ## What this package does not do
 
-- It adds one engine line of its own and no others: 0001-0026 are their sources' lines, with only the comment
-  condensing and the five pin rows `CHANGES.md` section 8 lists, 0027 and 0028 are the
+- It adds one engine line of its own (0001-0026) and one new lever of its own (0041's prompt tile): 0001-0026 are
+  their sources' lines, with only the comment condensing and the five pin rows `CHANGES.md` section 8 lists, 0027 and
+  0028 are the
   draft-head pair with the one hunk re-cut and the one pin row regenerated, 0029-0032 are PR #4183's contract suite
   and the tolerance branch's three commits, ported with the adaptations `CHANGES.md` lists, 0033 is the merged pin row,
   0036 narrows the int4 dense dispatch to the group sizes `fn_int4.cu` builds, and 0034, 0035, 0037, 0038 and 0039

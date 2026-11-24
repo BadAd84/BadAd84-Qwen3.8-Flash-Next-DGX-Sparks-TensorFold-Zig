@@ -23,6 +23,7 @@ One directory of 40 patches, applied in filename order to `1ece6e6dbbc073582d507
 | 0038 | the paged-prompt fixture's int4 and tail optionals | this package (the full-suite gate's finding, section 6) |
 | 0039 | the serve-config fixture's file modes | this package (the full-suite gate's finding, section 6) |
 | 0040 | the two serving-pin rows 0035 and 0036 moved | this package (regenerated from the merged bytes, section 3) |
+| 0041 | the captured prompt matmul's 64-column block as a fused prompt tile, `TF_FLASHNEXT_PROMPT_KS_N`, default off | this package (the prefill-gap port; the mechanism map and the route decision are `docs/receipts/PrefillKernelPort/MECHANISM.md`) |
 
 There is no number collision: the int4-kvtier package's `0028` (the whole-ask patch) is `0026` here, the draft-head
 package's `0026`/`0027` are `0027`/`0028` here, and every appended patch has a number no other directory of this r5
@@ -91,6 +92,18 @@ the pin test named `cuda_batch.zig`). 0040 regenerates them from the merged byte
 | `zig/src/families/flashnext/cuda_config.zig` | `598d1276723c7094aaea615751f609ff9488d409a90660c4710cf04f40db04a9` (the tree before 0035) | `b512b6ccb57047d8de8eb00f3b86805c79be6208c250d5da36fe53be7845c0ca` |
 
 After 0040 the pin check reads `files 170 failing 0` and `test-gradient-serving` passes; no other row moved.
+
+0041 edits three pinned serving files (`qmmf.cu`, `qmmf.zig`, `cuda_prompt.zig`), so it carries their regenerated
+rows in the same patch, by the same rule (mode `raw`, the file's bytes):
+
+| row | before | after |
+|---|---|---|
+| `zig/kernels/cuda/qmmf.cu` | `5c55f08fdd951f683159dbaf5b3c655aa956cc15c82c4476f07270215101d1f4` | `2d11c47c9d9c90c3b306bd6b0218621f29ad71e82fb7195ced89a2014b141e46` |
+| `zig/src/cuda/qmmf.zig` | `cb04b89dae52c23327d8a258d2d5d0b23782d7ac271e38e117637d251e344ff2` | `53ed6ec786b41240ea1ec0d8a2e7696fe89dc145d8d9b067661012857c8cfa98` |
+| `zig/src/families/flashnext/cuda_prompt.zig` | `2c1a5c86a8891e1d6066454dc2caa5c5aa8a7c60d4bdad439d907514ece2ff07` | `616027f8e03ce33a5cc249f915608b50ca156d772599c2e20ef703685aee96a8` |
+
+After 0041 the pin check reads `files 170 failing 0`. `zig/src/families/flashnext/cuda_knobs.zig` is not pinned (no
+row of its own today), so the two new settings' reader is not in the fixture; the rows that ARE pinned are regenerated.
 
 ## 4. The int4 contract suite: the carrier the tolerance commits need
 
@@ -213,9 +226,11 @@ regenerated from the merged bytes with `work/DevComposition/repin.py` and never 
 
 ## 7. What the composition does not change
 
-- No setting is added by this package: the four settings 0021 reads through `zig/src/platform/environment.zig` are the
-  INT4 package's own rows, and the dev env files state them now, with their read sites (`README.md`, "The serve shape,
-  and the env and launcher that carry it"); the coverage gate reads `99 settings in scope, set 99, missing 0`.
+- The four settings 0021 reads through `zig/src/platform/environment.zig` are the INT4 package's own rows, and the dev
+  env files state them now, with their read sites (`README.md`, "The serve shape, and the env and launcher that carry
+  it"); the coverage gate reads `99 settings in scope, set 99, missing 0`. 0041 adds two settings of its own
+  (`TF_FLASHNEXT_PROMPT_KS_N`, `TF_FLASHNEXT_PROMPT_KS_GROUP`), read through `cuda_knobs.zig` like the family's other
+  `TF_FLASHNEXT_*` switches; both are default-off, so the composition's served behaviour without them is unchanged.
 - The INT4 package's gap against issue #3368's six steps is unchanged, including the MTP layer recoded to block FP8 at
   load (drafts only, replies exact) and the missing float64 fidelity cells.
 - The tier's missing pieces are unchanged: the staging ring, a store pin and block-name lineage.

@@ -66,7 +66,9 @@ change. The mechanism: `_b16mm_ks`/`_fp4mm_ks` run all K slices of a tile in one
 totals in slice order, with no `[SK, M, N]` fp32 buffer written and read back
 (`production:zig/src/families/flashnext/cuda_prompt.zig:1-8`; the kernels are MiaAI's
 `qwen4_exp/cuda/prompt_mm.py`, packed into the sm121 set by `tools/zig/aot_pack.py`, both arriving in
-`3289c9eb recipe-patched`). D's tree contains no such form at all (`grep b16mm|fp4mm` over
+`3289c9eb recipe-patched`). D's tree contains no such SYMBOL (`grep b16mm|fp4mm` over
+
+Corrected 2026-11-24 by `docs/receipts/PrefillKernelPort/MECHANISM.md`: the symbol is absent, the FORM is not. The dev engine's own fused prompt matmul (`qmmf.zig:91` `fused = sk>1 and m>=256`, `usesPrompt` taking the `FUSE=true` instance whose body walks every K slice in one program with slice-order adds, pinned by the host test at `Trace.calls == 1` for `m=4218, sk=4`) carries the same semantics. What differs between the arms is geometry: the column block (64 against 128), the band value (`GROUP=8` against the dev's computed 19) and the staging, which is what patch 0041 ports.
 `work/ParityGap/DevTree/zig` finds nothing) and it cannot load a captured set at fp8 KV
 (`cuda_lanes_load.zig:33`).
 
