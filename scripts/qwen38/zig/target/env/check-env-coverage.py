@@ -31,7 +31,10 @@ A `# <verdict> NAME:` line in the register is an ANNOTATION on a value that is s
 with the verdict vocabulary of `PROMOTION-RULES.md` plus the legacy `default-ok` and `unreachable`: `measured`,
 `inert`, `debt`, `raw`, `launcher`, `absent`, `candidate` and `retired`. A `retired` line names a setting the
 served engine no longer reads; every other verdict annotates one it sets
-never a substitute for setting it (VERDICT-ONLY fails). A `# missing NAME=` worklist line is temporary:
+never a substitute for setting it (VERDICT-ONLY fails). `--tag` reads a second engine's verdicts from the same
+register: with `--tag prod` the lines are `# prod <verdict> NAME: ...`, and the untagged lines (another engine's)
+are ignored, so one register can hold both without either run seeing the other's staleness. A
+`# missing NAME=` worklist line is temporary:
 each is moved into the launcher env with its citation and deleted here, and the gate fails while one
 remains (WORKLIST). A verdict line naming a setting the table no longer has is STALE and also fails, so
 the register cannot rot into a list of things that no longer exist.
@@ -48,7 +51,8 @@ ROW = re.compile(r'\.\{ \.name = "([A-Z0-9_]+)"')  # a row starts here; fields a
 SCOPE = re.compile(r'\.scope = \.(\w+)')
 KIND = re.compile(r'\.kind = \.(\w+)')
 FORMS = re.compile(r'\.forms = "([^"]*)"')
-VERDICT = re.compile(r"^#\s*(default-ok|debt|unreachable|measured|inert|raw|launcher|absent|candidate|retired)\s+([A-Z0-9_]+)\s*:\s*(.*)$")
+VERDICT_KINDS = r"(default-ok|debt|unreachable|measured|inert|raw|launcher|absent|candidate|retired)"
+VERDICT = re.compile(r"^#\s*" + VERDICT_KINDS + r"\s+([A-Z0-9_]+)\s*:\s*(.*)$")
 IMAGE_BAKED = re.compile(r"^#\s*image-baked\s+([A-Z0-9_]+)=([^:]*):\s*(.*)$")
 MISSING = re.compile(r"^#\s*missing\s+([A-Z0-9_]+)=(.*)$")
 CITE = re.compile(r"(work/[A-Za-z0-9_./-]+|docs/[A-Za-z0-9_./-]+|int-docs/[A-Za-z0-9_./-]+|scripts/[A-Za-z0-9_./-]+)")
@@ -93,6 +97,9 @@ def main() -> int:
                          "the launcher cannot carry is PASSAGE-LOST; below it the line is an advisory")
     ap.add_argument("--strict-carried", action="store_true",
                     help="also fail when the launcher env sets a serve setting this table does not have")
+    ap.add_argument("--tag", default="",
+                    help="read the register's verdict lines as `# <tag> <verdict> NAME: ...` for a second engine "
+                         "sharing the file; empty reads the untagged lines (the default, unchanged)")
     args = ap.parse_args()
 
     scopes = {s.strip() for s in args.scopes.split(",") if s.strip()}
@@ -141,15 +148,18 @@ def main() -> int:
     baked = {}
     problems = []
     reg = Path(args.register)
+    tag = args.tag.strip()
+    verdict_re = VERDICT if not tag else re.compile(
+        r"^#\s*" + re.escape(tag) + r"\s+" + VERDICT_KINDS + r"\s+([A-Z0-9_]+)\s*:\s*(.*)$")
     if reg.exists():
         for line in reg.read_text(encoding="utf-8").splitlines():
-            b = IMAGE_BAKED.match(line)
+            b = IMAGE_BAKED.match(line) if not tag else None
             if b:
                 name, value, rest = b.groups()
                 if not CITE.search(rest):
                     problems.append(f"{reg.name}: {name} (image-baked) cites no evidence path")
                 baked[name] = value.strip()
-            m = VERDICT.match(line)
+            m = verdict_re.match(line)
             if not m:
                 continue
             kind, name, rest = m.groups()
@@ -185,7 +195,7 @@ def main() -> int:
 
     silent = sorted(n for n in rows if n not in carried)
     markers = []
-    if Path(args.register).exists():
+    if Path(args.register).exists() and not tag:
         for line in Path(args.register).read_text(encoding="utf-8").splitlines():
             m = MISSING.match(line)
             if m:

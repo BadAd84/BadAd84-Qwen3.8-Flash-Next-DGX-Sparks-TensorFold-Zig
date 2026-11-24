@@ -53,8 +53,23 @@ is `bf16|int8|int4` only and it has no `--learn-*` or `--prompt-cache-disk` flag
 
 ## The environment
 
-`zig/target/env/dev.env` is the arm's environment of record and `prod.env` is the live launcher's copy: the 54
-settings read from the running container on 2026-11-23. The rule (`docs/ENV-REGISTER.md`): **every setting the served
+`zig/target/env/dev.env` is the arm's environment of record. `prod.env` is the PRODUCTION engine's complete record:
+118 rows, one for every name the production engine reads, each at its value with a verdict and a citation. The
+engine is the tree the zmerge8-kfix image was built from (source tar sha256
+`e5139fcd8c6101c776d9c600021228d389e648f58a398842498d95c3ebcccecc`, the image's `ai-engine.src-sha256` label),
+and it has no `zig/src/platform/environment.zig`: its table is derived from its own read sites and kept at
+`docs/receipts/ProdEnvAudit/prod-settings-table.zig` (the served binary's 116 names plus the vision helper's
+`TENSORFOLD_VIDEO_TOKENS` and `TENSORFOLD_VISION_WEIGHTS`). Section 1 of prod.env is the 54-name live launcher
+environment; section 2 states every other name at the engine's own default, with the read site cited above its line;
+the verdicts are the `# prod <kind> NAME:` block in `register.env`. Gates:
+`check-env-coverage.py --table docs/receipts/ProdEnvAudit/prod-settings-table.zig --dev prod.env --register
+register.env --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_FLASHNEXT)_' --tag prod` reads `coverage: 118
+settings in scope, set 118, missing 0, absent 17, annotations 118, worklist markers 0, passage-lost 0`, and
+`docs/receipts/ProdEnvAudit/check-prod-rows.py` reads `prod-env: 0 setting(s) without a citation` with `citations:
+118/118 resolve`; `check-prod-env.py` compares the rows whose `prod` verdict says the container carries them (54) and
+stays green. The provenance and every output are in `docs/receipts/ProdEnvAudit/RESULT.md`.
+
+The dev rule (`docs/ENV-REGISTER.md`): **every setting the served
 tree reads is SET in `dev.env`**, because presence is what an upstream rebase silently inherits and a value in the
 engine's source is invisible to a name-level sweep. The file writes the measured settings below with the record that
 proved each one, then every remaining setting the served tree reads at its own read site's default with that read

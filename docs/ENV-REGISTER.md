@@ -225,30 +225,43 @@ annotations 2, worklist markers 0, passage-lost 0`, rc 0. The upstream form is p
 `upstream/recipe-launcher-tf-env/` as a local record. The recipe repository is not a contribution target (owner,
 2026-11-23), so no pull request is opened there.
 
-## The production copy cannot drift
+## The production record cannot drift
 
-`prod.env` is a hand copy of the production launcher's environment, taken from `docker inspect` of
-`qwen38-flash-next-tf`, and a hand copy drifts: the 2026-11-20 capture carried 52 settings and the 2026-11-23
-one 54 (`TENSORFOLD_CUDA_KERNELS` and `TENSORFOLD_VISION_PYTHONPATH` were the two added), with nothing
-comparing either copy to the container. `scripts/qwen38/zig/target/env/check-prod-env.py` closes that:
-
-The check refuses to compare unless the container it reads is on the pinned production image (`rc 3`): every
-GPU window serves under the same container name, so a run during a window would otherwise report the window's
-environment as production drift. Observed 2026-11-23: a run during a dev window read that window's 122-name dev
-environment against production's 54 and looked like 69 problems.
+`prod.env` is now the production engine's complete record, 118 rows, built against a source tree that has no
+settings table: the tree is the build source of `tensorfold-qwen38:zmerge8` (`~/work/ots201/build/src.tar`,
+sha256 `e5139fcd8c6101c776d9c600021228d389e648f58a398842498d95c3ebcccecc`, equal to the image's
+`ai-engine.src-sha256` label, 1,743 entries, zero `environment.zig`), so the table is derived from the served
+binary's own 116 `TF_*`/`TENSORFOLD_*` names plus the vision helper's two, kept with its derivation at
+`docs/receipts/ProdEnvAudit/` (`prod-settings-table.zig`). The 54-name launcher environment as captured from
+`docker inspect` is section 1; section 2 pins every other name at the engine's own default with its read site
+cited above the line; 17 rows are `unset` because the default is a presence test or a value no text can
+express, each saying which. The hand-copied predecessor drifted (52 names on 2026-11-20, 54 on 2026-11-23),
+which is why the record is complete and the check is kind-driven now.
 
 ```
-python scripts/qwen38/zig/target/env/check-prod-env.py
-prod-env: 54 settings in prod.env (54 stated, 0 unset), 54 in the container, 54 equal, 0 problem(s)
+python scripts/qwen38/zig/target/env/check-env-coverage.py \
+  --table docs/receipts/ProdEnvAudit/prod-settings-table.zig \
+  --dev scripts/qwen38/zig/target/env/prod.env \
+  --register scripts/qwen38/zig/target/env/register.env \
+  --scopes flashnext,cuda,common --passes '^(TENSORFOLD|TF_FLASHNEXT)_' --tag prod
+coverage: 118 settings in scope, set 118, missing 0, absent 17, annotations 118, worklist markers 0, passage-lost 0
 ```
 
-It reads the container's own `Config.Env` (`docker inspect qwen38-flash-next-tf --format
-'{{json .Config.Env}}'`, or a saved copy through `--inspect`), compares every `TF_*`/`TENSORFOLD_*` name in
-both directions, and fails on a changed value, a name the copy states and the container lacks, a name the
-container carries and the copy lacks, a duplicate line, and a bare `export`; `unset NAME` asserts absence.
-`TENSORFOLD_API_KEY` is never compared. The dry run plants one changed value, one missing name and one extra
-name and gets three findings (`DIFF`, `MISSING`, `EXTRA`, rc 1), while a copy generated from `prod.env`
-itself reads 54 equal (rc 0).
+`check-prod-env.py` compares the container's own `Config.Env` against the rows whose register verdicts say the
+container carries them (`measured`, `launcher`, the image-baked pair), in both directions; `debt`, `inert` and
+`absent` rows are informational, and a row with no `prod` verdict fails as UNVERDICTED. It refuses to compare
+unless the container is on the pinned production image (`rc 3`), because every GPU window serves under the
+same container name.
+
+```
+python scripts/qwen38/zig/target/env/check-prod-env.py --inspect <docker inspect JSON>
+prod-env: 117 rows compared (54 carried, 63 pinned; 118 in the file, 1 skipped), 54 in the container, 54 equal, 0 problem(s)
+```
+
+`TENSORFOLD_API_KEY` is never compared (the one skipped row). The kind filter is proven by six self-tests
+(`docs/receipts/ProdEnvAudit/check-prod-env-selftest.sh`, `SELFTEST-OK 6`): a changed carried value, a missing
+carried name and a removed carried row each fail; a changed pinned default passes, and a pinned name the
+container carries fails as EXTRA.
 
 ## At every re-seat
 

@@ -1,0 +1,5 @@
+rows: table 118 = binary 116 + helper 2; prod.env 118; verdicts 118; set-equal yes
+prod-env: 0 setting(s) without a citation
+citations: 118/118 resolve; 118/118 cited lines contain the name
+launcher: view 54 = captured 54; values equal yes
+rows rc=0

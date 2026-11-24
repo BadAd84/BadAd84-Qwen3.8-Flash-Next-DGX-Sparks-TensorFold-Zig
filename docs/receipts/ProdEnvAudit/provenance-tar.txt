@@ -1,0 +1,12 @@
+$ tar -tf work/ProdEnvAudit/src.tar | wc -l
+1743
+$ tar -tf work/ProdEnvAudit/src.tar | grep -cE "^\./[^/]+$"
+14
+$ tar -tvf work/ProdEnvAudit/src.tar | grep -c "^-"
+1640
+$ tar -tf work/ProdEnvAudit/src.tar | grep -iE "environment\.zig|platform"
+./tests/test_windows_platform.py
+$ sha256sum work/ProdEnvAudit/src.tar
+e5139fcd8c6101c776d9c600021228d389e648f58a398842498d95c3ebcccecc  work/ProdEnvAudit/src.tar
+$ stat -c %s work/ProdEnvAudit/src.tar
+29962240

@@ -1,0 +1,8 @@
+DRIFT-SELFTEST real ok [rc 0]
+DRIFT-SELFTEST carried-value-differs ok [rc 1, 1 x ^DIFF TF_FLASHNEXT_WINDOW]
+DRIFT-SELFTEST pinned-default-differs ok [rc 0]
+DRIFT-SELFTEST carried-row-removed ok [rc 1, 1 x ^EXTRA TF_FLASHNEXT_WINDOW]
+DRIFT-SELFTEST carried-name-absent ok [rc 1, 1 x ^MISSING TF_FLASHNEXT_WINDOW]
+DRIFT-SELFTEST pinned-name-carried ok [rc 1, 1 x ^EXTRA TF_FLASHNEXT_ATTN_MULTI]
+SELFTEST-OK 6
+selftest rc=0

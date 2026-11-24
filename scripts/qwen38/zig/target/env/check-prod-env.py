@@ -1,17 +1,30 @@
 #!/usr/bin/env python3
-"""Fail when prod.env and the live production container disagree on a serve setting.
+"""Fail when the rows the production launcher carries disagree with the live production container.
 
-prod.env is a hand copy of the production launcher's environment (`docker inspect` of the production
-container), and a hand copy drifts: it went from 52 to 54 settings between the 2026-11-20 and 2026-11-23
-captures with nothing comparing it to the container. This gate reads the container's own `Config.Env` and
-compares every `TF_*` / `TENSORFOLD_*` name against the copy, in both directions:
+`prod.env` is the complete record of the production engine's settings: the rows the live launcher
+carries, plus every other name the engine reads pinned at its own default. Its verdicts live in
+`register.env` tagged `prod`, and the comparison set here is derived from those verdicts, never from a
+second list of names:
 
-  DIFF       the name is in both and the values differ
-  MISSING    prod.env states it and the container does not carry it
-  EXTRA      the container carries it and prod.env does not state it
-  DUPLICATE  prod.env states one name twice, so the last line silently wins
-  NO-VALUE   prod.env has a bare `export NAME`, which says nothing about the container
-  PRESENT    prod.env says `unset NAME` and the container carries it
+  carried   measured, launcher and image-baked rows: the container is expected to carry each at the
+            stated value. These are the only rows compared, in BOTH directions: every carried row must
+            be in the container at the same value, and every TF_/TENSORFOLD_ name the container
+            carries must be one of them.
+  pinned    debt, inert, absent, raw, candidate and legacy rows: informational. They state the
+            engine's own default for a name the launcher does not export, so they neither need nor
+            are allowed to be in the container - a name that appears there is EXTRA, because the
+            record says the launcher does not export it.
+
+Findings:
+
+  DIFF          a carried name's value differs from the container's
+  MISSING       a carried name is not in the container
+  PRESENT       a carried name is written `unset`, which says the container lacks it
+  EXTRA         the container carries a TF_/TENSORFOLD_ name that is not a carried row of prod.env
+  UNVERDICTED   a prod.env row has no `# prod <verdict> NAME:` line, so its route is unknown
+  DUPLICATE     prod.env states one name twice, so the last line silently wins
+  NO-VALUE      prod.env has a bare `export NAME`, which says nothing about the container
+  UNPARSED      a non-comment line that is not an export or an unset
 
 Run it on the box, beside the serve, after any production restart or restore:
 
@@ -26,8 +39,12 @@ Run it on the box, beside the serve, after any production restart or restore:
 
 `--inspect FILE` takes a saved `docker inspect <container>` (the JSON array of objects) or the output of
 `docker inspect <container> --format '{{json .Config.Env}}'` (a JSON array of `NAME=value` strings), so the
-gate can be dry-run without the box. Exit 0 when the copy equals the live environment, 1 on any difference,
+gate can be dry-run without the box. Exit 0 when the carried rows and the container agree, 1 on any difference,
 2 on an unreadable input.
+
+The launcher-only view of the same record is docs/receipts/ProdEnvAudit/prod-launcher.env; passing it with
+`--prod` compares exactly the 54 rows the live container carries (each still carrying its measured or
+launcher verdict, so the classification stays the register's).
 """
 import argparse
 import json
@@ -40,6 +57,9 @@ HERE = Path(__file__).resolve().parent
 EXPORT = re.compile(r'^export ([A-Z0-9_]+)=(.*)$')
 BARE = re.compile(r'^export ([A-Z0-9_]+)\s*$')
 UNSET = re.compile(r'^unset ([A-Z0-9_]+)$')
+VERDICT_KINDS = r"(default-ok|debt|unreachable|measured|inert|raw|launcher|absent|candidate|retired)"
+IMAGE_BAKED = re.compile(r"^#\s*image-baked\s+([A-Z0-9_]+)=")
+CARRIED_KINDS = {"measured", "launcher"}
 
 
 def prod_settings(path):
@@ -69,6 +89,24 @@ def prod_settings(path):
     return values, problems
 
 
+def verdicts(path, tag):
+    """name -> verdict kind from `# <tag> <kind> NAME: ...`, plus the image-baked names (always carried)."""
+    kinds, baked, problems = {}, set(), []
+    pattern = re.compile(r"^#\s*" + re.escape(tag) + r"\s+" + VERDICT_KINDS + r"\s+([A-Z0-9_]+)\s*:\s*(.*)$")
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        b = IMAGE_BAKED.match(line)
+        if b:
+            baked.add(b.group(1))
+        m = pattern.match(line)
+        if not m:
+            continue
+        kind, name = m.group(1), m.group(2)
+        if name in kinds:
+            problems.append(f"register.env line {lineno}: {name} has two `{tag}` verdicts")
+        kinds[name] = kind
+    return kinds, baked, problems
+
+
 def container_env(args):
     image = None
     if args.inspect:
@@ -96,7 +134,9 @@ def container_env(args):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--prod", default=str(HERE / "prod.env"), help="the hand copy of the production env")
+    ap.add_argument("--prod", default=str(HERE / "prod.env"), help="the production record")
+    ap.add_argument("--register", default=str(HERE / "register.env"), help="the register holding the tagged verdicts")
+    ap.add_argument("--tag", default="prod", help="the register's engine tag for these verdicts")
     ap.add_argument("--container", default="qwen38-flash-next-tf", help="the production container")
     ap.add_argument("--inspect", help="a saved docker inspect JSON, or the --format '{{json .Config.Env}}' array")
     ap.add_argument("--prefix", default="^(TENSORFOLD|TF_)", help="the names the launcher passes and the engine reads")
@@ -112,6 +152,12 @@ def main():
         print(f"check-prod-env: {prod_path} does not exist", file=sys.stderr)
         return 2
     values, problems = prod_settings(prod_path)
+    reg_path = Path(args.register)
+    if not reg_path.is_file():
+        print(f"check-prod-env: {reg_path} does not exist", file=sys.stderr)
+        return 2
+    kinds, baked, reg_problems = verdicts(reg_path, args.tag)
+    problems.extend(reg_problems)
     live, image = container_env(args)
     if not args.allow_any_image:
         if not image:
@@ -128,26 +174,35 @@ def main():
     skip = {s.strip() for s in args.skip.split(",") if s.strip()}
 
     stated = {n: v for n, v in values.items() if prefix.search(n) and n not in skip}
-    carried = {n: v for n, v in live.items() if prefix.search(n) and n not in skip}
+    carried = {n: v for n, v in stated.items() if kinds.get(n) in CARRIED_KINDS or n in baked}
     for name in sorted(stated):
-        kind, value = stated[name]
-        if name not in carried:
-            if kind == "value":
-                problems.append(f"MISSING {name}: prod.env states {value!r} and the container does not carry it")
-            continue
-        if kind == "unset":
-            problems.append(f"PRESENT {name}: prod.env says unset and the container carries {carried[name]!r}")
-        elif carried[name] != value:
-            problems.append(f"DIFF {name}: prod.env {value!r} against container {carried[name]!r}")
-    for name in sorted(set(carried) - set(stated)):
-        problems.append(f"EXTRA {name}={carried[name]!r}: the container carries it and prod.env does not state it")
+        if name not in kinds and name not in baked:
+            problems.append(f"UNVERDICTED {name}: no `# {args.tag} <verdict> {name}:` line in {reg_path.name}, so "
+                            f"the gate cannot tell whether the container carries it")
+    container = {n: v for n, v in live.items() if prefix.search(n) and n not in skip}
 
-    equal = sum(1 for n in stated if stated[n][0] == "value" and carried.get(n) == stated[n][1])
-    absent = sum(1 for n in stated if stated[n][0] == "unset" and n not in carried)
+    for name in sorted(carried):
+        kind, value = carried[name]
+        if kind == "unset":
+            problems.append(f"PRESENT {name}: prod.env says unset and its verdict says the container carries it")
+            continue
+        if name not in container:
+            problems.append(f"MISSING {name}: prod.env states {value!r} and the container does not carry it")
+        elif container[name] != value:
+            problems.append(f"DIFF {name}: prod.env {value!r} against container {container[name]!r}")
+    for name in sorted(set(container) - set(carried)):
+        if name in stated:
+            problems.append(f"EXTRA {name}={container[name]!r}: the container carries it and prod.env pins it as "
+                            f"a default ({kinds.get(name, 'no verdict')}), not a carried row")
+        else:
+            problems.append(f"EXTRA {name}={container[name]!r}: the container carries it and prod.env does not state it")
+
+    equal = sum(1 for n in carried if carried[n][0] == "value" and container.get(n) == carried[n][1])
     for p in problems:
         print(p)
-    print(f"prod-env: {len(stated)} settings in prod.env ({len(stated) - absent} stated, {absent} unset), "
-          f"{len(carried)} in the container, {equal} equal, {len(problems)} problem(s)")
+    print(f"prod-env: {len(stated)} rows compared ({len(carried)} carried, {len(stated) - len(carried)} pinned; "
+          f"{len(values)} in the file, {len(values) - len(stated)} skipped), "
+          f"{len(container)} in the container, {equal} equal, {len(problems)} problem(s)")
     return 0 if not problems else 1
 
 

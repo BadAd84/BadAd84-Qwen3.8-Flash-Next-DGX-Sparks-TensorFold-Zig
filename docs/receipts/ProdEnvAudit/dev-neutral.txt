@@ -1,0 +1,12 @@
+$ python work/ProdEnvAudit/check-env-coverage.head.py --table work/DevTree/zig/src/platform/environment.zig --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env --scopes flashnext,cuda,common --passes "^(TENSORFOLD|TF_)"
+carried but not in this table (series-added or other-engine settings; confirm each has a reader in the tree you serve): TENSORFOLD_IMAGE_TOKENS, TENSORFOLD_MAX_IMAGES, TENSORFOLD_NO_UPDATE_CHECK, TENSORFOLD_PARALLEL, TENSORFOLD_VISION_PYTHONPATH, TENSORFOLD_VISION_WORKSPACE_MIB, TF_FLASHNEXT_DEPTH, TF_FLASHNEXT_HOST_DRAW_THREADS, TF_FLASHNEXT_KV_PAGES, TF_FLASHNEXT_PRODUCT_STREAMS, TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS, TF_FLASHNEXT_PROMPT_HC2, TF_FLASHNEXT_SAMPLE_CAND, TF_FLASHNEXT_WINDOW, TF_HY4_MEM_FLOOR_GIB
+coverage: 99 settings in scope, set 99, missing 0, absent 2, annotations 6, worklist markers 0, passage-lost 0
+rc=0
+
+$ python scripts/qwen38/zig/target/env/check-env-coverage.py --table work/DevTree/zig/src/platform/environment.zig ... (new file, no --tag)
+carried but not in this table (series-added or other-engine settings; confirm each has a reader in the tree you serve): TENSORFOLD_IMAGE_TOKENS, TENSORFOLD_MAX_IMAGES, TENSORFOLD_NO_UPDATE_CHECK, TENSORFOLD_PARALLEL, TENSORFOLD_VISION_PYTHONPATH, TENSORFOLD_VISION_WORKSPACE_MIB, TF_FLASHNEXT_DEPTH, TF_FLASHNEXT_HOST_DRAW_THREADS, TF_FLASHNEXT_KV_PAGES, TF_FLASHNEXT_PRODUCT_STREAMS, TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS, TF_FLASHNEXT_PROMPT_HC2, TF_FLASHNEXT_SAMPLE_CAND, TF_FLASHNEXT_WINDOW, TF_HY4_MEM_FLOOR_GIB
+coverage: 99 settings in scope, set 99, missing 0, absent 2, annotations 6, worklist markers 0, passage-lost 0
+rc=0
+
+$ diff -u <old output> <new output>
+diff rc=0 (0 = byte-identical)

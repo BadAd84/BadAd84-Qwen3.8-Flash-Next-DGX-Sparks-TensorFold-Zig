@@ -1,0 +1,12 @@
+oracle 116; zig served-path names 115; python vision names 6
+zig in oracle 108; zig NOT in oracle 7
+  ZIG-NOT-IN-BINARY TF_CUDA_SEGMENTS zig/src/cli/cuda_main.zig:132
+  ZIG-NOT-IN-BINARY TF_FLASHNEXT_DUMP zig/src/native/metal.zig:135
+  ZIG-NOT-IN-BINARY TF_FLASHNEXT_TEST_SWITCH zig/src/families/flashnext/cuda_engine.zig:305
+  ZIG-NOT-IN-BINARY TF_FLASHNEXT_TP zig/src/families/flashnext/engine.zig:362
+  ZIG-NOT-IN-BINARY TF_TP_LOCAL zig/src/families/flashnext/tp.zig:341
+  ZIG-NOT-IN-BINARY TF_TP_STATS zig/src/families/flashnext/tp.zig:342
+  ZIG-NOT-IN-BINARY TF_TP_TRACE zig/src/families/flashnext/tp.zig:340
+python in oracle 4; python NOT in oracle 2
+  PY-NOT-IN-BINARY TENSORFOLD_VIDEO_TOKENS src/tensorfold/vision/qwen_processing.py:263
+  PY-NOT-IN-BINARY TENSORFOLD_VISION_WEIGHTS src/tensorfold/vision/qwen_cuda.py:123

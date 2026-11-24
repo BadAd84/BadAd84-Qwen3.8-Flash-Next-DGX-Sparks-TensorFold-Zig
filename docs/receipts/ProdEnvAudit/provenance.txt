@@ -1,0 +1,52 @@
+PRODUCTION ENGINE SOURCE, RECOVERED 2026-11-24
+
+Served image
+  tag        tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7
+  id         sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+  label      ai-engine.src-sha256 = e5139fcd8c6101c7
+  command    ssh adam@192.168.99.16 'docker image inspect tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 --format "{{.Id}}" ; docker image inspect ... --format "{{json .Config.Labels}}"'
+
+Source tar (the build's own source stage, from production/Dockerfile.zmerge8k)
+  box/path   spark6 (adam@192.168.99.16) /home/adam/work/ots201/build/src.tar
+  sha256     e5139fcd8c6101c776d9c600021228d389e648f58a398842498d95c3ebcccecc
+  size       29962240 bytes
+  local      work/ProdEnvAudit/src.tar (byte-identical; sha256 above). Session scratch: the receipt keeps
+             the cited source files under docs/receipts/ProdEnvAudit/src/ and this sha, not the 30 MB tar.
+  extract    tar -xf src.tar -C work/ProdEnvAudit/src
+  entries    1743 (14 top-level entries; 1640 regular files)
+  command    sha256sum ~/work/ots201/build/src.tar ; stat -c %s ... ; tar -tf ... | wc -l ; tar -tvf ... | grep -c '^-'
+
+The tar is the production branch's tree, file for file
+  branch     production at 5c3e3e29 ("kindling 0002: native upload mmap staging"), worktree work/prod
+  compare    python work/ProdEnvAudit/cmp_tree.py work/ProdEnvAudit/src work/prod
+             tar files 1640 worktree files 1640 common 1640
+             only in tar 0 only in worktree 0 differing 0
+             (the worktree's production/ and PRODUCTION.md are excluded: they are the branch's own
+             build and launcher files, not the engine source; docs/receipts/ProdEnvAudit/tree-compare.txt)
+
+The engine has NO settings table
+  command    tar -tf work/ProdEnvAudit/src.tar | grep -iE 'environment\.zig|platform'
+  output     ./tests/test_windows_platform.py
+  That is the only match: there is no zig/src/platform/environment.zig in the production tree, so the
+  table this repo's coverage gate reads is DERIVED from the engine's read sites (RESULT.md section 2).
+
+THE SERVED BINARY'S SETTING-NAME ORACLE
+
+  file       docs/receipts/ProdEnvAudit/strings-P.txt (116 lines, one name each)
+  source     spark6 /home/adam/work/parity/out/phase0/strings-P.txt, captured by the parity window's
+             phase 0 (docs/receipts/ParityAB/window.sh, strings_scan):
+               docker run --rm --network none --entrypoint sh <production image> -c \
+                 "grep -a -o -E '(TF|TENSORFOLD)_[A-Z0-9_]+' /opt/tensorfold/native/bin/tensorfold-native | sort -u"
+  when       2026-11-24T07:59:03Z (spark6 ~/work/parity/out/run.log)
+             PREFLIGHT image P sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+               expected sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+             PREFLIGHT strings P 116 setting names carried by the served binary
+             ENVSTR P ENVSTR names 54 carried 53 missing 1
+  live env   54 names (docs/receipts/ProdEnvAudit/live-env.txt, spark6 phase0/live-env.txt)
+  names-P    54 names the launcher sets (phase0/names-P.txt); the one name the binary lacks is
+             TENSORFOLD_VIDEO_TOKENS, read by the vision helper's Python tree, which is why the record
+             also carries TENSORFOLD_VISION_WEIGHTS (the helper's second name outside the binary).
+
+  The parity window was serving the dev arm (tensorfold-qwen38:r5dev40) when this receipt was written;
+  phase 0 ran while production was still live, and its own image check (quoted above) proves the scan
+  read the pinned production image.
