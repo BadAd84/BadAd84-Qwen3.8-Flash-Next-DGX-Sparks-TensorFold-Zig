@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 128 files, about 3.7 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 131 files, about 3.8 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -131,6 +131,9 @@ listed at the end as deliberately untracked.
 | `docs/receipts/QInt4/RESULT.md` | `work/QInt4/RESULT.md` | `3923bbe5245aa1f9` | `docs/INT4-PORT.md` |
 | `docs/receipts/QRerun/box/out/QA/env.txt` | `work/QRerun/box/out/QA/env.txt` | `cc490d5521a449d3` | `docs/ENV-REGISTER.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/QRerun/window.sh` | `work/QRerun/window.sh` | `66e9edb04a669a0f` | `scripts/qwen38/zig/target/env/dev.env` |
+| `docs/receipts/RegisterVerdicts/PROOFS.md` | (authored here) | `e1ff175ca6337b25` | `scripts/qwen38/README.md` |
+| `docs/receipts/RegisterVerdicts/fixture-missing-path.env` | `work/RegisterVerdicts/fixture-missing-path.env` | `d174eed49434e179` | (index only) |
+| `docs/receipts/RegisterVerdicts/fixture-no-citation.env` | `work/RegisterVerdicts/fixture-no-citation.env` | `ddac0b0d12fc3df7` | (index only) |
 | `docs/receipts/RoGpu/receipt/cold.md` | `work/RoGpu/receipt/cold.md` | `02e655f3b84f8446` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/SDFix/RESULT.md` | `work/SDFix/RESULT.md` | `d2ddad7d63e7f4a1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/SeriesFix/box/out/RESULT-BOX.md` | `work/SeriesFix/box/out/RESULT-BOX.md` | `8c2b27ec3194417c` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/zig/target/env/dev.env` |
