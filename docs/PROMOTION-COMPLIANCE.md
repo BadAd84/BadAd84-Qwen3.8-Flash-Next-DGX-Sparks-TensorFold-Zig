@@ -7,7 +7,7 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
 
 | file | rows | what it currently is |
 |---|---:|---|
-| `scripts/qwen38/zig/target/env/dev.env` | 112 exports + 2 unsets | the dev arm, complete against the SERVED DEV tree's table (gate `coverage: 99 settings in scope, set 99, missing 0, absent 2, passage-lost 0`) |
+| `scripts/qwen38/zig/target/env/dev.env` | 112 exports + 2 unsets | the dev arm, complete against the SERVED DEV tree's table (gate `coverage: 101 settings in scope, set 101, missing 0, absent 2, passage-lost 0`; the tree carries patch 0041's two rows) |
 | `scripts/qwen38/zig/target/env/prod.env` | 118 (101 exports + 17 unsets) | the production engine's complete record: 54 launcher values, 63 pinned engine defaults with read sites, 1 never compared (`TENSORFOLD_API_KEY`); the derived table and its provenance are in `docs/receipts/ProdEnvAudit/` |
 
 ## The rule's tests, against those files
@@ -62,6 +62,6 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
 
 ## What does not change
 
-The served dev tree's coverage gate stays as it is (99 rows in scope, set 99, passage-lost 0, zero uncited
+The served dev tree's coverage gate stays as it is (101 rows in scope, set 101, passage-lost 0, zero uncited
 settings): the dev file is complete against its own tree. The rule adds the production-side completeness and
 the promotion mechanics around it; it does not relax either file.

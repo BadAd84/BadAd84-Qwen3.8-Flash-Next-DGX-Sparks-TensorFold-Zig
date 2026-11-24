@@ -86,7 +86,7 @@ served values (read at `zig/src/families/flashnext/cuda_int4.zig:274`/`:432` and
 was taken with them - `docs/receipts/QInt4/RESULT.md`, `docs/INT4-PORT.md`), and `TF_FLASHNEXT_INT4_TILE=16` and
 `TF_FLASHNEXT_INT4_PROMPT_DOWN=1` at the engine's own defaults (`cuda_int4.zig:151-152` and `:386-387`), both still
 unmeasured here. The register's two old `retired` marks for the first pair were wrong - 0021 gives both a reader - and
-are now `measured`. On the applied composition the gate reads `coverage: 99 settings in scope, set 99, missing 0,
+are now `measured`. On the applied composition the gate reads `coverage: 101 settings in scope, set 101, missing 0,
 absent 2, annotations 6, worklist markers 0, passage-lost off` against `~/work/DevEnvComp/tree` (the capture and
 its read sites: `work/DevEnvComp/READERS.md`), and
 `check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
