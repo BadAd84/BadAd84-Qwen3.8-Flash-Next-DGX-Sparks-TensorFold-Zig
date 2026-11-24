@@ -1,0 +1,200 @@
+info: shared expert: forked before the router in decode windows of at most 6 rows (0: never); down stored straight into its moe_y slot: true
+info: graphs: shared verify rounds of up to 1 streams captured, MTP steps of up to 4; 192 shared graphs kept (least recently used out first), solo graphs least recently used out past TF_FLASHNEXT_SOLO_MAX; sequence pool 8
+info: decode read-outs: up projection and mix in one pass (_hc_up_mix BM 32)
+info: decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel, checked against the kernel set at load)
+loaded in 49.5s: 1209 weight buffers, 65.57 GiB; cache rows 32832
+profile rank 0 chunk 0: 34 rows, GPU 72.65 ms (wall 73.82 ms) stage=0.02 embed=0.02 ple=0.40 hc_writeback=3.81 hc_normed=0.01 hc_down=4.31 hc_act=0.41 hc_up=0.03 hc_mix=3.63 gdn_proj=8.32 gdn_front=0.43 gdn_chain=1.72 gdn_back=0.29 gdn_shift=0.16 out_proj=4.38 attn_proj=2.61 attn_prep=0.12 qsa_pool=0.07 qsa_scores=0.06 qsa_select=0.05 attention=0.13 attn_gate=0.05 router=1.32 topk_plan=0.42 experts_gate_up=23.36 experts_down=12.00 shared_down=0.31 reduce=0.64 finish=0.01 head=1.39 commit=0.01 other=0.06 mtp.stage=0.02 mtp.hc_writeback=0.07 mtp.hc_down=0.12 mtp.hc_act=0.01 mtp.hc_up=0.05 mtp.hc_mix=0.01 mtp.out_proj=0.08 mtp.attn_proj=0.21 mtp.attn_prep=0.01 mtp.qsa_pool=0.01 mtp.attention=0.01 mtp.router=0.02 mtp.topk_plan=0.01 mtp.experts_gate_up=0.87 mtp.experts_down=0.43 mtp.shared_down=0.01 mtp.mtp_in=0.16
+profile rank 0 prefill: 1 chunks, 34 rows, GPU 72.6 ms = 4376.0 ms a 2048 rows (468 rows/s)
+profile rank 0 prefill   ple                   0.40 ms     23.94 ms/2048    0.5%
+profile rank 0 prefill   hc_writeback          3.81 ms    229.35 ms/2048    5.2%
+profile rank 0 prefill   hc_down               4.31 ms    259.50 ms/2048    5.9%
+profile rank 0 prefill   hc_act                0.41 ms     24.94 ms/2048    0.6%
+profile rank 0 prefill   hc_mix                3.63 ms    218.67 ms/2048    5.0%
+profile rank 0 prefill   gdn_proj              8.32 ms    501.32 ms/2048   11.5%
+profile rank 0 prefill   gdn_front             0.43 ms     25.72 ms/2048    0.6%
+profile rank 0 prefill   gdn_chain             1.72 ms    103.45 ms/2048    2.4%
+profile rank 0 prefill   gdn_back              0.29 ms     17.28 ms/2048    0.4%
+profile rank 0 prefill   gdn_shift             0.16 ms      9.51 ms/2048    0.2%
+profile rank 0 prefill   out_proj              4.38 ms    263.83 ms/2048    6.0%
+profile rank 0 prefill   attn_proj             2.61 ms    157.05 ms/2048    3.6%
+profile rank 0 prefill   attn_prep             0.12 ms      7.20 ms/2048    0.2%
+profile rank 0 prefill   qsa_pool              0.07 ms      4.43 ms/2048    0.1%
+profile rank 0 prefill   qsa_scores            0.06 ms      3.46 ms/2048    0.1%
+profile rank 0 prefill   qsa_select            0.05 ms      3.20 ms/2048    0.1%
+profile rank 0 prefill   attention             0.13 ms      8.04 ms/2048    0.2%
+profile rank 0 prefill   attn_gate             0.05 ms      3.30 ms/2048    0.1%
+profile rank 0 prefill   router                1.32 ms     79.36 ms/2048    1.8%
+profile rank 0 prefill   topk_plan             0.42 ms     25.22 ms/2048    0.6%
+profile rank 0 prefill   experts_gate_up      23.36 ms   1406.80 ms/2048   32.1%
+profile rank 0 prefill   experts_down         12.00 ms    723.05 ms/2048   16.5%
+profile rank 0 prefill   shared_down           0.31 ms     18.89 ms/2048    0.4%
+profile rank 0 prefill   reduce                0.64 ms     38.30 ms/2048    0.9%
+profile rank 0 prefill   head                  1.39 ms     83.58 ms/2048    1.9%
+profile rank 0 prefill   other                 0.06 ms      3.59 ms/2048    0.1%
+profile rank 0 prefill   mtp.hc_writeback          0.07 ms      4.45 ms/2048    0.1%
+profile rank 0 prefill   mtp.hc_down               0.12 ms      7.03 ms/2048    0.2%
+profile rank 0 prefill   mtp.hc_up                 0.05 ms      3.28 ms/2048    0.1%
+profile rank 0 prefill   mtp.out_proj              0.08 ms      4.93 ms/2048    0.1%
+profile rank 0 prefill   mtp.attn_proj             0.21 ms     12.40 ms/2048    0.3%
+profile rank 0 prefill   mtp.experts_gate_up       0.87 ms     52.25 ms/2048    1.2%
+profile rank 0 prefill   mtp.experts_down          0.43 ms     25.79 ms/2048    0.6%
+profile rank 0 prefill   mtp.mtp_in                0.16 ms      9.44 ms/2048    0.2%
+rounds rank 0 decode: 122 rounds, wall 42.41 ms a round, GPU timeline 42.41 ms a round (main 37.20, MTP head 5.20)
+rounds rank 0 decode   stage               0.939 ms a round    2.2%
+rounds rank 0 decode   embed               0.019 ms a round    0.0%
+rounds rank 0 decode   ple                 0.344 ms a round    0.8%
+rounds rank 0 decode   hc_writeback        0.578 ms a round    1.4%
+rounds rank 0 decode   hc_normed           0.432 ms a round    1.0%
+rounds rank 0 decode   hc_down             3.318 ms a round    7.8%
+rounds rank 0 decode   hc_up               0.030 ms a round    0.1%
+rounds rank 0 decode   hc_mix              2.908 ms a round    6.9%
+rounds rank 0 decode   gdn_proj            7.313 ms a round   17.2%
+rounds rank 0 decode   gdn_front           0.252 ms a round    0.6%
+rounds rank 0 decode   gdn_chain           1.027 ms a round    2.4%
+rounds rank 0 decode   gdn_back            0.167 ms a round    0.4%
+rounds rank 0 decode   out_proj            3.739 ms a round    8.8%
+rounds rank 0 decode   attn_proj           2.142 ms a round    5.1%
+rounds rank 0 decode   attn_prep           0.091 ms a round    0.2%
+rounds rank 0 decode   qsa_pool            0.068 ms a round    0.2%
+rounds rank 0 decode   qsa_scores          0.050 ms a round    0.1%
+rounds rank 0 decode   qsa_select          0.052 ms a round    0.1%
+rounds rank 0 decode   attention           0.275 ms a round    0.6%
+rounds rank 0 decode   attn_gate           0.052 ms a round    0.1%
+rounds rank 0 decode   router              1.385 ms a round    3.3%
+rounds rank 0 decode   topk_plan           0.618 ms a round    1.5%
+rounds rank 0 decode   experts_gate_up     6.500 ms a round   15.3%
+rounds rank 0 decode   experts_down        3.021 ms a round    7.1%
+rounds rank 0 decode   shared_down         0.068 ms a round    0.2%
+rounds rank 0 decode   finish              0.007 ms a round    0.0%
+rounds rank 0 decode   head                1.379 ms a round    3.3%
+rounds rank 0 decode   commit              0.023 ms a round    0.1%
+rounds rank 0 decode   gap_draft           0.341 ms a round    0.8%
+rounds rank 0 decode   sample              0.053 ms a round    0.1%
+rounds rank 0 decode   mtp.stage               0.045 ms a round    0.1%
+rounds rank 0 decode   mtp.hc_writeback        0.041 ms a round    0.1%
+rounds rank 0 decode   mtp.hc_normed           0.047 ms a round    0.1%
+rounds rank 0 decode   mtp.hc_down             0.359 ms a round    0.8%
+rounds rank 0 decode   mtp.hc_act              0.048 ms a round    0.1%
+rounds rank 0 decode   mtp.hc_up               0.219 ms a round    0.5%
+rounds rank 0 decode   mtp.hc_mix              0.048 ms a round    0.1%
+rounds rank 0 decode   mtp.out_proj            0.293 ms a round    0.7%
+rounds rank 0 decode   mtp.attn_proj           0.639 ms a round    1.5%
+rounds rank 0 decode   mtp.attn_prep           0.024 ms a round    0.1%
+rounds rank 0 decode   mtp.qsa_pool            0.017 ms a round    0.0%
+rounds rank 0 decode   mtp.qsa_scores          0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.qsa_select          0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.attention           0.091 ms a round    0.2%
+rounds rank 0 decode   mtp.attn_gate           0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.router              0.059 ms a round    0.1%
+rounds rank 0 decode   mtp.topk_plan           0.032 ms a round    0.1%
+rounds rank 0 decode   mtp.experts_gate_up     0.362 ms a round    0.9%
+rounds rank 0 decode   mtp.experts_down        0.210 ms a round    0.5%
+rounds rank 0 decode   mtp.shared_down         0.180 ms a round    0.4%
+rounds rank 0 decode   mtp.mtp_in              0.539 ms a round    1.3%
+rounds rank 0 decode   mtp.finish              0.023 ms a round    0.1%
+rounds rank 0 decode   mtp.head                1.671 ms a round    3.9%
+rounds rank 0 decode   mtp.other               0.006 ms a round    0.0%
+rounds rank 0 decode   mtp.draft_sample        0.201 ms a round    0.5%
+rounds rank 0 decode   mtp level 0 (absorb)    1.543 ms a round
+rounds rank 0 decode   mtp level 1    1.113 ms a round
+rounds rank 0 decode   mtp level 2    0.867 ms a round
+rounds rank 0 decode   mtp level 3    0.707 ms a round
+rounds rank 0 decode   mtp level 4    0.544 ms a round
+rounds rank 0 decode   mtp level 5    0.449 ms a round
+RESULT bench-many code greedy x1 rep 0: 512 tokens, prefill 0.09s, 98.8 tokens/s decoding (97.2 with the prefills) over 122 rounds, 4.19 tokens a stream-round; a round: verify 36.8 ms (enqueued in 18.2), draws+commits 0.4 ms, drafting 5.2 ms
+profile rank 0 chunk 0: 36 rows, GPU 87.16 ms (wall 88.34 ms) stage=0.02 embed=0.02 ple=11.83 hc_writeback=3.89 hc_normed=0.01 hc_down=4.36 hc_act=0.45 hc_up=0.03 hc_mix=3.72 gdn_proj=8.41 gdn_front=0.45 gdn_chain=1.64 gdn_back=0.30 gdn_shift=0.15 out_proj=4.38 attn_proj=2.56 attn_prep=0.11 qsa_pool=0.07 qsa_scores=0.05 qsa_select=0.05 attention=0.13 attn_gate=0.05 router=1.27 topk_plan=0.43 experts_gate_up=25.45 experts_down=12.77 shared_down=0.31 reduce=0.65 finish=0.01 head=1.39 commit=0.01 other=0.10 mtp.stage=0.01 mtp.hc_writeback=0.07 mtp.hc_down=0.11 mtp.hc_act=0.01 mtp.hc_up=0.05 mtp.hc_mix=0.01 mtp.out_proj=0.08 mtp.attn_proj=0.20 mtp.attn_prep=0.01 mtp.qsa_pool=0.01 mtp.attention=0.01 mtp.router=0.02 mtp.topk_plan=0.01 mtp.experts_gate_up=0.84 mtp.experts_down=0.42 mtp.mtp_in=0.16
+profile rank 0 prefill: 1 chunks, 36 rows, GPU 87.2 ms = 4958.3 ms a 2048 rows (413 rows/s)
+profile rank 0 prefill   ple                  11.83 ms    672.72 ms/2048   13.6%
+profile rank 0 prefill   hc_writeback          3.89 ms    221.40 ms/2048    4.5%
+profile rank 0 prefill   hc_down               4.36 ms    248.25 ms/2048    5.0%
+profile rank 0 prefill   hc_act                0.45 ms     25.81 ms/2048    0.5%
+profile rank 0 prefill   hc_mix                3.72 ms    211.74 ms/2048    4.3%
+profile rank 0 prefill   gdn_proj              8.41 ms    478.29 ms/2048    9.6%
+profile rank 0 prefill   gdn_front             0.45 ms     25.45 ms/2048    0.5%
+profile rank 0 prefill   gdn_chain             1.64 ms     93.05 ms/2048    1.9%
+profile rank 0 prefill   gdn_back              0.30 ms     17.11 ms/2048    0.3%
+profile rank 0 prefill   gdn_shift             0.15 ms      8.49 ms/2048    0.2%
+profile rank 0 prefill   out_proj              4.38 ms    249.21 ms/2048    5.0%
+profile rank 0 prefill   attn_proj             2.56 ms    145.84 ms/2048    2.9%
+profile rank 0 prefill   attn_prep             0.11 ms      6.06 ms/2048    0.1%
+profile rank 0 prefill   qsa_pool              0.07 ms      4.20 ms/2048    0.1%
+profile rank 0 prefill   qsa_scores            0.05 ms      3.04 ms/2048    0.1%
+profile rank 0 prefill   qsa_select            0.05 ms      2.88 ms/2048    0.1%
+profile rank 0 prefill   attention             0.13 ms      7.45 ms/2048    0.2%
+profile rank 0 prefill   attn_gate             0.05 ms      2.95 ms/2048    0.1%
+profile rank 0 prefill   router                1.27 ms     72.16 ms/2048    1.5%
+profile rank 0 prefill   topk_plan             0.43 ms     24.67 ms/2048    0.5%
+profile rank 0 prefill   experts_gate_up      25.45 ms   1448.10 ms/2048   29.2%
+profile rank 0 prefill   experts_down         12.77 ms    726.72 ms/2048   14.7%
+profile rank 0 prefill   shared_down           0.31 ms     17.76 ms/2048    0.4%
+profile rank 0 prefill   reduce                0.65 ms     36.70 ms/2048    0.7%
+profile rank 0 prefill   head                  1.39 ms     79.34 ms/2048    1.6%
+profile rank 0 prefill   other                 0.10 ms      5.69 ms/2048    0.1%
+profile rank 0 prefill   mtp.hc_writeback          0.07 ms      4.21 ms/2048    0.1%
+profile rank 0 prefill   mtp.hc_down               0.11 ms      6.52 ms/2048    0.1%
+profile rank 0 prefill   mtp.hc_up                 0.05 ms      2.88 ms/2048    0.1%
+profile rank 0 prefill   mtp.out_proj              0.08 ms      4.78 ms/2048    0.1%
+profile rank 0 prefill   mtp.attn_proj             0.20 ms     11.65 ms/2048    0.2%
+profile rank 0 prefill   mtp.experts_gate_up       0.84 ms     47.90 ms/2048    1.0%
+profile rank 0 prefill   mtp.experts_down          0.42 ms     24.11 ms/2048    0.5%
+profile rank 0 prefill   mtp.mtp_in                0.16 ms      9.38 ms/2048    0.2%
+rounds rank 0 decode: 268 rounds, wall 36.30 ms a round, GPU timeline 36.30 ms a round (main 34.47, MTP head 1.83)
+rounds rank 0 decode   stage               2.050 ms a round    5.6%
+rounds rank 0 decode   embed               0.029 ms a round    0.1%
+rounds rank 0 decode   ple                 0.339 ms a round    0.9%
+rounds rank 0 decode   hc_writeback        0.590 ms a round    1.6%
+rounds rank 0 decode   hc_normed           0.432 ms a round    1.2%
+rounds rank 0 decode   hc_down             3.183 ms a round    8.8%
+rounds rank 0 decode   hc_up               0.029 ms a round    0.1%
+rounds rank 0 decode   hc_mix              2.902 ms a round    8.0%
+rounds rank 0 decode   gdn_proj            7.219 ms a round   19.9%
+rounds rank 0 decode   gdn_front           0.240 ms a round    0.7%
+rounds rank 0 decode   gdn_chain           0.864 ms a round    2.4%
+rounds rank 0 decode   gdn_back            0.162 ms a round    0.4%
+rounds rank 0 decode   out_proj            3.718 ms a round   10.2%
+rounds rank 0 decode   attn_proj           2.116 ms a round    5.8%
+rounds rank 0 decode   attn_prep           0.091 ms a round    0.3%
+rounds rank 0 decode   qsa_pool            0.061 ms a round    0.2%
+rounds rank 0 decode   qsa_scores          0.053 ms a round    0.1%
+rounds rank 0 decode   qsa_select          0.053 ms a round    0.1%
+rounds rank 0 decode   attention           0.271 ms a round    0.7%
+rounds rank 0 decode   attn_gate           0.053 ms a round    0.1%
+rounds rank 0 decode   router              1.651 ms a round    4.5%
+rounds rank 0 decode   topk_plan           0.684 ms a round    1.9%
+rounds rank 0 decode   experts_gate_up     3.990 ms a round   11.0%
+rounds rank 0 decode   experts_down        1.819 ms a round    5.0%
+rounds rank 0 decode   shared_down         0.044 ms a round    0.1%
+rounds rank 0 decode   finish              0.006 ms a round    0.0%
+rounds rank 0 decode   head                1.375 ms a round    3.8%
+rounds rank 0 decode   commit              0.023 ms a round    0.1%
+rounds rank 0 decode   gap_draft           0.313 ms a round    0.9%
+rounds rank 0 decode   sample              0.099 ms a round    0.3%
+rounds rank 0 decode   mtp.stage               0.019 ms a round    0.1%
+rounds rank 0 decode   mtp.hc_writeback        0.014 ms a round    0.0%
+rounds rank 0 decode   mtp.hc_normed           0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.hc_down             0.124 ms a round    0.3%
+rounds rank 0 decode   mtp.hc_act              0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.hc_up               0.076 ms a round    0.2%
+rounds rank 0 decode   mtp.hc_mix              0.016 ms a round    0.0%
+rounds rank 0 decode   mtp.out_proj            0.099 ms a round    0.3%
+rounds rank 0 decode   mtp.attn_proj           0.215 ms a round    0.6%
+rounds rank 0 decode   mtp.attn_prep           0.008 ms a round    0.0%
+rounds rank 0 decode   mtp.qsa_pool            0.006 ms a round    0.0%
+rounds rank 0 decode   mtp.qsa_scores          0.005 ms a round    0.0%
+rounds rank 0 decode   mtp.qsa_select          0.006 ms a round    0.0%
+rounds rank 0 decode   mtp.attention           0.028 ms a round    0.1%
+rounds rank 0 decode   mtp.attn_gate           0.006 ms a round    0.0%
+rounds rank 0 decode   mtp.router              0.020 ms a round    0.1%
+rounds rank 0 decode   mtp.topk_plan           0.011 ms a round    0.0%
+rounds rank 0 decode   mtp.experts_gate_up     0.114 ms a round    0.3%
+rounds rank 0 decode   mtp.experts_down        0.062 ms a round    0.2%
+rounds rank 0 decode   mtp.shared_down         0.063 ms a round    0.2%
+rounds rank 0 decode   mtp.mtp_in              0.204 ms a round    0.6%
+rounds rank 0 decode   mtp.finish              0.008 ms a round    0.0%
+rounds rank 0 decode   mtp.head                0.565 ms a round    1.6%
+rounds rank 0 decode   mtp.draft_sample        0.123 ms a round    0.3%
+rounds rank 0 decode   mtp level 0 (absorb)    1.466 ms a round
+rounds rank 0 decode   mtp level 1    0.314 ms a round
+rounds rank 0 decode   mtp level 2    0.049 ms a round
+rounds rank 0 decode   mtp level 3    0.005 ms a round
+RESULT bench-many prose sampled x1 rep 0: 434 tokens, prefill 0.10s, 44.5 tokens/s decoding (44.1 with the prefills) over 268 rounds, 1.62 tokens a stream-round; a round: verify 34.0 ms (enqueued in 17.3), draws+commits 0.4 ms, drafting 1.8 ms
