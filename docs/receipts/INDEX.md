@@ -7,7 +7,7 @@ record. This directory is the durable copy. Each file below is a byte copy of th
 the docs now names `docs/receipts/<path>` at the same relative path; the `work/` path stays in the record
 where a sentence needs it (a re-run, a box path).
 
-Sizes: 162 files, about 4.3 MiB. Results, tables and logs only; the source trees and build output are
+Sizes: 189 files, about 4.7 MiB. Results, tables and logs only; the source trees and build output are
 listed at the end as deliberately untracked.
 
 | tracked copy | source in the working tree | sha256 (first 16) | cited by |
@@ -113,6 +113,33 @@ listed at the end as deliberately untracked.
 | `docs/receipts/ParityAB/score2.txt` | `work/ParityAB/score2.txt` | `fd99f40b1aeb52e4` | (index only) |
 | `docs/receipts/ParityAB/tables.md` | `work/ParityAB/tables.md` | `5fd08f1532d40a67` | (index only) |
 | `docs/receipts/ParityAB/window.sh` | `work/ParityAB/window.sh` | `e8239d92fb1dadd0` | (index only) |
+| `docs/receipts/ParityGap/DELIVERABLE-A.md` | `work/ParityGap/DELIVERABLE-A.md` | `a69a0dde34785f4a` | (index only) |
+| `docs/receipts/ParityGap/DIFF.md` | `work/ParityGap/DIFF.md` | `21a4babbb34c0d43` | (index only) |
+| `docs/receipts/ParityGap/PLAN.md` | `work/ParityGap/PLAN.md` | `1bb6a80bf598adcc` | (index only) |
+| `docs/receipts/ParityGap/RESULTS-PARTIAL.md` | `work/ParityGap/RESULTS-PARTIAL.md` | `1a1c06da9bdca03c` | (index only) |
+| `docs/receipts/ParityGap/RESULTS.md` | `work/ParityGap/RESULTS.md` | `1103eb65da700556` | (index only) |
+| `docs/receipts/ParityGap/driver/boot_env2.sh` | `work/ParityGap/driver/boot_env2.sh` | `dfa99e304051eab9` | (index only) |
+| `docs/receipts/ParityGap/driver/hash_cmp.py` | `work/ParityGap/driver/hash_cmp.py` | `cd3ec18ab24d0bc3` | (index only) |
+| `docs/receipts/ParityGap/driver/rounds.py` | `work/ParityGap/driver/rounds.py` | `a948c7899e646539` | (index only) |
+| `docs/receipts/ParityGap/driver/score_arms.py` | `work/ParityGap/driver/score_arms.py` | `4e8ddfd6cd2ee56c` | (index only) |
+| `docs/receipts/ParityGap/driver/window2.sh` | `work/ParityGap/driver/window2.sh` | `23b82b24d7fc32a9` | (index only) |
+| `docs/receipts/ParityGap/driver/window3.sh` | `work/ParityGap/driver/window3.sh` | `f9fae9ef5204176b` | (index only) |
+| `docs/receipts/ParityGap/ev/bootlines-D.txt` | `work/ParityGap/ev/bootlines-D.txt` | `63bff9ef9d129b9c` | (index only) |
+| `docs/receipts/ParityGap/ev/bootlines-P.txt` | `work/ParityGap/ev/bootlines-P.txt` | `a781e6d76eef20be` | (index only) |
+| `docs/receipts/ParityGap/ev/box-config-dev.sh` | `work/ParityGap/ev/box-config-dev.sh` | `0a17c29fc230b83d` | (index only) |
+| `docs/receipts/ParityGap/ev/box-config-prod.sh` | `work/ParityGap/ev/box-config-prod.sh` | `238ff14ee45cf363` | (index only) |
+| `docs/receipts/ParityGap/ev/box-launcher-dev.sh` | `work/ParityGap/ev/box-launcher-dev.sh` | `cce62b647331ee4b` | (index only) |
+| `docs/receipts/ParityGap/ev/box-launcher-prod.sh` | `work/ParityGap/ev/box-launcher-prod.sh` | `93f1a2077ffedc4d` | (index only) |
+| `docs/receipts/ParityGap/ev/box-start-dev.sh` | `work/ParityGap/ev/box-start-dev.sh` | `4f53b1a5090a28a3` | (index only) |
+| `docs/receipts/ParityGap/ev/box-start-prod.sh` | `work/ParityGap/ev/box-start-prod.sh` | `5ec3bab4791e6ce9` | (index only) |
+| `docs/receipts/ParityGap/ev/cfgdiff.txt` | `work/ParityGap/ev/cfgdiff.txt` | `757da237714b43ee` | (index only) |
+| `docs/receipts/ParityGap/ev/env-D-container.txt` | `work/ParityGap/ev/env-D-container.txt` | `fc025735f68b3e1d` | (index only) |
+| `docs/receipts/ParityGap/ev/env-P-container.txt` | `work/ParityGap/ev/env-P-container.txt` | `30e8dc9ac90c9145` | (index only) |
+| `docs/receipts/ParityGap/ev/envdiff.txt` | `work/ParityGap/ev/envdiff.txt` | `18073d731efa7469` | (index only) |
+| `docs/receipts/ParityGap/ev/namecheck.txt` | `work/ParityGap/ev/namecheck.txt` | `5d52c59bdb2a17c5` | (index only) |
+| `docs/receipts/ParityGap/ev/screen-hashes.md` | `work/ParityGap/ev/screen-hashes.md` | `338f0322f429ae59` | (index only) |
+| `docs/receipts/ParityGap/ev/screen-score.md` | `work/ParityGap/ev/screen-score.md` | `31fdd9dabda7b430` | (index only) |
+| `docs/receipts/ParityGap/ev/screen.tgz` | `work/ParityGap/ev/screen.tgz` | `069ac2570a02beff` | (index only) |
 | `docs/receipts/PartFix/REBASE.md` | `work/PartFix/REBASE.md` | `6004e77ff8308f4b` | `docs/OPEN-PR-COVERAGE.md` |
 | `docs/receipts/PatchBisect/RESULT.md` | `work/PatchBisect/RESULT.md` | `4f1a5698ed8313f1` | `docs/KNOB-COVERAGE.md`, `scripts/qwen38/README.md`, `scripts/qwen38/zig/target/env/dev.env` |
 | `docs/receipts/ProdEnvAudit/RESULT.md` | `work/ProdEnvAudit/RESULT.md` | `0f23ad6565b42b2a` | `scripts/qwen38/README.md` |
