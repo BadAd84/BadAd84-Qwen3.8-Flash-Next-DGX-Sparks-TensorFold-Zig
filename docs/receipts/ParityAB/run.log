@@ -1,0 +1,467 @@
+2026-11-24T07:59:03+00:00 queued for ~/work/gpu.lock (holders: 2527475 bash -c cd ~/work/parity && setsid nohup bash window.sh >> out/driver.out 2>&1 < /dev/null & sleep 45; tail -12 ~/work/parity/out/run.log 2>/dev/null; echo "--- procs ---"; pgrep -af "window.sh|flock .*gpu.lock" | head -5 2527476 bash -c cd ~/work/parity && setsid nohup bash window.sh >> out/driver.out 2>&1 < /dev/null & sleep 45; tail -12 ~/work/parity/out/run.log 2>/dev/null; echo "--- procs ---"; pgrep -af "window.sh|flock .*gpu.lock" | head -5 )
+[2026-11-24T07:59:03+00:00] START 2026-11-24T07:59:03+00:00 OUT /home/adam/work/parity/out driver e8239d92fb1dadd03639a0ae2e5d48cd54e8d098182947cd748b9c80d37212e3
+[2026-11-24T07:59:03+00:00] HOST 7.0.0-1019-nvidia-64k; Ubuntu 24.04.5 LTS; NVIDIA GB10, 580.178.04, [N/A]; RAM 123 GiB
+[2026-11-24T07:59:03+00:00] LAUNCHERS prod 93f1a2077ffedc4d dev cce62b647331ee4b; recipes prod 5ec3bab4791e6ce9 dev 4f53b1a5090a28a3
+[2026-11-24T07:59:03+00:00] PAYLOAD 729c4d6e9a85d2712a0c6403ddfd51e44dbafb970a58f300f3a7dd8a90802d39  argv.py 3b19dad0faf8bd8a107dce651613e2a4f01de7d5fc9a596a9f82c965584b10eb  check-prod-env.py 659c649536fdeeccacb96255a4c1942435b5043ef905858913acd0638ff5a649  envnames.py 5c2f87ce84405855ad4e3eb655ec14a99950b1fe13587477708ce8e47f463f7a  meta.py 4606732e34f6d2cb52fb8bc1a15e4c307d5c61fd4befc01ceb266430511b0154  qf_harness.py 9d93d9e4bd2f6ec936e0e5579956a89199088dd68e303aa1e16b565a68171438  score_cells.py dc775f87de80c22cc222808c6d1f067192846cf85b29338597e086661d525637  summarise_parity.py 3e535944abdd33b31f1ffc2b27054c39778e1e5e3038fcc6d9336a51dc21ed01  tfm_decode.py 6b81cf33090a5eef270daef764af4b60b613dccb6a8fb853394e1a782f4a8a75  tfm_decode_ids.py 7fd729adb59f40d68cae72dd6c69acfa5be9ce4ab9bf35f2668e3ebfc95a6ac4  ttft.py d76590633cf020ede104cfb3507468f9fb04c07b362f3db2ca13cb3591a9ae01  zgold_cmp.py 66f8ca128cff30d9e7638ae36a56d91b251b61a5613326c4f916f06986999590  boot_env.sh cb7882b1c2bc73bdae9a26a40940a6ee0580683a1b4e5a6568129b229bf14ee9  flags.sh 6f0f5156c44fa116c98c4b4e07b124e26cb65336d243f6c086dac0aee72389ff  dev.env 11778f8a6902a74241f4daa64fc15c9e1206e4047d8bb5cce9570e812b823080  prod.env b5818ed597d662cb160d76c641437b0bda9fbbc746d591150c17a0ce36475b39  doc_target.json bb7aa058983dd07f44d9f257617b4b6477920eae55b75c90d57718a008afc693  zgold-base-c1.json 
+[2026-11-24T07:59:03+00:00] GPU start 42,2405MHz,10.34W,[N/A]; mem_avail 25 disk 125 health 200
+[2026-11-24T07:59:03+00:00] PREFLIGHT image P sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f expected sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T07:59:03+00:00] PREFLIGHT image D sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f expected sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T07:59:03+00:00] PREFLIGHT live tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f health 200 env_names 54 gpu 42,2405MHz,10.37W,[N/A]; mem_avail 25 disk 125
+[2026-11-24T07:59:03+00:00] PREFLIGHT strings P 116 setting names carried by the served binary
+[2026-11-24T07:59:03+00:00] PREFLIGHT strings D 390 setting names carried by the served binary
+names 54 excluded 6 -> /home/adam/work/parity/out/phase0/names-P.txt
+names 114 excluded 6 -> /home/adam/work/parity/out/phase0/names-D.txt
+[2026-11-24T07:59:04+00:00] ENVSTR P ENVSTR names 54 carried 53 missing 1
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING P TENSORFOLD_VIDEO_TOKENS
+[2026-11-24T07:59:04+00:00] ENVSTR D ENVSTR names 114 carried 101 missing 13
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TENSORFOLD_IMAGE_TOKENS
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TENSORFOLD_MAX_IMAGES
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TENSORFOLD_PARALLEL
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TENSORFOLD_VISION_PYTHONPATH
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TENSORFOLD_VISION_WORKSPACE_MIB
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_DEPTH
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_HOST_DRAW_THREADS
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_PRODUCT_STREAMS
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_PROMPT_HC2
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_SAMPLE_CAND
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_FLASHNEXT_WINDOW
+[2026-11-24T07:59:04+00:00] ENVSTR-MISSING D TF_HY4_MEM_FLOOR_GIB
+FLAG ACCEPTED --name                       Qwen3.8-Flash-Next
+FLAG ACCEPTED --host                       127.0.0.1
+FLAG ACCEPTED --port                       8888
+FLAG ACCEPTED --context                    262144
+FLAG ACCEPTED --parallel                   1
+FLAG ACCEPTED --max-tokens                 32768
+FLAG ACCEPTED --temperature                1.0
+FLAG ACCEPTED --top-p                      0.95
+FLAG ACCEPTED --top-k                      20
+FLAG ACCEPTED --thinking                   
+FLAG ACCEPTED --kv-dtype                   fp8
+FLAG ACCEPTED --vision                     
+FLAG KNOWN    --vision-max-images          50 :: tensorfold serve: error: --vision-max-images needs --vision
+FLAG KNOWN    --vision-max-videos          4 :: tensorfold serve: error: --vision-max-videos needs --vision
+FLAG KNOWN    --vision-image-tokens        16384 :: tensorfold serve: error: --vision-image-tokens needs --vision
+FLAG-FULL ACCEPTED 28 tokens :: tensorfold: /nonexistent/argument-check is neither a directory nor a Hugging Face repo id (owner/name)
+FLAG-SUMMARY accepted 15 known-other 3 rejected 0 other 0
+[2026-11-24T07:59:05+00:00] PREFLIGHT argv P # flagcount 15 # model /root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd
+[2026-11-24T07:59:05+00:00] PREFLIGHT flags P FLAG-SUMMARY accepted 15 known-other 3 rejected 0 other 0 :: FLAG-FULL ACCEPTED 28 tokens :: tensorfold: /nonexistent/argument-check is neither a directory nor a Hugging Face repo id (owner/name)
+FLAG ACCEPTED --name                       Qwen3.8-Flash-Next
+FLAG ACCEPTED --host                       127.0.0.1
+FLAG ACCEPTED --port                       8888
+FLAG ACCEPTED --context                    262144
+FLAG ACCEPTED --parallel                   1
+FLAG ACCEPTED --max-tokens                 32768
+FLAG ACCEPTED --temperature                1.0
+FLAG ACCEPTED --top-p                      0.95
+FLAG ACCEPTED --top-k                      20
+FLAG ACCEPTED --thinking                   
+FLAG ACCEPTED --kv-cache                   fp8
+FLAG ACCEPTED --prompt-cache-gib           6
+FLAG ACCEPTED --prompt-cache-disk          /cache/kv
+FLAG ACCEPTED --learn-gib                  60
+FLAG ACCEPTED --learn-daily-gib            200
+FLAG ACCEPTED --learn-min-free-gib         20
+FLAG-FULL ACCEPTED 31 tokens :: tensorfold: /nonexistent/argument-check is neither a directory nor a Hugging Face repo id (owner/name)
+FLAG-SUMMARY accepted 16 known-other 0 rejected 0 other 0
+[2026-11-24T07:59:07+00:00] PREFLIGHT argv D # flagcount 16 # model /root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd
+[2026-11-24T07:59:07+00:00] PREFLIGHT flags D FLAG-SUMMARY accepted 16 known-other 0 rejected 0 other 0 :: FLAG-FULL ACCEPTED 31 tokens :: tensorfold: /nonexistent/argument-check is neither a directory nor a Hugging Face repo id (owner/name)
+[2026-11-24T07:59:08+00:00] PREFLIGHT flagmatch SAME 15 flag names as the live production command
+[2026-11-24T07:59:08+00:00] PREFLIGHT lock-holders 2527475 bash -c cd ~/work/parity && setsid nohup bash window.sh >> out/driver.out 2>&1 < /dev/null & sleep 45; tail -12 ~/work/parity/out/run.log 2>/dev/null; echo "--- procs ---"; pgrep -af "window.sh|flock .*gpu.lock" | head -5 2527476 bash -c cd ~/work/parity && setsid nohup bash window.sh >> out/driver.out 2>&1 < /dev/null & sleep 45; tail -12 ~/work/parity/out/run.log 2>/dev/null; echo "--- procs ---"; pgrep -af "window.sh|flock .*gpu.lock" | head -5 2527486 flock -o -w 43200 /home/adam/work/gpu.lock env PARITY_LOCKED=1 LOG=/home/adam/work/parity/out/run.log bash /home/adam/work/parity/window.sh 
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T07:59:09+00:00] STOPPED production for the matrix 2026-11-24T07:59:09+00:00 health 000 mem_avail 116
+[2026-11-24T08:00:32+00:00] BOOT P c1 rc 0 health 200 boot_s 82.4 boot_rc 0  gpu 49,2418MHz,13.28W,[N/A]; mem_avail 34 disk 125
+[2026-11-24T08:00:32+00:00] IDENTITY P c1 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:00:32+00:00] PLAN P c1 sequence memory: 28.94 GiB (40.94 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:00:32+00:00] PLAN P c1 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:00:32+00:00] PLAN P c1 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 179; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:00:32+00:00] PLAN P c1 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:00:32+00:00] PLAN P c1 "max_batch_size": 1
+[2026-11-24T08:00:32+00:00] FLAGS-BOOT P c1 15 flags, all tested at preflight
+[2026-11-24T08:00:37+00:00] PROBE /home/adam/work/parity/out/P/c1/run1 gold rc 0 gpu 50,2528MHz,37.18W,[N/A]; mem_avail 34
+[2026-11-24T08:01:12+00:00] PROBE /home/adam/work/parity/out/P/c1/run1 dec rc 0 gpu 56,2496MHz,36.10W,[N/A]; mem_avail 35
+[2026-11-24T08:03:23+00:00] PROBE /home/adam/work/parity/out/P/c1/run1 ttft rc 0 gpu 68,2489MHz,59.01W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:03:25+00:00] CELL-DONE P c1 run1 rc 0 elapsed 4 min
+before kv= kvtier=1.8G
+cleared
+[2026-11-24T08:05:57+00:00] BOOT D c1 rc 0 health 200 boot_s 151.8 boot_rc 0  gpu 51,2405MHz,13.31W,[N/A]; mem_avail 35 disk 127
+[2026-11-24T08:05:57+00:00] IDENTITY D c1 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:05:57+00:00] PLAN D c1 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:05:57+00:00] PLAN D c1 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:05:57+00:00] PLAN D c1 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:05:57+00:00] PLAN D c1 "max_batch_size": 1
+[2026-11-24T08:05:57+00:00] FLAGS-BOOT D c1 16 flags, all tested at preflight
+[2026-11-24T08:05:57+00:00] ENVRECON D ENVRECON carried-not-tested 38
+[2026-11-24T08:05:57+00:00] ENVSTR D-all ENVSTR names 152 carried 103 missing 49
+[2026-11-24T08:06:02+00:00] PROBE /home/adam/work/parity/out/D/c1/run1 gold rc 0 gpu 54,2509MHz,36.21W,[N/A]; mem_avail 34
+[2026-11-24T08:06:39+00:00] PROBE /home/adam/work/parity/out/D/c1/run1 dec rc 0 gpu 57,2502MHz,36.00W,[N/A]; mem_avail 34
+[2026-11-24T08:08:26+00:00] PROBE /home/adam/work/parity/out/D/c1/run1 ttft rc 0 gpu 67,2489MHz,62.78W,[N/A]; mem_avail 29
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:08:27+00:00] CELL-DONE D c1 run1 rc 0 elapsed 9 min
+before kv=8.4G kvtier=
+cleared
+[2026-11-24T08:10:57+00:00] BOOT D c2 rc 0 health 200 boot_s 148.8 boot_rc 0  gpu 52,2405MHz,13.33W,[N/A]; mem_avail 33 disk 127
+[2026-11-24T08:10:57+00:00] IDENTITY D c2 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:10:57+00:00] PLAN D c2 2 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 1 more taking 75 pages of 4096 rows (5.40 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T08:10:57+00:00] PLAN D c2 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:10:57+00:00] PLAN D c2 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:10:57+00:00] PLAN D c2 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:10:57+00:00] PLAN D c2 "max_batch_size": 2
+[2026-11-24T08:10:57+00:00] FLAGS-BOOT D c2 16 flags, all tested at preflight
+[2026-11-24T08:11:01+00:00] PROBE /home/adam/work/parity/out/D/c2/run1 gold rc 0 gpu 54,2509MHz,35.97W,[N/A]; mem_avail 32
+[2026-11-24T08:11:50+00:00] PROBE /home/adam/work/parity/out/D/c2/run1 dec rc 0 gpu 56,2489MHz,34.82W,[N/A]; mem_avail 32
+[2026-11-24T08:13:38+00:00] PROBE /home/adam/work/parity/out/D/c2/run1 ttft rc 0 gpu 67,2489MHz,64.65W,[N/A]; mem_avail 27
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:13:39+00:00] CELL-DONE D c2 run1 rc 0 elapsed 14 min
+[2026-11-24T08:15:05+00:00] BOOT P c2 rc 0 health 200 boot_s 85.5 boot_rc 0  gpu 57,2411MHz,14.30W,[N/A]; mem_avail 34 disk 118
+[2026-11-24T08:15:05+00:00] IDENTITY P c2 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:15:05+00:00] PLAN P c2 sequence memory: 28.86 GiB (40.86 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:15:05+00:00] PLAN P c2 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:15:05+00:00] PLAN P c2 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 177; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:15:05+00:00] PLAN P c2 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:15:05+00:00] PLAN P c2 "max_batch_size": 2
+[2026-11-24T08:15:05+00:00] FLAGS-BOOT P c2 15 flags, all tested at preflight
+[2026-11-24T08:15:10+00:00] PROBE /home/adam/work/parity/out/P/c2/run1 gold rc 0 gpu 59,2502MHz,38.43W,[N/A]; mem_avail 34
+[2026-11-24T08:15:56+00:00] PROBE /home/adam/work/parity/out/P/c2/run1 dec rc 0 gpu 59,2509MHz,37.07W,[N/A]; mem_avail 35
+[2026-11-24T08:18:05+00:00] PROBE /home/adam/work/parity/out/P/c2/run1 ttft rc 0 gpu 70,2470MHz,59.08W,[N/A]; mem_avail 24
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:18:07+00:00] CELL-DONE P c2 run1 rc 0 elapsed 19 min
+[2026-11-24T08:19:33+00:00] BOOT P c4 rc 0 health 200 boot_s 85.5 boot_rc 0  gpu 57,2418MHz,14.40W,[N/A]; mem_avail 34 disk 118
+[2026-11-24T08:19:33+00:00] IDENTITY P c4 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:19:33+00:00] PLAN P c4 sequence memory: 28.07 GiB (40.07 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:19:33+00:00] PLAN P c4 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:19:33+00:00] PLAN P c4 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:19:33+00:00] PLAN P c4 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:19:33+00:00] PLAN P c4 "max_batch_size": 4
+[2026-11-24T08:19:33+00:00] FLAGS-BOOT P c4 15 flags, all tested at preflight
+[2026-11-24T08:19:37+00:00] PROBE /home/adam/work/parity/out/P/c4/run1 gold rc 0 gpu 58,2509MHz,38.55W,[N/A]; mem_avail 34
+[2026-11-24T08:20:42+00:00] PROBE /home/adam/work/parity/out/P/c4/run1 dec rc 0 gpu 62,2509MHz,37.42W,[N/A]; mem_avail 34
+[2026-11-24T08:22:52+00:00] PROBE /home/adam/work/parity/out/P/c4/run1 ttft rc 0 gpu 71,2489MHz,57.30W,[N/A]; mem_avail 26
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:22:54+00:00] CELL-DONE P c4 run1 rc 0 elapsed 23 min
+before kv=9.0G kvtier=
+cleared
+[2026-11-24T08:25:26+00:00] BOOT D c4 rc 0 health 200 boot_s 151.8 boot_rc 0  gpu 52,2405MHz,13.45W,[N/A]; mem_avail 32 disk 127
+[2026-11-24T08:25:26+00:00] IDENTITY D c4 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:25:26+00:00] PLAN D c4 4 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 3 more taking 220 pages of 4096 rows (15.84 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T08:25:26+00:00] PLAN D c4 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:25:26+00:00] PLAN D c4 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:25:26+00:00] PLAN D c4 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:25:26+00:00] PLAN D c4 "max_batch_size": 4
+[2026-11-24T08:25:26+00:00] FLAGS-BOOT D c4 16 flags, all tested at preflight
+[2026-11-24T08:25:31+00:00] PROBE /home/adam/work/parity/out/D/c4/run1 gold rc 0 gpu 53,2509MHz,35.99W,[N/A]; mem_avail 31
+[2026-11-24T08:26:41+00:00] PROBE /home/adam/work/parity/out/D/c4/run1 dec rc 0 gpu 58,2489MHz,35.83W,[N/A]; mem_avail 28
+[2026-11-24T08:28:30+00:00] PROBE /home/adam/work/parity/out/D/c4/run1 ttft rc 0 gpu 68,2489MHz,60.83W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:28:31+00:00] CELL-DONE D c4 run1 rc 0 elapsed 29 min
+before kv=10G kvtier=
+cleared
+[2026-11-24T08:31:00+00:00] BOOT D c6 rc 0 health 200 boot_s 148.9 boot_rc 0  gpu 52,2450MHz,13.56W,[N/A]; mem_avail 31 disk 127
+[2026-11-24T08:31:00+00:00] IDENTITY D c6 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:31:00+00:00] PLAN D c6 6 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 5 more taking 221 pages of 4096 rows (15.92 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T08:31:00+00:00] PLAN D c6 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:31:00+00:00] PLAN D c6 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:31:00+00:00] PLAN D c6 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:31:00+00:00] PLAN D c6 "max_batch_size": 6
+[2026-11-24T08:31:00+00:00] FLAGS-BOOT D c6 16 flags, all tested at preflight
+[2026-11-24T08:31:06+00:00] PROBE /home/adam/work/parity/out/D/c6/run1 gold rc 0 gpu 54,2502MHz,35.67W,[N/A]; mem_avail 30
+[2026-11-24T08:32:33+00:00] PROBE /home/adam/work/parity/out/D/c6/run1 dec rc 0 gpu 60,2509MHz,36.93W,[N/A]; mem_avail 25
+[2026-11-24T08:34:21+00:00] PROBE /home/adam/work/parity/out/D/c6/run1 ttft rc 0 gpu 68,2489MHz,62.88W,[N/A]; mem_avail 23
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:34:22+00:00] CELL-DONE D c6 run1 rc 0 elapsed 35 min
+[2026-11-24T08:35:51+00:00] BOOT P c6 rc 0 health 200 boot_s 88.6 boot_rc 0  gpu 57,2411MHz,14.27W,[N/A]; mem_avail 33 disk 116
+[2026-11-24T08:35:51+00:00] IDENTITY P c6 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:35:51+00:00] PLAN P c6 sequence memory: 28.82 GiB (40.82 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:35:51+00:00] PLAN P c6 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:35:51+00:00] PLAN P c6 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:35:51+00:00] PLAN P c6 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:35:51+00:00] PLAN P c6 "max_batch_size": 6
+[2026-11-24T08:35:51+00:00] FLAGS-BOOT P c6 15 flags, all tested at preflight
+[2026-11-24T08:35:55+00:00] PROBE /home/adam/work/parity/out/P/c6/run1 gold rc 0 gpu 58,2502MHz,34.98W,[N/A]; mem_avail 33
+[2026-11-24T08:37:15+00:00] PROBE /home/adam/work/parity/out/P/c6/run1 dec rc 0 gpu 61,2509MHz,37.48W,[N/A]; mem_avail 34
+[2026-11-24T08:39:24+00:00] PROBE /home/adam/work/parity/out/P/c6/run1 ttft rc 0 gpu 69,2489MHz,61.03W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:39:26+00:00] CELL-DONE P c6 run1 rc 0 elapsed 40 min
+[2026-11-24T08:40:55+00:00] BOOT P c8 rc 0 health 200 boot_s 88.7 boot_rc 0  gpu 56,2450MHz,14.41W,[N/A]; mem_avail 33 disk 116
+[2026-11-24T08:40:55+00:00] IDENTITY P c8 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:40:55+00:00] PLAN P c8 sequence memory: 28.57 GiB (40.57 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:40:55+00:00] PLAN P c8 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:40:55+00:00] PLAN P c8 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:40:55+00:00] PLAN P c8 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:40:55+00:00] PLAN P c8 "max_batch_size": 8
+[2026-11-24T08:40:55+00:00] FLAGS-BOOT P c8 15 flags, all tested at preflight
+[2026-11-24T08:41:00+00:00] PROBE /home/adam/work/parity/out/P/c8/run1 gold rc 0 gpu 59,2496MHz,36.08W,[N/A]; mem_avail 33
+[2026-11-24T08:42:31+00:00] PROBE /home/adam/work/parity/out/P/c8/run1 dec rc 0 gpu 63,2489MHz,37.93W,[N/A]; mem_avail 34
+[2026-11-24T08:44:41+00:00] PROBE /home/adam/work/parity/out/P/c8/run1 ttft rc 0 gpu 70,2470MHz,57.23W,[N/A]; mem_avail 26
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:44:43+00:00] CELL-DONE P c8 run1 rc 0 elapsed 45 min
+before kv=12G kvtier=
+cleared
+[2026-11-24T08:47:15+00:00] BOOT D c8 rc 0 health 200 boot_s 152.0 boot_rc 0  gpu 53,2418MHz,13.69W,[N/A]; mem_avail 29 disk 127
+[2026-11-24T08:47:16+00:00] IDENTITY D c8 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:47:16+00:00] PLAN D c8 8 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 7 more taking 220 pages of 4096 rows (15.84 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T08:47:16+00:00] PLAN D c8 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:47:16+00:00] PLAN D c8 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:47:16+00:00] PLAN D c8 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:47:16+00:00] PLAN D c8 "max_batch_size": 8
+[2026-11-24T08:47:16+00:00] FLAGS-BOOT D c8 16 flags, all tested at preflight
+[2026-11-24T08:47:20+00:00] PROBE /home/adam/work/parity/out/D/c8/run1 gold rc 0 gpu 56,2509MHz,36.24W,[N/A]; mem_avail 28
+[2026-11-24T08:49:03+00:00] PROBE /home/adam/work/parity/out/D/c8/run1 dec rc 0 gpu 62,2509MHz,36.84W,[N/A]; mem_avail 22
+[2026-11-24T08:50:53+00:00] PROBE /home/adam/work/parity/out/D/c8/run1 ttft rc 0 gpu 69,2476MHz,61.14W,[N/A]; mem_avail 21
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:50:54+00:00] CELL-DONE D c8 run1 rc 0 elapsed 51 min
+[2026-11-24T08:50:54+00:00] SCORE1 SCORE-SUMMARY cells 10 rerun 9
+[2026-11-24T08:50:54+00:00] RERUN levels[1 2 4 6 8 ]
+before kv=13G kvtier=
+cleared
+[2026-11-24T08:53:26+00:00] BOOT D c1 rc 0 health 200 boot_s 151.8 boot_rc 0  gpu 53,2405MHz,13.62W,[N/A]; mem_avail 35 disk 127
+[2026-11-24T08:53:26+00:00] IDENTITY D c1 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T08:53:26+00:00] PLAN D c1 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T08:53:26+00:00] PLAN D c1 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T08:53:26+00:00] PLAN D c1 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T08:53:26+00:00] PLAN D c1 "max_batch_size": 1
+[2026-11-24T08:53:26+00:00] FLAGS-BOOT D c1 16 flags, all tested at preflight
+[2026-11-24T08:53:32+00:00] PROBE /home/adam/work/parity/out/D/c1/run2 gold rc 0 gpu 55,2502MHz,35.58W,[N/A]; mem_avail 35
+[2026-11-24T08:54:09+00:00] PROBE /home/adam/work/parity/out/D/c1/run2 dec rc 0 gpu 57,2509MHz,36.25W,[N/A]; mem_avail 34
+[2026-11-24T08:55:55+00:00] PROBE /home/adam/work/parity/out/D/c1/run2 ttft rc 0 gpu 68,2483MHz,67.58W,[N/A]; mem_avail 29
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T08:55:57+00:00] CELL-DONE D c1 run2 rc 0 elapsed 56 min
+[2026-11-24T08:57:22+00:00] BOOT P c1 rc 0 health 200 boot_s 85.5 boot_rc 0  gpu 55,2424MHz,14.38W,[N/A]; mem_avail 34 disk 119
+[2026-11-24T08:57:22+00:00] IDENTITY P c1 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T08:57:22+00:00] PLAN P c1 sequence memory: 28.81 GiB (40.81 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T08:57:22+00:00] PLAN P c1 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T08:57:22+00:00] PLAN P c1 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T08:57:22+00:00] PLAN P c1 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T08:57:22+00:00] PLAN P c1 "max_batch_size": 1
+[2026-11-24T08:57:22+00:00] FLAGS-BOOT P c1 15 flags, all tested at preflight
+[2026-11-24T08:57:27+00:00] PROBE /home/adam/work/parity/out/P/c1/run2 gold rc 0 gpu 57,2489MHz,38.57W,[N/A]; mem_avail 34
+[2026-11-24T08:58:02+00:00] PROBE /home/adam/work/parity/out/P/c1/run2 dec rc 0 gpu 60,2509MHz,37.37W,[N/A]; mem_avail 35
+[2026-11-24T09:00:12+00:00] PROBE /home/adam/work/parity/out/P/c1/run2 ttft rc 0 gpu 70,2470MHz,58.77W,[N/A]; mem_avail 24
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:00:13+00:00] CELL-DONE P c1 run2 rc 0 elapsed 61 min
+[2026-11-24T09:01:36+00:00] BOOT P c2 rc 0 health 200 boot_s 82.4 boot_rc 0  gpu 58,2411MHz,14.45W,[N/A]; mem_avail 34 disk 119
+[2026-11-24T09:01:36+00:00] IDENTITY P c2 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T09:01:36+00:00] PLAN P c2 sequence memory: 28.47 GiB (40.47 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T09:01:36+00:00] PLAN P c2 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T09:01:36+00:00] PLAN P c2 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T09:01:36+00:00] PLAN P c2 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T09:01:36+00:00] PLAN P c2 "max_batch_size": 2
+[2026-11-24T09:01:36+00:00] FLAGS-BOOT P c2 15 flags, all tested at preflight
+[2026-11-24T09:01:40+00:00] PROBE /home/adam/work/parity/out/P/c2/run2 gold rc 0 gpu 60,2509MHz,38.68W,[N/A]; mem_avail 34
+[2026-11-24T09:02:26+00:00] PROBE /home/adam/work/parity/out/P/c2/run2 dec rc 0 gpu 61,2509MHz,37.61W,[N/A]; mem_avail 34
+[2026-11-24T09:04:36+00:00] PROBE /home/adam/work/parity/out/P/c2/run2 ttft rc 0 gpu 70,2457MHz,60.85W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:04:38+00:00] CELL-DONE P c2 run2 rc 0 elapsed 65 min
+before kv=8.4G kvtier=
+cleared
+[2026-11-24T09:07:07+00:00] BOOT D c2 rc 0 health 200 boot_s 148.7 boot_rc 0  gpu 53,2444MHz,27.70W,[N/A]; mem_avail 33 disk 127
+[2026-11-24T09:07:07+00:00] IDENTITY D c2 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T09:07:07+00:00] PLAN D c2 2 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 1 more taking 75 pages of 4096 rows (5.40 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T09:07:07+00:00] PLAN D c2 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T09:07:07+00:00] PLAN D c2 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T09:07:07+00:00] PLAN D c2 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T09:07:07+00:00] PLAN D c2 "max_batch_size": 2
+[2026-11-24T09:07:07+00:00] FLAGS-BOOT D c2 16 flags, all tested at preflight
+[2026-11-24T09:07:12+00:00] PROBE /home/adam/work/parity/out/D/c2/run2 gold rc 0 gpu 55,2509MHz,36.50W,[N/A]; mem_avail 32
+[2026-11-24T09:08:00+00:00] PROBE /home/adam/work/parity/out/D/c2/run2 dec rc 0 gpu 59,2509MHz,35.97W,[N/A]; mem_avail 32
+[2026-11-24T09:09:48+00:00] PROBE /home/adam/work/parity/out/D/c2/run2 ttft rc 0 gpu 68,2483MHz,67.48W,[N/A]; mem_avail 27
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:09:49+00:00] CELL-DONE D c2 run2 rc 0 elapsed 70 min
+before kv=9.0G kvtier=
+cleared
+[2026-11-24T09:12:21+00:00] BOOT D c4 rc 0 health 200 boot_s 151.8 boot_rc 0  gpu 51,2405MHz,13.21W,[N/A]; mem_avail 32 disk 127
+[2026-11-24T09:12:21+00:00] IDENTITY D c4 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T09:12:21+00:00] PLAN D c4 4 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 3 more taking 221 pages of 4096 rows (15.92 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T09:12:21+00:00] PLAN D c4 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T09:12:21+00:00] PLAN D c4 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T09:12:21+00:00] PLAN D c4 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T09:12:21+00:00] PLAN D c4 "max_batch_size": 4
+[2026-11-24T09:12:21+00:00] FLAGS-BOOT D c4 16 flags, all tested at preflight
+[2026-11-24T09:12:26+00:00] PROBE /home/adam/work/parity/out/D/c4/run2 gold rc 0 gpu 52,2509MHz,35.53W,[N/A]; mem_avail 31
+[2026-11-24T09:13:36+00:00] PROBE /home/adam/work/parity/out/D/c4/run2 dec rc 0 gpu 59,2509MHz,35.96W,[N/A]; mem_avail 28
+[2026-11-24T09:15:24+00:00] PROBE /home/adam/work/parity/out/D/c4/run2 ttft rc 0 gpu 67,2483MHz,61.65W,[N/A]; mem_avail 22
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:15:25+00:00] CELL-DONE D c4 run2 rc 0 elapsed 76 min
+[2026-11-24T09:16:51+00:00] BOOT P c4 rc 0 health 200 boot_s 85.7 boot_rc 0  gpu 57,2411MHz,14.29W,[N/A]; mem_avail 33 disk 117
+[2026-11-24T09:16:51+00:00] IDENTITY P c4 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T09:16:51+00:00] PLAN P c4 sequence memory: 29.09 GiB (41.09 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T09:16:51+00:00] PLAN P c4 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T09:16:51+00:00] PLAN P c4 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 179; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T09:16:51+00:00] PLAN P c4 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T09:16:51+00:00] PLAN P c4 "max_batch_size": 4
+[2026-11-24T09:16:51+00:00] FLAGS-BOOT P c4 15 flags, all tested at preflight
+[2026-11-24T09:16:55+00:00] PROBE /home/adam/work/parity/out/P/c4/run2 gold rc 0 gpu 57,2509MHz,37.95W,[N/A]; mem_avail 33
+[2026-11-24T09:18:00+00:00] PROBE /home/adam/work/parity/out/P/c4/run2 dec rc 0 gpu 60,2509MHz,37.44W,[N/A]; mem_avail 34
+[2026-11-24T09:20:10+00:00] PROBE /home/adam/work/parity/out/P/c4/run2 ttft rc 0 gpu 72,2489MHz,61.46W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:20:12+00:00] CELL-DONE P c4 run2 rc 0 elapsed 81 min
+[2026-11-24T09:21:38+00:00] BOOT P c6 rc 0 health 200 boot_s 85.7 boot_rc 0  gpu 59,2411MHz,20.56W,[N/A]; mem_avail 33 disk 117
+[2026-11-24T09:21:38+00:00] IDENTITY P c6 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T09:21:38+00:00] PLAN P c6 sequence memory: 27.43 GiB (39.43 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T09:21:38+00:00] PLAN P c6 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T09:21:38+00:00] PLAN P c6 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 176; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T09:21:38+00:00] PLAN P c6 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T09:21:38+00:00] PLAN P c6 "max_batch_size": 6
+[2026-11-24T09:21:38+00:00] FLAGS-BOOT P c6 15 flags, all tested at preflight
+[2026-11-24T09:21:42+00:00] PROBE /home/adam/work/parity/out/P/c6/run2 gold rc 0 gpu 61,2489MHz,38.69W,[N/A]; mem_avail 33
+[2026-11-24T09:23:02+00:00] PROBE /home/adam/work/parity/out/P/c6/run2 dec rc 0 gpu 63,2489MHz,37.81W,[N/A]; mem_avail 34
+[2026-11-24T09:25:12+00:00] PROBE /home/adam/work/parity/out/P/c6/run2 ttft rc 0 gpu 71,2470MHz,55.33W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:25:14+00:00] CELL-DONE P c6 run2 rc 0 elapsed 86 min
+before kv=10G kvtier=
+cleared
+[2026-11-24T09:27:43+00:00] BOOT D c6 rc 0 health 200 boot_s 149.0 boot_rc 0  gpu 53,2424MHz,13.72W,[N/A]; mem_avail 30 disk 127
+[2026-11-24T09:27:43+00:00] IDENTITY D c6 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T09:27:43+00:00] PLAN D c6 6 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 5 more taking 220 pages of 4096 rows (15.84 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T09:27:43+00:00] PLAN D c6 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T09:27:43+00:00] PLAN D c6 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T09:27:43+00:00] PLAN D c6 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T09:27:43+00:00] PLAN D c6 "max_batch_size": 6
+[2026-11-24T09:27:43+00:00] FLAGS-BOOT D c6 16 flags, all tested at preflight
+[2026-11-24T09:27:48+00:00] PROBE /home/adam/work/parity/out/D/c6/run2 gold rc 0 gpu 55,2509MHz,36.15W,[N/A]; mem_avail 30
+[2026-11-24T09:29:15+00:00] PROBE /home/adam/work/parity/out/D/c6/run2 dec rc 0 gpu 61,2509MHz,37.63W,[N/A]; mem_avail 25
+[2026-11-24T09:31:04+00:00] PROBE /home/adam/work/parity/out/D/c6/run2 ttft rc 0 gpu 70,2489MHz,61.94W,[N/A]; mem_avail 23
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:31:05+00:00] CELL-DONE D c6 run2 rc 0 elapsed 92 min
+before kv=12G kvtier=
+cleared
+[2026-11-24T09:33:34+00:00] BOOT D c8 rc 0 health 200 boot_s 148.8 boot_rc 0  gpu 51,2405MHz,13.36W,[N/A]; mem_avail 29 disk 127
+[2026-11-24T09:33:34+00:00] IDENTITY D c8 OK tensorfold-qwen38:r5dev40 sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+[2026-11-24T09:33:34+00:00] PLAN D c8 8 streams at once, the engine's own at a 262144-token window (5.27 GiB, in the model's), 7 more taking 220 pages of 4096 rows (15.84 GiB) as they need them, 0 MiB fixed each, of 27.2 GiB left after a 10.0 GiB reserve; prompts in passes of up to 16384 rows, a 6.0 GiB prompt cache; own glue kernels
+[2026-11-24T09:33:34+00:00] PLAN D c8 prompt cache: device budget not reported, disk tier at /cache/kv
+[2026-11-24T09:33:34+00:00] PLAN D c8 KV page groups: one page 73.75 MiB, 4096 rows of the full group; full: layers not named, 18.44 KiB a token, 4096 rows a page, 0 B padding (0.0 %); state run, in the pool: 673.39 MiB on 10 pages, 64.11 MiB padding (8.7 %); snapshot, outside the pool: 110.29 MiB on 2 pages, 37.21 MiB padding (25.2 %)
+[2026-11-24T09:33:34+00:00] PLAN D c8 int4 kernels: prompt gate/up int4_prompt_kernel, lm_head 32-row items past 16 rows
+[2026-11-24T09:33:34+00:00] PLAN D c8 "max_batch_size": 8
+[2026-11-24T09:33:34+00:00] FLAGS-BOOT D c8 16 flags, all tested at preflight
+[2026-11-24T09:33:39+00:00] PROBE /home/adam/work/parity/out/D/c8/run2 gold rc 0 gpu 52,2502MHz,35.52W,[N/A]; mem_avail 29
+[2026-11-24T09:35:22+00:00] PROBE /home/adam/work/parity/out/D/c8/run2 dec rc 0 gpu 60,2502MHz,36.58W,[N/A]; mem_avail 22
+[2026-11-24T09:37:11+00:00] PROBE /home/adam/work/parity/out/D/c8/run2 ttft rc 0 gpu 69,2476MHz,63.36W,[N/A]; mem_avail 21
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:37:12+00:00] CELL-DONE D c8 run2 rc 0 elapsed 98 min
+[2026-11-24T09:38:41+00:00] BOOT P c8 rc 0 health 200 boot_s 88.5 boot_rc 0  gpu 57,2418MHz,14.33W,[N/A]; mem_avail 33 disk 115
+[2026-11-24T09:38:41+00:00] IDENTITY P c8 OK tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+[2026-11-24T09:38:41+00:00] PLAN P c8 sequence memory: 28.54 GiB (40.54 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+[2026-11-24T09:38:41+00:00] PLAN P c8 prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+[2026-11-24T09:38:41+00:00] PLAN P c8 vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 179; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+[2026-11-24T09:38:41+00:00] PLAN P c8 draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+[2026-11-24T09:38:41+00:00] PLAN P c8 "max_batch_size": 8
+[2026-11-24T09:38:41+00:00] FLAGS-BOOT P c8 15 flags, all tested at preflight
+[2026-11-24T09:38:46+00:00] PROBE /home/adam/work/parity/out/P/c8/run2 gold rc 0 gpu 57,2509MHz,35.31W,[N/A]; mem_avail 33
+[2026-11-24T09:40:17+00:00] PROBE /home/adam/work/parity/out/P/c8/run2 dec rc 0 gpu 62,2509MHz,37.97W,[N/A]; mem_avail 34
+[2026-11-24T09:42:28+00:00] PROBE /home/adam/work/parity/out/P/c8/run2 ttft rc 0 gpu 72,2470MHz,63.89W,[N/A]; mem_avail 25
+[stop.sh] Stopping qwen38-flash-next-tf (up to 30s)
+[stop.sh] Stopped and removed qwen38-flash-next-tf; its GPU memory is free again
+[2026-11-24T09:42:29+00:00] CELL-DONE P c8 run2 rc 0 elapsed 103 min
+[2026-11-24T09:42:29+00:00] SCORE2 SCORE-SUMMARY cells 10 rerun 10 final
+[2026-11-24T09:42:29+00:00] RERUN-OPEN D c1 R1 prose spread 28.9%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN D c2 R1 prose spread 13.7%; R1 code spread 8.5%; R4 cold1k-off spread 25.4%; R4 warm2k spread 14.7%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN D c4 R1 prose spread 5.6%; R4 cold1k-off spread 45.7%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN D c6 R1 code spread 5.1%; R4 cold1k-off spread 50.6%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN D c8 R1 prose spread 5.6%; R4 cold1k-off spread 54.7%; R4 cold1k-on spread 11.8%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN P c1 R1 prose spread 23.2%; R1 code spread 13.8%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN P c2 R1 prose spread 17.6%; R1 code spread 10.6%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN P c4 R4 cold1k-off spread 21.1%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN P c6 R1 code spread 6.9%
+[2026-11-24T09:42:29+00:00] RERUN-OPEN P c8 R1 code spread 6.7%
+[2026-11-24T09:42:29+00:00] TABLES 212 lines in /home/adam/work/parity/out/tables.md
+[2026-11-24T09:42:30+00:00] FOREIGN P/run1=0 P/run2=0 P/run1=0 P/run2=0 P/run1=0 P/run2=0 P/run1=0 P/run2=0 P/run1=0 P/run2=0 D/run1=0 D/run2=0 D/run1=0 D/run2=0 D/run1=0 D/run2=0 D/run1=0 D/run2=0 D/run1=0 D/run2=0 
+[2026-11-24T09:42:30+00:00] RUN-DONE 2026-11-24T09:42:30+00:00 elapsed 103 min
+[2026-11-24T09:42:30+00:00] RESTORE start 2026-11-24T09:42:30+00:00
+[stop.sh] No container named qwen38-flash-next-tf: nothing to stop
+[stop.sh] No container named qwen38-flash-next-tf: nothing to stop
+removing stale /home/adam/.local/state/qwen38-flash-next-tf/start.lock (no start.sh running)
+
+
+  Mia's TensorFold Start Script
+  azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound · 8 at once · 262144-token window · fp8 KV · vision on · drafts MTP · port 8888
+
+[1/5] Setup: image and checkpoint
+[start.sh] Ready: tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 (patches 4144696f21e3) and azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound
+[2/5] Checks: arguments, previous server, port, memory
+[start.sh] Arguments OK, port 8888 free, 115 GiB memory available (this window needs ~93 at start)
+[3/5] Launch: container qwen38-flash-next-tf
+[start.sh] tensorfold-native serve /root/.cache/huggingface/hub/models--azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/snapshots/1464274120d36a4d8fcaa934552334a7d83ce0fd --name Qwen3.8-Flash-Next --host 0.0.0.0 --port 8888 --context 262144 --parallel 8 --max-tokens 32768 --temperature 1.0 --top-p 0.95 --top-k 20 --thinking --kv-dtype fp8 --vision --vision-max-images 50 --vision-max-videos 4 --vision-image-tokens 16384 
+[4/5] Loading: ~66 GiB of weights (the FP8 n-gram table included)
+  │ GOVERNING TERMS: The software and materials are governed by the NVIDIA Software License Agreement
+  │ (found at https://www.nvidia.com/en-us/agreements/enterprise-software/nvidia-software-license-agreement/)
+  │ and the Product-Specific Terms for NVIDIA AI Products
+  │ (found at https://www.nvidia.com/en-us/agreements/enterprise-software/product-specific-terms-for-ai-products/).
+  │ W1124 09:42:33.830000 178 torch/utils/_pytree.py:630] <enum 'KernelPreference'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+  │ W1124 09:42:33.845000 178 torch/utils/_pytree.py:630] <enum 'ScaleCalculationMode'> is an Enum subclass and is now natively supported by torch.compile as an opaque value type. Calling register_constant() on Enum subclasses is deprecated and will be an error in a future release.
+  │ [vision-helper] ready: tower 0.84 GiB, loaded in 3.2 s
+  │ [tensorfold] vision: image and video input on this GPU, a 0.84 GiB tower (helper pid 178; {"torch":"2.13.0a0+9186a08b2c.nv26.07","transformers":"5.17.0","pillow":"12.3.0","numpy":"2.1.0","av":"19.0.1"}; self-test b519f02192431f6965510b499bf1cd22474d9298262730d78505b2658fa51678)
+  │ info: copy windows: a lone stream verifies up to 64 rows (TF_FLASHNEXT_WINDOW; the MTP chain 16)
+  │ info: cost timing: shared rounds timed with 0 head levels (TF_FLASHNEXT_SHARED_COST_LEVELS)
+  │ info: overlay /root/.cache/huggingface/tensorfold-mtp-fp8/azampatti--Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound/1464274120d36a4d8fcaa934552334a7d83ce0fd/mtp-fp8.safetensors
+  ⋯ 15s elapsed, 13.0 GiB on the GPU (99 GiB free)
+  ⋯ 30s elapsed, 32.6 GiB on the GPU (80 GiB free)
+  ⋯ 45s elapsed, 51.6 GiB on the GPU (59 GiB free)
+  │ info: draft head: the int4 lm_head's own columns (TF_FLASHNEXT_DRAFT_INT4), 79592 ids, 105.1 MB
+  │ info: n-gram table on the host: 32 gather threads (blocks from 32 rows), prefetch on (2 chunks ahead), pages read one at a time (MADV_RANDOM)
+  │ info: block-FP8 split-K shapes of 2048+ columns below 256 rows: one block a column tile, its K slices in slice order (TF_FLASHNEXT_FP8_FUSED_SPLIT=4)
+  │ info: block-FP8 prompt tiles from 256 rows: one-slice shapes of 8192+ columns on 128x128 tiles, the fused form in 2 stages (TF_FLASHNEXT_FP8_PROMPT_TILES=1)
+  │ info: int4 prompt gate/up: int4_prompt_kernel on 64-pair items, 2x4 warps, 2x4 tiles, 3 stages (TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1)
+  │ info: int4 lm_head: calls of 17 or more rows in 32-row items (TF_FLASHNEXT_HEAD_ROW_TILES=2)
+  │ info: greedy draws: a draft level's in one launch, a shared round's windows in one launch
+  │ info: draft stop: a draft proposed while the running product is >= 0.050, another head level while it is >= 0.200
+  │ info: shared expert: forked before the router in decode windows of at most 6 rows (0: never); down stored straight into its moe_y slot: true
+  │ info: graphs: shared verify rounds of up to 1 streams captured, MTP steps of up to 4; 192 shared graphs kept (least recently used out first), solo graphs least recently used out past TF_FLASHNEXT_SOLO_MAX; sequence pool 8
+  │ info: first token: drawn before the last chunk's MTP absorb; the MTP head of a one-prompt pass stops after its layer; the host n-gram gather beside the layers before the first n-gram layer
+  │ info: decode read-outs: up projection and mix in one pass (_hc_up_mix BM 32)
+  │ info: decode read-outs: _reduce and _hc_act in one launch (tf_fn_hc_reduce_act_kernel, checked against the kernel set at load)
+  │ info: qsa select: the indexer's block lists from fn_qsa_stream (decode: cs4 from 32768 blocks, s5 below; prompt blocks: s5)
+  │ prompt path: 4096-row chunks (the last up to 512 more), glue on every row, matmul K slices in one program (_b16mm_ks/_fp4mm_ks), experts on 128-pair items (fn_experts_prompt)
+  │ info: hc q12: decode read-outs from 12-bit copies: 192 matrices, 1266.2 -> 970.8 MB, 95876 escapes
+  │ info: caches in reserved address space (2048 KiB granularity), indexer keys in a ring
+  │ info: vision: 2.00 GiB kept free for the image tower's workspace
+  │ info: sequence memory: 26.01 GiB (38.01 GiB free, 10.0 GiB kept free); fp8 KV cache, 1056 bytes a position a layer
+  │ info: drafts: at most 7 a stream while two or more streams draft together (TF_FLASHNEXT_DRAFT_DEPTH_SHARED)
+  ⋯ 60s elapsed, 72.3 GiB on the GPU (37 GiB free)
+  │ info: cost timing: 24 points timed again over 2 more passes (TF_FLASHNEXT_COST_RETIME=4)
+  ⋯ 75s elapsed, 74.4 GiB on the GPU (34 GiB free)
+  │ info: graph warm-up: 384 graphs on 8 pooled sequences
+  │ info: copy policy: after a missed copy round keep, after a clean one jump, resync on (copies out of the prompt), shared rounds ramp copies out of the prompt
+  │ info: prompt cache: whole-prompt states from 1024 tokens (that very prompt again resumes with no prompt pass)
+  │ [tensorfold] warning: non-loopback server has no API key; requests are open
+  │ [tensorfold] prompt chunks of up to 2,048 tokens, cut at replies 256+ tokens apart
+  │ [tensorfold] open-file limit raised: soft 1024 -> 524288
+  │ [tensorfold] serving Qwen3.8-Flash-Next at http://0.0.0.0:8888/v1 (sampling: temperature 1.0, top_k 20, top_p 0.95; drafts: on; context: 262144; loaded in 84.0s)
+  │ [tensorfold] thinking on (the chat template's default): replies reason in reasoning_content before the answer in content, and max_tokens counts both. --no-thinking turns it off; a request can send chat_template_kwargs {"enable_thinking": false}
+[start.sh] Server answered after 85s
+[5/5] Smoke test: one chat completion
+[start.sh] OK: 'OK', 2 tokens
+
+  ✔ Qwen3.8-Flash-Next is now LIVE! on port 8888
+
+    API      http://192.168.99.16:8888/v1   (model: Qwen3.8-Flash-Next)
+    Loaded   in 85s · 115 GiB was free
+    Model    azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound @ 14642741 (INT4-AutoRound)
+    Window   262144 tokens · 8 at once · bf16 KV · drafts MTP
+    Logs     docker logs -f qwen38-flash-next-tf
+    Restart  ./start.sh restart
+    Stop     ./stop.sh
+
+[2026-11-24T09:43:55+00:00] RESTORED health 200 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f envcheck rc 0 :: prod-env: 54 settings in prod.env (54 stated, 0 unset), 54 in the container, 54 equal, 0 problem(s)
+[2026-11-24T09:43:55+00:00] EXIT-DONE 2026-11-24T09:43:55+00:00 health 200 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
+window.sh exit 0 2026-11-24T09:43:55+00:00

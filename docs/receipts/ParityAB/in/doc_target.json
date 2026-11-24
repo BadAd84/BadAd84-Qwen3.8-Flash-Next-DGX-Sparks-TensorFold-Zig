@@ -1,0 +1,19 @@
+{
+  "_source": "docs/SPEED-TARGET-1.2.6.md (the production branch's production/SPEED-TARGET.md, measured 2026-11-10): the recorded production cells this window places both arms against. Decode cells are the median of 3 passes (aggregate = sum of per-request rates; per_stream = per-stream median; wall = completion tokens / batch wall). TTFT cells are the idle column, median of 2 reps, seconds. The doc's bracket values (under C-1 streams) are not transcribed because this window measures idle only.",
+  "levels": [1, 2, 4, 6, 8],
+  "decode": {
+    "prose": {"agg": [70.9, 103.3, 162.3, 202.2, 237.1], "per_stream": [70.9, 51.6, 41.2, 34.8, 30.1], "wall": [69.9, 99.5, 152.2, 186.7, 214.2]},
+    "code": {"agg": [113.0, 173.7, 254.0, 311.8, 370.5], "per_stream": [113.0, 86.8, 63.6, 52.9, 46.5], "wall": [111.4, 169.0, 226.9, 282.9, 327.3]}
+  },
+  "ttft_idle": {
+    "cold1k-off": [0.420, 0.568, 0.494, 0.412, 0.434],
+    "cold1k-on": [0.442, 0.486, 0.479, 0.438, 0.470],
+    "cold8k-off": [2.649, 2.748, 2.736, 2.628, 2.713],
+    "cold8k-on": [2.729, 2.915, 2.900, 2.798, 2.680],
+    "cold32k-off": [10.768, 10.994, 10.890, 10.832, 10.825],
+    "cold32k-on": [10.720, 10.793, 10.787, 10.857, 10.918],
+    "warm2k": [1.403, 1.282, 1.372, 1.268, 1.366]
+  },
+  "boot_s": [83, 87, 90, 90, 90],
+  "boot_seqmem_gib": [26.43, 25.27, 26.07, 25.00, 24.14]
+}

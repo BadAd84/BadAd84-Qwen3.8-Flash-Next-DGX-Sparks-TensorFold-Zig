@@ -1,0 +1,1 @@
+{"status": "ok", "model": "Qwen3.8-Flash-Next", "model_ids": ["Qwen3.8-Flash-Next"], "max_batch_size": 8, "warming": false, "memory": {}, "live": {"connections": 1, "waiting": 0, "decode_tokens_per_second": 4.0, "prefill_tokens_per_second": 304.7}}
