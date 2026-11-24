@@ -11,8 +11,9 @@
 #
 # The launcher is $RECIPE/start.sh (the rpr recipe), NOT $HOME/qwen6-start.sh: that script execs production's
 # own TF_FLASHNEXT block over the inherited environment, which would replace the arm. start.sh passes every
-# TENSORFOLD_*/TF_FLASHNEXT_* name that is SET in its own environment and nothing else (its `env | grep` line),
-# which is why a plain TF_* name has no route into the container and is not an arm.
+# TENSORFOLD_*/TF_* name that is SET in its own environment and nothing else (its `env | grep -E
+# '^(TENSORFOLD|TF_)[A-Z0-9_]+='` line), so every name of that class is routable and can be an arm; a name
+# outside the class is refused before any boot.
 #
 # The GPU lock is taken with flock; production is stopped after the lock (and after EnvBoot's r5 prompt-
 # following verdict is on disk as CLEAN and Main's GO exists) and restored from the EXIT trap, gated on
@@ -30,7 +31,7 @@ REF=$BOX/ref
 ENVD=$BOX/env
 REPO_ENV=${KS_REPO_ENV:-$HOME/Qwen3.8-Flash-Next-DGX-Sparks-TensorFold-Zig/scripts/qwen38/zig/target/env/dev.env}
 REF_SRC=${KS_REF_SRC:-$BOX/refcommitted/dev.env}
-PASSES=${KS_PASSES:-'^(TENSORFOLD|TF_FLASHNEXT)_'}
+PASSES=${KS_PASSES:-'^(TENSORFOLD|TF_)[A-Z0-9_]+$'}
 ALLOW=$KIT/allow-extra.txt
 URL=http://127.0.0.1:8888
 PORT=8888

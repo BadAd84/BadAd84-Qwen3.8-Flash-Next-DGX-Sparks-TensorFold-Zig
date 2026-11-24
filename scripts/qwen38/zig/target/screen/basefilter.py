@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """basefilter.py SRC DST --passes REGEX [--report FILE]: the base the launcher can actually carry.
 
-The recipe launcher builds its `-e` arguments from `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_[A-Z0-9_]+='`
-(start.sh), so a setting whose name the filter does not match never reaches the container, whatever the env
-file says. The screen's base is therefore the committed env file as that filter carries it:
+The recipe launcher builds its `-e` arguments from `env | grep -E '^(TENSORFOLD|TF_)[A-Z0-9_]+='` (start.sh),
+so a setting whose name the filter does not match never reaches the container, whatever the env file says.
+This tool matches NAMES, so its default class is the same one without the launcher's trailing `=`; the
+screen's base is therefore the committed env file as that filter carries it:
 
   carried      `export NAME=value` with NAME matching the filter: kept verbatim.
   not carried  `export NAME=value` with NAME failing the filter: written commented as

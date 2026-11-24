@@ -21,8 +21,9 @@ nothing on its own, and nothing is written into `dev.env` by this lane.
   recorded** (`out/ref.txt`). The driver refuses a copy whose sha differs from the pin install wrote, so a
   stale `ref/` cannot become the base of a window.
 - **The launcher's filter decides what is on the base.** The recipe launcher builds its `-e` arguments from
-  `env | grep -E '^(TENSORFOLD|TF_FLASHNEXT)_'` (start.sh). `basefilter.py` keeps every line the filter
-  carries, comments the lines it cannot (`# NOT-CARRIED export ...`) and lists them in
+  `env | grep -E '^(TENSORFOLD|TF_)[A-Z0-9_]+='` (start.sh, as deployed; the copy on spark6 reads that line).
+  `basefilter.py` keeps every line whose NAME matches that class (its default pattern omits the trailing `=`,
+  since it matches names), comments the lines it cannot (`# NOT-CARRIED export ...`) and lists them in
   `out/base-not-carried.txt`. Those settings are absent from the container on every boot of this window, so
   no arm sets one and no verdict reads one; the receipt names the list and the count.
 - **A setting the launcher cannot carry is never an arm.** `plan_gate` refuses such a plan row
@@ -162,9 +163,10 @@ Order: `docs/KNOB-COVERAGE.md`'s rank. `plan.tsv` is the list; the twelve-candid
 | 11 | `TF_FLASHNEXT_FACT_ROWS` | 64 to 128 | A2 |
 | 12 | `TF_FLASHNEXT_WARM_AHEAD` | 1 to 0 | A2 |
 
-`TF_QMMF_HALF_BELOW` (96 to 0) is the one the cap lost: a plain `TF_*` name, no route into the container
-through this launcher, so the preflight read it ABSENT and the coverage gate now reports it PASSAGE-LOST.
-It stays on the worklist until a launcher can carry it.
+`TF_QMMF_HALF_BELOW` (96 to 0) was the one that window lost: it ran under the pre-widening recipe filter,
+which carried no plain `TF_*` name, so the preflight read it ABSENT and the coverage gate reported it
+PASSAGE-LOST. The deployed launcher carries the `TF_*` class now, so the name is armable; until a window arms
+it, its PASSAGE-LOST row stands.
 
 What the cap left out, in rank order: `TF_FLASHNEXT_TABLE_WARM`, `TENSORFOLD_CUDA_KERNELS` (A3);
 `TENSORFOLD_PREFIX_WAIT_MS`, `TENSORFOLD_PROMPT_CACHE_KEEP_OTHERS`, `TF_PROMPT_INTERMEDIATE`,
