@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 286136ef..e458ec51 100644
+index 286136e..e458ec5 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -28,6 +28,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -12,7 +12,7 @@ index 286136ef..e458ec51 100644
  - Web: the LibreChat and AnythingLLM Docker Connect examples keep the configured remote engine URL, with its scheme, hostname, port and proxy prefix; local loopback examples still use the Docker host alias and away examples the Web relay (#3843, fixes #3839). Thanks to @AIFlowML.
  
 diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
-index 96a9a4a6..d35fe9be 100644
+index 96a9a4a..d35fe9b 100644
 --- a/zig/build/cuda.zig
 +++ b/zig/build/cuda.zig
 @@ -274,6 +274,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
@@ -27,7 +27,7 @@ diff --git a/zig/kernels/cuda/flashnext_hc.cu b/zig/kernels/cuda/flashnext_hc.cu
 index 928e6fd..911e9ad 100644
 --- a/zig/kernels/cuda/flashnext_hc.cu
 +++ b/zig/kernels/cuda/flashnext_hc.cu
-@@ -78,6 +78,10 @@
+@@ -78,6 +78,10 @@ __device__ __forceinline__ void hc_writeback(const __nv_bfloat16* H, __nv_bfloat
              acc = __fmaf_rn(Y[at * D + d], WTS[at], acc);
          }
          branch = rbf(acc);
@@ -38,7 +38,7 @@ index 928e6fd..911e9ad 100644
      }
      const int warp = threadIdx.x >> 5;
      for (int s = 0; s < S; ++s) {
-@@ -108,89 +112,18 @@
+@@ -108,89 +112,18 @@ extern "C" __global__ void __launch_bounds__(256) fn_hc_writeback_moe(const __nv
      hc_writeback<2>(H, HOUT, PSS, nullptr, INJ, Y, WTS, 0, D, S, TOPK, SLOTS, 1);
  }
  
@@ -236,7 +236,7 @@ diff --git a/zig/src/core/contract/flashnext_tile_records.zig b/zig/src/core/con
 index 326fc0f..357aa40 100644
 --- a/zig/src/core/contract/flashnext_tile_records.zig
 +++ b/zig/src/core/contract/flashnext_tile_records.zig
-@@ -26,6 +26,7 @@
+@@ -26,6 +26,7 @@ pub const cuda = [_]CudaRecord{
      .{ .launch = .{ .name = "flashnext_batch fn_gdn_lanes_shift", .symbol = "fn_gdn_lanes_shift", .image = "flashnext_batch", .threads = 256 }, .usage = .{ .{ .regs = 26, .static = 0, .bound = 0 }, .{ .regs = 28, .static = 0, .bound = 0 }, .{ .regs = 28, .static = 0, .bound = 0 }, .{ .regs = 24, .static = 0, .bound = 0 }, .{ .regs = 24, .static = 0, .bound = 0 } } },
      .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm0", .symbol = "fn_hc_writeback_norm0", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 59, .static = 1296, .bound = 256 }, .{ .regs = 60, .static = 1296, .bound = 256 }, .{ .regs = 60, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 } } },
      .{ .launch = .{ .name = "flashnext_hc fn_hc_writeback_norm_moe", .symbol = "fn_hc_writeback_norm_moe", .image = "flashnext_hc", .threads = 256 }, .usage = .{ .{ .regs = 64, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 }, .{ .regs = 62, .static = 1296, .bound = 256 } } },
@@ -245,7 +245,7 @@ index 326fc0f..357aa40 100644
      .{ .launch = .{ .name = "prompt16 tf_prompt_bf16", .symbol = "tf_prompt_bf16", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
      .{ .launch = .{ .name = "prompt16 tf_prompt_bf16_f32", .symbol = "tf_prompt_bf16_f32", .image = "prompt16", .threads = 256, .dynamic = 98304, .opt_in = true }, .usage = .{ .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 }, .{ .regs = 255, .static = 0, .bound = 256 } } },
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 179aefb0..7c1cec1d 100644
+index 179aefb..7c1cec1 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -119,6 +119,7 @@ pub fn Pass(comptime Tri: type) type {
@@ -292,7 +292,7 @@ index 179aefb0..7c1cec1d 100644
 +    _ = @import("cuda_part_rows_test.zig");
 +}
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 312f9898..309c0609 100644
+index 312f989..309c060 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -4,6 +4,7 @@ const wt = @import("cuda_prompt_wt.zig");
@@ -340,7 +340,7 @@ index 312f9898..309c0609 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
-index 28255760..be60b4ca 100644
+index 2825576..be60b4c 100644
 --- a/zig/src/families/flashnext/cuda_batch_side.zig
 +++ b/zig/src/families/flashnext/cuda_batch_side.zig
 @@ -48,10 +48,12 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
@@ -358,7 +358,7 @@ index 28255760..be60b4ca 100644
  }
  
 diff --git a/zig/src/families/flashnext/cuda_glue.zig b/zig/src/families/flashnext/cuda_glue.zig
-index 2e37c246..4db2a5e1 100644
+index 2e37c24..4db2a5e 100644
 --- a/zig/src/families/flashnext/cuda_glue.zig
 +++ b/zig/src/families/flashnext/cuda_glue.zig
 @@ -34,10 +34,12 @@ pub const Pg = extern struct { pt: u64 = 0, ps: i64 = 0, ptok: c_int = 0 };
@@ -414,10 +414,10 @@ index 2e37c246..4db2a5e1 100644
                  ptrs(&a, &.{ h, hout, pss, branch, inj });
                  a.add(@as(i64, @intCast(rs)));
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index 70858f61..fa25e1f0 100644
+index f3d1f62..a645084 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -52,7 +52,17 @@ pub fn mx128MinN() sys.environment.Error!usize {
+@@ -51,7 +51,17 @@ pub fn mx128MinN() sys.environment.Error!usize {
      return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
  }
  
@@ -437,7 +437,7 @@ index 70858f61..fa25e1f0 100644
      return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
  }
 diff --git a/zig/src/families/flashnext/cuda_mtp_ops.zig b/zig/src/families/flashnext/cuda_mtp_ops.zig
-index fe158464..26abef4a 100644
+index fe15846..26abef4 100644
 --- a/zig/src/families/flashnext/cuda_mtp_ops.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_ops.zig
 @@ -43,7 +43,7 @@ const max_rows = mtp.max_rows;
@@ -484,7 +484,7 @@ index fe158464..26abef4a 100644
              const score_rows = try e.reserveScores(d.cap, piece);
              var p: batch.Pass(Tri) = .{
 diff --git a/zig/src/families/flashnext/cuda_mtp_pieces.zig b/zig/src/families/flashnext/cuda_mtp_pieces.zig
-index 882fa536..f2203a72 100644
+index 882fa53..f2203a7 100644
 --- a/zig/src/families/flashnext/cuda_mtp_pieces.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_pieces.zig
 @@ -2,6 +2,7 @@
@@ -515,15 +515,11 @@ index 882fa536..f2203a72 100644
              try t.addStreams(ps.branch, ps.ple_gated, ps.h, tot, dims, streams);
 diff --git a/zig/src/families/flashnext/cuda_part_rows_test.zig b/zig/src/families/flashnext/cuda_part_rows_test.zig
 new file mode 100644
-index 00000000..c2142092
+index 0000000..0b8963b
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_part_rows_test.zig
-@@ -0,0 +1,58 @@
-+//! The MTP head's fc_h lane asks tiles.matmul for `streams x piece` rows at sk > 1, and that call writes one fp32
-+//! slice into part and clears the slice beside it, so part must hold `2 x streams x piece` rows. A piece is at most
-+//! half the pass's cap, so the lane needs `4 x cap` rows. The 8,607-token resume prompt (cap 3,072, the recipe's
-+//! TF_FLASHNEXT_HEAD_PIECE=1536) asked for 12,288 rows in a 6,144-row part and failed with CUDA_ERROR_INVALID_VALUE;
-+//! this holds the arithmetic that failed, main's own 256-row bound across every cap, and the bound the fix keeps.
+@@ -0,0 +1,54 @@
++//! The MTP head's fc_h lane needs 4 x cap part rows: tiles.matmul writes a slice and clears the slice beside it.
 +const std = @import("std");
 +const sizes = @import("cuda_scratch_sizes.zig");
 +const wt = @import("cuda_prompt_wt.zig");
@@ -578,7 +574,7 @@ index 00000000..c2142092
 +    try std.testing.expectEqual(@as(usize, 504), sizes.partRows(63)); // 8 x 63: the legacy tile's floor unchanged
 +}
 diff --git a/zig/src/families/flashnext/cuda_scratch_sizes.zig b/zig/src/families/flashnext/cuda_scratch_sizes.zig
-index 315655b7..9bcdf772 100644
+index 315655b..1ffc67a 100644
 --- a/zig/src/families/flashnext/cuda_scratch_sizes.zig
 +++ b/zig/src/families/flashnext/cuda_scratch_sizes.zig
 @@ -3,6 +3,7 @@ const wt = @import("cuda_prompt_wt.zig");
@@ -589,23 +585,21 @@ index 315655b7..9bcdf772 100644
  const att_rows = @import("cuda_batch_state.zig").att_rows;
  
  /// head_local's rows on one GPU: the draft head's lanes (<= 16) times its ids; a split head needs a pass's rows.
-@@ -16,9 +17,12 @@ pub fn hcPartRows(cap: usize) usize {
+@@ -16,9 +17,10 @@ pub fn hcPartRows(cap: usize) usize {
      return @max(cap, @max(hc_sk * @min(cap, 63), @as(usize, 8) * @min(cap, 255)));
  }
  
 -/// part's rows of dims: an out projection's slice plus the zero slice, or a legacy lane tile's out_sk below 64 rows.
-+/// part's rows of dims: an out projection's slice plus the zero slice, a legacy lane tile's out_sk below 64 rows, or
-+/// the MTP head's fc_h lane: streams rows a piece row, one fp32 slice written and the slice its clear touches.
++/// part's rows of dims: an out projection's slice plus its zero slice, or the MTP head's fc_h lane's stream slices.
  pub fn partRows(cap: usize) usize {
 -    return @max(2 * cap, out_sk * @min(cap, 63));
-+    // the lane asks for streams x piece rows at a piece of at most cap / 2, and tiles.matmul writes that fp32 slice
-+    // and clears the slice beside it, so two streams x cap / 2 slices must fit beside the out projection's own
++    // the lane asks for streams x piece rows at a piece of at most cap / 2, and clears the slice beside its write.
 +    return @max(@max(2 * cap, out_sk * @min(cap, 63)), 2 * streams * (cap / 2));
  }
  
  /// The block scores' row stride for a cache of `cap` tokens: its blocks rounded up to 16 (the captured _scores').
 diff --git a/zig/src/families/flashnext/cuda_split_lane_test.zig b/zig/src/families/flashnext/cuda_split_lane_test.zig
-index 417a47a8..7f7fe9dc 100644
+index 417a47a..7f7fe9d 100644
 --- a/zig/src/families/flashnext/cuda_split_lane_test.zig
 +++ b/zig/src/families/flashnext/cuda_split_lane_test.zig
 @@ -268,6 +268,7 @@ test "shared expert composition keeps whole direct slots and split full-K output
@@ -617,7 +611,7 @@ index 417a47a8..7f7fe9dc 100644
          m: parts.Model,
          stream: cuda.Stream,
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 4bb02adf..20d77537 100644
+index 4bb02ad..20d7753 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -73,6 +73,8 @@ pub const rules = [_]Rule{
@@ -630,7 +624,7 @@ index 4bb02adf..20d77537 100644
      .{ .name = "TENSORFOLD_MEMORY_RESERVE_GIB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission's floor and the memory's size still bound it)" },
      .{ .name = "TENSORFOLD_HIP_MEMORY_LIMIT_GB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission still fits its byte count in a 64-bit size)" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index 2ea999b5..9afac7f8 100644
+index 2ea999b..9afac7f 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -198,6 +198,9 @@ const valid = [_]Case{
@@ -644,7 +638,7 @@ index 2ea999b5..9afac7f8 100644
  
  test "environment: valid forms remain raw numbers before existing consumer clamps and defaults" {
 diff --git a/zig/tests/cuda/contract_flashnext_more.zig b/zig/tests/cuda/contract_flashnext_more.zig
-index 7421a381..cd401ef4 100644
+index 7421a38..cd401ef 100644
 --- a/zig/tests/cuda/contract_flashnext_more.zig
 +++ b/zig/tests/cuda/contract_flashnext_more.zig
 @@ -24,7 +24,7 @@ pub const Set = struct {
@@ -660,7 +654,7 @@ diff --git a/zig/tests/cuda/contract_flashnext_wbnorm.zig b/zig/tests/cuda/contr
 index 2f390f1..7ad5c9c 100644
 --- a/zig/tests/cuda/contract_flashnext_wbnorm.zig
 +++ b/zig/tests/cuda/contract_flashnext_wbnorm.zig
-@@ -8,7 +8,7 @@
+@@ -8,7 +8,7 @@ const rig_ = @import("contract_rig.zig");
  const c = core.contract.spec;
  const g = core.contract.gates;
  
@@ -669,7 +663,7 @@ index 2f390f1..7ad5c9c 100644
  
  const dims = 2560;
  const streams = 4;
-@@ -22,18 +22,19 @@
+@@ -22,18 +22,19 @@ fn noSums(_: c.Shape) usize {
  }
  
  pub fn spec(mode: Mode) c.Spec {
@@ -691,7 +685,7 @@ index 2f390f1..7ad5c9c 100644
          .served = &.{ .{ .rows = 1, .n = dims, .k = 1 }, .{ .rows = 17, .n = dims, .k = 2 }, .{ .rows = 300, .n = dims, .k = 3 } },
      };
  }
-@@ -67,6 +68,7 @@
+@@ -67,6 +68,7 @@ pub const WbNorm = struct {
              .sums => 0,
              .moe => 2,
              .slices => 4,
@@ -699,7 +693,7 @@ index 2f390f1..7ad5c9c 100644
          };
      }
  
-@@ -97,6 +99,10 @@
+@@ -97,6 +99,10 @@ pub const WbNorm = struct {
          const scale = try a.alloc(f32, wide);
          defer a.free(scale);
          for (scale) |*x| x.* = 0.5 + r.float(f32);
@@ -710,7 +704,7 @@ index 2f390f1..7ad5c9c 100644
          if (fill == .nonfinite) for (0..m) |row| {
              h[row * wide + (row % streams) * dims + 3] = switch (row % 4) {
                  0 => 0x7fc1,
-@@ -135,6 +141,11 @@
+@@ -135,6 +141,11 @@ pub const WbNorm = struct {
      fn theirs(self: *WbNorm, o: []const u64) !void {
          const p = self.split(o);
          const m = self.shape.rows;
@@ -722,7 +716,7 @@ index 2f390f1..7ad5c9c 100644
          try self.glue.hcWriteback(self.rig.s, self.ins[0], p.hout, p.pss, self.ins[4], self.ins[1], self.ins[2], self.ins[3], m * dims, m, dims, streams, self.modeNumber(), slots - 1, slots, self.shape.k);
          try self.glue.hcNormalize(self.rig.s, if (self.mode == .sums) self.ins[0] else p.hout, p.pss, self.ins[5], p.norm, eps, m, dims, streams);
      }
-@@ -144,7 +155,7 @@
+@@ -144,7 +155,7 @@ pub const WbNorm = struct {
          try self.rig.s.synchronize();
      }
  
@@ -731,7 +725,7 @@ index 2f390f1..7ad5c9c 100644
      fn baseline(self: *WbNorm) ![]const u8 {
          var at = self.base;
          var o: [3]u64 = undefined;
-@@ -167,14 +178,14 @@
+@@ -167,14 +178,14 @@ pub const WbNorm = struct {
          return self.baseline();
      }
  

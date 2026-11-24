@@ -1,14 +1,8 @@
 diff --git a/zig/tests/cuda/contract_lane_half.zig b/zig/tests/cuda/contract_lane_half.zig
-index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1349f73c7 100644
+index 418296e..30db2ef 100644
 --- a/zig/tests/cuda/contract_lane_half.zig
 +++ b/zig/tests/cuda/contract_lane_half.zig
-@@ -1,4 +1,5 @@
- //! The lane's half tiles (16x32, MXFP8 and BF16, bf16 and fp32 out): the 64-column tile's bits; control: 1.5x scale.
-+//! `fused`: split-K calls on the fused form (cuda.qmmf.fuse_split_n) against the cluster kernel's bits, up to 64 rows.
- const std = @import("std");
- const cuda = @import("cuda");
- const core = @import("core");
-@@ -20,7 +21,36 @@ const served = [_]c.Shape{
+@@ -20,7 +20,36 @@ const served = [_]c.Shape{
      .{ .rows = 1, .n = 324, .k = 10240 }, .{ .rows = 7, .n = 512, .k = 2560 }, .{ .rows = 3, .n = 96, .k = 512 },
  };
  
@@ -46,7 +40,7 @@ index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1
      return .{
          .name = switch (format) {
              .bf16 => switch (kind) {
-@@ -51,6 +81,7 @@ pub const Half = struct {
+@@ -51,6 +80,7 @@ pub const Half = struct {
      lane: *cuda.qmmf.Lane,
      kind: Kind,
      format: cuda.qmmf.Out = .bf16,
@@ -54,7 +48,7 @@ index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1
      d: ?Dense = null,
      weight: cuda.qmmf.Weight = undefined,
      x: u64 = 0,
-@@ -64,7 +95,7 @@ pub const Half = struct {
+@@ -64,7 +94,7 @@ pub const Half = struct {
      }
  
      pub fn kernel(self: *Half) g.Kernel {
@@ -63,7 +57,7 @@ index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1
      }
  
      const vt = g.hooks(Half);
-@@ -82,7 +113,7 @@ pub const Half = struct {
+@@ -82,7 +112,7 @@ pub const Half = struct {
          self.d = null;
          self.rig.reset();
          self.part = 0;
@@ -72,7 +66,7 @@ index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1
          const a = self.rig.gpu.gpa;
          const d = try Dense.init(a, shape, 1);
          self.d = d;
-@@ -144,8 +175,12 @@ pub const Half = struct {
+@@ -144,8 +174,12 @@ pub const Half = struct {
      fn launch(self: *Half, half: bool, out: u64) !void {
          const d = self.d.?;
          const keep = self.lane.half_below;
@@ -88,7 +82,7 @@ index 418296ef2fac040a4fbba8ec33a397ad70a76a52..51d899beb5c61c9e44e14cdb536e3da1
          if (half and self.kind == .control) w.scale = 1.5;
          try self.lane.matmulOut(self.rig.s, self.x, d.shape.k, d.shape.rows, w, out, self.format, self.part);
 diff --git a/zig/tests/cuda/contract_tests.zig b/zig/tests/cuda/contract_tests.zig
-index 15137feeafe9f5aca096d0dae18ee551e57fcaf1..ce5e1be0b44465d5c69af1d139bb8ce7ca6f793a 100644
+index 15137fe..ce5e1be 100644
 --- a/zig/tests/cuda/contract_tests.zig
 +++ b/zig/tests/cuda/contract_tests.zig
 @@ -240,6 +240,12 @@ fn registered(gpu: check.Gpu, only: []const []const u8, t0: *i96) !g.Tally {

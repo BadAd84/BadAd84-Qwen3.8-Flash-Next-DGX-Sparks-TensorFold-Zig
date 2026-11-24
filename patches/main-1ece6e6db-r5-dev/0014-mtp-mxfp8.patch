@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 23913bb3f2dca8256764baedb62362d1b9d17eeb..4c19c9de554bd1116d2939bf567d66f159eb7cf3 100644
+index f3914b9..a889705 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -34,6 +34,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -12,10 +12,10 @@ index 23913bb3f2dca8256764baedb62362d1b9d17eeb..4c19c9de554bd1116d2939bf567d66f1
  - Web: the LibreChat and AnythingLLM Docker Connect examples keep the configured remote engine URL, with its scheme, hostname, port and proxy prefix; local loopback examples still use the Docker host alias and away examples the Web relay (#3843, fixes #3839). Thanks to @AIFlowML.
  
 diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
-index f2c3ddb758b617f25d0c830bdaff0943fccb0432..6687efb79a659a0f0c4f0be236eb0bd59ce257aa 100644
+index 0987dd7..4a9fbc2 100644
 --- a/zig/src/families/flashnext/cuda_mtp.zig
 +++ b/zig/src/families/flashnext/cuda_mtp.zig
-@@ -241,6 +241,11 @@ pub const Head = struct {
+@@ -283,6 +283,11 @@ pub const Head = struct {
          errdefer h.norm_e.free();
          h.norm_h = try cuda.DeviceBuffer.fromHost(driver, std.mem.sliceAsBytes(nh));
          errdefer h.norm_h.free();
@@ -29,15 +29,11 @@ index f2c3ddb758b617f25d0c830bdaff0943fccb0432..6687efb79a659a0f0c4f0be236eb0bd5
          h.fc_h = try fc(gpa, driver, &store, &buf, "language_model.mtp.fc_hidden");
 diff --git a/zig/src/families/flashnext/cuda_mtp_mxfp8.zig b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
 new file mode 100644
-index 0000000000000000000000000000000000000000..90c0615e008e2bf1911fbb19cc7b28cff01055e9
+index 0000000..0aace0f
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_mtp_mxfp8.zig
-@@ -0,0 +1,97 @@
-+//! TF_FLASHNEXT_MTP_WEIGHTS=mxfp8: the drafter's BF16 linears re-coded to MXFP8 at load (E4M3 codes and one
-+//! power-of-two scale a row's 32 inputs), so a draft pass walks half their bytes. A draft is a proposal the verify
-+//! forward checks, so a reply's tokens are unchanged and only the rounds it takes move. `bf16` keeps the
-+//! checkpoint's rows and nothing here runs. A further encoding is one more `Format` word and one more arm in
-+//! `projection.dense`.
+@@ -0,0 +1,93 @@
++//! TF_FLASHNEXT_MTP_WEIGHTS=mxfp8: the drafter's BF16 linears re-coded to MXFP8 at load; `bf16` keeps the rows.
 +const std = @import("std");
 +const core = @import("core");
 +const cuda = @import("cuda");
@@ -131,7 +127,7 @@ index 0000000000000000000000000000000000000000..90c0615e008e2bf1911fbb19cc7b28cf
 +    }
 +}
 diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
-index c0b96adb3b639500a3f244bd3ec9cd690008e1cc..d16f086fdb25f4ff4e3554823e35d0bf8c5553b4 100644
+index c0b96ad..d16f086 100644
 --- a/zig/src/families/flashnext/cuda_projection.zig
 +++ b/zig/src/families/flashnext/cuda_projection.zig
 @@ -23,6 +23,9 @@ pub const Projection = struct {

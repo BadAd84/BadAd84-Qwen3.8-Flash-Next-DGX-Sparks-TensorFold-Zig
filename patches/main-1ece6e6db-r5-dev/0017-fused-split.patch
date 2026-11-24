@@ -1,13 +1,12 @@
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index 698df6d2b1ab96521d6d130efb9be51905e702ee..953dc6d005bb8c99864b460bd40d6fe8f3d619e4 100644
+index 698df6d..3b4ba92 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
-@@ -204,6 +204,21 @@ template __global__ void qmmf_kernel<BF16, 32, 64, 1, 4, 4, true, true, false>(c
+@@ -204,6 +204,20 @@ template __global__ void qmmf_kernel<BF16, 32, 64, 1, 4, 4, true, true, false>(c
  template __global__ void qmmf_kernel<BF16, 64, 64, 1, 4, 4, true, false, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
  template __global__ void qmmf_kernel<BF16, 64, 64, 1, 4, 4, true, true, false>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
  template __global__ void qmmf_kernel<BF16, 64, 64, 1, 4, 4, true, false, true>(const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, void* __restrict__, float* __restrict__, int, int, int, int, int, int, int);
-+// The fused form at the decode row tiles (TF_FLASHNEXT_FUSED_SPLIT): one block a 64-column tile walks its K slices
-+// and adds them in slice order, as the cluster does, so a split call takes it with the cluster kernel's bits.
++// The fused form at the decode row tiles (TF_FLASHNEXT_FUSED_SPLIT): a tile walks its K slices, added in slice order.
 +#define FUSE_DECODE(MODE, BM, F32) \
 +    template __global__ void qmmf_kernel<MODE, BM, 64, 1, 4, 4, F32, false, true>( \
 +        const __nv_bfloat16* __restrict__, const unsigned char* __restrict__, const uint8_t* __restrict__, float, \
@@ -25,20 +24,19 @@ index 698df6d2b1ab96521d6d130efb9be51905e702ee..953dc6d005bb8c99864b460bd40d6fe8
  #define BF16_PROMPT(F32, FUSE) \
      template __global__ void qmmf_kernel<BF16, 128, 128, 2, 4, 3, F32, false, FUSE>( \
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 5b7946ce39ecb704214d3441b521f2aeb41fb334..9bf242f42fdd586200fee914ea73b506269d8271 100644
+index 5b7946c..7b03d3c 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
-@@ -149,6 +149,9 @@ pub const Out = enum { bf16, f32 };
+@@ -149,6 +149,8 @@ pub const Out = enum { bf16, f32 };
  pub var prompt_mx_min_n: usize = 0;
  /// TF_FLASHNEXT_PROMPT_GEMM2=1: the prompt tile runs with two stages and two blocks an SM, same arithmetic and bits.
  pub var mx2_tile: bool = false;
-+/// TF_FLASHNEXT_FUSED_SPLIT=1 sets 2048: a cluster call of this many columns or more runs on the fused form instead
-+/// (one block a 64-column tile adds its K slices in slice order, the cluster's order: the same bits); 0: never.
++/// TF_FLASHNEXT_FUSED_SPLIT=1: a cluster call of 2048 columns or more runs on the fused form, the same bits.
 +pub var fuse_split_n: usize = 0;
  
  fn loadTiles(mod: Module, comptime mode: Mode, comptime wide: bool) ![7]Function {
      var set: [7]Function = undefined;
-@@ -194,6 +197,7 @@ pub const Lane = struct {
+@@ -194,6 +196,7 @@ pub const Lane = struct {
      half: [2][2][2]Function, // by halfModeIndex, Out, then plain / cluster
      half_below: usize = half_below_default,
      shared_down: [4]Function = undefined,
@@ -46,7 +44,7 @@ index 5b7946ce39ecb704214d3441b521f2aeb41fb334..9bf242f42fdd586200fee914ea73b506
      prompt: ?[2][2]Function = null, // Out, then plain / fused; loadPrompt() fills it on sm_12x
      prompt_mx: [2]Function = undefined, // by Out: the relaxed MXFP8 prompt tile (a lane built by hand never launches it)
      prompt_mx2: [2]Function = undefined, // by Out: the same tile, two stages, two blocks an SM (mx2_tile)
-@@ -236,6 +240,11 @@ pub const Lane = struct {
+@@ -236,6 +239,11 @@ pub const Lane = struct {
              f.* = try mod.function(name);
              try f.allowDynamicShared(sharedBytes(.bf16, 64));
          }
@@ -58,7 +56,7 @@ index 5b7946ce39ecb704214d3441b521f2aeb41fb334..9bf242f42fdd586200fee914ea73b506
          l.half_below = try halfBelow();
          return l;
      }
-@@ -328,8 +337,10 @@ pub const Lane = struct {
+@@ -328,8 +336,10 @@ pub const Lane = struct {
          const bm: usize = if (prompt) 128 else p.bm;
          const rows_t = (m + bm - 1) / bm;
          const hm = halfModeIndex(w.mode);
@@ -71,7 +69,7 @@ index 5b7946ce39ecb704214d3441b521f2aeb41fb334..9bf242f42fdd586200fee914ea73b506
          const cols: usize = if (prompt) 128 else if (half) 32 else bn;
          const band = @max(1, @min(rows_t, (12 << 20) / (bm * w.k * 2)));
          var args: launch_.Args = .{};
-@@ -347,10 +358,10 @@ pub const Lane = struct {
+@@ -347,10 +357,10 @@ pub const Lane = struct {
          args.add(@as(i32, @intCast(if (m == 1) w.k else ldx)));
          args.add(@as(i32, @intCast(band)));
          try launch_.launch(f, .{
@@ -85,21 +83,20 @@ index 5b7946ce39ecb704214d3441b521f2aeb41fb334..9bf242f42fdd586200fee914ea73b506
          }, s, &args);
          if (p.reduce) {
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index c646da30fa1817751ab2a41bbc22fd4aea5c2599..50bb0d22184492790c7112ee65c38c31cce4ea12 100644
+index b565ffd..a7a1b38 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -71,3 +71,9 @@ pub fn sharedDirect() sys.environment.Error!bool {
+@@ -70,3 +70,8 @@ pub fn sharedDirect() sys.environment.Error!bool {
  pub fn promptGemm2() sys.environment.Error!bool {
      return sys.environment.read(bool, "TF_FLASHNEXT_PROMPT_GEMM2", false);
  }
 +
-+/// TF_FLASHNEXT_FUSED_SPLIT=1: lane calls split over K on a cluster, 2048 columns or more, run on the fused form (one
-+/// block a 64-column tile adds its K slices in slice order, the cluster's order, so the same bits); default off.
++/// TF_FLASHNEXT_FUSED_SPLIT=1: a cluster call of 2048 columns or more splits over K on the fused form, the same bits.
 +pub fn fusedSplitN() sys.environment.Error!usize {
 +    return if (try sys.environment.read(bool, "TF_FLASHNEXT_FUSED_SPLIT", false)) 2048 else 0;
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 0d041c6be8139db33a76b1ec03446dd15ffcdaf3..84c5a377fc2001e0eb4b7f347c973a7d9e84673a 100644
+index 0d041c6..84c5a37 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -150,6 +150,8 @@ pub const Engine = struct {
@@ -112,7 +109,7 @@ index 0d041c6be8139db33a76b1ec03446dd15ffcdaf3..84c5a377fc2001e0eb4b7f347c973a7d
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 9feecf6c446289eda9c25101e80bd367b5ebebea..c61085d5650e0bec6b11e932aa924ccd330c2830 100644
+index 9feecf6..c61085d 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -76,6 +76,7 @@ pub const rules = [_]Rule{
@@ -124,7 +121,7 @@ index 9feecf6c446289eda9c25101e80bd367b5ebebea..c61085d5650e0bec6b11e932aa924ccd
      .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      // Qwen 3.5 CUDA and HIP settings, read through this table:
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index d8a4433f6fb9981873cb32784b65c63026fc6f53..de385aac36e284fd12f68b042706f602e7643697 100644
+index d8a4433..de385aa 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -207,6 +207,7 @@ const valid = [_]Case{

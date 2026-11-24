@@ -1,5 +1,5 @@
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index 953dc6d005bb8c99864b460bd40d6fe8f3d619e4..39f28d6cbb5a7a6dad136746d090c7ee11f4fc75 100644
+index 3b4ba92..89b464e 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -8,6 +8,7 @@
@@ -10,16 +10,15 @@ index 953dc6d005bb8c99864b460bd40d6fe8f3d619e4..39f28d6cbb5a7a6dad136746d090c7ee
  
  namespace tf_qmmf {
  
-@@ -86,6 +87,179 @@ TF_SHARED_DOWN(tf_qmmf_shared32, 32, 64)
+@@ -86,6 +87,176 @@ TF_SHARED_DOWN(tf_qmmf_shared32, 32, 64)
  TF_SHARED_DOWN(tf_qmmf_shared64, 64, 64)
  #undef TF_SHARED_DOWN
  
-+// The read-out's glue inside its two products (TF_FLASHNEXT_READOUT_FUSE), op for op as flashnext_hc.cu's bsig and bsilu.
++// The read-out's glue inside its two products (TF_FLASHNEXT_READOUT_FUSE), op for op as flashnext_hc.cu's.
 +__device__ __forceinline__ float hc_bsig(float x) { return tf_glue::rbf(tf_glue::tf_sigmoid(x)); }
 +__device__ __forceinline__ float hc_bsilu(float x) { return tf_glue::rbf(tf_glue::tf_silu(x)); }
 +
-+// The read-out down with fn_hc_reduce_act in its epilogue: the cluster kernel's tile, K slices and sums, then the act,
-+// the inject gates and the act's 32-column sums from the f32 row the reduce would have read.
++// The read-out down with fn_hc_reduce_act in its epilogue: the tile, K slices, sums, act, inject gates, column sums.
 +template <int MODE, int BM, int BN>
 +__device__ __forceinline__ void hcact_body(
 +        const __nv_bfloat16* __restrict__ x, const unsigned char* __restrict__ w, float scale,
@@ -47,9 +46,7 @@ index 953dc6d005bb8c99864b460bd40d6fe8f3d619e4..39f28d6cbb5a7a6dad136746d090c7ee
 +TF_HCACT(tf_qmmf_hcact_q12_32, Q12, 32, 64)
 +#undef TF_HCACT
 +
-+// The read-out up with fn_hc_dense_mix8 in its epilogue: a block takes one 32-column group of all four streams, warp
-+// s stream s, each column's m16n8k16 chain as the lane's one-slice tile runs it (BF16 words staged, or the 12-bit
-+// blocks two groups ahead); the up rows round to bf16 as the lane stores them, then mix and sum as fn_hc_dense_mix8.
++// The read-out up with fn_hc_dense_mix8 in its epilogue: a warp a stream, the lane's one-slice m16n8k16 chain.
 +template <int MODE, int BM>
 +__device__ __forceinline__ void upmix_body(
 +        const __nv_bfloat16* __restrict__ x, const unsigned char* __restrict__ w, float scale,
@@ -191,16 +188,15 @@ index 953dc6d005bb8c99864b460bd40d6fe8f3d619e4..39f28d6cbb5a7a6dad136746d090c7ee
  __global__ void reduce_kernel(const float* __restrict__ part, void* __restrict__ out, long long total, int SK,
                                float scale) {
 diff --git a/zig/kernels/cuda/qmmf_body.cuh b/zig/kernels/cuda/qmmf_body.cuh
-index 63d8e4c2ffa0f0883d205daa5f56e816e2e2a573..86d5bc08fb69a4a5b68eb9bc4ab71ab9edd13bff 100644
+index 63d8e4c..4eefa05 100644
 --- a/zig/kernels/cuda/qmmf_body.cuh
 +++ b/zig/kernels/cuda/qmmf_body.cuh
-@@ -315,6 +315,44 @@
+@@ -315,6 +315,43 @@
          if (slice != 0) return;
  #endif
      }
 +#ifdef TF_QMMF_HCACT
-+    // fn_hc_reduce_act's ops on the summed rows (its one-slice call): the act, the inject gates, the act's 32-column
-+    // sums in column order; buf is free here (the cluster read the peers' copies before its last sync)
++    // fn_hc_reduce_act's ops on the summed rows: the act, the inject gates, the act's 32-column sums in column order.
 +    float* a_s = reinterpret_cast<float*>(buf);
 +#pragma unroll
 +    for (int i = 0; i < T::MT; ++i)
@@ -239,16 +235,16 @@ index 63d8e4c2ffa0f0883d205daa5f56e816e2e2a573..86d5bc08fb69a4a5b68eb9bc4ab71ab9
  #pragma unroll
      for (int i = 0; i < T::MT; ++i)
  #pragma unroll
-@@ -354,3 +392,4 @@
+@@ -354,3 +391,4 @@
                  }
              }
          }
 +#endif
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc97ebcb480 100644
+index 7b03d3c..24235f1 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
-@@ -198,6 +198,8 @@ pub const Lane = struct {
+@@ -197,6 +197,8 @@ pub const Lane = struct {
      half_below: usize = half_below_default,
      shared_down: [4]Function = undefined,
      fuse_s: [2][2][2]Function = undefined, // by halfModeIndex, Out, row tile 16 then 32: the fused form at decode rows
@@ -257,7 +253,7 @@ index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc9
      prompt: ?[2][2]Function = null, // Out, then plain / fused; loadPrompt() fills it on sm_12x
      prompt_mx: [2]Function = undefined, // by Out: the relaxed MXFP8 prompt tile (a lane built by hand never launches it)
      prompt_mx2: [2]Function = undefined, // by Out: the same tile, two stages, two blocks an SM (mx2_tile)
-@@ -245,6 +247,14 @@ pub const Lane = struct {
+@@ -244,6 +246,14 @@ pub const Lane = struct {
              try f.allowDynamicShared(sharedBytes(mode, bm));
              l.fuse_s[mi][oi][bi] = f;
          };
@@ -272,13 +268,12 @@ index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc9
          l.half_below = try halfBelow();
          return l;
      }
-@@ -379,8 +389,84 @@ pub const Lane = struct {
+@@ -378,8 +388,81 @@ pub const Lane = struct {
              }, s, &r);
          }
      }
 +
-+    /// The read-out down (BF16) with fn_hc_reduce_act's ops in the cluster tile's epilogue: `act`, `xs` and `inj` as
-+    /// the reduce writes them from the f32 rows matmulOut stores; false when the call is not that tile (nothing ran).
++    /// The read-out down (BF16) with fn_hc_reduce_act's ops in its epilogue; false when the call is not that tile.
 +    pub fn hcAct(l: Lane, s: Stream, x: u64, ldx: usize, m: usize, w: Weight, act: u64, xs: u64, inj: u64, low: usize, streams: usize, has_inj: usize) !bool {
 +        if (w.mode != .bf16 or (fuse_split_n != 0 and w.n >= fuse_split_n)) return false;
 +        const p = planFor(m, w, l.clusters);
@@ -292,8 +287,7 @@ index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc9
 +        return true;
 +    }
 +
-+    /// The read-out up (BF16 [4 d, k]) with fn_hc_dense_mix8's ops in its epilogue, a block a 32-column group of the
-+    /// four streams; false when the call is not the lane's one-slice decode tile (nothing ran).
++    /// The read-out up (BF16 [4 d, k]) with fn_hc_dense_mix8's ops in its epilogue; false: the caller mixes.
 +    pub fn upMix(l: Lane, s: Stream, x: u64, ldx: usize, m: usize, w: Weight, normed: u64, mixed: u64, xsm: u64, d: usize) !bool {
 +        if (w.mode != .bf16) return false;
 +        const p = planFor(m, w, l.clusters);
@@ -307,8 +301,7 @@ index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc9
 +const readout_down = [_][:0]const u8{ "tf_qmmf_hcact_bf16_16", "tf_qmmf_hcact_bf16_32", "tf_qmmf_hcact_bf16_64" };
 +const readout_up = [_][:0]const u8{ "tf_qmmf_upmix_bf16_16", "tf_qmmf_upmix_bf16_32", "tf_qmmf_upmix_bf16_64" };
 +
-+/// qmmf.cu upmix_body's dynamic shared bytes: its stages (the inputs, and for BF16 four streams' half tiles) or its
-+/// epilogue's up and mixed rows, whichever is larger.
++/// qmmf.cu upmix_body's dynamic shared bytes: its stages or its epilogue's up and mixed rows, whichever is larger.
 +pub fn upmixShared(q12: bool, bm: u32) u32 {
 +    const stages: u32 = if (bm == 64) 2 else 3;
 +    const weights: u32 = if (q12) 0 else 4 * 32 * group * 2;
@@ -358,7 +351,7 @@ index 9bf242f42fdd586200fee914ea73b506269d8271..a4b76cf6dd73f625e856920a1e9cafc9
  pub fn packBf16(out: []u16, w: []const u16, n: usize, k: usize) void {
      const npad = (n + 127) / 128 * 128;
 diff --git a/zig/src/cuda/qmmf_q12.zig b/zig/src/cuda/qmmf_q12.zig
-index 769f47ee78a60d69dc2ce8cb8668ec8c6f377df0..8133f6331a077c08a3e2243ace88fb9197f3d50d 100644
+index 769f47e..a33dbbf 100644
 --- a/zig/src/cuda/qmmf_q12.zig
 +++ b/zig/src/cuda/qmmf_q12.zig
 @@ -160,6 +160,8 @@ pub const Lane = struct {
@@ -402,7 +395,7 @@ index 769f47ee78a60d69dc2ce8cb8668ec8c6f377df0..8133f6331a077c08a3e2243ace88fb91
 +        return true;
 +    }
 +
-+    /// qmmf.Lane.upMix over `image`, the up's 12-bit copy: matmulOut's one-slice tile with the stream mix in its epilogue.
++    /// qmmf.Lane.upMix over `image`, the up's 12-bit copy: matmulOut's one-slice tile, the mix in its epilogue.
 +    pub fn upMix(l: Lane, s: Stream, x: u64, ldx: usize, m: usize, w: qmmf.Weight, image: u64, normed: u64, mixed: u64, xsm: u64, d: usize, clusters: bool) !bool {
 +        const p = qmmf.planFor(m, w, clusters);
 +        if (p.sk != 1 or p.bm > max_rows) return false;
@@ -413,21 +406,20 @@ index 769f47ee78a60d69dc2ce8cb8668ec8c6f377df0..8133f6331a077c08a3e2243ace88fb91
  
  const testing = std.testing;
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 75c5d4a0ebdcc7a97fc96dc2857530d673c8433c..48e28cb9024f4ff911f1c219dfe6d6a8ee9bdf9e 100644
+index 2070700..88cf1e3 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
-@@ -73,6 +73,10 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+@@ -73,6 +73,9 @@ pub fn writebackNorm(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
      try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, 10, 11, 1);
  }
  
-+/// TF_FLASHNEXT_READOUT_FUSE=1 (set at engine init): readoutNative's reduce and act run in its down's epilogue and its
-+/// stream mix in its up's, the same bytes as the four launches; calls those kernels do not carry keep the four.
++/// TF_FLASHNEXT_READOUT_FUSE=1 (set at engine init): readoutNative's reduce, act and mix run in its epilogues.
 +pub var readout_fuse: bool = false;
 +
  /// A native read-out over rows [r0, r0 + n) whose normed rows are in: down, act and gates, up, the mix.
  pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
      const s = pass.s;
-@@ -80,12 +84,17 @@ pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
+@@ -80,12 +83,17 @@ pub fn readoutNative(pass: anytype, hc_w: wt.HcW, r0: usize, n: usize) !void {
      const norm = s.norm + r0 * wide * 2;
      const act = s.act + r0 * low * 2;
      const xs_act = s.xs_act + r0 * (low / 32) * 4;
@@ -450,23 +442,21 @@ index 75c5d4a0ebdcc7a97fc96dc2857530d673c8433c..48e28cb9024f4ff911f1c219dfe6d6a8
 +    try pass.tri.hcDenseMix(s.hc_up, norm, mixed, xsm, n, dims, streams);
  }
 diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
-index dfe09660eb27e30c0f1bdb9492ae608534a9d9ef..a499d358aa334e32746e85830285104e112db068 100644
+index dfe0966..49f6ac9 100644
 --- a/zig/src/families/flashnext/cuda_batch_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
-@@ -163,6 +163,22 @@ pub const Kernels = struct {
+@@ -163,6 +163,20 @@ pub const Kernels = struct {
          return k.nativeMatmul(s, x, ldx, m, w, y, part, out);
      }
  
-+    /// The read-out down with fn_hc_reduce_act's ops in its epilogue, on the lane nativeMatmulQ12 takes; false: the
-+    /// call is not the tile those kernels carry, and the caller runs the matmul and the reduce.
++    /// The read-out down with fn_hc_reduce_act's ops in its epilogue, on nativeMatmulQ12's lane; false: run the matmul.
 +    pub fn nativeHcAct(k: *const Kernels, s: cuda.Stream, x: u64, ldx: usize, m: usize, w: cuda.qmmf.Weight, copy: ?cuda.DeviceBuffer, act: u64, xs: u64, inj: u64, low: usize, streams: usize, has_inj: usize) !bool {
 +        if (copy) |image| if (k.q12) |fast| if (m <= cuda.qmmf_q12.max_rows)
 +            return fast.hcAct(s, x, ldx, m, w, image.ptr, act, xs, inj, low, streams, has_inj, k.native_lane.clusters, k.native_lane.half_below);
 +        return k.native_lane.hcAct(s, x, ldx, m, w, act, xs, inj, low, streams, has_inj);
 +    }
 +
-+    /// The read-out up with fn_hc_dense_mix8's ops in its epilogue, on the lane nativeMatmulQ12 takes; false: the
-+    /// caller runs the matmul and the mix.
++    /// The read-out up with fn_hc_dense_mix8's ops in its epilogue, on nativeMatmulQ12's lane; false: run the matmul.
 +    pub fn nativeUpMix(k: *const Kernels, s: cuda.Stream, x: u64, ldx: usize, m: usize, w: cuda.qmmf.Weight, copy: ?cuda.DeviceBuffer, normed: u64, mixed: u64, xsm: u64, d: usize) !bool {
 +        if (copy) |image| if (k.q12) |fast| if (m <= cuda.qmmf_q12.max_rows)
 +            return fast.upMix(s, x, ldx, m, w, image.ptr, normed, mixed, xsm, d, k.native_lane.clusters);
@@ -477,21 +467,20 @@ index dfe09660eb27e30c0f1bdb9492ae608534a9d9ef..a499d358aa334e32746e85830285104e
      pub fn profile() bool {
          // the startup check refused every malformed value already, so a plain default stands here
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index 50bb0d22184492790c7112ee65c38c31cce4ea12..299d8d32b4f01033961c8a4a05897d948494d2d2 100644
+index a7a1b38..3b34968 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -77,3 +77,9 @@ pub fn promptGemm2() sys.environment.Error!bool {
+@@ -75,3 +75,8 @@ pub fn promptGemm2() sys.environment.Error!bool {
  pub fn fusedSplitN() sys.environment.Error!usize {
      return if (try sys.environment.read(bool, "TF_FLASHNEXT_FUSED_SPLIT", false)) 2048 else 0;
  }
 +
-+/// TF_FLASHNEXT_READOUT_FUSE=1: a decode read-out's reduce and act run in its down's epilogue and its stream mix in its
-+/// up's (qmmf.cu TF_HCACT, TF_UPMIX), the same bytes as the four launches; default off.
++/// TF_FLASHNEXT_READOUT_FUSE=1: a decode read-out's reduce, act and mix run in its down's and up's epilogues.
 +pub fn readoutFuse() sys.environment.Error!bool {
 +    return sys.environment.read(bool, "TF_FLASHNEXT_READOUT_FUSE", false);
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 84c5a377fc2001e0eb4b7f347c973a7d9e84673a..76f99250017d2a4993cb364c8087d92aa725e67c 100644
+index 84c5a37..76f9925 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -152,6 +152,8 @@ pub const Engine = struct {
@@ -504,7 +493,7 @@ index 84c5a377fc2001e0eb4b7f347c973a7d9e84673a..76f99250017d2a4993cb364c8087d92a
          const chunk = try chunks.soloRows(busy, false);
          const e = try gpa.create(Engine);
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index c61085d5650e0bec6b11e932aa924ccd330c2830..1e6a12b415474363c1706639586305d74973ffb0 100644
+index c61085d..1e6a12b 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -77,6 +77,7 @@ pub const rules = [_]Rule{
@@ -516,7 +505,7 @@ index c61085d5650e0bec6b11e932aa924ccd330c2830..1e6a12b415474363c1706639586305d7
      .{ .name = "TF_FLASHNEXT_PROMPT_SHARED_DIRECT", .scope = .cuda, .kind = .flag, .forms = "0 or 1" },
      // Qwen 3.5 CUDA and HIP settings, read through this table:
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index de385aac36e284fd12f68b042706f602e7643697..3dbbd30d236e1ef25c79ab9ec80d1de4c6eeedd2 100644
+index de385aa..3dbbd30 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -208,6 +208,7 @@ const valid = [_]Case{

@@ -106,22 +106,24 @@ inert at the default `affine4`; the arm that exercises it is `TF_FLASHNEXT_DRAFT
 
 ## Gates
 
-Every row is the gate run's own line. The apply, fmt, pin, lean, host-suite and compile rows are the 34-patch gate's
-(`~/work/DevComp/gate2.log`); the 40-patch run that adds 0037-0040 re-ran apply, fmt, pin, `test-gradient-serving` and
-`test-cuda-host` from a pristine worktree (`~/work/DevCompDebug/run40.log`). Host: Paperclip (x86-64, 16
-threads, Zig 0.17.0, nvcc 13.3.73), under `flock ~/work/host.lock`, on a pristine `git archive` of `1ece6e6d` staged and
-blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `test-environment-host`,
-`test-gradient-serving`, `test-qwen-serving-host`, `test-flashnext-int4-host`, `test-int4-host`,
-`test-flashnext-draft-head-host`, `test-prompt-cache-host`, `test-cache-store-host`, `test-learn-recovery`,
-`test-cuda-kept-host test-disk-identity-host test-cuda-disk-open-host`, `test-kernel-contract`,
-`test-cuda-cache-budget-host`, and `test-cuda-host`.
+Every row is the gate run's own line. The apply, fmt, pin, lean, host-suite and compile rows are the lean pass's gate
+(`~/work/LeanDebt/out/gate40.log`, script `~/work/LeanDebt/gate.sh`, worktree `~/work/LeanDebt/mixhead`), run on this
+package from a pristine worktree; `RECORD.md` also keeps the 34-patch gate (`~/work/DevComp/gate2.log`) and the
+40-patch run (`~/work/DevCompDebug/run40.log`) that preceded it. The nvcc compile rows are that earlier gate's, since
+the lean pass changes comments and pin rows only. Host: Paperclip (x86-64, 16 threads, Zig 0.17.0, nvcc 13.3.73),
+under `flock ~/work/host.lock`, on a pristine `git archive` of `1ece6e6d` staged and blob-verified against
+`git ls-tree`, then `apply.sh` applied. Host suites run: `test-environment-host`, `test-gradient-serving`,
+`test-qwen-serving-host`, `test-flashnext-int4-host`, `test-int4-host`, `test-flashnext-draft-head-host`,
+`test-prompt-cache-host`, `test-cache-store-host`, `test-learn-recovery`, `test-cuda-kept-host
+test-disk-identity-host test-cuda-disk-open-host`, `test-kernel-contract`, `test-cuda-cache-budget-host`, and
+`test-cuda-host`.
 
 | step | result |
 |---|---|
 | staged tree against `git ls-tree` | see `RECORD.md`, Checks |
 | `apply.sh --check` / `apply.sh` | see `RECORD.md` |
 | `zig fmt --check build.zig zig` | rc 0 |
-| lean, each tree's own checker; `lean_new.py` 0 new | see `RECORD.md` |
+| lean, each tree's own checker; `lean_new.py` base against head | `168 on the base, 19 new`: every comment finding cleared; the 19 left are listed with their reasons in `CHANGES.md` section 8 (`RECORD.md` has the pair) |
 | `pincheck.py` | `files 170 failing 0` |
 | host suites (the list in `RECORD.md`) | rc 0 |
 | `zig build compile-config-server -Dtarget=aarch64-linux-gnu` | rc 0 |
@@ -132,7 +134,8 @@ blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `
 
 ## What this package does not do
 
-- It adds one engine line of its own and no others: 0001-0026 are their sources' bytes, 0027 and 0028 are the
+- It adds one engine line of its own and no others: 0001-0026 are their sources' lines, with only the comment
+  condensing and the five pin rows `CHANGES.md` section 8 lists, 0027 and 0028 are the
   draft-head pair with the one hunk re-cut and the one pin row regenerated, 0029-0032 are PR #4183's contract suite
   and the tolerance branch's three commits, ported with the adaptations `CHANGES.md` lists, 0033 is the merged pin row,
   0036 narrows the int4 dense dispatch to the group sizes `fn_int4.cu` builds, and 0034, 0035, 0037, 0038 and 0039

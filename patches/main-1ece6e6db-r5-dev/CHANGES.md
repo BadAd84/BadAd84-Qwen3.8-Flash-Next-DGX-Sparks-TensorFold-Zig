@@ -9,8 +9,8 @@ One directory of 40 patches, applied in filename order to `1ece6e6dbbc073582d507
 
 | range | content | source |
 |---|---|---|
-| 0001-0020 | the r5 core levers | `patches/main-1ece6e6db-r5`, byte for byte |
-| 0021-0022 | the INT4 port and its 17 serving-pin rows | `patches/main-1ece6e6db-r5-int4`, byte for byte |
+| 0001-0020 | the r5 core levers | `patches/main-1ece6e6db-r5`, byte for byte apart from the comment condensing and the pin rows section 8 records |
+| 0021-0022 | the INT4 port and its 17 serving-pin rows | `patches/main-1ece6e6db-r5-int4`, byte for byte apart from 0021's one quoted comment line and 0022's two quoted pin rows (section 8) |
 | 0023-0024 | the KV tier's fp8 image and the append dedup | `patches/main-1ece6e6db-r5-kvtier` 0021 and 0022, byte for byte |
 | 0025-0026 | the pool's cache refusal and the whole-ask budget | `patches/main-1ece6e6db-r5-kvtier-pool` 0023 and 0024, byte for byte |
 | 0027-0028 | the bf16 draft-head fix and its pin row | `patches/main-1ece6e6db-r5-drafthead-bf16` 0026 and 0027, one hunk re-cut and one row regenerated |
@@ -132,13 +132,15 @@ in 0033 by the rule in section 3).
 
 ## 5. Identity of the copied text
 
-0001-0020 are byte-identical to `patches/main-1ece6e6db-r5` (verified by `sha256sum` against that package's
-`SHA256SUMS`). 0021-0026 are byte-identical to their sources:
+0001-0020 are copies of `patches/main-1ece6e6db-r5` (verified by `sha256sum` against that package's `SHA256SUMS`),
+with two classes of edit section 8 records: ten patches' comments condensed to one line each (0003, 0005, 0008, 0013,
+0014, 0015, 0017, 0018, 0019 and 0034) and five pin rows in 0020 regenerated from the fixed bytes. 0023-0026 are
+byte-identical to their sources; 0021 and 0022 carry only the quoted lines section 8 names:
 
 | patch | sha256 | source |
 |---|---|---|
-| 0021-int4-autoround | `3cffe99044c6ffd14820a8bc88085cc6e18990bddb5a5ab90d57223de4dda1a1` | r5-int4/0021 |
-| 0022-int4-serving-pins | `18ab81216fa104ea1853f27b60ccf9e88355ed7dde2aa976ff7d08b06bf11c26` | r5-int4/0022 |
+| 0021-int4-autoround | `9ac1a2c781ca8fd105dba91fcb94a70da8d32101b23d7974c62ecef7401ddba2` | r5-int4/0021, one quoted comment line follows 0018 (section 8) |
+| 0022-int4-serving-pins | `7aed83e75e261249c3135cf9c89cd1ca6e92fee6bd70c40f5a10a219ee3a6907` | r5-int4/0022, two quoted pin rows follow 0020 (section 8) |
 | 0023-kv-tier-fp8 | `47d90e3b5f71cd9a0404bb6f1ce836e09f709ebea44851308e8440e65d479dc7` | r5-kvtier/0021 |
 | 0024-kv-tier-dedup | `cd5a336200f7c218fa53e52fdc11d51f2ee2b34a4010fcb4dda297e15ebda864` | r5-kvtier/0022 |
 | 0025-kv-tier-pool | `e6a4872ed53041d3e5e4b850a3733dadba764b15c54941420bd4b480a9032589` | r5-kvtier-pool/0023 |
@@ -146,13 +148,14 @@ in 0033 by the rule in section 3).
 
 0027 is the draft-head package's `0026` with the one context line named in section 2 changed
 (`d06790b2a3075cfecf756f128fcb15b2df29fb7b709df3f8b631e006d3222046`). 0028 is that package's `0027` with the row
-value from section 3 (`1ad421280fa1090549d5150209241b99c5678e6721c2c71c33b811577bea117c`). 0029-0034 are constructed
-here; the source shas and the suite's own identity are in `RECORD.md`.
+value from section 3, and one quoted `cuda_mtp_check.zig` row follows section 8's value
+(`a0606c1a680861e1165373288dc5fc98259faf7b711f5ad32b732b6270215559`). 0029-0034 are constructed here (0033's quoted
+`qmmf.zig` row is section 8's); the source shas and the suite's own identity are in `RECORD.md`.
 
-The applied-result identity, measured in the 40-patch gate: applying the 40 patches in order to a pristine worktree at
-`1ece6e6d` yields a tree whose manifest (`find` + `LC_ALL=C sort -z` + `sha256sum` over the tree) is
-`dd655181afd5494ea78711c96f2240a5bf1d787cbcea207c17f971f2c6d31d19`, equal to the same command on the local 40-patch
-tree, and `git diff --check` reads nothing. `RECORD.md` has the line and the run.
+The applied-result identity, measured in the lean pass's gate (section 8, `~/work/LeanDebt/out/gate40.log`): applying
+the 40 patches in order to a pristine worktree at `1ece6e6d` yields a tree whose manifest (`find` + `LC_ALL=C sort -z`
++ `sha256sum` over the tree) is `9e3c2276cbf297d71e3d5b072f801ae18b2309f8b213e9754b8cac3aa1c359e4`, and
+`git diff --check` reads nothing. `RECORD.md` has the line and the run.
 
 ## 6. The gates' corrections: 0034-0039, and the pin rows they moved (0040)
 
@@ -218,3 +221,81 @@ regenerated from the merged bytes with `work/DevComposition/repin.py` and never 
 - The tier's missing pieces are unchanged: the staging ring, a store pin and block-name lineage.
 - Nothing of PR #4183's kernel implementation (`zig/src/cuda/int4.zig` as the serving route) is adopted: `int4.zig`
   here exists for the contract suite, and the serve still uses `zig/src/families/flashnext/cuda_int4.zig`.
+
+## 8. The lean pass: 44 comment findings cleared, 19 findings left with their reasons
+
+The lean pair run as upstream's CI runs it (each side its own copy of the tree and of `tools/zig/lean_check.py`, the
+pristine base against the head through the head's `lean_new.py`) read `lean: 231 problems, 168 on the base, 63 new`
+on the composition as first assembled. This pass removes every finding of the comment class and leaves the 19 that
+cannot be fixed without changing code. It changes no engine line: the whole diff from the pre-pass tree is the 32
+comment blocks' lines (44 instances in 20 files: 29 added, 65 removed) and the five serving-pin rows below, and
+`git diff --check` reads nothing.
+
+**The comment class: 44 instances, 32 blocks, 20 files, 10 patches.** A block is a run of consecutive `//`, `///` or
+`//!` lines, or a single comment line past 120 columns; every block is now one line of at most 120 columns, through
+the patch that owns the text:
+
+| patch | blocks | instances | where |
+|---|---|---|---|
+| 0003 | 2 | 7 | `flashnext_kv8_pending.zig`'s 7-line header; `cuda_snap.zig`'s test comment |
+| 0005 | 1 | 1 | `cuda_knobs.zig`'s 2-line header |
+| 0008 | 3 | 6 | `cuda_part_rows_test.zig`'s 5-line header; two `cuda_scratch_sizes.zig` blocks |
+| 0013 | 1 | 1 | `cuda_mtp_check.zig`'s 2-line diagnostics comment |
+| 0014 | 1 | 4 | `cuda_mtp_mxfp8.zig`'s 5-line header |
+| 0015 | 7 | 7 | `flashnext_kv8.cuh` (one long line, one 2-line block), `cuda_batch_lanes.zig`, `cuda_kv_lanes.zig`, `cuda_lanes_load.zig` (one long line each), `cuda_pages.zig` (header, one doc line) |
+| 0017 | 3 | 3 | the fused split's 2-line blocks in `qmmf.cu`, `qmmf.zig`, `cuda_knobs.zig` |
+| 0018 | 12 | 13 | the read-out fuse's comments in `qmmf.cu` (three blocks, one of 3 lines), `qmmf_body.cuh`, `qmmf.zig` (three), `qmmf_q12.zig`, `cuda_batch_hc.zig`, `cuda_batch_kernels.zig` (two), `cuda_knobs.zig` |
+| 0019 | 1 | 1 | `contract_lane_half.zig`'s added second header line |
+| 0034 | 1 | 1 | `cuda_cache_capacity_test.zig`'s 2-line comment above `named8` |
+
+`0021` quotes one of 0018's condensed lines as context and follows it (one line); no other patch text changes. The
+comment fixes move five pinned files' bytes, so `0020` carries their regenerated rows (§5) and `0022`, `0028` and
+`0033` follow the same rows where they quote them as context:
+
+| row | before | after |
+|---|---|---|
+| `zig/kernels/cuda/qmmf.cu` | `777f7c01facf9b00b925fd7de4fe73c4663eb1d7aea6c342726df9192133b2a4` | `5c55f08fdd951f683159dbaf5b3c655aa956cc15c82c4476f07270215101d1f4` |
+| `zig/src/cuda/qmmf.zig` | `0a88f17ab543e3b98460b2687cd507024085403af4d57c3494c1febc354ab258` | `cb04b89dae52c23327d8a258d2d5d0b23782d7ac271e38e117637d251e344ff2` |
+| `zig/src/families/flashnext/cuda_lanes_load.zig` | `18b19ecce27f3e8701caee5ba531ac79ed24399b5e0d870328c5a29d9e417e5a` | `473a725be4928d310d13677dee2742a230a92dc02a204c8b8f7eec85cdf11f62` |
+| `zig/src/families/flashnext/cuda_mtp_check.zig` | `fb426202a42133aacb5ae6bd192cf2e3917025eecf2c58634129096326bcbe84` | `41687d959488276d2bde2cc9dd764b8a06fcbf3dd980be903fed02654d5a6cb5` |
+| `zig/src/families/flashnext/cuda_snap.zig` | `b9606c5abce71c3f94b5b698152c7d74a453c79cd5d42e1c4dfdb9101112ea30` | `fc89ce6e3743fdcddac14c6d81a806aed17fdfdc1c105eca40e4b06d9faed9f4` |
+
+**The 19 left untouched, and why each is not behaviour-free.** Thirteen are files over 600 lines. The rule's fix is
+splitting the file into modules - new imports, moved declarations and re-exports - which is a code-structure change,
+not a comment, dead-code or formatting edit, so it is not made here (and a comment trim cannot pay for it: these files
+add 2 to 344 lines against their base, of which 0 to 16 are comments):
+
+| file | base -> head lines |
+|---|---|
+| `zig/kernels/cuda/qmmf.cu` | 293 -> 633 |
+| `zig/src/core/lane_host.zig` | 600 -> 602 |
+| `zig/src/core/lanes/depth.zig` | 594 -> 603 |
+| `zig/src/core/lanes/stream.zig` | 600 -> 602 |
+| `zig/src/core/lanes/windows.zig` | 575 -> 640 |
+| `zig/src/cuda/qmmf.zig` | 576 -> 717 |
+| `zig/src/families/flashnext/cuda_batch.zig` | 592 -> 626 |
+| `zig/src/families/flashnext/cuda_glue.zig` | 563 -> 626 |
+| `zig/src/families/flashnext/cuda_lanes.zig` | 600 -> 606 |
+| `zig/src/families/flashnext/cuda_ple.zig` | 588 -> 636 |
+| `zig/src/families/flashnext/cuda_prompt.zig` | 582 -> 610 |
+| `zig/src/families/flashnext/cuda_prompt_wt.zig` | 594 -> 610 |
+| `zig/tests/cuda/contract_tests.zig` | 600 -> 606 |
+
+Six are settings read by a raw `std.c.getenv`. Reading them through `platform/environment.zig` adds table rows and
+changes the read sites, and the table's reader is what parses the text and refuses a malformed value: that is code
+behaviour, and it adds settings the engine's table does not have, so it is not done here (the switches themselves and
+their env rows are already the patches' own; `docs/ENV-REGISTER.md` records the values):
+
+| site | finding |
+|---|---|
+| `zig/src/families/flashnext/cuda_hc_q12.zig:17` | direct getenv of `TF_FLASHNEXT_HC_Q12` |
+| `zig/src/families/flashnext/cuda_mtp_check.zig:212` | direct getenv of `TF_FLASHNEXT_CHECK_LOG` |
+| `zig/src/families/flashnext/cuda_mtp_mxfp8.zig:19` | direct getenv of `TF_FLASHNEXT_MTP_WEIGHTS` |
+| `zig/src/native/cuda_startup_phase.zig:14` | getenv of a name that is not a literal (the `flag`/`copyPolicy` wrappers) |
+| `zig/src/native/cuda_startup_phase.zig:23` | direct getenv of `TENSORFOLD_COPY_MISS` |
+| `zig/src/native/cuda_startup_phase.zig:27` | direct getenv of `TENSORFOLD_COPY_RAMP` |
+
+The pair on the fixed tree reads `lean: 187 problems, 168 on the base, 19 new`: the 19 above, and no comment finding.
+The gate (`RECORD.md`, Checks) reruns apply, fmt, pincheck, the host suites, the lean pair and `check-patch-reverts`
+on this package.
+

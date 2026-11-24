@@ -1,13 +1,13 @@
 diff --git a/zig/src/native/cuda_cache_capacity_test.zig b/zig/src/native/cuda_cache_capacity_test.zig
+index c8183f8..ea610a8 100644
 --- a/zig/src/native/cuda_cache_capacity_test.zig
 +++ b/zig/src/native/cuda_cache_capacity_test.zig
-@@ -76,8 +76,10 @@
+@@ -76,8 +76,9 @@ test "CUDA cache default: a family without snapshot slots budgets its whole ask,
      try t.expectEqual(@as(usize, 27), slots.snaps); // a family that declares slots still reserves the half
      try t.expectEqual(@as(u64, 3_320_107_008), slots.copied); // the /stats budget the kvtier-pool window read
      try t.expectEqual(copies.pages, slots.pages); // the same pages: 2,977.7 MiB changes hands, not the plan
 -    // a family that declares slots and names a count keeps exactly that many, as before
-+    // a family that declares slots and names a count keeps exactly that many; an asked cache beside TF_KV_SHARE
-+    // leaves the rest as the kept pages #2987 pins, not as copies
++    // a family that names a slot count keeps exactly that many; an asked cache beside TF_KV_SHARE leaves kept pages.
      const named8 = (try pool.plan(Slots, std.testing.allocator, l, 31 << 30, o, 262_144, &problem, false, false, 0, 8)).?;
      try t.expectEqual(@as(usize, 8), named8.snaps);
 -    try t.expectEqual(@as(u64, (6 << 30) - 8 * 115_642_368), named8.copied);

@@ -1,5 +1,5 @@
 diff --git a/docs/environment.md b/docs/environment.md
-index 0f302bb12..554a2615a 100644
+index 0f302bb..554a261 100644
 --- a/docs/environment.md
 +++ b/docs/environment.md
 @@ -127,7 +127,7 @@ Direct family readers also refuse malformed values when called without the serve
@@ -23,7 +23,7 @@ index 0f302bb12..554a2615a 100644
  An on-by-default switch keeps the same kernels and bits as off; only the launch count changes.
  The two row counts and the two draft counts keep their existing clamps after parsing.
 diff --git a/zig/build/cuda.zig b/zig/build/cuda.zig
-index d35fe9be1..625ac2792 100644
+index d35fe9b..625ac27 100644
 --- a/zig/build/cuda.zig
 +++ b/zig/build/cuda.zig
 @@ -275,6 +275,7 @@ pub fn hostTests(b: *std.Build, draft_ids: *std.Build.Module, build_options: *st
@@ -35,7 +35,7 @@ index d35fe9be1..625ac2792 100644
      const shard_tests = b.createModule(.{ .root_source_file = b.path("zig/src/living_shards_test.zig"), .target = host, .optimize = .debug, .link_libc = true });
      shard_tests.addImport("living", mods.living);
 diff --git a/zig/build/cuda_kernels.zig b/zig/build/cuda_kernels.zig
-index 6dc95046a..dc6338825 100644
+index 6dc9504..dc63388 100644
 --- a/zig/build/cuda_kernels.zig
 +++ b/zig/build/cuda_kernels.zig
 @@ -177,6 +177,7 @@ pub const kernels = [_]Kernel{
@@ -48,7 +48,7 @@ index 6dc95046a..dc6338825 100644
  /// torch.utils.cpp_extension's own nvcc flags (torch 2.13): C++20 and which half/bf16 operators the headers define.
 diff --git a/zig/kernels/cuda/fn_int4.cu b/zig/kernels/cuda/fn_int4.cu
 new file mode 100644
-index 000000000..3ab6dbc7b
+index 0000000..3ab6dbc
 --- /dev/null
 +++ b/zig/kernels/cuda/fn_int4.cu
 @@ -0,0 +1,498 @@
@@ -551,7 +551,7 @@ index 000000000..3ab6dbc7b
 +    const int*, void*, int, float, int);
 +TF_INT4_PROMPT_GU(2, 4, 2, 4, 3)
 diff --git a/zig/src/cuda/kernels.zig b/zig/src/cuda/kernels.zig
-index c1f96bf45..515b1a18a 100644
+index c1f96bf..515b1a1 100644
 --- a/zig/src/cuda/kernels.zig
 +++ b/zig/src/cuda/kernels.zig
 @@ -183,6 +183,7 @@ pub const ggml: []const u8 = if (available) &Blob("fatbin_ggml").bytes else &.{}
@@ -563,7 +563,7 @@ index c1f96bf45..515b1a18a 100644
  pub const gdn_train: []const u8 = if (available) &Blob("fatbin_gdn_train").bytes else &.{};
  pub const train_q4: []const u8 = if (available) &Blob("fatbin_train_q4").bytes else &.{};
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 8f74d1220..3a4ebbdb6 100644
+index 8f74d12..3a4ebbd 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -131,6 +131,21 @@ pub fn Pass(comptime Tri: type) type {
@@ -598,7 +598,7 @@ index 8f74d1220..3a4ebbdb6 100644
  
          /// A read-out over rows [r0, r0 + n) of the streams: mixed and its group sums, and the inject gates.
 diff --git a/zig/src/families/flashnext/cuda_batch_hc.zig b/zig/src/families/flashnext/cuda_batch_hc.zig
-index 9b1b166a5..3dc7cbd77 100644
+index 88cf1e3..b60f7f4 100644
 --- a/zig/src/families/flashnext/cuda_batch_hc.zig
 +++ b/zig/src/families/flashnext/cuda_batch_hc.zig
 @@ -38,7 +38,7 @@ pub fn writebackSharedDirect(pass: anytype, r0: usize, n: usize) !void {
@@ -621,9 +621,9 @@ index 9b1b166a5..3dc7cbd77 100644
 +    try pass.tri.hcWritebackNorm(h, h, pss, dummy, inj, y, wts, scale, norm, eps, rs, n, dims, streams, 2, slots - 1, slots, 1);
  }
  
- /// TF_FLASHNEXT_READOUT_FUSE=1 (set at engine init): readoutNative's reduce and act run in its down's epilogue and its
+ /// TF_FLASHNEXT_READOUT_FUSE=1 (set at engine init): readoutNative's reduce, act and mix run in its epilogues.
 diff --git a/zig/src/families/flashnext/cuda_batch_kernels.zig b/zig/src/families/flashnext/cuda_batch_kernels.zig
-index a499d358a..48fa29709 100644
+index 49f6ac9..c750963 100644
 --- a/zig/src/families/flashnext/cuda_batch_kernels.zig
 +++ b/zig/src/families/flashnext/cuda_batch_kernels.zig
 @@ -74,6 +74,8 @@ pub const Kernels = struct {
@@ -644,7 +644,7 @@ index a499d358a..48fa29709 100644
          k.nvfp4 = try cuda.experts.Nvfp4Experts.load(d, @intCast(sms));
          errdefer k.nvfp4.unload();
          k.fp8 = try cuda.experts.Fp8Experts.load(d, @intCast(sms));
-@@ -194,6 +198,7 @@ pub const Kernels = struct {
+@@ -192,6 +196,7 @@ pub const Kernels = struct {
  
      pub fn deinit(k: *Kernels) void {
          if (k.expert_tile) |*tile| tile.unload();
@@ -653,7 +653,7 @@ index a499d358a..48fa29709 100644
          k.nvfp4.unload();
          k.native_lane.unload();
 diff --git a/zig/src/families/flashnext/cuda_batch_side.zig b/zig/src/families/flashnext/cuda_batch_side.zig
-index be60b4ca3..84645863a 100644
+index be60b4c..8464586 100644
 --- a/zig/src/families/flashnext/cuda_batch_side.zig
 +++ b/zig/src/families/flashnext/cuda_batch_side.zig
 @@ -40,7 +40,7 @@ pub fn run(pass: anytype, st: cuda.Stream, native: anytype, n: usize) !void {
@@ -681,7 +681,7 @@ index be60b4ca3..84645863a 100644
      if (pass.shared_direct) return;
      try glue.sharedScatter(st, s.shared_out, s.y, n, dims, slots);
 diff --git a/zig/src/families/flashnext/cuda_batch_state.zig b/zig/src/families/flashnext/cuda_batch_state.zig
-index def247c74..65b549fab 100644
+index def247c..65b549f 100644
 --- a/zig/src/families/flashnext/cuda_batch_state.zig
 +++ b/zig/src/families/flashnext/cuda_batch_state.zig
 @@ -301,6 +301,7 @@ pub const Scratch = struct {
@@ -717,7 +717,7 @@ index def247c74..65b549fab 100644
          s.y = try s.add(gpa, d, (pairs + slots) * dims * 4); // a spare row: the exchange's odd-row pad
          s.branch = try s.add(gpa, d, cap * dims * 2);
 diff --git a/zig/src/families/flashnext/cuda_config.zig b/zig/src/families/flashnext/cuda_config.zig
-index 1054083b3..698ba30d8 100644
+index 1054083..698ba30 100644
 --- a/zig/src/families/flashnext/cuda_config.zig
 +++ b/zig/src/families/flashnext/cuda_config.zig
 @@ -3,6 +3,8 @@
@@ -828,7 +828,7 @@ index 1054083b3..698ba30d8 100644
      var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
      defer arena.deinit();
 diff --git a/zig/src/families/flashnext/cuda_fp8_experts_load.zig b/zig/src/families/flashnext/cuda_fp8_experts_load.zig
-index 0c4a0cf94..92db1fe6b 100644
+index 0c4a0cf..92db1fe 100644
 --- a/zig/src/families/flashnext/cuda_fp8_experts_load.zig
 +++ b/zig/src/families/flashnext/cuda_fp8_experts_load.zig
 @@ -69,20 +69,54 @@ pub fn packExpert(a: std.mem.Allocator, store: anytype, prefix: []const u8, i: u
@@ -893,7 +893,7 @@ index 0c4a0cf94..92db1fe6b 100644
  }
 diff --git a/zig/src/families/flashnext/cuda_int4.zig b/zig/src/families/flashnext/cuda_int4.zig
 new file mode 100644
-index 000000000..bcad293d8
+index 0000000..bcad293
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_int4.zig
 @@ -0,0 +1,484 @@
@@ -1383,7 +1383,7 @@ index 000000000..bcad293d8
 +}
 diff --git a/zig/src/families/flashnext/cuda_int4_load.zig b/zig/src/families/flashnext/cuda_int4_load.zig
 new file mode 100644
-index 000000000..c20782a61
+index 0000000..c20782a
 --- /dev/null
 +++ b/zig/src/families/flashnext/cuda_int4_load.zig
 @@ -0,0 +1,126 @@
@@ -1514,7 +1514,7 @@ index 000000000..c20782a61
 +    return out;
 +}
 diff --git a/zig/src/families/flashnext/cuda_launch.zig b/zig/src/families/flashnext/cuda_launch.zig
-index 1eb89e32b..0b1a415dc 100644
+index 1eb89e3..0b1a415 100644
 --- a/zig/src/families/flashnext/cuda_launch.zig
 +++ b/zig/src/families/flashnext/cuda_launch.zig
 @@ -510,6 +510,7 @@ test {
@@ -1526,7 +1526,7 @@ index 1eb89e32b..0b1a415dc 100644
      _ = fn_back;
      _ = pocket;
 diff --git a/zig/src/families/flashnext/cuda_mixed_experts.zig b/zig/src/families/flashnext/cuda_mixed_experts.zig
-index bf6efb0f1..e29f406d4 100644
+index bf6efb0..e29f406 100644
 --- a/zig/src/families/flashnext/cuda_mixed_experts.zig
 +++ b/zig/src/families/flashnext/cuda_mixed_experts.zig
 @@ -4,6 +4,7 @@ const cuda = @import("cuda");
@@ -1587,7 +1587,7 @@ index bf6efb0f1..e29f406d4 100644
 +    return .{ .experts = e, .shared = shared, .rank = rank, .world = world, .split_shared = split, .shared_width = width, .int4 = q4 };
  }
 diff --git a/zig/src/families/flashnext/cuda_modelopt_experts.zig b/zig/src/families/flashnext/cuda_modelopt_experts.zig
-index 7bae50f6c..8bd06cef9 100644
+index 7bae50f..8bd06ce 100644
 --- a/zig/src/families/flashnext/cuda_modelopt_experts.zig
 +++ b/zig/src/families/flashnext/cuda_modelopt_experts.zig
 @@ -140,6 +140,8 @@ fn formatOf(store: anytype, prefix: []const u8) !cuda.experts.Format {
@@ -1600,7 +1600,7 @@ index 7bae50f6c..8bd06cef9 100644
      };
  }
 diff --git a/zig/src/families/flashnext/cuda_moe_native.zig b/zig/src/families/flashnext/cuda_moe_native.zig
-index 5498da8e0..8dbff7928 100644
+index 5498da8..8dbff79 100644
 --- a/zig/src/families/flashnext/cuda_moe_native.zig
 +++ b/zig/src/families/flashnext/cuda_moe_native.zig
 @@ -23,7 +23,14 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize, pairs: usize, pl
@@ -1620,7 +1620,7 @@ index 5498da8e0..8dbff7928 100644
              const pt = nvfp4_tile.size(self.k, n);
              try self.k.router.route(self.stream, picks, pairs, e, pt, plan);
 diff --git a/zig/src/families/flashnext/cuda_mtp.zig b/zig/src/families/flashnext/cuda_mtp.zig
-index 4a9fbc2c6..8a95383d1 100644
+index 4a9fbc2..8a95383 100644
 --- a/zig/src/families/flashnext/cuda_mtp.zig
 +++ b/zig/src/families/flashnext/cuda_mtp.zig
 @@ -306,7 +306,7 @@ pub const Head = struct {
@@ -1633,7 +1633,7 @@ index 4a9fbc2c6..8a95383d1 100644
          errdefer h.artifact.deinit();
          h.ids = h.artifact.ids();
 diff --git a/zig/src/families/flashnext/cuda_mtp_load.zig b/zig/src/families/flashnext/cuda_mtp_load.zig
-index 0a911ba4f..5c412a1a0 100644
+index 0a911ba..5c412a1 100644
 --- a/zig/src/families/flashnext/cuda_mtp_load.zig
 +++ b/zig/src/families/flashnext/cuda_mtp_load.zig
 @@ -17,6 +17,13 @@ pub fn mode() !Mode {
@@ -1651,7 +1651,7 @@ index 0a911ba4f..5c412a1a0 100644
      if (tensor.dtype == .bf16) {
          if (!tensor.is(.bf16, &.{ wt.vocab, wt.dims })) return error.UnexpectedTensor;
 diff --git a/zig/src/families/flashnext/cuda_ple.zig b/zig/src/families/flashnext/cuda_ple.zig
-index 1f02e2221..9b8a6c178 100644
+index 1f02e22..9b8a6c1 100644
 --- a/zig/src/families/flashnext/cuda_ple.zig
 +++ b/zig/src/families/flashnext/cuda_ple.zig
 @@ -255,6 +255,28 @@ fn readScale(gpa: std.mem.Allocator, io: std.Io, dir: []const u8, wm: std.json.O
@@ -1707,7 +1707,7 @@ index 1f02e2221..9b8a6c178 100644
          const dh = g.hash.dh;
          var key: [180]u8 = undefined;
 diff --git a/zig/src/families/flashnext/cuda_projection.zig b/zig/src/families/flashnext/cuda_projection.zig
-index d16f086fd..7a6952297 100644
+index d16f086..7a69522 100644
 --- a/zig/src/families/flashnext/cuda_projection.zig
 +++ b/zig/src/families/flashnext/cuda_projection.zig
 @@ -10,11 +10,19 @@ pub const Projection = struct {
@@ -1776,7 +1776,7 @@ index d16f086fd..7a6952297 100644
  pub var recode: @import("cuda_mtp_mxfp8.zig").Format = .bf16;
  
 diff --git a/zig/src/families/flashnext/cuda_projection_load.zig b/zig/src/families/flashnext/cuda_projection_load.zig
-index 90336a2d0..ab1dbea65 100644
+index 90336a2..ab1dbea 100644
 --- a/zig/src/families/flashnext/cuda_projection_load.zig
 +++ b/zig/src/families/flashnext/cuda_projection_load.zig
 @@ -70,6 +70,76 @@ fn uploadMicro(a: std.mem.Allocator, d: *const cuda.Driver, value: Micro) !wt.Q4
@@ -1873,7 +1873,7 @@ index 90336a2d0..ab1dbea65 100644
          var value = try readStitched(a, store, prefix, names);
          defer value.deinit(a);
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index 76f992500..f525e28b9 100644
+index 76f9925..f525e28 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -186,8 +186,11 @@ pub const Engine = struct {
@@ -1891,7 +1891,7 @@ index 76f992500..f525e28b9 100644
              e.head_q = try @import("cuda_projection.zig").dense(gpa, driver, if (try @import("cuda_head.zig").enabled()) try @import("cuda_head.zig").shard(head_tensor, world, rank) else head_tensor);
          } else {
 diff --git a/zig/src/families/flashnext/cuda_prompt_load.zig b/zig/src/families/flashnext/cuda_prompt_load.zig
-index 56158bd16..45e9c0edb 100644
+index 56158bd..45e9c0e 100644
 --- a/zig/src/families/flashnext/cuda_prompt_load.zig
 +++ b/zig/src/families/flashnext/cuda_prompt_load.zig
 @@ -428,7 +428,7 @@ fn loadLayerAtRank(gpa: std.mem.Allocator, driver: *cuda.Driver, stream: *cuda.S
@@ -1904,7 +1904,7 @@ index 56158bd16..45e9c0edb 100644
      } else {
          if (world != 1 or rank != 0) return error.UnsupportedQuantization;
 diff --git a/zig/src/families/flashnext/cuda_prompt_step.zig b/zig/src/families/flashnext/cuda_prompt_step.zig
-index ddef6e6fd..10bd12184 100644
+index ddef6e6..10bd121 100644
 --- a/zig/src/families/flashnext/cuda_prompt_step.zig
 +++ b/zig/src/families/flashnext/cuda_prompt_step.zig
 @@ -195,7 +195,7 @@ pub fn writeback(tri: anytype, s: *Scratch, h: u64, mode: usize, inj: u64, y: u6
@@ -1917,7 +1917,7 @@ index ddef6e6fd..10bd12184 100644
          try tri.hcWriteback(h, h, s.pss.ptr, s.part.ptr, "*fp32", inj, dummy, "*bf16", dummy, "*bf16", dims, 1, dims, streams, 4, 1, 1, out_sk);
      } else return error.UnexpectedTensor;
 diff --git a/zig/src/families/flashnext/cuda_prompt_wt.zig b/zig/src/families/flashnext/cuda_prompt_wt.zig
-index 20ab91e4a..48d2e08b8 100644
+index 20ab91e..48d2e08 100644
 --- a/zig/src/families/flashnext/cuda_prompt_wt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt_wt.zig
 @@ -17,8 +17,11 @@ pub const low: usize = 320;
@@ -1943,7 +1943,7 @@ index 20ab91e4a..48d2e08b8 100644
  pub const nch: usize = 5;
  pub const dense_nch: usize = 3;
 diff --git a/zig/src/families/flashnext/cuda_rank_memory.zig b/zig/src/families/flashnext/cuda_rank_memory.zig
-index bad76b127..4cba9ff13 100644
+index bad76b1..4cba9ff 100644
 --- a/zig/src/families/flashnext/cuda_rank_memory.zig
 +++ b/zig/src/families/flashnext/cuda_rank_memory.zig
 @@ -39,6 +39,8 @@ fn tensorBytes(name: []const u8, e: Entry, world: usize, rank: usize, split: boo
@@ -1956,7 +1956,7 @@ index bad76b127..4cba9ff13 100644
          if (e.dtype != .u8 or e.rank != 2 or bytes % (8 * world) != 0) return error.UnexpectedTensor;
          // NVFP4 device blocks hold 128 code words and 16 scale words; a rank's whole experts average bytes / world.
 diff --git a/zig/src/families/flashnext/cuda_shared_split.zig b/zig/src/families/flashnext/cuda_shared_split.zig
-index 33b4c1ee4..5a5506bed 100644
+index 33b4c1e..5a5506b 100644
 --- a/zig/src/families/flashnext/cuda_shared_split.zig
 +++ b/zig/src/families/flashnext/cuda_shared_split.zig
 @@ -8,7 +8,7 @@ pub fn run(self: anytype, native: *const mixed.Owned, n: usize) !void {
@@ -1986,7 +1986,7 @@ index 33b4c1ee4..5a5506bed 100644
      try ops.copyCols(self.k, self.stream, s.shared_out, dims, s.y + (wt.slots - 1) * dims * 4 + native.rank * dims * 2, wt.slots * dims * 2, dims, n);
  }
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 1e6a12b41..298464985 100644
+index 1e6a12b..2984649 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -80,6 +80,11 @@ pub const rules = [_]Rule{
@@ -2002,7 +2002,7 @@ index 1e6a12b41..298464985 100644
      .{ .name = "TENSORFOLD_MEMORY_RESERVE_GIB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission's floor and the memory's size still bound it)" },
      .{ .name = "TENSORFOLD_HIP_MEMORY_LIMIT_GB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission still fits its byte count in a 64-bit size)" },
 diff --git a/zig/src/platform/environment_flashnext_test.zig b/zig/src/platform/environment_flashnext_test.zig
-index 6553fb344..1da0d8db6 100644
+index 6553fb3..1da0d8d 100644
 --- a/zig/src/platform/environment_flashnext_test.zig
 +++ b/zig/src/platform/environment_flashnext_test.zig
 @@ -33,13 +33,13 @@ fn check(name: []const u8, raw: []const u8, valid: bool) !void {

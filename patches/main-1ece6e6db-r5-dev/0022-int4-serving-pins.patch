@@ -1,5 +1,5 @@
 diff --git a/zig/tests/fixtures/gradient-serving.tsv b/zig/tests/fixtures/gradient-serving.tsv
-index adddc9c3c..85314aeb8 100644
+index 13e3ea0..606a6cd 100644
 --- a/zig/tests/fixtures/gradient-serving.tsv
 +++ b/zig/tests/fixtures/gradient-serving.tsv
 @@ -94,7 +94,7 @@ zig/src/cuda/experts.zig	8bfc2f15a742cceba87dd7eb8e80f3f1b4e3f7eb323b557eb1bb4bf
@@ -28,7 +28,7 @@ index adddc9c3c..85314aeb8 100644
  zig/src/families/flashnext/cuda_embed_main.zig	2b596788cccd420368fe803676e8ad45a4f0bf7a115a6cd8cbde9151cbf1e597	raw
 @@ -134,35 +134,35 @@ zig/src/families/flashnext/cuda_lanes.zig	e5d3185d73bb4b68ee76caa236a72a047d736c
  zig/src/families/flashnext/cuda_lanes_admission_test.zig	3f34c402c7f231d088f6b1c876b48265e128b70d4202c8644fbee455f7c5df97	raw
- zig/src/families/flashnext/cuda_lanes_load.zig	18b19ecce27f3e8701caee5ba531ac79ed24399b5e0d870328c5a29d9e417e5a	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #3467: after load a shard drops its page cache except the n-gram ranges, and the sweep reaches nested shards; tensors and replies are unchanged, this change (the load's device and io handed to the page pool's arena; paging off: unchanged)
+ zig/src/families/flashnext/cuda_lanes_load.zig	473a725be4928d310d13677dee2742a230a92dc02a204c8b8f7eec85cdf11f62	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #3467: after load a shard drops its page cache except the n-gram ranges, and the sweep reaches nested shards; tensors and replies are unchanged, this change (the load's device and io handed to the page pool's arena; paging off: unchanged)
  zig/src/families/flashnext/cuda_lanes_restore_test.zig	76bafbf4f0cb145e02dbc278c86bce762a9d7c24eacf56cf0f03a1778ed8fc05	raw
 -zig/src/families/flashnext/cuda_launch.zig	4ed03a1e5a5b2e5ca023c8d19550f17121b1cfe4599e95d006ec05498240bc5a	raw	exports cuda_moe_exchange.zig for its device test; no served change; #2837 (Flash Next TP=2 graph replay); #3413 exports cuda_tiles.zig and readout_fused.zig for their tests
 +zig/src/families/flashnext/cuda_launch.zig	b89fe79b5a3ce6698313fef4a82a0ce10a809097ee1fef8365bd9d20e67556a8	raw	exports cuda_moe_exchange.zig for its device test; no served change; #2837 (Flash Next TP=2 graph replay); #3413 exports cuda_tiles.zig and readout_fused.zig for their tests
@@ -43,7 +43,7 @@ index adddc9c3c..85314aeb8 100644
  zig/src/families/flashnext/cuda_moe.zig	87ba75343c1d228800ed9fcc6d933f1175df172c008e14a8c7a64ff7011bed44	raw
 -zig/src/families/flashnext/cuda_mtp.zig	9ba55a30ecefc06a9c8459b87baac78ac2c5d148595e1c15a46e441be79e7a23	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #2927
 +zig/src/families/flashnext/cuda_mtp.zig	2f7273781b97c2f1ceb9a7ecac6104c0e9934b7c8afb2b6ab6e5d7d8782053f5	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), #2927
- zig/src/families/flashnext/cuda_mtp_check.zig	fb426202a42133aacb5ae6bd192cf2e3917025eecf2c58634129096326bcbe84	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
+ zig/src/families/flashnext/cuda_mtp_check.zig	41687d959488276d2bde2cc9dd764b8a06fcbf3dd980be903fed02654d5a6cb5	raw	main dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning)
  zig/src/families/flashnext/cuda_mtp_draft.zig	ad32587c056ff0a723ad440f08ff6dd33c20811fe8e655d6c5ea1657e789af3c	raw	main 80e0fd72c (#2753: non-finite draft rows refused by name; finite rows unchanged), dfd9ac5ef4 (#2585: TF_FLASHNEXT_* read through platform/environment.zig, malformed text refused at startup; valid values keep their meaning), 52479d3036 (#2585: a test of the blank TF_FLASHNEXT_KEEP_LATE reader)
 -zig/src/families/flashnext/cuda_mtp_load.zig	08b026299e0b61a515f9b7fcfe51b18894be5ed325d787b9cd0896bdc046e582	raw
 +zig/src/families/flashnext/cuda_mtp_load.zig	0c09c792c9e50fb19f41eff7be3c6485c2fd7a6fd426cecff1141560f3bf4298	raw

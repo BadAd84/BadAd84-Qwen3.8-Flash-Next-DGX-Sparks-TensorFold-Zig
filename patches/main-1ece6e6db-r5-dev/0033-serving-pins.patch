@@ -1,9 +1,10 @@
 diff --git a/zig/tests/fixtures/gradient-serving.tsv b/zig/tests/fixtures/gradient-serving.tsv
+index 44ea610..f4ec486 100644
 --- a/zig/tests/fixtures/gradient-serving.tsv
 +++ b/zig/tests/fixtures/gradient-serving.tsv
-@@ -106,7 +106,7 @@
+@@ -106,7 +106,7 @@ zig/src/cuda/nvfp4.zig	0556e93c12e4eb21db45d0d9d9ee7d4c1c4ab6a32a359b67edfc0b4b7
  zig/src/cuda/qlinear.zig	680c653d110b53e52918bb13f7c54c12ffac4097959319281dc7509c085c062f	raw	commits da01294e0, 7f6f940eb, 4cec0eba1, c360607f0, ba1a9a2bb, b631fe069, 0a2a1c681, aca5a88e2, c12503be2, 7b17d0eb7, d7e44b555, 59be20e24, d40bc9e8b, f1f7f9abd, 3915bceaf, e8eabc82c; series patches 14-runtime-foundation.patch, 25-mimo-02.patch; MiMo-only aliases omitted from this candidate; HELD: must be re-qualified by the LW device gates on the 1.1.1 candidate
- zig/src/cuda/qmmf.zig	0a88f17ab543e3b98460b2687cd507024085403af4d57c3494c1febc354ab258	raw	main ec76abd45, c3acc3466, fbf8d960d (BF16 prompt tile, Flash Next only), 6a1feb26e (TF_QMMF_HALF_BELOW refused by name); dependent decode launches: weights load before griddepcontrol.wait (TF_QMMF_WFIRST), Lane.pdl
+ zig/src/cuda/qmmf.zig	cb04b89dae52c23327d8a258d2d5d0b23782d7ac271e38e117637d251e344ff2	raw	main ec76abd45, c3acc3466, fbf8d960d (BF16 prompt tile, Flash Next only), 6a1feb26e (TF_QMMF_HALF_BELOW refused by name); dependent decode launches: weights load before griddepcontrol.wait (TF_QMMF_WFIRST), Lane.pdl
  zig/src/cuda/rank_scatter.zig	303fd707713af732dd1d31c6a940dd4eeed44e9b26fe202919da5925654fc212	raw
 -zig/src/cuda/root.zig	6f28589a9c76b2bcce11223db3dcd3a68b185c4ba53fcf0dcd9990558f197331	raw	main 42735f94f0 (#2335: cuda.mla exported)
 +zig/src/cuda/root.zig	167d76c511f03e5ce78747066a1243dd187ecd6c6731fdd62f406f0f60c4d93b	raw	main 42735f94f0 (#2335: cuda.mla exported)

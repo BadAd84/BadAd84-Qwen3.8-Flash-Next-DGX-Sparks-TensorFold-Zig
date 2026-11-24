@@ -1,5 +1,5 @@
 diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 6155be4fd3ac200ad150f7b0a716b85a8f610ca5..bb9b74a4ecefac20aaea1243000aca2b7a7393db 100644
+index 6155be4..bb9b74a 100644
 --- a/CHANGELOG.md
 +++ b/CHANGELOG.md
 @@ -22,6 +22,8 @@ Each release's page on GitHub has its notes and measurements. See [the 1.0.0 rel
@@ -12,7 +12,7 @@ index 6155be4fd3ac200ad150f7b0a716b85a8f610ca5..bb9b74a4ecefac20aaea1243000aca2b
  - Web: the LibreChat and AnythingLLM Docker Connect examples keep the configured remote engine URL, with its scheme, hostname, port and proxy prefix; local loopback examples still use the Docker host alias and away examples the Web relay (#3843, fixes #3839). Thanks to @AIFlowML.
  
 diff --git a/zig/kernels/cuda/qmmf.cu b/zig/kernels/cuda/qmmf.cu
-index c08ad62af1ff1bd6d9734fa947277d14613a34c1..e2e72632ad4945ae668e690b40aade919f2e3b77 100644
+index c08ad62..e2e7263 100644
 --- a/zig/kernels/cuda/qmmf.cu
 +++ b/zig/kernels/cuda/qmmf.cu
 @@ -248,8 +248,145 @@ BF16_K32(true)
@@ -162,7 +162,7 @@ index c08ad62af1ff1bd6d9734fa947277d14613a34c1..e2e72632ad4945ae668e690b40aade91
  // tf-cuda-test native-fp: e2m1_pairs == fp4pair on all words, codes x e4m3 scales; out: misses, first, checks
  extern "C" __global__ void tf_qmmf_native_fp4_check(unsigned long long* __restrict__ out) {
 diff --git a/zig/src/cuda/qmmf.zig b/zig/src/cuda/qmmf.zig
-index 5a5269ff9a855136ab96ff2776742c526ff6df8d..371869f9a34c0e281da042d7f01926f511df75f2 100644
+index 5a5269f..371869f 100644
 --- a/zig/src/cuda/qmmf.zig
 +++ b/zig/src/cuda/qmmf.zig
 @@ -137,9 +137,13 @@ pub const reduce_symbols = [2][:0]const u8{
@@ -230,7 +230,7 @@ index 5a5269ff9a855136ab96ff2776742c526ff6df8d..371869f9a34c0e281da042d7f01926f5
  
      /// The actual prompt selection: loaded tiles, the pinned slice plan, and blocks over half the SMs.
 diff --git a/zig/src/families/flashnext/cuda_batch.zig b/zig/src/families/flashnext/cuda_batch.zig
-index 707b95d6f7470baddfc0f461557829e9e3e6a21f..49a65a3ad1bce95f52a3b44dfd2eb2e76b580556 100644
+index 348fe3b..179aefb 100644
 --- a/zig/src/families/flashnext/cuda_batch.zig
 +++ b/zig/src/families/flashnext/cuda_batch.zig
 @@ -131,7 +131,7 @@ pub fn Pass(comptime Tri: type) type {
@@ -243,18 +243,17 @@ index 707b95d6f7470baddfc0f461557829e9e3e6a21f..49a65a3ad1bce95f52a3b44dfd2eb2e7
          pub fn sumSlices(self: *Self, part: u64, out: u64, bf16: bool, n: usize, sk: usize) !void {
              return ops.sumSlices(self.k, self.stream, part, out, bf16, n, sk);
 diff --git a/zig/src/families/flashnext/cuda_knobs.zig b/zig/src/families/flashnext/cuda_knobs.zig
-index d43fb985771cb52a5daaf39768ef36a7d6fa428a..c67916aa853ff5a38d1d37e1ad26486fe97f3a3a 100644
+index d43fb98..a085f6a 100644
 --- a/zig/src/families/flashnext/cuda_knobs.zig
 +++ b/zig/src/families/flashnext/cuda_knobs.zig
-@@ -1,5 +1,5 @@
+@@ -1,5 +1,4 @@
 -//! Flash Next's n-gram, row-cache and prompt-shape switches (platform-validated environment); the defaults keep
 -//! the plain paths.
-+//! Flash Next's n-gram, row-cache, prompt-path and prompt-shape switches (platform-validated environment, read
-+//! once per process); the defaults keep the plain paths.
++//! Flash Next's n-gram, row-cache, prompt-path and prompt-shape switches; the defaults keep the plain paths.
  const sys = @import("sys");
  
  /// TF_FLASHNEXT_GATHER_READ=pread: the table's rows through a row cache and parked readers; 0 keeps the plain reader.
-@@ -41,3 +41,13 @@ pub fn gatherLog() sys.environment.Error!bool {
+@@ -41,3 +40,13 @@ pub fn gatherLog() sys.environment.Error!bool {
  pub fn gatherLockScales() sys.environment.Error!bool {
      return sys.environment.read(bool, "TF_FLASHNEXT_GATHER_LOCK_SCALES", false);
  }
@@ -269,7 +268,7 @@ index d43fb985771cb52a5daaf39768ef36a7d6fa428a..c67916aa853ff5a38d1d37e1ad26486f
 +    return sys.environment.read(usize, "TF_FLASHNEXT_PROMPT_MX128", 0);
 +}
 diff --git a/zig/src/families/flashnext/cuda_prompt.zig b/zig/src/families/flashnext/cuda_prompt.zig
-index c132f3a68b5e4f27c7aee0654f3accbeb81ef22b..5b782363599431d231c8e8790e0d7f489cf1fbc4 100644
+index c132f3a..5b78236 100644
 --- a/zig/src/families/flashnext/cuda_prompt.zig
 +++ b/zig/src/families/flashnext/cuda_prompt.zig
 @@ -11,6 +11,7 @@ const fb = @import("cuda_fn_back.zig");
@@ -300,7 +299,7 @@ index c132f3a68b5e4f27c7aee0654f3accbeb81ef22b..5b782363599431d231c8e8790e0d7f48
      }
      /// A stream's window in a shared pass and the pass over several (cuda_prompt_windows.zig).
 diff --git a/zig/src/families/flashnext/cuda_tiles.zig b/zig/src/families/flashnext/cuda_tiles.zig
-index bd5171946532a72d5ca23f735a89ef1461f6c772..11c3525e36b6106fe857ae925b74f2533e8f4707 100644
+index bd51719..11c3525 100644
 --- a/zig/src/families/flashnext/cuda_tiles.zig
 +++ b/zig/src/families/flashnext/cuda_tiles.zig
 @@ -32,15 +32,15 @@ fn sweepOf(m: usize, bm: usize, k: usize) usize {
@@ -324,7 +323,7 @@ index bd5171946532a72d5ca23f735a89ef1461f6c772..11c3525e36b6106fe857ae925b74f253
          try stream.d.check(stream.d.api.cuMemsetD8Async(part + bytes, 0, bytes, stream.handle), "cuMemsetD8Async");
          return 2;
 diff --git a/zig/src/platform/environment.zig b/zig/src/platform/environment.zig
-index 4a66bde4186a51a38dc2937178f728bd76e7c40f..53f3848dbd830a8040fc8a2ed8daf13c881e83fb 100644
+index 4a66bde..53f3848 100644
 --- a/zig/src/platform/environment.zig
 +++ b/zig/src/platform/environment.zig
 @@ -70,6 +70,8 @@ pub const rules = [_]Rule{
@@ -337,7 +336,7 @@ index 4a66bde4186a51a38dc2937178f728bd76e7c40f..53f3848dbd830a8040fc8a2ed8daf13c
      .{ .name = "TENSORFOLD_MEMORY_RESERVE_GIB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission's floor and the memory's size still bound it)" },
      .{ .name = "TENSORFOLD_HIP_MEMORY_LIMIT_GB", .scope = .cuda, .kind = .real, .forms = "a finite GiB amount (the HIP admission still fits its byte count in a 64-bit size)" },
 diff --git a/zig/src/platform/environment_test.zig b/zig/src/platform/environment_test.zig
-index 932ddb3be178599ab2f830dc7441631f615d923d..ec10352120b7a96fe7aa370935324ffca577b535 100644
+index 932ddb3..ec10352 100644
 --- a/zig/src/platform/environment_test.zig
 +++ b/zig/src/platform/environment_test.zig
 @@ -194,6 +194,9 @@ const valid = [_]Case{
