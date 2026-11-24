@@ -1,0 +1,17 @@
+diff --git a/zig/tests/fixtures/gradient-serving.tsv b/zig/tests/fixtures/gradient-serving.tsv
+--- a/zig/tests/fixtures/gradient-serving.tsv
++++ b/zig/tests/fixtures/gradient-serving.tsv
+@@ -116,11 +116,11 @@
+ zig/src/cuda/triton.zig	256323865c6a4676b8b75aae9e32d2d9732cf2623efedb9462cf6f95302c3e83	raw
+ zig/src/cuda/vit.zig	72c4301251f50d0f25907f0d8ad03a943281b234c506a455e413627a3ffe09c0	raw
+ zig/src/families/flashnext/cuda_attn.zig	99dfe79f919a8599490f1cdba0bec20d6e73ccbeafe26d5848419a465fdfa0d0	raw
+-zig/src/families/flashnext/cuda_batch.zig	6e8e7a161db369cdeb2bda2544dea2b1614f93b7bf4070044b16dc618f21659a	raw	main 42ff6c510f (disk states keyed by the resolved prompt passes; serving unchanged); #XXXX: the scratch test's ceiling restated at the 3,072-row default, #3413 (TF_FLASHNEXT_READOUT_FUSED's prompt read-out; unchanged when unset)
++zig/src/families/flashnext/cuda_batch.zig	a1b14b6cfb832481a6d2d399ca792c0f14b221df6ffab010bb8d90ed196a986b	raw	main 42ff6c510f (disk states keyed by the resolved prompt passes; serving unchanged); #XXXX: the scratch test's ceiling restated at the 3,072-row default, #3413 (TF_FLASHNEXT_READOUT_FUSED's prompt read-out; unchanged when unset)
+ zig/src/families/flashnext/cuda_batch_state.zig	d1a1979aa28af4123aba46f054d8bfbf8b0f4d32323f6416c2266897a842a76c	raw	y and moe_f32 take one spare row for a --tp 2 prompt pass's padded rank block; replies unchanged; #XXXX: the default prompt chunk is 3,072 rows
+ zig/src/families/flashnext/cuda_collective.zig	bf475ffb46b3440fcad280f46e34de25cd22b79ed96a0b587d0869e7451d3519	raw	adds sumBlock, the in-place FP32 reduce-scatter with sum's peer check, deadline and abort; no served change on its own
+ zig/src/families/flashnext/cuda_compare_main.zig	ade014dfec88f0b386076cdc093ea20710d7bf36c33ff566ca2caf472064695b	raw	main dfd9ac5ef4 (#2585: the TF_FLASHNEXT_* startup check), c274b45cc1 (the check through the flashnext module)
+-zig/src/families/flashnext/cuda_config.zig	598d1276723c7094aaea615751f609ff9488d409a90660c4710cf04f40db04a9	raw
++zig/src/families/flashnext/cuda_config.zig	b512b6ccb57047d8de8eb00f3b86805c79be6208c250d5da36fe53be7845c0ca	raw
+ zig/src/families/flashnext/cuda_draft_affine.zig	2ec22bec1a38a6d2cc7e16a65d41deeb452d1a679661351a473652b5f39f2da8	raw
+ zig/src/families/flashnext/cuda_embed.zig	f52cee06a9bf820554b5443e9278be7bedf3381ff6d2529902b40c6699de4518	raw
+ zig/src/families/flashnext/cuda_embed_main.zig	2b596788cccd420368fe803676e8ad45a4f0bf7a115a6cd8cbde9151cbf1e597	raw

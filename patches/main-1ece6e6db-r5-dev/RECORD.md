@@ -2,10 +2,10 @@
 
 ## What this is
 
-Upstream TensorFold `main` at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then 36 patches in filename order: the r5
+Upstream TensorFold `main` at `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`, then 40 patches in filename order: the r5
 core levers (0001-0020), the INT4 and KV-tier six (0021-0026), the bf16 draft-head pair (0027-0028), the int4
-contract suite with the tolerance branch's three commits (0029-0032), the merged serving pins (0033), and the three
-composed-gate corrections (0034-0036). It is the dev
+contract suite with the tolerance branch's three commits (0029-0032), the merged serving pins (0033), the composed-gate
+corrections (0034-0039) and the pin rows those corrections moved (0040). It is the dev
 engine: the one directory a device build applies, and the one stack whose gates decide whether the dev arm is good.
 
 Every row of the table below names the source, whether this package edited the text, the measured benefit and the
@@ -53,6 +53,10 @@ byte, 0027-0032 with the edits `CHANGES.md` names), and the benefit/evidence rec
 | 0034 | this package (the composed gate's finding) | yes: the test's last arm | the pool's `named8` arm now pins the #2987 behaviour: an asked cache beside TF_KV_SHARE keeps the remainder as pages (`kept = 6 GiB - 8 slots`), copied 0; before, the test expected the remainder as copies and failed (`21 pass, 1 fail (22 total)`); after, `22/22 tests passed` | `zig/src/native/cuda_cache_capacity_test.zig:79-84`, `cuda_cache_capacity_test`, gate log |
 | 0035 | this package (the composed gate's finding) | yes: the test's fixture value | the int4 port splits the shared expert's width from the routed experts' (1,280 against 640); the wider-shared fixture now starts from `wt.shared_w + 64`, the value `mismatch` compares, instead of `wt.moe_w + 64` | `zig/src/families/flashnext/cuda_config.zig:349`, gate log |
 | 0036 | this package (the composed gate's finding) | yes: one dispatch guard and one fixture field | the int4 dense dispatch now applies only to the 64/128 groups `fn_int4.cu` builds, so a fixture with no group keeps the normal lane (the paged-prompt test); the split-lane fixture sets `shared_width = wt.moe_w`, the field the port reads (before, `Owned` was `undefined` there and the run overflowed at `cuda_split_lane_test.zig:289`) | `zig/src/families/flashnext/cuda_batch.zig:135`, `zig/src/families/flashnext/cuda_split_lane_test.zig:284`, gate log |
+| 0037 | this package (the 39-patch gate's finding) | yes: the second fixture's field | the split-lane test builds `Owned` from `undefined` twice; 0036 set `shared_width` in the loop's fixture only, so the trailing strided-ineligible arm still read a garbage width and aborted in `matmulOut`'s stride cast (`integer does not fit in destination type`, `qmmf.zig:368` from `cuda_split_lane_test.zig:341`); the field is the default `wt.moe_w` there, as in the loop's non-split arm | `zig/src/families/flashnext/cuda_split_lane_test.zig:337`, `~/work/DevCompDebug/run39.log` |
+| 0038 | this package (the 39-patch gate's finding) | yes: the fixture's two optionals | the paged-prompt fixture sets every optional `cuda_batch.lane` reads: before, `int4` was an undefined tag so the lane entered `cuda_int4.dense` with an unsupported group (35-patch run, `cuda_paging_batch_test.zig:176`), and after 0036's group guard the same garbage sent the tail branch to `nativeMatmul` with `part == 0` (`MissingLanePart`); `proj` and `out` now read `int4 = null`, `tail = null` | `zig/src/families/flashnext/cuda_paging_batch_test.zig:132-145`, `~/work/DevCompDebug/run39.log` |
+| 0039 | this package (the 39-patch gate's finding) | yes: the fixture's mode | the serve-config test wrote its config files with `writeFile` and relied on the umask: on a host whose umask is 002 the file lands 0664 and `cli_config.expand`'s group-write guard refuses it, so the test failed before reaching the behaviour it tests; the fixture now chmods `serve.toml` and `big.toml` to 0644 itself, the guard untouched | `zig/src/server/cli_config_test.zig:265,322`, `~/work/DevCompDebug/run39.log` |
+| 0040 | this package (regenerated from the merged bytes) | yes: two pin rows | 0035 and 0036 edit two pinned serving files, so the composition's pin check failed after them (`files 170 failing 2`) and `test-gradient-serving` named the rows; both are regenerated with `work/DevComposition/repin.py` (mode `raw`, the file's bytes): `cuda_batch.zig` `6e8e7a16...` -> `a1b14b6c...`, `cuda_config.zig` `598d1276...` -> `b512b6cc...`; after it, `files 170 failing 0` and the pin test passes | `zig/tests/fixtures/gradient-serving.tsv:119,123`, `~/work/DevCompDebug/run40.log`, `test-gradient-serving` |
 
 ## The tolerance port's outcome
 
@@ -99,9 +103,32 @@ No branch or package was deleted by this work.
 
 ## Checks
 
-Paperclip (x86-64, 16 threads, Zig 0.17.0, nvcc 13.3.73), 2026-11-24, under `flock ~/work/host.lock`, on a pristine
-`git archive` of the base in `~/work/DevComp/pristine` and a fresh worktree in `~/work/DevComp/gated`. The gate script
-is `~/work/DevComp/gate2.sh`; every line below is the run's own (`~/work/DevComp/gate2.log`).
+Two gate runs are recorded here: the 40-patch run that is this package's verdict (`~/work/DevCompDebug/run40.log`,
+script `~/work/DevCompDebug/run40.sh`, worktree `~/work/DevCompDebug/t40`), and the 34-patch run whose findings
+forced 0034-0040 (`~/work/DevComp/gate2.log`, script `~/work/DevComp/gate2.sh`, worktree `~/work/DevComp/gated`).
+Both ran on Paperclip (x86-64, 16 threads, Zig 0.17.0, nvcc 13.3.73) under `flock ~/work/host.lock`, each on a
+pristine checkout at the base. Every line is the run's own.
+
+### The 40-patch run: this package's verdict
+
+| step | rc | line |
+|---|---|---|
+| the worktree's HEAD and cleanliness | 0 | `tree HEAD 1ece6e6dbbc073582d50738ce8e73e3c3261a73b clean=yes` |
+| `apply.sh --check .` | 0 | `apply.sh: 40 patches apply on 1ece6e6dbbc073582d50738ce8e73e3c3261a73b in order (nothing written)` |
+| `apply.sh .` | 0 | `apply.sh: 40 patches applied on 1ece6e6dbbc073582d50738ce8e73e3c3261a73b` |
+| `git diff --check` | 0 | no output |
+| the applied tree's manifest | 0 | `dd655181afd5494ea78711c96f2240a5bf1d787cbcea207c17f971f2c6d31d19` (`find` + `LC_ALL=C sort -z` + `sha256sum` over the tree), equal to the same command on the local 40-patch tree, so the box tree is this package's tree file for file |
+| entries the series changes | 0 | 160 in `git status --porcelain` (159 files the 0001-0036 series touches, plus `zig/src/server/cli_config_test.zig`, which no earlier patch edits) |
+| `zig fmt --check build.zig zig` | 0 | no output |
+| `pincheck.py` | 0 | `files 170 failing 0` |
+| `test-gradient-serving` | 0 | `Build Summary: 4/4 steps succeeded; 1/1 tests passed`; `+- run test 1 pass (1 total)` |
+| `test-cuda-host` | 0 | `Build Summary: 440/440 steps succeeded; 3862/3894 tests passed (32 skipped)`, 784 s, no `error:` line in the log. The server binary ran `+- run test 1668 pass, 15 skip (1683 total) 2m`; the failing run read `1667 pass, 15 skip, 1 fail (1683 total)`, its one failure being the serve-config case 0039 fixes. The long suite ran `240 pass, 1 skip (241 total) 12m`. The family binary that carries 0037's and 0038's tests is not among the log's fresh runs (every fresh run prints its pass counts, and no fresh step in this log reads 335 total), so its verdict is the cached result of that binary's uncached run in the 39-patch gate, whose aggregate exited 0 (`~/work/DevCompDebug/run39.log`: `STAGE test_cuda_host rc=0 wall=796s`); the split-lane crash and the paged-prompt failure are gone from the summary, which reads 0 failed and 0 crashed |
+
+### The 34-patch gate, and the 36-patch full-suite run it forced
+
+The apply, fmt, pin, lean and compile rows below are the 34-patch gate's (`gate2.log`). Its `test-cuda-host` row is
+the follow-up 36-patch full-suite run (`~/work/DevComp/full36b.log`) that named the failures 0037-0039 fix; the
+39-patch run that then proved 0034-0036 compile and run is `~/work/DevCompDebug/run39.log`.
 
 | step | rc | line |
 |---|---|---|
@@ -139,17 +166,19 @@ is `~/work/DevComp/gate2.sh`; every line below is the run's own (`~/work/DevComp
 | `test-cuda-host` | 1 | with 0034-0036 applied: `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`. 0034's cache-budget step reads `22/22 tests passed`; 0035's config test and the int4 fixture changes of 0036 compile and run (`test-flashnext-int4-host` `26/26`), but the split-lane panic (`cuda_split_lane_test.zig:289`) and the paged-prompt failure (`cuda_paging_batch_test.zig:176`, still entering `cuda_int4.dense` from a call site the group guard does not cover) persist, and a new `cli_config_test.test.serve --config: expand reads the file, passes other commands through and names what it cannot read` failure appears. The earlier 35-patch run read `7666/7715 (44 skipped, 4 failed, 1 crashed)`; the smaller total is the two failing modules aborting their runs early |
 
 The package's own gates: `scripts/check-patch-packages.sh` reads `check-patch-packages: CLEAN (19 package dirs
-checked, 1 grandfathered)`; `scripts/check-patch-reverts.py` reads `34 patches, 124 findings, 124 allowed, 0 open,
-0 stale`; `scripts/check-python.sh` reads `check-python: CLEAN`.
+checked, 1 grandfathered)`; `scripts/check-patch-reverts.py` reads `40 patches, 125 findings, 125 allowed, 0 open,
+0 stale`; `scripts/check-python.sh` reads `check-python: CLEAN`. One allow row was removed with the correction
+patches: 0036's `cuda_batch.zig` row for `if (w.int4) |m4| {` matched no finding against 0036's final text, and the
+checker fails a row that outlives its finding (it read `1 stale` before the removal). `CHANGES.md` section 1 carries
+the corrected count and the split by patch range.
 
-The env coverage gate against the applied tree is red on four of 0021's rows and is reported in `README.md`: `coverage:
-99 settings in scope, set 95, missing 4, absent 2, annotations 2, worklist markers 0, passage-lost off`, the missing
-names `TF_FLASHNEXT_HEAD_ROW_TILES`, `TF_FLASHNEXT_INT4_PROMPT_DOWN`, `TF_FLASHNEXT_INT4_PROMPT_GATE_UP`,
-`TF_FLASHNEXT_INT4_TILE`. `check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
+The env coverage gate against this tree is **green**: `coverage: 99 settings in scope, set 99, missing 0, absent 2,
+annotations 6, worklist markers 0, passage-lost off`, with 0021's four settings now `dev.env` rows and their read
+sites in the register (`README.md`, "The serve shape, and the env and launcher that carry it").
+`check-dev-env.py` reads `dev-env: 0 setting(s) without a citation`.
 
-What the gate does not prove: no device run of this composition, and `test-cuda-host` is not green. The contract
-suite's device receipt is the tolerance branch's head (`work/Int4Tolerance/RESULT.md`); here the suite is exercised on
-the host and by the nvcc compile legs. 0034 is observed at `22/22` and 0035/0036 compile and run, but the final run
-still fails the split-lane panic and the paged-prompt route, and adds a `cli_config` serve-config failure; those are
-the open work on this composition, with the exact stacks in the run log (`~/work/DevComp/full36b.log` on Paperclip).
+What the gate does not prove: no device run of this composition. The contract suite's device receipt is the tolerance
+branch's head (`work/Int4Tolerance/RESULT.md`); here the suite is exercised on the host and by the nvcc compile legs.
+`test-cuda-host` is green on the host at 40 patches (the section above), and nothing in this record claims a device run
+of the composed engine.
 

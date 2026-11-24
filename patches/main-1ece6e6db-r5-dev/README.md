@@ -6,7 +6,7 @@ int4 contract suite with the tolerance branch's allowance, controls and gate-4 m
 composed gate forced. One directory, one series, unique numbers, and the tree a device build reads when it applies a
 patch directory in glob order.
 
-    ./apply.sh --check TREE     # all 36 apply in order, nothing written
+    ./apply.sh --check TREE     # all 40 apply in order, nothing written
     ./apply.sh TREE             # apply them on a pristine checkout at 1ece6e6d
 
 Base: upstream TensorFold `main` `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`. An image of this series serves
@@ -63,8 +63,12 @@ edited in the port, so removing a source package or branch cannot lose the recor
 | 0034 | `cache-slots-asked` | the pool package's own named-slots test: its `named8` arm expected an asked cache beside TF_KV_SHARE as copies, contradicting the kept-pages behaviour #2987 pins; the test now pins copied 0 and the rest as kept pages, the engine untouched |
 | 0035 | `int4-config-shared-width` | the int4 port splits the shared expert's width from the routed experts'; the config test's wider-shared fixture now starts from `wt.shared_w` (the value the check compares), not `wt.moe_w` |
 | 0036 | `int4-test-fixtures` | the other two full-suite findings: the int4 dense dispatch is narrowed to the group sizes the kernel builds (64 or 128), and the split-lane fixture sets `shared_width`, the field the int4 port reads; both tests predate those fields |
+| 0037 | `int4-split-fixture-width` | 0036's `shared_width` line lands in the split test's second fixture too: the same `Owned` built from `undefined` for the strided-ineligible arm left `shared_width` garbage and overflowed `matmulOut`'s stride cast at `cuda_split_lane_test.zig:341` |
+| 0038 | `int4-lane-fixture-optionals` | the paged-prompt fixture sets `int4` and `tail` to null on both projections it builds from `Layer = undefined`; an undefined optional sent the lane into `cuda_int4.dense` (before 0036) and then the BF16-tail launch with no slice (after it) |
+| 0039 | `cli-config-fixture-mode` | the serve-config test states its fixture files' mode (0644) instead of inheriting the umask: under a 002 umask `writeFile` leaves a group-writable file, and the guard correctly refuses it, failing the test before it tests anything |
+| 0040 | `serving-pins` | the two rows 0035 and 0036 moved (`cuda_batch.zig`, `cuda_config.zig`), regenerated from the merged bytes with `work/DevComposition/repin.py`; the 34-patch gate's pincheck predated both |
 
-## The serve shape and what the env and launcher do not state
+## The serve shape, and the env and launcher that carry it
 
 Production's shape: `--parallel 8`, `--context 262144`, fp8 KV, the KV page pool (`TF_FLASHNEXT_KV_PAGES=4096`), the
 KV tier on its own budget, and the INT4 drafter arm the int4 package measured (`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`,
@@ -72,40 +76,39 @@ KV tier on its own budget, and the INT4 drafter arm the int4 package measured (`
 `--prompt-cache-gib 6 --prompt-cache-disk <root> --learn-conversations --learn-gib 60 --learn-daily-gib 200
 --learn-min-free-gib 20`.
 
-The coverage gate against this tree is **red**, and the four settings are 0021's own rows, all in `dev.env`'s scope:
+The coverage gate against this tree is **green**: the four settings 0021 reads are `dev.env` rows now, each with its
+read site in the register:
 
     python scripts/qwen38/zig/target/env/check-env-coverage.py --table <this tree>/zig/src/platform/environment.zig \
       --dev scripts/qwen38/zig/target/env/dev.env --register scripts/qwen38/zig/target/env/register.env \
       --scopes flashnext,cuda,common
-    coverage: 99 settings in scope, set 95, missing 4, ...
-    MISSING TF_FLASHNEXT_HEAD_ROW_TILES
-    MISSING TF_FLASHNEXT_INT4_PROMPT_DOWN
-    MISSING TF_FLASHNEXT_INT4_PROMPT_GATE_UP
-    MISSING TF_FLASHNEXT_INT4_TILE
-    STALE TF_FLASHNEXT_HEAD_ROW_TILES / TF_FLASHNEXT_INT4_PROMPT_GATE_UP (the register still calls them retired)
+    coverage: 99 settings in scope, set 99, missing 0, absent 2, annotations 6, worklist markers 0, passage-lost off
 
-`dev.env`'s own citations pass (`dev-env: 0 setting(s) without a citation`). The four values the launcher and the
-engine already use are `TF_FLASHNEXT_HEAD_ROW_TILES=2` and `TF_FLASHNEXT_INT4_PROMPT_GATE_UP=1` (both set inline by
-`scripts/qwen38/zig/qwen6-start.sh:54`), and the engine's own defaults `TF_FLASHNEXT_INT4_TILE=16` and
-`TF_FLASHNEXT_INT4_PROMPT_DOWN=1`. Writing them into `dev.env` (and turning the register's two `retired` lines into
-settings) is an env promotion outside this package's scope; the composition is the tree that makes it due.
+| setting | value | read site |
+|---|---|---|
+| `TF_FLASHNEXT_HEAD_ROW_TILES` | 2 (the engine's default is 1) | `cuda_int4.zig:274` |
+| `TF_FLASHNEXT_INT4_PROMPT_GATE_UP` | 1 | `cuda_int4.zig:272` |
+| `TF_FLASHNEXT_INT4_TILE` | 16 (`plan_tile`) | `cuda_int4.zig:151` |
+| `TF_FLASHNEXT_INT4_PROMPT_DOWN` | 1 | `cuda_int4.zig:386` |
 
-Launcher defaults a patch here assumes and `scripts/qwen38/zig/qwen6-start.sh` does not carry:
+The register's two `retired` marks for `TF_FLASHNEXT_HEAD_ROW_TILES` and `TF_FLASHNEXT_INT4_PROMPT_GATE_UP` are gone,
+and `dev.env`'s own citations pass (`dev-env: 0 setting(s) without a citation`).
 
-- **The KV tier (0023-0026).** The tier exists only if the engine is started with `--learn-conversations` and its
-  `--learn-gib/--learn-daily-gib/--learn-min-free-gib` budget, and 0026's whole-ask budget is the `--prompt-cache-gib`
-  ask. The launcher forwards none of them and starts the recipe's `start.sh` with `PREPARE=0 PARALLEL=8` only, so the
-  tier and the refusal are inert on that boot.
-- **The INT4 arm (0021).** The launcher does not set `CHECKPOINT=int4`, `VISION=0` or `KV_DTYPE=fp8`; those are the
-  recipe's variables and the deployed image is the FP4 checkpoint's. The INT4 route needs its own image and boot line
-  (the package README's block), not just this tree.
-- **The draft head (0027).** The defect needs `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` and the arm is
-  `TF_FLASHNEXT_DRAFT_HEAD=bf16`; the launcher sets neither (it sets `TF_FLASHNEXT_MTP_FP8`, which this engine does not
-  read) and leaves the head at `affine4`, where the fix is inert.
+`scripts/qwen38/zig/qwen6-start.sh` starts the composition's arms: `CHECKPOINT=int4`, `VISION=0` and `KV_DTYPE=fp8`
+(lines 31-33), `TF_FLASHNEXT_MTP_WEIGHTS=mxfp8` (37), the KV tier's `LEARN=1` with `--learn-gib 60
+--learn-daily-gib 200 --learn-min-free-gib 20 --prompt-cache-gib 6 --prompt-cache-disk /cache/kv` (42-51, forwarded at
+76-81), and `PARALLEL=8`. So the INT4 route (0021), the tier (0023-0026) and the drafter's recode (0014) are live on
+that boot.
+
+What the launcher leaves at the engine's default: `TF_FLASHNEXT_DRAFT_HEAD`, which it does not set. 0027's fix is
+inert at the default `affine4`; the arm that exercises it is `TF_FLASHNEXT_DRAFT_HEAD=bf16` beside
+`TF_FLASHNEXT_MTP_WEIGHTS=mxfp8`, which the launcher now sets.
 
 ## Gates
 
-Every row is the gate run's own line; the whole log is the run named in `RECORD.md`. Host: Paperclip (x86-64, 16
+Every row is the gate run's own line. The apply, fmt, pin, lean, host-suite and compile rows are the 34-patch gate's
+(`~/work/DevComp/gate2.log`); the 40-patch run that adds 0037-0040 re-ran apply, fmt, pin, `test-gradient-serving` and
+`test-cuda-host` from a pristine worktree (`~/work/DevCompDebug/run40.log`). Host: Paperclip (x86-64, 16
 threads, Zig 0.17.0, nvcc 13.3.73), under `flock ~/work/host.lock`, on a pristine `git archive` of `1ece6e6d` staged and
 blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `test-environment-host`,
 `test-gradient-serving`, `test-qwen-serving-host`, `test-flashnext-int4-host`, `test-int4-host`,
@@ -125,15 +128,17 @@ blob-verified against `git ls-tree`, then `apply.sh` applied. Host suites run: `
 | `zig build compile-cuda-tests`, `-Dtarget=aarch64-linux-gnu` | rc 0 |
 | `zig build -Dnvcc=... compile-cuda-tests` native | rc 0, 969 s |
 | the same, `-Dtarget=aarch64-linux-gnu` | rc 0, 945 s |
-| `zig build -Dfixed-cpu test-cuda-host` | rc 1 with 0034-0036 applied: `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`. 0034's step reads `22/22`; 0035 and 0036 compile and run, but the split-lane panic (`cuda_split_lane_test.zig:289`) and the paged-prompt failure (`cuda_paging_batch_test.zig:176`) persist, and a `cli_config` serve-config test now fails. `RECORD.md` has the full finding list |
+| `zig build -Dfixed-cpu test-cuda-host` | **rc 0 at 40 patches**: `Build Summary: 440/440 steps succeeded; 3862/3894 tests passed (32 skipped)`, no `error:` line. The server binary ran `1668 pass, 15 skip (1683 total)` (the failing run read `1667 pass, 15 skip, 1 fail (1683 total)`, the one test being the serve-config case 0039 fixes). At 36 patches the same step read `4179/4215 tests passed (33 skipped, 2 failed, 1 crashed)`; those three failures are the ones 0037-0039 fix, with the stacks in `RECORD.md` |
 
 ## What this package does not do
 
-- It adds no engine line of its own: 0001-0026 are their sources' bytes, 0027 and 0028 are the draft-head pair with
-  the one hunk re-cut and the one pin row regenerated, 0029-0032 are PR #4183's contract suite and the tolerance
-  branch's three commits, ported with the adaptations `CHANGES.md` lists, 0033 is the merged pin row, and 0034 and
-  0035 correct the two source tests the composed gate proved stale (the pool's named-slots expectation and the int4
-  shared-width fixture); no engine line is changed by either.
+- It adds one engine line of its own and no others: 0001-0026 are their sources' bytes, 0027 and 0028 are the
+  draft-head pair with the one hunk re-cut and the one pin row regenerated, 0029-0032 are PR #4183's contract suite
+  and the tolerance branch's three commits, ported with the adaptations `CHANGES.md` lists, 0033 is the merged pin row,
+  0036 narrows the int4 dense dispatch to the group sizes `fn_int4.cu` builds, and 0034, 0035, 0037, 0038 and 0039
+  correct the source tests the full-suite gate proved stale (the pool's named-slots expectation, the int4 shared-width
+  fixture, the split test's second `Owned`, the paged-prompt fixture's optionals and the serve-config fixture's file
+  modes); 0040 re-pins the two serving rows 0035 and 0036 moved.
 - No device result is claimed for this composition. The contract suite's device receipt belongs to the tolerance
   branch's head; the suite runs here on the host (`test-int4-host`, `test-kernel-contract`) and its kernels are the same
   groups-of-128 symbols the branch proved.

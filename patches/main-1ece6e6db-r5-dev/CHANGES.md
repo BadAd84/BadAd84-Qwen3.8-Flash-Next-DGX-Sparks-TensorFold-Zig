@@ -5,7 +5,7 @@ numbering and text, which collisions it resolved, and what it does not carry.
 
 ## 1. The series and its numbering
 
-One directory of 36 patches, applied in filename order to `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`:
+One directory of 40 patches, applied in filename order to `1ece6e6dbbc073582d50738ce8e73e3c3261a73b`:
 
 | range | content | source |
 |---|---|---|
@@ -19,6 +19,10 @@ One directory of 36 patches, applied in filename order to `1ece6e6dbbc073582d507
 | 0034 | the pool test's named-slots expectation | this package (the composed gate's finding, section 6) |
 | 0035 | the int4 config test's shared-width fixture | this package (the composed gate's finding, section 6) |
 | 0036 | the int4 dense dispatch guard and the split-lane fixture | this package (the composed gate's finding, section 6) |
+| 0037 | the split-lane fixture's second `Owned` width | this package (the full-suite gate's finding, section 6) |
+| 0038 | the paged-prompt fixture's int4 and tail optionals | this package (the full-suite gate's finding, section 6) |
+| 0039 | the serve-config fixture's file modes | this package (the full-suite gate's finding, section 6) |
+| 0040 | the two serving-pin rows 0035 and 0036 moved | this package (regenerated from the merged bytes, section 3) |
 
 There is no number collision: the int4-kvtier package's `0028` (the whole-ask patch) is `0026` here, the draft-head
 package's `0026`/`0027` are `0027`/`0028` here, and every appended patch has a number no other directory of this r5
@@ -26,12 +30,13 @@ family uses. The order follows the dependency the int4-kvtier package states: th
 tier is measured on), the tier's fp8 image, the dedup, the pool's refusal, the whole-ask budget; then the draft-head
 pair, which touches `cuda_mtp.zig` after the INT4 port's line there; then the contract suite and its three tolerance
 commits, which are the only patches that add the `int4-contract` verb; then the pins, last, because they hash the
-merged tree; then the three source-test corrections the composed gate forced (0034-0036).
+merged tree; then the source-test corrections the gates forced (0034-0039); and last the pin rows those corrections
+moved (0040), for the same reason 0033 is late.
 
-`REVERTS.allow` records the series' 126 reviewed `check-patch-reverts.py` findings: 88 keep the reason
-`patches/main-964174ea05/REVERTS.allow` gave them (the r5 levers re-seat those lines), and 38 are the INT4, KV-tier,
-draft-head, tolerance and composed-gate edits' own, each keyed to the document that records it. The checker reads
-`126 findings, 126 allowed, 0 open, 0 stale`.
+`REVERTS.allow` records the series' 125 reviewed `check-patch-reverts.py` findings: 102 belong to 0001-0020 (the r5
+levers re-seating their lines, with the reasons `patches/main-964174ea05/REVERTS.allow` gave them) and 23 to
+0021-0039 (the INT4, KV-tier, draft-head, tolerance and gate-correction edits' own, each keyed to the document that
+records it). The checker reads `125 findings, 125 allowed, 0 open, 0 stale`.
 
 ## 2. Collision 1: `zig/build/cuda.zig`'s test-step block
 
@@ -74,6 +79,18 @@ of this fixture is mode `raw`, so a row's value is the sha256 of the file's byte
 and the suite's row lands after the suite. Every other row of the 170 is unchanged, because no other patch moves a
 pinned file (the INT4 package's own 17 rows still hold; `zig/src/cuda/kernels.zig` was already pinned for the INT4
 registration).
+
+Two of the corrections made after that gate move pinned files of their own, and the 34-patch gate's pin check ran
+before either existed: 0035 edits `cuda_config.zig` and 0036 edits `cuda_batch.zig`. `test-gradient-serving` fails on
+both rows until they are regenerated, which the 39-patch run observed (its pin check read `files 170 failing 2`, then
+the pin test named `cuda_batch.zig`). 0040 regenerates them from the merged bytes with the same `repin.py` and rule:
+
+| row | before | after |
+|---|---|---|
+| `zig/src/families/flashnext/cuda_batch.zig` | `6e8e7a161db369cdeb2bda2544dea2b1614f93b7bf4070044b16dc618f21659a` (the tree before 0036) | `a1b14b6cfb832481a6d2d399ca792c0f14b221df6ffab010bb8d90ed196a986b` |
+| `zig/src/families/flashnext/cuda_config.zig` | `598d1276723c7094aaea615751f609ff9488d409a90660c4710cf04f40db04a9` (the tree before 0035) | `b512b6ccb57047d8de8eb00f3b86805c79be6208c250d5da36fe53be7845c0ca` |
+
+After 0040 the pin check reads `files 170 failing 0` and `test-gradient-serving` passes; no other row moved.
 
 ## 4. The int4 contract suite: the carrier the tolerance commits need
 
@@ -132,15 +149,16 @@ in 0033 by the rule in section 3).
 value from section 3 (`1ad421280fa1090549d5150209241b99c5678e6721c2c71c33b811577bea117c`). 0029-0034 are constructed
 here; the source shas and the suite's own identity are in `RECORD.md`.
 
-The applied-result identity, measured: applying the 36 patches in order to a fresh worktree at `1ece6e6d` reproduces
-the gated tree file for file (the manifest comparison reads one difference, the worktree's `.git` pointer, and
-nothing else). `RECORD.md` has the manifest hash and the gate run.
+The applied-result identity, measured in the 40-patch gate: applying the 40 patches in order to a pristine worktree at
+`1ece6e6d` yields a tree whose manifest (`find` + `LC_ALL=C sort -z` + `sha256sum` over the tree) is
+`dd655181afd5494ea78711c96f2240a5bf1d787cbcea207c17f971f2c6d31d19`, equal to the same command on the local 40-patch
+tree, and `git diff --check` reads nothing. `RECORD.md` has the line and the run.
 
-## 6. The composed gate's three corrections: 0034, 0035 and 0036
+## 6. The gates' corrections: 0034-0039, and the pin rows they moved (0040)
 
-The full `test-cuda-host` on the composition exposed three fixture defects in the int4 port's wake. 0034 and 0035
-are test-expectation corrections and change no engine line; 0036 narrows one dispatch guard in `cuda_batch.zig` so a
-view with no kernel group keeps the normal lane, and sets the split test's `shared_width`.
+The full `test-cuda-host` on the composition exposed six fixture defects and one engine line in the int4 port's wake.
+0034, 0035, 0037, 0038 and 0039 are test corrections and change no engine line; 0036 narrows one dispatch guard in
+`cuda_batch.zig` so a view with no kernel group keeps the normal lane, and sets the split test's `shared_width`.
 
 - **0034, the pool package's named-slots test.** `cuda_cache_capacity_test.zig`'s `named8` arm expected an asked
   `--prompt-cache-gib 6` beside a named `TF_KV_SHARE` of 8 to leave `6 GiB - 8 x 115,642,368` as *copied rows*. That
@@ -160,14 +178,41 @@ fails before the change with `expected null, found { ... "shared_expert_intermed
 
 0036 is the same class for the run's other two findings. `cuda_batch.lane` routed every `Q4` carrying an int4 view to
 `cuda_int4.dense`, whose group switch returns `error.Invalid` for a fixture with no 64/128 group; the dispatch is now
-narrowed to those two groups, so a fixture (and any non-int4 matrix) keeps the normal lane. The split-lane test built
-`Owned` from `undefined` and never set `shared_width`, the field the int4 port reads; it now sets `wt.moe_w`. Both are
-fixture compatibility with the port, not behaviour changes; the run that observes them is named in `RECORD.md`.
+narrowed to those two groups, so a matrix in another group keeps the normal lane. That guard is the one engine line
+these corrections touch. The split-lane test built `Owned` from `undefined` and never set `shared_width`, the field the
+int4 port reads; it now sets `wt.moe_w`.
+
+The 39-patch run left three failures, and each was a fixture that predates the int4 port's fields rather than a
+behaviour the port should change:
+
+- **0037, the split test's second `Owned`.** The test builds `Owned` from `undefined` twice: once in the loop 0036
+  fixed, and once in the trailing arm that breaks the strided down launch's eligibility. The second fixture still left
+  `shared_width` undefined, so `cuda_batch_side.down` passed a garbage stride to `qmmf.matmulOut`, whose
+  `@as(i32, @intCast(if (m == 1) w.k else ldx))` aborted with `integer does not fit in destination type`
+  (`qmmf.zig:368`, from `cuda_split_lane_test.zig:341`). It now sets `wt.moe_w`, the same value the loop's non-split
+  arm uses and the only width that arm's weight has.
+- **0038, the paged-prompt fixture's optionals.** `cuda_paging_batch_test.zig` builds `var lw: Layer = undefined` and
+  sets only the fields its attention route needs; the two projections `cuda_batch.lane` reads then carried undefined
+  `int4` and `tail` tags. Before 0036 the undefined `int4` took the lane into `cuda_int4.dense` with an unsupported
+  group (the 35-patch run's `cuda_paging_batch_test.zig:176`); with the guard in place the undefined `tail` took it to
+  the BF16-tail launch with `part == 0`, which `matmulOut` refuses with `MissingLanePart`. Both projections now state
+  `int4 = null` and `tail = null`, which is what the fixture meant: a block-FP8-free, int4-free layer.
+- **0039, the serve-config fixture's file modes.** `cli_config_test.zig` wrote `serve.toml` and `big.toml` with
+  `writeFile` and relied on the process umask for their mode. On this host the umask is 002, so the files land 0664
+  and `cli_config.expand`'s group-write guard refuses them, correctly, before the test reaches the behaviour it
+  measures (the mode cases further down chmod explicitly and were never affected). The fixture now chmods both files
+  to 0644 itself; the guard is untouched. A gate run under `umask 022` never saw this, which is why the earlier gate
+  log did not carry it.
+
+0035 and 0036 edit two files the serving-pin fixture pins (`cuda_config.zig`, `cuda_batch.zig`), and the 34-patch gate
+ran its pin check before either existed; `test-gradient-serving` fails on the stale rows. 0040 is those two rows,
+regenerated from the merged bytes with `work/DevComposition/repin.py` and never hand-edited (section 3).
 
 ## 7. What the composition does not change
 
-- No setting is added: the four settings 0021 reads through `zig/src/platform/environment.zig` are the INT4 package's,
-  and `scripts/qwen38/zig/target/env/dev.env` does not yet state them (README, "The serve shape").
+- No setting is added by this package: the four settings 0021 reads through `zig/src/platform/environment.zig` are the
+  INT4 package's own rows, and the dev env files state them now, with their read sites (`README.md`, "The serve shape,
+  and the env and launcher that carry it"); the coverage gate reads `99 settings in scope, set 99, missing 0`.
 - The INT4 package's gap against issue #3368's six steps is unchanged, including the MTP layer recoded to block FP8 at
   load (drafts only, replies exact) and the missing float64 fidelity cells.
 - The tier's missing pieces are unchanged: the staging ring, a store pin and block-name lineage.
