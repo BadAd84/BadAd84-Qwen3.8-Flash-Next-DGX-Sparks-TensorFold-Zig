@@ -20,10 +20,14 @@ Two modes, both explicit - there is no default mode, because one of them reads a
                     production launcher the box's ~/qwen6-start-prod.sh against the production
                                         branch's copy, and it must NOT equal the dev launcher, so a
                                         sync onto production cannot pass;
-                    recipe filter       the environment-forwarding line in the recipe launcher the
-                                        box runs (~/qwen-zig/start.sh) against the line this repo
-                                        records verbatim at
+                    recipe filter       the environment-forwarding line in each recipe launcher the
+                                        box runs (~/qwen-zig/start.sh and the screen kit's clone
+                                        at ~/work/lanes/rpr/recipe/start.sh) against the line this
+                                        repo records verbatim at
                                         upstream/recipe-launcher-tf-env/0001-launcher-forward-tf-env.patch.
+                  Both recipe copies are compared: the screen kit boots through its own clone, and a
+                  clone left on the pre-widening line silently drops every bare TF_* row from a screen
+                  base (measured 2026-11-24: 26 of dev.env's 112 export lines).
                   The recipe's copies of that line live on the box (the recipe tree and its
                   start-upstream.sh reference copy), so they are compared here and not locally; the
                   repo holds the line once, in that package, and check-launcher-contract.py reads the
@@ -56,7 +60,8 @@ PRODUCTION = ("production launcher", "production/qwen6-start-prod.sh", "qwen6-st
 RECORDED_FILTER = "upstream/recipe-launcher-tf-env/0001-launcher-forward-tf-env.patch"
 REMOTE = (
     'sha256sum "$HOME/qwen6-start.sh" "$HOME/qwen6-start-prod.sh"; echo LAUNCHER-SYNC-MARK; '
-    '''grep -n 'TENSORFOLD|TF_' "$HOME/qwen-zig/start.sh" | head -5'''
+    '''grep -n 'TENSORFOLD|TF_' "$HOME/qwen-zig/start.sh" | head -5; echo LAUNCHER-SYNC-RPR-MARK; '''
+    '''grep -n 'TENSORFOLD|TF_' "$HOME/work/lanes/rpr/recipe/start.sh" | head -5'''
 )
 
 
@@ -150,6 +155,18 @@ def remote_reply(host: str) -> str | None:
     return r.stdout
 
 
+def parse_filter(text: str) -> tuple[int | None, str | None]:
+    """The environment-forwarding line's number and regex from one section of the reply."""
+    line = regex = None
+    for row in text.splitlines():
+        m = re.match(r"^(\d+):(.*)$", row)
+        if m and "grep -E" in m.group(2):
+            inner = re.search(r"grep -E '([^']+)'", m.group(2))
+            if inner:
+                line, regex = int(m.group(1)), inner.group(1)
+    return line, regex
+
+
 def box(repo: Path, recorded: Path, reply: str, source: str) -> int:
     head, _, tail = reply.partition("LAUNCHER-SYNC-MARK")
     shas = {}
@@ -157,13 +174,9 @@ def box(repo: Path, recorded: Path, reply: str, source: str) -> int:
         m = re.match(r"^([0-9a-f]{64})\s+(\S+)$", line.strip())
         if m:
             shas[Path(m.group(2)).name] = m.group(1)
-    filter_line = filter_regex = None
-    for line in tail.splitlines():
-        m = re.match(r"^(\d+):(.*)$", line)
-        if m and "grep -E" in m.group(2):
-            inner = re.search(r"grep -E '([^']+)'", m.group(2))
-            if inner:
-                filter_line, filter_regex = int(m.group(1)), inner.group(1)
+    main_text, _, rpr_text = tail.partition("LAUNCHER-SYNC-RPR-MARK")
+    filter_line, filter_regex = parse_filter(main_text)
+    rpr_line, rpr_regex = parse_filter(rpr_text)
     if not shas:
         print(f"BOX-UNREADABLE {source}: no sha256sum line in the reply")
         return 2
@@ -225,6 +238,19 @@ def box(repo: Path, recorded: Path, reply: str, source: str) -> int:
     else:
         drifted += 1
         verdicts.append(f"DRIFT recipe filter: {source}:~/qwen-zig/start.sh:{filter_line} carries {filter_regex}, "
+                        f"the record at {record_label}:{want_line} is {want}")
+    checks += 1
+    rpr = f"{source}:~/work/lanes/rpr/recipe/start.sh"
+    if rpr_regex is None:
+        drifted += 1
+        verdicts.append(f"DRIFT recipe filter (screen clone): {rpr} carries no env-forwarding line, "
+                        f"the record at {record_label}:{want_line} is {want}")
+    elif rpr_regex == want:
+        verdicts.append(f"EQUAL recipe filter (screen clone): {rpr}:{rpr_line} == "
+                        f"{record_label}:{want_line} {want}")
+    else:
+        drifted += 1
+        verdicts.append(f"DRIFT recipe filter (screen clone): {rpr}:{rpr_line} carries {rpr_regex}, "
                         f"the record at {record_label}:{want_line} is {want}")
     for line in verdicts:
         print(line)
