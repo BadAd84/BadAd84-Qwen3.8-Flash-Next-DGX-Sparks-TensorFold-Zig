@@ -327,3 +327,25 @@ other sessions' windows (`parityid`, `SharedDraftsMain`, both already waiting wh
 The first window's confirm pass (A2, A4, P and D at C=2, C=4 and C=6), its restore proof, and the second
 window's A1/A3 confirm (queued on the lock behind two other sessions' windows). The final version of this
 file adds those cells and the restore lines.
+
+## The confirm pass, complete (window3, 2026-11-24, 62 min, 12 cells)
+
+Both arms that the screen could not settle are now measured at C=2, 4 and 6 with their own fresh boots, and
+the reply hashes settle the question of whether they change anything: at every level P against P is equal on
+every row, D against D on every row, A1 (the copy-policy namespace, production's policy under the dev
+engine's names) equals D row for row, and A3 (every graph instantiate fails, rounds run eagerly) equals P row
+for row. Across the screen's C=1 and C=8 and this pass's C=2, 4 and 6 that is all five levels for both arms.
+
+| arm | C=2 prose/code vs its control | C=4 | C=6 | verdict |
+|---|---|---|---|---|
+| A1 vs D | 1.015 / 1.001 | 0.994 / 1.002 | 1.005 / 1.005 | no-op, inside D's boot spread, replies byte-equal to D |
+| A3 vs P | 1.012 / 0.995 | 1.011 / 1.014 | 1.004 / 0.985 | eager rounds inside P's own spread; cold8k 0.982/0.975/0.988 |
+
+So neither the copy-policy namespace gap nor graph instantiation carries the gap, and the attribution stands
+where the screen left it: cold prefill is the captured one-program K-sliced prompt matmul (A2), and decode is
+a per-round kernel-arrangement difference with no single owner (`docs/receipts/DecodeProfile/RESULT.md`:
+no stage above 17.2 percent of a round, no kernel above 29 percent of sampled kernel time).
+
+Files: `confirm/score.md` (the tables), `confirm/hashes.md` (the reply-hash equality per arm and level),
+`confirm/run.log.excerpt` (RUN3-DONE, WINDOW3-DONE, RESTORED). The window restored production with the pinned
+image and the kind-driven env check at `117 rows compared, 54 equal, 0 problem(s)`.
