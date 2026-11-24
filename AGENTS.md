@@ -30,17 +30,20 @@ ots-infra's; the GLM serve is glm5.3-flash-dev.
 - `scripts/qwen38/` - the serve's files, AUTHORED here and COPIED to spark6 (`~/qwen6-start.sh`, `~/qwen-zig` for the
   recipe, `~/work/` for the harnesses); the repo copy is the source.
 - `scripts/qwen38/zig/target/env/` - the environment of record: `dev.env` is our arm (every setting the served tree
-  reads, each with the file that measured it; gate `check-dev-env.py`), `prod.env` is the live serve's launcher copy
-  (54 settings, read from the running container 2026-11-23). A setting with no value in the env is a hard stop at a
-  rebase, not a note in the register.
+  reads, each with the file that measured it; gate `check-dev-env.py`), `prod.env` is the production engine's
+  complete record, 118 rows against its own derived table (`docs/receipts/ProdEnvAudit/`), gated by
+  `check-env-coverage.py --tag prod` and the kind-driven `check-prod-env.py`. A setting with no value in the env is
+  a hard stop at a rebase, not a note in the register.
 - **`PROMOTION-RULES.md` owns how an env row or a launcher option becomes a default**: every row of the served
   engine's table set in BOTH env files, `dev.env` being `prod.env` plus candidates that only raise a default,
   one verdict a row in the register with its evidence, and a measured winner promoted into the launcher and
   every forwarding driver in the commit that carries its cells. `docs/PROMOTION-COMPLIANCE.md` holds the
-  measured gap: `prod.env` states 54 rows and the production engine's own table is not yet read; of the 40 rows it
-  sets that `dev.env` omits, 39 are names the dev engine no longer reads and 1 is plumbing, so they are `retired`
-  on the dev side rather than copied; two rows the dev file overturns (`TENSORFOLD_CUDA_KERNELS`,
-  `TF_FLASHNEXT_PRODUCT_STREAMS`) are the real findings, and no launcher sync gate exists yet. A knob a patch adds
+  measured state: `prod.env` holds all 118 rows of the production set (54 launcher values, 63 pinned defaults,
+  1 never compared) and `dev.env` has a cited verdict for all 114 of its rows; of the 118 production rows
+  `dev.env` omits 96 (the ones the dev engine does not read are `retired` on the dev side rather than copied),
+  and 92 dev rows are additions with no production counterpart; the two rows the dev file overturns
+  (`TENSORFOLD_CUDA_KERNELS`, `TF_FLASHNEXT_PRODUCT_STREAMS`) are resolved per engine; the launcher sync and
+  contract gates exist (`check-launcher-sync.py`, `check-launcher-contract.py`). A knob a patch adds
   and we know improves the serve enters the env and launcher in the same commit as the patch; when upstream accepts
   the change, check the upstream name first and adjust ours across both env files, the launcher, the drivers, the
   register and the patch's read sites, then delete the patch with its absorbing commit recorded.
@@ -304,6 +307,19 @@ otherwise.
   its read site. Run both against the served tree at every re-seat and after any patch that adds a registry row; a
   new upstream knob is then a hard stop until its value is written. Why: an upstream default in no env file cost 7
   to 11 percent for two days (`docs/ENV-REGISTER.md`).
+- `check-env-coverage.py ... --tag prod` with `--table docs/receipts/ProdEnvAudit/prod-settings-table.zig` and
+  `--dev scripts/qwen38/zig/target/env/prod.env` - the production record is complete against its derived table
+  (`118 settings in scope, set 118, missing 0, passage-lost 0`). `check-prod-env.py --inspect <docker inspect>`
+  compares only the rows whose verdict says the container carries them, in both directions, and a row with no
+  `prod` verdict fails; its kind filter is proven by `docs/receipts/ProdEnvAudit/check-prod-env-selftest.sh`
+  (`SELFTEST-OK 6`).
+- `check-register-evidence.py` - one verdict a row, every cited path opened, every `path:line` read and required to
+  contain the setting or a read call (`0 problem(s)`); the coverage gate only matches the evidence as text, so
+  this check is what makes a citation real. Its two failure proofs are in `docs/receipts/RegisterVerdicts/`.
+- `check-launcher-sync.py --check-local | --check-box` and `check-launcher-contract.py` - the repo, index and HEAD
+  copies of each launcher are one file and the box copies match the repo and the recorded recipe line (`5 checks,
+  0 drifted`), and every promoted `dev.env` row is in a documented state with an explicit off arm for all 80
+  switch names (`0 problem(s)`).
 - `scripts/check-patch-reverts.py SERIES_DIR` - a series patch that silently takes back a base line or an earlier
   patch's line (`undo`, `restore`, `delete` shapes). Run it when a patch is ported to a new base, before the gates.
 
