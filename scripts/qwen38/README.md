@@ -249,6 +249,13 @@ vLLM reference: 64K replay 21,923 tok/s); keeping a state for completion prompts
 
 - **The launcher gates.** Two read-only checks, neither boots anything. `python scripts/qwen38/zig/target/env/check-launcher-sync.py --check-local` proves the repo's copies of each launcher are one file (working tree, index and HEAD); `--check-box` reads the box (`--host`, default `adam@spark6.ots-int.net`) and compares the repo copy with `~/qwen6-start.sh`, the box's `~/qwen6-start-prod.sh` with the `production` branch's copy and requires it not to equal the dev launcher, and the recipe launcher's forwarding line with the line recorded at `upstream/recipe-launcher-tf-env/0001-launcher-forward-tf-env.patch` (`--from-file` re-checks a saved probe reply, `--print-remote` prints the probe). `python scripts/qwen38/zig/target/env/check-launcher-contract.py` proves every promoted row of `dev.env` is either stated by the dev launcher at that value, or documented in its own comment as the engine default it is left at (the value and a read site are checked), or carried by the launcher env under a name the recipe launcher's filter forwards; it also proves each switch's `NAME=0` off arm passes that filter, and that the launcher's own gates (`LEARN`, `LOCK_HOLDER`) take a caller's 0. Both exit 0 clean and 1 with one line per finding. The filter is read from the recorded launcher line, never copied into the gate.
 
+- **The register's evidence check.** `python scripts/qwen38/zig/target/env/check-register-evidence.py` proves one
+  verdict a row for every `dev.env` name, opens every path a verdict cites, reads each `path:line` it names, and
+  fails on a missing path or two verdicts for one name; the coverage gate only matches the evidence as text, so
+  this check is what makes a citation real. Today: `114 dev rows, 153 dev verdicts, 114 rows covered, 0 rows
+  without, 118 prod verdicts`, `193 evidence path(s) opened, 108 cited line(s) read`, `0 problem(s)`. Both
+  failure proofs are in `docs/receipts/RegisterVerdicts/PROOFS.md`.
+
 - **The tier's spelling in the launchers.** `--prompt-cache-disk DIR` is the engine's own spelling of
   `--learn-conversations --learn-dir DIR` (`zig/src/server/cli.zig:465-469`), and the two spellings are refused
   together (`cli.zig:319-325`, `cli_test.zig:529-556`), so the Zig dev launcher passes the disk form: one flag sets

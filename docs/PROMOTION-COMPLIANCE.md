@@ -34,7 +34,9 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
    requires an evidence path on the verdict's own line, and exempts `retired`, `raw`, `launcher` and `absent` from
    table-row staleness test (those kinds exist for names without a row). The production table is read now: 118
    `prod` verdicts (52 `measured`, 2 `launcher`, 38 `debt`, 19 `inert`, 7 `absent`), all cited, and the 92
-   dev-only names are additions. What remains for this test is the legacy `default-ok`/`unreachable` conversion.
+   dev-only names are additions. The dev arm is complete: 114 of 114 `dev.env` rows carry one verdict (8
+   `measured`, 57 `inert`, 31 `debt`, 13 `launcher`, 4 `absent`, 1 `raw`), the one legacy `default-ok` line is
+   `absent`, 0 `unreachable` lines existed, and the coverage gate reads `annotations 99`.
 4. **Launcher promotion mechanics.** Met. The four launchers were edited on the box, and two gates hold the
    copies: `check-launcher-sync.py --check-local` proves each repo launcher's working-tree, index and HEAD
    copies are one file, `--check-box` reads the box (the dev launcher against the repo copy, the production
@@ -49,9 +51,10 @@ measured state against it, written 2026-11-23, so the gaps are worked rather tha
 
 ## Worklist, in order
 
-1. Write the per-row register entry for each of the 92 dev-only additions where the row does not carry one.
-2. Convert the remaining legacy annotations (`default-ok`, `unreachable`) to the rule's kinds where the better
-   word is `inert` or `absent`; the checker already accepts both vocabularies.
+1. Done, measured: every `dev.env` row carries one verdict in the register (114 of 114; 107 entries added:
+   57 `inert`, 28 `debt`, 12 `launcher`, 6 `measured`, 3 `absent`, 1 `raw`), so 0 rows are unclassified.
+2. Done, measured: the one legacy `default-ok` line is `absent` (TF_ROCE_GID_INDEX, a presence test); 0
+   `unreachable` lines were present.
 3. For each retired patch, check the upstream name at its absorbing commit against ours and adjust every env
    row, launcher option, driver, register verdict and read site before deleting the patch (the four re-seat
    retirements listed in `docs/UPSTREAM-WATCHLIST.md` are the first batch).
