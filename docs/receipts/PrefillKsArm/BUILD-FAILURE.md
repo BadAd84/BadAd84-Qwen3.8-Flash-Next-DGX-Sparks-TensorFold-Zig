@@ -53,3 +53,9 @@ Measured, each inside the build image (nvcr.io/nvidia/pytorch:26.07-py3):
 Yet the stage fails at .gitignore:33 and always has, with a patch that has also been tried without an index line and with block context.
 
 So the next experiment must run INSIDE the failing layer rather than reproduce its inputs: add a debug RUN to a copy of the Dockerfile that prints git status, git rev-parse HEAD, sha1sum .gitignore and cat -A of the file at line 33 immediately before the apply loop. Do not launch another build before that.
+
+## Eighth launch: the same stage failure, so the build path is paused here
+
+The placeholder was rewritten on the box and read back with cat -A (six lines, 644, the exact header), and the stage still fails at .gitignore:33 while an in-container reproduction of the same fetch, COPY and loop prints CHECK-OK. Eight launches, every component verified in isolation, no mechanism found. Recorded as unanswered: the difference between the failing layer and the reproduction is not in the patch, the tree, the shell, the image, the remote or COPY fidelity, and finding it needs a debug RUN inside the real Dockerfile rather than more launches.
+
+Consequence for the campaign: patch 0041 cannot be tested until an image carries it, and the build path to such an image is blocked on this. The lever's value remains unmeasured, its port is proven by the series apply (41 of 41) and by the host gates, and the arms in AB-PLAN.md are ready for whichever build route works: the recipe's own build at its pinned base with our series re-cut to it, or a debug pass on this Dockerfile.
