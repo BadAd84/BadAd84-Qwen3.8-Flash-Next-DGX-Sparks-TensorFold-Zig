@@ -1,0 +1,2 @@
+[2026-11-25T00:25:17+00:00] RUN-DONE 2026-11-25T00:25:17+00:00 elapsed 38 min
+[2026-11-25T00:26:45+00:00] RESTORED health 200 image tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7 sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f envcheck rc 0 :: prod-env: 54 settings in prod.env (54 stated, 0 unset), 54 in the container, 54 equal, 0 problem(s)
