@@ -34,8 +34,8 @@ P_RECIPE=$HOME/qwen-zig-prod
 D_RECIPE=$HOME/qwen-zig
 P_TAG=tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7
 P_ID=sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
-D_TAG=tensorfold-qwen38:r5dev40
-D_ID=sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+D_TAG=tensorfold-qwen38:ks41n
+D_ID=sha256:27b7f3b70d9cb25a4301a0c4ae7f812eb102893c12336030c63290b4a4215e55
 CACHE_DIR=$HOME/.cache/tensorfold-qwen38/4144696f21e3
 CN=qwen38-flash-next-tf
 PORT=8888
@@ -54,20 +54,6 @@ if [ "${PKS_LOCKED:-}" != 1 ]; then
   flock -o -w 43200 "$HOME/work/gpu.lock" env PKS_LOCKED=1 LOG="$LOG" bash "$SELF"
   rc=$?
   echo "window.sh exit $rc $(date -Is)" >> "$LOG"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL/health")
-  if [ "$code" != 200 ]; then
-    echo "OUTER-RESTORE needed after rc $rc (health $code); re-queuing for the lock" >> "$LOG"
-    export LOG
-    flock -o -w 900 "$HOME/work/gpu.lock" env OUTER_RESTORE=1 LOG="$LOG" bash -c '
-      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8888/health)
-      [ "$code" = 200 ] && { echo "OUTER-RESTORE skipped, health $code" >> "$LOG"; exit 0; }
-      ( cd "$HOME/qwen-zig-prod" && ./stop.sh ) >> "$LOG" 2>&1 || true
-      ( env -u IMAGE LOCK_HOLDER=0 "$HOME/qwen6-start-prod.sh" </dev/null ) >> "$LOG" 2>&1
-      for i in $(seq 1 180); do code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8888/health); [ "$code" = 200 ] && break; sleep 5; done
-      img=$(docker inspect qwen38-flash-next-tf --format "{{.Config.Image}} {{.Image}}" 2>/dev/null || true)
-      echo "OUTER-RESTORE /health $code image ${img:-absent} $(date -Is)" >> "$LOG"
-    '
-  fi
   exit $rc
 fi
 
@@ -197,32 +183,11 @@ shot_arm() { # arm C runno
 }
 shoot() { clear_dstore; shot_arm "$@"; }
 
-restore_production() {
-  local img code erc
-  log "RESTORE start $(date -Is)"
-  img=$(docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' 2>/dev/null || true)
-  code=$(healthcode)
-  case "$img" in
-    *"$P_TAG $P_ID"*) log "RESTORE already in place health $code image $img"; [ "$code" = 200 ] || wait_health || log "RESTORE health wait timed out (image already the pinned one)";;
-    *)
-      stop_serve "$D_RECIPE"; stop_serve "$P_RECIPE"
-      ( env -u IMAGE LOCK_HOLDER=0 "$PROD_START" ) >> "$LOG" 2>&1
-      wait_health || log "RESTORE health wait timed out"
-      ;;
-  esac
-  mkdir -p "$OUT/restored"
-  docker inspect "$CN" > "$OUT/restored/prod-inspect.json" 2>/dev/null || true
-  docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' > "$OUT/restored/image.txt" 2>/dev/null || true
-  curl -s --max-time 10 "$URL/health" > "$OUT/restored/health.json" 2>/dev/null || true
-  python3 "$BOX/gate/check-prod-env.py" --inspect "$OUT/restored/prod-inspect.json" > "$OUT/restored/envcheck.txt" 2>&1
-  erc=$?
-  log "RESTORED health $(healthcode) image $(cat "$OUT/restored/image.txt" 2>/dev/null) envcheck rc $erc :: $(tail -1 "$OUT/restored/envcheck.txt" 2>/dev/null)"
-}
 final_exit() {
   [ "$EXITING" = 1 ] && return 0
   EXITING=1
-  restore_production
-  log "EXIT-DONE $(date -Is) health $(healthcode) image $(docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' 2>/dev/null)"
+  stop_serve "$D_RECIPE"
+  log "EXIT-DONE $(date -Is) health $(healthcode)"
 }
 trap final_exit EXIT
 trap 'exit 130' INT TERM HUP

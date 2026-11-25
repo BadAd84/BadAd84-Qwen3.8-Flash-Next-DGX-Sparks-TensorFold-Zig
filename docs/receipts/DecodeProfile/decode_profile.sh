@@ -30,8 +30,8 @@ P_RECIPE=$HOME/qwen-zig-prod
 D_RECIPE=$HOME/qwen-zig
 P_TAG=tensorfold-qwen38:zmerge8-kfix-e5139fcd8c6101c7
 P_ID=sha256:235211ea77ee4ed0e61c4c2e73746ed17eccfb6b9e7571eb0787802440f8a33f
-D_TAG=tensorfold-qwen38:r5dev40
-D_ID=sha256:adc40fe3ea7b58b78f7957fcf37dbf3ac7e8d635172ccc42b4c5c85efeded74f
+D_TAG=tensorfold-qwen38:ks41n
+D_ID=sha256:27b7f3b70d9cb25a4301a0c4ae7f812eb102893c12336030c63290b4a4215e55
 CACHE_DIR=$HOME/.cache/tensorfold-qwen38/4144696f21e3
 PROD_START=$HOME/qwen6-start-prod.sh
 CN=qwen38-flash-next-tf
@@ -50,19 +50,6 @@ if [ "${DP_LOCKED:-}" != 1 ]; then
   flock -o -w 43200 "$HOME/work/gpu.lock" env DP_LOCKED=1 LOG="$LOG" bash "$SELF"
   rc=$?
   echo "decode_profile.sh exit $rc $(date -Is)" >> "$LOG"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$URL/health")
-  if [ "$code" != 200 ]; then
-    echo "OUTER-RESTORE needed after rc $rc (health $code); re-queuing for the lock" >> "$LOG"
-    export LOG
-    flock -o -w 900 "$HOME/work/gpu.lock" env OUTER_RESTORE=1 LOG="$LOG" bash -c '
-      code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8888/health)
-      [ "$code" = 200 ] && { echo "OUTER-RESTORE skipped, health $code" >> "$LOG"; exit 0; }
-      ( cd "$HOME/qwen-zig-prod" && ./stop.sh ) >> "$LOG" 2>&1 || true
-      ( env -u IMAGE LOCK_HOLDER=0 "$HOME/qwen6-start-prod.sh" </dev/null ) >> "$LOG" 2>&1
-      for i in $(seq 1 180); do code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://127.0.0.1:8888/health); [ "$code" = 200 ] && break; sleep 5; done
-      echo "OUTER-RESTORE /health $code $(date -Is)" >> "$LOG"
-    '
-  fi
   exit $rc
 fi
 
@@ -152,7 +139,7 @@ arm_env() {
   echo "ARG --top-p 1"
   echo "ARG --top-k 0"
   echo "ARG --no-thinking"
-  echo "ARG --kv-cache fp8"
+  echo "ARG --kv-cache bf16"
   echo "ARG --prompt-cache-gib 6 --prompt-cache-disk /cache/kv --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20"
 }
 
@@ -199,8 +186,12 @@ boot_profile() {
   echo "boot_start $(gpu)" > "$d/gpu.txt"
   local -a ENVS=() ARGS=()
   while read -r kind kv; do
-    [ "$kind" = ENV ] && ENVS+=(-e "$kv")
-    [ "$kind" = ARG ] && ARGS+=("$kv")
+    if [ "$kind" = ENV ]; then
+      ENVS+=(-e "$kv")
+    elif [ "$kind" = ARG ]; then
+      read -ra tok <<< "$kv"
+      ARGS+=("${tok[@]}")
+    fi
   done < <(arm_env "$arm")
   ENVS+=(-e "TF_FLASHNEXT_PROFILE=1" -e "TENSORFOLD_NO_UPDATE_CHECK=1" -e "TENSORFOLD_MEMORY_RESERVE_GIB=${TENSORFOLD_MEMORY_RESERVE_GIB:-9}")
   # nsys writes inside the container: the report path must be the CONTAINER path (/out is the host $OUT)
@@ -256,35 +247,11 @@ analyse_nsys() {
   log "NSYS $arm report $rep -> $(wc -l < "$d/kernels.txt") lines $(head -1 "$d/kernels.txt" 2>/dev/null)"
 }
 
-restore_production() {
-  local img code erc
-  log "RESTORE start $(date -Is)"
-  img=$(docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' 2>/dev/null || true)
-  code=$(healthcode)
-  case "$img" in
-    *"$P_TAG $P_ID"*)
-      log "RESTORE already in place health $code image $img"
-      [ "$code" = 200 ] || wait_health || log "RESTORE health wait timed out (image already the pinned one)"
-      ;;
-    *)
-      stop_cn "$CN" "$D_RECIPE"; stop_cn "$CN" "$P_RECIPE"
-      ( env -u IMAGE LOCK_HOLDER=0 "$PROD_START" ) >> "$LOG" 2>&1
-      wait_health || log "RESTORE health wait timed out"
-      ;;
-  esac
-  mkdir -p "$OUT/restored"
-  docker inspect "$CN" > "$OUT/restored/prod-inspect.json" 2>/dev/null || true
-  docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' > "$OUT/restored/image.txt" 2>/dev/null || true
-  curl -s --max-time 10 "$URL/health" > "$OUT/restored/health.json" 2>/dev/null || true
-  python3 "$GATE/check-prod-env.py" --inspect "$OUT/restored/prod-inspect.json" > "$OUT/restored/envcheck.txt" 2>&1
-  erc=$?
-  log "RESTORED health $(healthcode) image $(cat "$OUT/restored/image.txt" 2>/dev/null) envcheck rc $erc :: $(tail -1 "$OUT/restored/envcheck.txt" 2>/dev/null)"
-}
 final_exit() {
   [ "${EXITING:-0}" = 1 ] && return 0
   EXITING=1
-  restore_production
-  log "EXIT-DONE $(date -Is) health $(healthcode) image $(docker inspect "$CN" --format '{{.Config.Image}} {{.Image}}' 2>/dev/null)"
+  docker rm -f "$PROFCN" >/dev/null 2>&1 || true
+  log "EXIT-DONE $(date -Is) health $(healthcode)"
 }
 trap final_exit EXIT
 trap 'exit 130' INT TERM HUP

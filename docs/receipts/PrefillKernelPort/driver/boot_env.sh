@@ -22,7 +22,7 @@ case $arm in
     set +u
     . "$HOME/work/parity/in/dev.env"
     set -u
-    export IMAGE=tensorfold-qwen38:r5dev40
+    export IMAGE=tensorfold-qwen38:ks41n
     if [ "$arm" = F1 ]; then
       export TF_FLASHNEXT_PROMPT_KS_N=64 TF_FLASHNEXT_PROMPT_KS_GROUP=8
     fi

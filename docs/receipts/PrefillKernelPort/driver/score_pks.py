@@ -61,11 +61,21 @@ def dec(run):
 def ttft(run):
     out = {}
     for line in read(run / "ttft.out").splitlines():
+        m = SUMMARY.match(line)
+        if m and m.group(4):
+            case, _load, _n, med_s, _excl = m.groups()
+            out[case] = {"med": float(med_s)}
+            continue
         m = SAMPLE.match(line)
         if m:
             _a, case, secs, _p, _c = m.groups()
-            out.setdefault(case, []).append(float(secs))
-    res = {k: {"med": statistics.median(v)} for k, v in out.items() if v}
+            out.setdefault(case, {"vals": []}).setdefault("vals", []).append(float(secs))
+    res = {}
+    for k, v in out.items():
+        if "med" in v:
+            res[k] = {"med": v["med"]}
+        elif v.get("vals"):
+            res[k] = {"med": statistics.median(v["vals"])}
     return res
 
 

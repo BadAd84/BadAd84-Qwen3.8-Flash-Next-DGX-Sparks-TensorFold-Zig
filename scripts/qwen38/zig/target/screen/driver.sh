@@ -100,22 +100,7 @@ stop_dev() {
 }
 
 restore() {
-  local rc=0 code=000 pimg="" i
-  if [ "${STOPPED_PROD:-0}" != 1 ]; then
-    log "RESTORE skipped: this window never stopped production (/health $(health))"
-    echo "prod untouched /health $(health) at $(now)" > "$OUT/production.txt"
-    dash_start "${DASH_STATE:-none}"
-    return 0
-  fi
   stop_dev
-  ( env -u IMAGE LOCK_HOLDER=0 IMAGE="$PROD_IMAGE" "$PROD_START" </dev/null ) > "$OUT/restore.log" 2>&1 || rc=$?
-  for i in $(seq 1 240); do code=$(health); [ "$code" = 200 ] && break; sleep 5; done
-  pimg=$(imgof)
-  case "$pimg" in
-  *"$PROD_IMAGE"*"$PROD_ID"*) echo "prod /health $code rc $rc image $pimg" > "$OUT/production.txt"; echo "PROD-IMAGE-OK" >> "$OUT/production.txt"; log "RESTORE ok $code $pimg";;
-  *) echo "prod /health $code rc $rc image ${pimg:-absent}" > "$OUT/production.txt"; log "RESTORE-BAD health $code image ${pimg:-absent}";;
-  esac
-  curl -s --max-time 10 "$URL/health" > "$OUT/health-restored.json" 2>/dev/null || true
   dash_start "${DASH_STATE:-none}"
   echo "home $(du -sh "$HOME" 2>/dev/null | cut -f1) at $(now)" >> "$OUT/home.txt"
 }
@@ -594,36 +579,13 @@ if [ ! -f "$BOX/GO" ]; then
 fi
 log "GO present: $(head -3 "$BOX/GO" | tr '\n' ' ' | cut -c1-200)"
 
-prod_before() { # prove production is restorable on the pinned image before the window spends itself
-  local code img i
-  code=$(health); img=$(imgof)
-  case "$img" in
-  *"$PROD_IMAGE"*"$PROD_ID"*)
-    [ "$code" = 200 ] && { echo "found-up health 200 image $img" > "$OUT/prod-before.txt"; log "PROD-BEFORE ok health 200 $img"; return 0; } ;;
-  esac
-  log "PROD-BEFORE not serving (health $code image ${img:-absent}): starting it to prove the restore works"
-  ( env -u IMAGE LOCK_HOLDER=0 IMAGE="$PROD_IMAGE" "$PROD_START" </dev/null ) > "$OUT/prod-before.log" 2>&1 || true
-  for i in $(seq 1 240); do code=$(health); [ "$code" = 200 ] && break; sleep 5; done
-  img=$(imgof)
-  case "$img" in
-  *"$PROD_IMAGE"*"$PROD_ID"*)
-    [ "$code" = 200 ] && { echo "started-by-guard health 200 image $img" > "$OUT/prod-before.txt"; log "PROD-BEFORE proven restorable by the guard health 200 $img"; return 0; } ;;
-  esac
-  log "PROD-BEFORE-BAD health $code image ${img:-absent}: refusing the window rather than risk an unrestorable end"
-  echo "failed health $code image ${img:-absent}" > "$OUT/prod-before.txt"
-  echo "PROD-BEFORE-BAD health $code" > "$OUT/RUN-STOP"
-  return 1
-}
-
 echo "home $(du -sh "$HOME" 2>/dev/null | cut -f1) at $(now)" > "$OUT/home.txt"
 DASH_STATE=$(dash_find)
 log "START $(now) digest $(digest) dash $DASH_STATE"
 trap restore EXIT
 trap 'exit 130' INT TERM HUP
-prod_before || exit 5
 stop_dev
 dash_stop "$DASH_STATE"
-STOPPED_PROD=1
 log "PROD-STOPPED /health $(health) image $(imgof) mem $(memavail) GiB gpu $(gpu)"
 
 warmup || exit 6

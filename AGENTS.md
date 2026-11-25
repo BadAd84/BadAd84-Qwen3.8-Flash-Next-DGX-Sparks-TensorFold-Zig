@@ -133,10 +133,12 @@ No source file, kernel or substantial code block is copied or adapted into this 
   192.168.99.111) polls every Spark's `:8888`, and the LiteLLM router (CT105, .105) and agents send requests too:
   on 2026-10-10 both hit the GLM serve mid-A/B and spoiled a TTFT arm. So every benchmark, qualification or A/B on a
   serve: (1) stops sparkDash first, `ssh root@proxmox.ots-int.net "pct exec 111 -- systemctl stop sparkdash"`, and
-  starts it again (`... systemctl start sparkdash`) when the box is restored, from an EXIT trap so a failed run cannot
+  starts it again (`... systemctl start sparkdash`) when the window exits, from an EXIT trap so a failed run cannot
   leave it off; (2) firewalls `:8888` on the API box to localhost, the fabric and docker (copy spark1's
   `~/fw8888.sh on|off`; sudo needs `ssh -A`), lifted at the same point; (3) records `/health` request counts before
   and after each probe, and an arm with requests it did not send is rerun.
+- **No production restore on benchmark exit (owner 2026-11-25).** Benchmark, A/B, and profile windows stop their
+  arm container on exit and do not restore production (`~/qwen6-start-prod.sh`).
 - **Thermal soak is a benchmark confound on GB10 (measured 2026-10-24).** Sustained load sags clocks
   ~4% in 50 s (2330-2370 -> ~2250 MHz) and settles ~2170-2200 MHz at 80-83 C with no throttle bits
   set: the same code on a hot box reads up to ~4-6% low. Interleave arms (already the rule), keep
@@ -161,15 +163,14 @@ No source file, kernel or substantial code block is copied or adapted into this 
   order. Correct wrapper: `flock ... env DRIVER_LOCKED=1 ... bash driver.sh window`. Read the driver's lock
   contract (its header states it) before wrapping it. Also on that box: the tf.kernels label
   gate is generation-split (`present` for e1f564e/364f21a-era start.sh, `embedded` for fd3f43e) -
-  `~/work/lanes/fp4port/relabel.sh IMAGE TOKEN` fixes a mismatch in 5 s; and the zmerge8-kfix image's
-  restore is `~/qwen6-start-prod.sh` (the fd3f43e recipe arg-check rejects `--kv-cache`).
+  `~/work/lanes/fp4port/relabel.sh IMAGE TOKEN` fixes a mismatch in 5 s.
 
 - **The recipe's `stop.sh` STOPS AND REMOVES the container by name** (corrected 2026-11-09 after a
   wrong attribution): the two production-container destroys (07:48, 08:27) were HangVerify0050's own
   documented verify0050 flow - "Stopped and removed qwen38-flash-next-tf". That is by design: the
-  recipe's `start.sh` line 178 recreates the container from nothing (`docker run -d --name`), so any
-  window that stops the serve for its boot test must restore via `qwen6-start.sh` (which calls it),
-  never `docker start`. Hygiene rules that stand: no label/ancestor/wildcard container cleanup
+  recipe's `start.sh` line 178 recreates the container from nothing (`docker run -d --name`), so
+  starting the serve again uses `qwen6-start.sh` (or `qwen6-start-prod.sh`), never `docker start`
+  (and benchmark windows do not restore production on exit, owner 2026-11-25). Hygiene rules that stand: no label/ancestor/wildcard container cleanup
   (the arm images share the production image's label), no `docker system prune` while any lane works,
   and ASK THE ACTOR before attributing a destroy to a rogue filter - `docker events
   --filter type=container --filter event=destroy` gives the timeline, the lane's own script output

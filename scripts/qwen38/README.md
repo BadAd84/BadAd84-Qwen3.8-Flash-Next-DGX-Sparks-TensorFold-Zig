@@ -12,7 +12,7 @@ replies, so the dev arm runs the exact format for the rest of the campaign; `KV_
 --learn-gib 60 --learn-daily-gib 200 --learn-min-free-gib 20`), each overridable (`LEARN=0` turns the tier off,
 `MTP_WEIGHTS=bf16` puts the drafter back on the checkpoint's rows). Boot 83 to 90 s at one to eight streams
 (`docs/SPEED-TARGET-1.2.6.md`); golden 6/6 identical to stock on the first boot. It holds the box's GPU lock while it
-runs, and spark6 has no passwordless sudo, so arms bind to 127.0.0.1 and production is restored from its own launcher.
+runs, and spark6 has no passwordless sudo, so arms bind to 127.0.0.1; benchmark windows stop their arm container on exit without restoring production (owner 2026-11-25).
 `scripts/qwen38/qwen-start.sh` is the RETIRED spark4 Python serve's launcher (image `v061-ots`, TensorFold v0.6.1,
 recipe `4c0dea8`) and cannot carry those defaults: that recipe has no `CHECKPOINT` setting, its engine's `--kv-dtype`
 is `bf16|int8|int4` only and it has no `--learn-*` or `--prompt-cache-disk` flag, and nothing there reads
