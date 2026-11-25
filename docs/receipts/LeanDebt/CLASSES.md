@@ -23,6 +23,8 @@ The previous clean-up cleared comment findings and reported the tree clean witho
 non-comment set was absent, and two lanes then died in loops before re-measuring. This pass ran the
 pair on a tree with the whole series applied, which exposed a worse problem than the findings: the
 committed patch 0041 did not apply at all (git apply rejected six hunks; only patch --fuzz applied
-it), so every measurement taken against "the applied head" before this pass was taken against a tree
-missing that patch. 0041 is now rebuilt as a real diff against the forty-patch tree and the series
+it), so every measurement taken against "the applied head" between the patch's commit and this repair was
+taken against a tree missing that patch: committed `1c8e549d0` 2026-11-24 22:57:47 +0000 and amended
+`b2cfb2dc2` 2026-11-24 23:07:40 +0000, repaired and re-proven at `b60592871` 2026-11-25 13:02:27 +0000, so
+under fifteen hours. 0041 is now rebuilt as a real diff against the forty-patch tree and the series
 applies 41 of 41 from an absolute root.
