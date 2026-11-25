@@ -25,3 +25,7 @@ The two real options, neither attempted (budget): read `config.sh` for both the 
 and check whether the recipe base already contains the upstream commits our series expects, or re-seat our
 series onto the recipe's pinned `TF_REF`. Until one is done, no image built by `build.sh` can carry patch
 0041, and the A/B in `docs/receipts/PrefillKernelPort/AB-PLAN.md` cannot run.
+
+## Decision: re-seat our series onto the recipe's base
+
+Read, not assumed: ~/qwen-zig/scripts/config.sh:46 pins TF_REF=eab8582819688325e371907e4706e1c602b8a273 (its own comment: v1.1.4); our series is cut against 1ece6e6dbbc073582d50738ce8e73e3c3261a73b; and git merge-base --is-ancestor 1ece6e6d eab85828 reports NOT an ancestor, so the recipe tree does not already carry what our patches expect. Option 1 is out, and the next attempt re-seats the forty-one patches onto eab85828 (the operation this repo has machinery and a skill for) rather than forcing a base inside build.sh, which applies two differently based sets to one tree.
