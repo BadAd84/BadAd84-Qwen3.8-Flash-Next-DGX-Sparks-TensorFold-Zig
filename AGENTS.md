@@ -294,6 +294,13 @@ otherwise.
 - The skills hold the step-by-step: `contribute-pr-to-tensorfold-main`, `run-atc-overlap-for-tensorfold-prs`,
   `tensorfold-upstream-pr-gate`, `gate-public-pr-text-on-owner-approval`.
 
+## Waiting for a window
+
+A watcher waits for the marker the DRIVER writes, never one a brief names: the drivers' completion
+words differ (`WINDOW-DONE`, `WINDOW3-DONE`, `RUN-DONE`, `RUN3-DONE`), and a watcher on the wrong one
+idles for its whole loop and reports nothing. Each driver's own vocabulary is tabulated in
+`docs/WINDOW-MARKERS.md`, read from the scripts on the box; quote it rather than remembering it.
+
 ## Gate
 - `scripts/check-patch-packages.sh` - every package dir that carries `.patch` files (walked to depth 3 under the
   roots in `scripts/patch-packages.list`) has `RECORD.md` and `SHA256SUMS`, and the hashes match. Packages written
