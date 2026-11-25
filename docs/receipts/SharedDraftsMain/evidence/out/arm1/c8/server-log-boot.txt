@@ -1,0 +1,60 @@
+info: flashnext: rank 1/1 loaded layer 1/48
+info: flashnext: rank 1/1 loaded layer 2/48
+info: flashnext: rank 1/1 loaded layer 3/48
+info: flashnext: rank 1/1 loaded layer 4/48
+info: flashnext: rank 1/1 loaded layer 5/48
+info: flashnext: rank 1/1 loaded layer 6/48
+info: flashnext: rank 1/1 loaded layer 7/48
+info: flashnext: rank 1/1 loaded layer 8/48
+info: flashnext: rank 1/1 loaded layer 9/48
+info: flashnext: rank 1/1 loaded layer 10/48
+info: flashnext: rank 1/1 loaded layer 11/48
+info: flashnext: rank 1/1 loaded layer 12/48
+info: flashnext: rank 1/1 loaded layer 13/48
+info: flashnext: rank 1/1 loaded layer 14/48
+info: flashnext: rank 1/1 loaded layer 15/48
+info: flashnext: rank 1/1 loaded layer 16/48
+info: flashnext: rank 1/1 loaded layer 17/48
+info: flashnext: rank 1/1 loaded layer 18/48
+info: flashnext: rank 1/1 loaded layer 19/48
+info: flashnext: rank 1/1 loaded layer 20/48
+info: flashnext: rank 1/1 loaded layer 21/48
+info: flashnext: rank 1/1 loaded layer 22/48
+info: flashnext: rank 1/1 loaded layer 23/48
+info: flashnext: rank 1/1 loaded layer 24/48
+info: flashnext: rank 1/1 loaded layer 25/48
+info: flashnext: rank 1/1 loaded layer 26/48
+info: flashnext: rank 1/1 loaded layer 27/48
+info: flashnext: rank 1/1 loaded layer 28/48
+info: flashnext: rank 1/1 loaded layer 29/48
+info: flashnext: rank 1/1 loaded layer 30/48
+info: flashnext: rank 1/1 loaded layer 31/48
+info: flashnext: rank 1/1 loaded layer 32/48
+info: flashnext: rank 1/1 loaded layer 33/48
+info: flashnext: rank 1/1 loaded layer 34/48
+info: flashnext: rank 1/1 loaded layer 35/48
+info: flashnext: rank 1/1 loaded layer 36/48
+info: flashnext: rank 1/1 loaded layer 37/48
+info: flashnext: rank 1/1 loaded layer 38/48
+info: flashnext: rank 1/1 loaded layer 39/48
+info: flashnext: rank 1/1 loaded layer 40/48
+info: flashnext: rank 1/1 loaded layer 41/48
+info: flashnext: rank 1/1 loaded layer 42/48
+info: flashnext: rank 1/1 loaded layer 43/48
+info: flashnext: rank 1/1 loaded layer 44/48
+info: flashnext: rank 1/1 loaded layer 45/48
+info: flashnext: rank 1/1 loaded layer 46/48
+info: flashnext: rank 1/1 loaded layer 47/48
+info: flashnext: rank 1/1 loaded layer 48/48
+[tensorfold] chat template: the checkpoint's
+[tensorfold] warning: non-loopback server has no API key; requests are open
+[tensorfold] open-file limit raised: soft 1024 -> 524288
+[tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 73.24 GiB; 8 streams at once, 1.32 GiB each at a 32768-token window, of 26.7 GiB left after a 12.4 GiB reserve; prompts in passes of up to 3072 rows, a 3.0 GiB prompt cache; own glue kernels
+[tensorfold] profile: stable; registered overrides: none
+[tensorfold] serving Qwen3.8-Flash-Next at http://0.0.0.0:8888/v1 (sampling: greedy; drafts: MTP + copies; context: 32768; loaded in 34.3s)
+[tensorfold] thinking on (the chat template's default): replies reason in reasoning_content before the answer in content, and max_tokens counts both. --no-thinking turns it off; a request can send chat_template_kwargs {"enable_thinking": false}
+warning: libtfgrammar.so is required for structured output and required tool calls (HTTP 400 when missing); restore the matching release archive's lib/ directory or run zig build grammar -Dxgrammar=DIR; prepare DIR with git clone --branch v0.2.8 --recurse-submodules https://github.com/mlc-ai/xgrammar
+[tensorfold] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /v1/models HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -

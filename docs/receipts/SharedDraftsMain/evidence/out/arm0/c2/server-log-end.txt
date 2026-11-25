@@ -1,0 +1,108 @@
+info: flashnext: rank 1/1 loaded layer 1/48
+info: flashnext: rank 1/1 loaded layer 2/48
+info: flashnext: rank 1/1 loaded layer 3/48
+info: flashnext: rank 1/1 loaded layer 4/48
+info: flashnext: rank 1/1 loaded layer 5/48
+info: flashnext: rank 1/1 loaded layer 6/48
+info: flashnext: rank 1/1 loaded layer 7/48
+info: flashnext: rank 1/1 loaded layer 8/48
+info: flashnext: rank 1/1 loaded layer 9/48
+info: flashnext: rank 1/1 loaded layer 10/48
+info: flashnext: rank 1/1 loaded layer 11/48
+info: flashnext: rank 1/1 loaded layer 12/48
+info: flashnext: rank 1/1 loaded layer 13/48
+info: flashnext: rank 1/1 loaded layer 14/48
+info: flashnext: rank 1/1 loaded layer 15/48
+info: flashnext: rank 1/1 loaded layer 16/48
+info: flashnext: rank 1/1 loaded layer 17/48
+info: flashnext: rank 1/1 loaded layer 18/48
+info: flashnext: rank 1/1 loaded layer 19/48
+info: flashnext: rank 1/1 loaded layer 20/48
+info: flashnext: rank 1/1 loaded layer 21/48
+info: flashnext: rank 1/1 loaded layer 22/48
+info: flashnext: rank 1/1 loaded layer 23/48
+info: flashnext: rank 1/1 loaded layer 24/48
+info: flashnext: rank 1/1 loaded layer 25/48
+info: flashnext: rank 1/1 loaded layer 26/48
+info: flashnext: rank 1/1 loaded layer 27/48
+info: flashnext: rank 1/1 loaded layer 28/48
+info: flashnext: rank 1/1 loaded layer 29/48
+info: flashnext: rank 1/1 loaded layer 30/48
+info: flashnext: rank 1/1 loaded layer 31/48
+info: flashnext: rank 1/1 loaded layer 32/48
+info: flashnext: rank 1/1 loaded layer 33/48
+info: flashnext: rank 1/1 loaded layer 34/48
+info: flashnext: rank 1/1 loaded layer 35/48
+info: flashnext: rank 1/1 loaded layer 36/48
+info: flashnext: rank 1/1 loaded layer 37/48
+info: flashnext: rank 1/1 loaded layer 38/48
+info: flashnext: rank 1/1 loaded layer 39/48
+info: flashnext: rank 1/1 loaded layer 40/48
+info: flashnext: rank 1/1 loaded layer 41/48
+info: flashnext: rank 1/1 loaded layer 42/48
+info: flashnext: rank 1/1 loaded layer 43/48
+info: flashnext: rank 1/1 loaded layer 44/48
+info: flashnext: rank 1/1 loaded layer 45/48
+info: flashnext: rank 1/1 loaded layer 46/48
+info: flashnext: rank 1/1 loaded layer 47/48
+info: flashnext: rank 1/1 loaded layer 48/48
+[tensorfold] chat template: the checkpoint's
+[tensorfold] warning: non-loopback server has no API key; requests are open
+[tensorfold] open-file limit raised: soft 1024 -> 524288
+[tensorfold] CUDA sm_121 device 0 (NVIDIA GB10, memory shared with the host): model 73.24 GiB; 8 streams at once, 1.32 GiB each at a 32768-token window, of 26.7 GiB left after a 12.4 GiB reserve; prompts in passes of up to 3072 rows, a 3.0 GiB prompt cache; own glue kernels
+[tensorfold] profile: stable; registered overrides: none
+[tensorfold] serving Qwen3.8-Flash-Next at http://0.0.0.0:8888/v1 (sampling: greedy; drafts: MTP + copies; context: 32768; loaded in 34.3s)
+[tensorfold] thinking on (the chat template's default): replies reason in reasoning_content before the answer in content, and max_tokens counts both. --no-thinking turns it off; a request can send chat_template_kwargs {"enable_thinking": false}
+warning: libtfgrammar.so is required for structured output and required tool calls (HTTP 400 when missing); restore the matching release archive's lib/ directory or run zig build grammar -Dxgrammar=DIR; prepare DIR with git clone --branch v0.2.8 --recurse-submodules https://github.com/mlc-ai/xgrammar
+[tensorfold] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /v1/models HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: cuda_window_graph.HeadKey graphs: 2 calls, 1 captured, 0 updated, 0 replayed, 1 held
+info: prompt cache: 955 tokens, resumed at 0, kept 2; 2 states, 248 MiB and 0 MiB spare of 3072 MiB (hits 0, misses 1, evicted 0, refused 0, failed 0, trimmed 0)
+info: cuda_window_graph.Key graphs: 5 calls, 1 captured, 0 updated, 0 replayed, 1 held
+[tensorfold] 192.168.1.242 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 529 tokens, resumed at 0, kept 2; 4 states, 488 MiB and 0 MiB spare of 3072 MiB (hits 0, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+info: cuda_window_graph.HeadManyKey graphs: 3 calls, 1 captured, 0 updated, 0 replayed, 1 held
+[tensorfold] done chatcmpl-ab3444f6addcb4454c2a31f254af6c3b prompt=955 cached=0 thinking=False effort=none tokens=64 sha=e2483ab0cf87 finish=length rounds=27 accepted=36/86 ttft=0.543 decode=2.386 elapsed=2.929 queued=0.000 tok/s=26.4
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 950 tokens, resumed at 2, kept 1; 5 states, 626 MiB and 0 MiB spare of 3072 MiB (hits 1, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-03175b20d0e3c469043d899e89941abd prompt=950 cached=2 thinking=False effort=none tokens=64 sha=e2483ab0cf87 finish=length rounds=26 accepted=37/78 ttft=0.584 decode=2.602 elapsed=3.186 queued=0.066 tok/s=24.2
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 7438 tokens, resumed at 2, kept 1; 6 states, 954 MiB and 0 MiB spare of 3072 MiB (hits 2, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-b0a1a0980fcd0257a33c410fcdc60616 prompt=529 cached=0 thinking=False effort=none tokens=389 sha=601e28d7ba1c finish=stop rounds=40 accepted=351/416 ttft=0.635 decode=7.666 elapsed=8.301 queued=0.038 tok/s=50.6
+[tensorfold] done chatcmpl-31c0091ae492c9f862bc63cdad80816b prompt=7438 cached=2 thinking=False effort=none tokens=64 sha=8d40c2c230e8 finish=length rounds=21 accepted=42/72 ttft=3.569 decode=1.347 elapsed=4.916 queued=0.090 tok/s=46.8
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 7439 tokens, resumed at 2, kept 1; 7 states, 1283 MiB and 0 MiB spare of 3072 MiB (hits 3, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-f9a178a190dee32af826894143d462e9 prompt=7439 cached=2 thinking=False effort=none tokens=64 sha=b8ae7d995dc4 finish=length rounds=17 accepted=46/65 ttft=3.289 decode=1.040 elapsed=4.329 queued=0.000 tok/s=60.6
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 60 tokens, resumed at 2, kept 1; 8 states, 1395 MiB and 0 MiB spare of 3072 MiB (hits 4, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+info: prompt cache: 60 tokens, resumed at 2, kept 2; 9 states, 1507 MiB and 0 MiB spare of 3072 MiB (hits 5, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-41861e30747115d87bf48bfe59fd2a09 prompt=60 cached=2 thinking=False effort=none tokens=512 sha=9a6ac58932ac finish=length rounds=119 accepted=392/643 ttft=0.143 decode=9.736 elapsed=9.879 queued=0.000 tok/s=52.5
+[tensorfold] done chatcmpl-97abde22ed8b96224a515b866f02ad94 prompt=60 cached=2 thinking=False effort=none tokens=512 sha=58325b3bea8e finish=length rounds=181 accepted=330/564 ttft=0.297 decode=13.103 elapsed=13.400 queued=0.000 tok/s=39.0
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 59 tokens, resumed at 2, kept 1; 10 states, 1618 MiB and 0 MiB spare of 3072 MiB (hits 6, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+info: prompt cache: 61 tokens, resumed at 2, kept 2; 11 states, 1730 MiB and 0 MiB spare of 3072 MiB (hits 7, misses 2, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] 192.168.1.242 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 525 tokens, resumed at 0, kept 2; 13 states, 1976 MiB and 0 MiB spare of 3072 MiB (hits 7, misses 3, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-5106eba09759fa9137346c543749591b prompt=525 cached=0 thinking=False effort=none tokens=24 sha=80c821fe9aaa finish=stop rounds=5 accepted=18/24 ttft=0.676 decode=0.618 elapsed=1.294 queued=0.014 tok/s=37.2
+[tensorfold] done chatcmpl-49f72e5e0f76070d142990fa7b9b7587 prompt=61 cached=2 thinking=False effort=none tokens=512 sha=f92a3aec97ae finish=length rounds=115 accepted=396/658 ttft=0.298 decode=10.088 elapsed=10.386 queued=0.000 tok/s=50.7
+[tensorfold] done chatcmpl-b7690019b92af30f50d33fc820e56596 prompt=59 cached=2 thinking=False effort=none tokens=512 sha=dfca54bc0072 finish=length rounds=212 accepted=299/590 ttft=0.151 decode=15.546 elapsed=15.697 queued=0.000 tok/s=32.9
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "POST /v1/chat/completions HTTP/1.1" 200 -
+info: prompt cache: 60 tokens, resumed at 2, kept 1; 14 states, 2088 MiB and 0 MiB spare of 3072 MiB (hits 8, misses 3, evicted 0, refused 0, failed 0, trimmed 0)
+info: prompt cache: 61 tokens, resumed at 2, kept 2; 15 states, 2200 MiB and 0 MiB spare of 3072 MiB (hits 9, misses 3, evicted 0, refused 0, failed 0, trimmed 0)
+[tensorfold] done chatcmpl-a973eda52383f7ef22f6a9ad73fb85de prompt=61 cached=2 thinking=False effort=none tokens=512 sha=13918c7ea987 finish=length rounds=122 accepted=390/677 ttft=0.299 decode=9.768 elapsed=10.068 queued=0.000 tok/s=52.3
+[tensorfold] done chatcmpl-e9eabe0ef22587c35bc3344b72c55634 prompt=60 cached=2 thinking=False effort=none tokens=512 sha=5af474f859d5 finish=length rounds=222 accepted=289/681 ttft=0.153 decode=15.415 elapsed=15.568 queued=0.000 tok/s=33.1
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /health HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /v1/models HTTP/1.1" 200 -
+[tensorfold] 127.0.0.1 "GET /metrics HTTP/1.1" 200 -

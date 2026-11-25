@@ -1,0 +1,8 @@
+[2026-11-24T21:53:24] idle 1k rep1 tokens=955 cached=0 ttft=0.5527820490096929 err=None
+[2026-11-24T21:53:26] idle 1k rep2 tokens=950 cached=2 ttft=0.5252148029976524 err=None
+[2026-11-24T21:53:31] idle 8k rep1 tokens=7438 cached=2 ttft=3.2730779689882183 err=None
+[2026-11-24T21:53:35] idle 8k rep2 tokens=7439 cached=2 ttft=3.286707628998556 err=None
+[2026-11-24T21:53:45] c1 pass1 agg=51.79109472271882 per_stream_med=51.79109472271882 ttft_med=0.15282345699961297 drafted=557 accepted=317 rounds=195 metrics_drafted=557.0 failed=0
+[2026-11-24T21:53:56] c1 pass2 agg=48.58405209111129 per_stream_med=48.58405209111129 ttft_med=0.15343178999319207 drafted=611 accepted=309 rounds=202 metrics_drafted=611.0 failed=0
+[2026-11-24T21:54:17] c1 pass3 agg=23.946093871204766 per_stream_med=23.946093871204766 ttft_med=0.1541645859979326 drafted=1206 accepted=189 rounds=322 metrics_drafted=1745.0 failed=0
+[2026-11-24T21:54:17] WROTE /home/adam/work/SharedDraftsMain/out/arm0/c1-run2/cell.json

@@ -1,0 +1,5 @@
+RERUN both c1 spread 1.099
+RERUN both c2 spread 0.173
+RERUN both c4 spread 0.098
+RERUN both c8 spread 0.332
+SCORE-SUMMARY levels 4 hash_equal 45 hash_unequal 0 hash_missing 0 cached_hash compared final False

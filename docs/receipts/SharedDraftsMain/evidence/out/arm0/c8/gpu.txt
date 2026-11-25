@@ -1,0 +1,1 @@
+boot 53,2405MHz,11.60W,[N/A]; mem_avail 37 disk 133

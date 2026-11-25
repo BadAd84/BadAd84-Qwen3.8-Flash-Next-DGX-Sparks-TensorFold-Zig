@@ -1,0 +1,21 @@
+Recorded window (docs/receipts/ParityAB/ev.tgz): rows where P and D return the same reply text.
+p_row = P(a greedy reply of L tokens is equal); q = 1 - p_row^(1/L), the per-token flip scale.
+  c1 prose rows  3 equal  0 L 480.7  p_row 0.000
+  c1 code  rows  3 equal  0 L 512.0  p_row 0.000
+  c2 prose rows  6 equal  0 L 476.2  p_row 0.000
+  c2 code  rows  6 equal  0 L 512.0  p_row 0.000
+  c4 prose rows 12 equal  0 L 484.9  p_row 0.000
+  c4 code  rows 12 equal  2 L 512.0  p_row 0.167
+  c6 prose rows 18 equal  0 L 479.4  p_row 0.000
+  c6 code  rows 18 equal  3 L 512.0  p_row 0.167
+  c8 prose rows 24 equal  0 L 481.6  p_row 0.000
+  c8 code  rows 24 equal  5 L 512.0  p_row 0.208
+
+prose: 0/63 equal -> p_row <= 0.046 (95%) -> q >= 0.0064 (a flip every <= 157 tokens)
+code: 10/63 equal, p_row 0.159 -> q 0.0038 (a flip every 262 tokens)
+
+golden set: 6 prompts, 497 tokens, both arms equal on all six (ev/{P,D}/c1/run2/gold.txt)
+  q=0.001: all six equal with probability 0.608
+  q=0.002: all six equal with probability 0.370
+  q=0.003: all six equal with probability 0.225
+  q=0.005: all six equal with probability 0.083

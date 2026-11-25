@@ -1,0 +1,2 @@
+[2026-11-24T21:33:32] smoke complete=True tokens=16 sha=3cb3371f8b328a581055f34213ae5a34efeb03235eafb21e7a59ac4ac7715d00 drafts={'rounds': 6, 'drafted': 10, 'accepted': 9, 'acceptance_rate': 0.9, 'tokens_per_round': 2.6666666666666665} err=None
+[2026-11-24T21:33:32] WROTE /home/adam/work/SharedDraftsMain/out/smoke/cell.json

@@ -1,0 +1,3 @@
+# The window's log at hand-off (queued behind the ParityGap lane; nothing measured yet)
+
+2026-11-24T18:43:04+00:00 queued for ~/work/gpu.lock (holders: 2629179 flock -o -w 43200 /home/adam/work/gpu.lock env WIN2_LOCKED=1 LOG=/home/adam/work/parity2/out/run.log bash /home/adam/work/parity2/window2.sh )

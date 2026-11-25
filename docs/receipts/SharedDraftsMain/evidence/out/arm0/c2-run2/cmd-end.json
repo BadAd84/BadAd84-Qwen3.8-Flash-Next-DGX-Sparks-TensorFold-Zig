@@ -1,0 +1,1 @@
+["serve","/models/qwen38/snapshots/b9ce18a6887e18c089fdea8509a33e63429a3300","--name","Qwen3.8-Flash-Next","--host","0.0.0.0","--port","8888","--context","32768","--parallel","8","--prompt-cache-gib","3","--temperature","0"]

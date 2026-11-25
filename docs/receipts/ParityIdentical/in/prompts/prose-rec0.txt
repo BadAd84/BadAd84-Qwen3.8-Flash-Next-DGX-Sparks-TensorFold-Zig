@@ -1,0 +1,3 @@
+Explain how a lock-free ring buffer can pass messages between one writer and one reader without a mutex.
+
+(session 0-0)

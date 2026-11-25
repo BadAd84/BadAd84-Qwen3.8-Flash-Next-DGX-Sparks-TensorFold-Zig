@@ -1,0 +1,38 @@
+# Dry-run preflight of every cell's boot environment (spark6, 2026-11-24 19:2xZ, the GPU lock NOT held)
+
+Each line is the recipe's own DRY_RUN path: it prints the docker command and runs the served binary's argument
+check in a throwaway container with no GPU (box-start-prod.sh:93,131-140,187). DRY-RUN-OK = the parser
+accepted the arguments and the command printed.
+
+D-bf16kv                 DRY-RUN-OK
+D-chunk2048              DRY-RUN-OK
+D-control                DRY-RUN-OK
+D-int4tile64             REFUSED-BY-LIVE-START-LOCK
+D-mtpbf16                DRY-RUN-OK
+D-nodrafts               DRY-RUN-OK
+D-notier                 DRY-RUN-OK
+D-rowtiles1              DRY-RUN-OK
+P-bf16kv                 DRY-RUN-OK
+P-control                DRY-RUN-OK
+P-int4tile64             REFUSED-BY-LIVE-START-LOCK
+P-nodrafts               DRY-RUN-OK
+P-novision               DRY-RUN-OK
+P-pmm0                   DRY-RUN-OK
+
+(`D-rowtiles1` above is the removed null arm's own dry run: the recipe accepted the arguments, but the
+launcher's pinned value overrides the export, so the mode is not in the window any more.)
+
+The two int4tile64 runs were refused by the recipe's own state lock because a serve was starting at that
+moment on the box (the other lane's window); the window's real boots hold the GPU lock and stop whatever
+serves first, so the lock is free. Its wiring is proved two other ways:
+  - neither launcher's exec list names TF_FLASHNEXT_INT4_TILE (grep: 0 hits in ~/qwen6-start.sh and
+    ~/qwen6-start-prod.sh), while an identical override (TF_FLASHNEXT_CHUNK=2048/CHUNK_SOLO=2048) passed
+    the same dry run, so the forwarding path is proven;
+  - both engines read the name: P cuda_int4.zig:148, D cuda_int4.zig:151.
+
+A REAL CATCH: the HEAD_ROW_TILES arm was a null arm. Both launchers pin it in their own exec env
+  ~/qwen6-start.sh:87  TF_FLASHNEXT_HEAD_ROW_TILES=2
+  ~/qwen6-start-prod.sh:54 TF_FLASHNEXT_HEAD_ROW_TILES=2
+so an exported override cannot reach either engine, and the arm would have measured nothing. It is replaced in
+the window by TF_FLASHNEXT_INT4_TILE=64 on both arms (the 64-pair prompt tile, which both engines claim is
+bit-equal to the 16-pair one: P cuda_int4.zig:146, D cuda_int4.zig:149).

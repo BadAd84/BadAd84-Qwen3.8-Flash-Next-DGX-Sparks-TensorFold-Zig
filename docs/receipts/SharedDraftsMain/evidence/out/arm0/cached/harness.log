@@ -1,0 +1,2 @@
+[2026-11-24T21:51:15] cached prime cached_a=2/56 cached_b=2/54; two-stream cached=[49, 47] prompts=[56, 54] agg=77.01532712353223 drafted=1301 accepted=759
+[2026-11-24T21:51:15] WROTE /home/adam/work/SharedDraftsMain/out/arm0/cached/cell.json

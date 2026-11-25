@@ -1,0 +1,150 @@
+The module below is a small, self-contained reference; it is not part of the task.
+
+```python
+def step_0(values, weight=0.5):
+    """Blend the 0-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 0 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_1(values, weight=0.5):
+    """Blend the 1-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 1 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_2(values, weight=0.5):
+    """Blend the 2-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 2 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_3(values, weight=0.5):
+    """Blend the 3-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 3 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_4(values, weight=0.5):
+    """Blend the 4-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 4 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_5(values, weight=0.5):
+    """Blend the 5-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 5 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_6(values, weight=0.5):
+    """Blend the 6-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 6 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_7(values, weight=0.5):
+    """Blend the 7-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 7 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_8(values, weight=0.5):
+    """Blend the 8-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 8 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_9(values, weight=0.5):
+    """Blend the 9-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 9 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_10(values, weight=0.5):
+    """Blend the 10-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 10 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_11(values, weight=0.5):
+    """Blend the 11-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 11 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_12(values, weight=0.5):
+    """Blend the 12-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 12 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_13(values, weight=0.5):
+    """Blend the 13-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 13 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_14(values, weight=0.5):
+    """Blend the 14-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 14 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_15(values, weight=0.5):
+    """Blend the 15-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 15 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_16(values, weight=0.5):
+    """Blend the 16-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 16 * weight
+    count = len(values) or 1
+    return total / count
+
+def step_17(values, weight=0.5):
+    """Blend the 17-th channel of values toward its running mean."""
+    total = 0.0
+    for v in values:
+        total += v * (1.0 - weight) + 17 * weight
+    count = len(values) or 1
+    return total / count
+
+```
+
+Task: Write a Python quicksort implementation with a docstring and unit tests.

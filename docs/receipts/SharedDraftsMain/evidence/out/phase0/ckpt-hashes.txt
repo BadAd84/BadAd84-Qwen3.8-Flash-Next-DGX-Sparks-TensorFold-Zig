@@ -1,0 +1,2 @@
+b50dbc52a0c83b0cd2a44a372c1fb6b5e0e6827d22f2611c97d4d030f92f6b28  /home/adam/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-FP4-Local/snapshots/b9ce18a6887e18c089fdea8509a33e63429a3300/config.json
+5fa166bbb1cf25adda455117563efa72a2072272001f459eedece131ffc913e1  /home/adam/.cache/huggingface/hub/models--nvidia--Qwen3.8-Flash-Next-FP4-Local/snapshots/b9ce18a6887e18c089fdea8509a33e63429a3300/model.safetensors.index.json

@@ -1,0 +1,4 @@
+COLLECT 2026-11-24T22:08:07+00:00
+bundle_bytes 972708
+report WROTE /home/adam/work/SharedDraftsMain/RESULT.md (48 lines)
+score /home/adam/work/SharedDraftsMain/out/score2.txt:SCORE-SUMMARY levels 4 hash_equal 45 hash_unequal 0 hash_missing 0 cached_hash compared final True

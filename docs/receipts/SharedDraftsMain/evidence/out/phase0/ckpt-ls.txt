@@ -1,0 +1,16 @@
+total 20
+drwxr-xr-x 3 adam adam 4096 Oct 16 19:59 .
+drwxr-xr-x 3 adam adam 4096 Oct 16 19:47 ..
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 .gitattributes -> ../../blobs/f473a27636acad7a1128a8f5db50339419f17613
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 README.md -> ../../blobs/44aa98ae0cae81b2fb531268253c445e48f7b7fc
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 chat_template.jinja -> ../../blobs/c0c686f9c38d70d179fb7b5f5aa7530bc913dda3
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 config.json -> ../../blobs/1efa9baa6f332ef821a9468eddd0414ee9bfefb0
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 generation_config.json -> ../../blobs/023756cfadf88e5bf69eefeee3e172f38c448d64
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 merges.txt -> ../../blobs/a494e019ca1502219fd0128658b979e5f05ae8e8
+lrwxrwxrwx 1 adam adam   76 Oct 16 19:47 model.safetensors.index.json -> ../../blobs/5fa166bbb1cf25adda455117563efa72a2072272001f459eedece131ffc913e1
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:47 preprocessor_config.json -> ../../blobs/2ea84a437d448ff71b08df68fdd949d5cc4ebb64
+drwxr-xr-x 3 adam adam 4096 Nov  9 04:11 tensors
+lrwxrwxrwx 1 adam adam   76 Oct 16 19:59 tokenizer.json -> ../../blobs/0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:53 tokenizer_config.json -> ../../blobs/5de744b3fca2129d7186979ae47c06be33903243
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:53 video_preprocessor_config.json -> ../../blobs/3ba673a5ad7d4d13f54155ecd38b2a94a6dac8fe
+lrwxrwxrwx 1 adam adam   52 Oct 16 19:53 vocab.json -> ../../blobs/0aa0ce0658d60ac4a5d609f4eadb0e8e43514176

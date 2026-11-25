@@ -1,0 +1,94 @@
+{
+ "mode": "smoke",
+ "gpu_start": "47, 2398 MHz, 11.35 W, [N/A]",
+ "started": "2026-11-24T21:33:31",
+ "reply": {
+  "error": null,
+  "complete": true,
+  "prompt_head": "Smoke check 4803: say hello in five words.",
+  "prompt_sha256": "7bf163285448e0b88a907bd92cbf0f8a949ca1212a6b46429f381c8fee1e0a22",
+  "prompt_chars": 42,
+  "prompt_tokens": 26,
+  "cached_tokens": 0,
+  "cache_state": "cold",
+  "completion_tokens": 16,
+  "token_sha": "3cb3371f8b32",
+  "token_sha256": "3cb3371f8b328a581055f34213ae5a34efeb03235eafb21e7a59ac4ac7715d00",
+  "token_ids": [
+   9419,
+   1017,
+   11,
+   1204,
+   513,
+   488,
+   30,
+   248046,
+   198,
+   248044,
+   248045,
+   846,
+   198,
+   248046,
+   198,
+   248045
+  ],
+  "ttft_s": 0.7062775119993603,
+  "last_token_s": 1.1668274709954858,
+  "decode_tps": 32.569756455295206,
+  "wall_s": 1.166924414006644,
+  "server_ttft_s": 0.70540361,
+  "server_tps": 32.51789515592817,
+  "server_decode_s": 0.461284469,
+  "prefill_s": 0.128975244,
+  "drafts_flag": true,
+  "thinking": false,
+  "reasoning_effort": "none",
+  "speculative": {
+   "rounds": 6,
+   "drafted": 10,
+   "accepted": 9,
+   "acceptance_rate": 0.9,
+   "tokens_per_round": 2.6666666666666665
+  },
+  "usage": {
+   "prompt_tokens": 26,
+   "completion_tokens": 16,
+   "total_tokens": 42,
+   "prompt_tokens_details": {
+    "cached_tokens": 0
+   },
+   "completion_tokens_details": {
+    "reasoning_tokens": 0
+   }
+  },
+  "finish_reasons": [
+   "length"
+  ],
+  "pieces": 7,
+  "completion_class": "truncated"
+ },
+ "counters_before": {
+  "tensorfold:mtp_drafted_total": 0.0,
+  "tensorfold:mtp_accepted_total": 0.0,
+  "tensorfold:decode_rounds_total": 0.0,
+  "tensorfold:generation_tokens_total": 0.0,
+  "tensorfold:prompt_tokens_total": 0.0,
+  "tensorfold:prompt_tokens_cached_total": 0.0,
+  "tensorfold:prefix_cache_queries_total": 0.0,
+  "tensorfold:prefix_cache_hits_total": 0.0,
+  "tensorfold:requests_running": 1.0
+ },
+ "counters_after": {
+  "tensorfold:mtp_drafted_total": 10.0,
+  "tensorfold:mtp_accepted_total": 9.0,
+  "tensorfold:decode_rounds_total": 6.0,
+  "tensorfold:generation_tokens_total": 16.0,
+  "tensorfold:prompt_tokens_total": 26.0,
+  "tensorfold:prompt_tokens_cached_total": 0.0,
+  "tensorfold:prefix_cache_queries_total": 26.0,
+  "tensorfold:prefix_cache_hits_total": 0.0,
+  "tensorfold:requests_running": 1.0
+ },
+ "gpu_end": "51, 2528 MHz, 47.49 W, [N/A]",
+ "finished": "2026-11-24T21:33:32"
+}

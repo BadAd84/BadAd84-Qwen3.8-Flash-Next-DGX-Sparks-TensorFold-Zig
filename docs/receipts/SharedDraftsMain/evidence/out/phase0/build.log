@@ -1,0 +1,286 @@
+BUILD_START 2026-11-24T18:43:11+00:00
+SOURCE_SHA 9a38b1f7b33863507cdea47e88207d8b3bea3f22
+SOURCE_TARBALL_SHA256 7b91b872d4d0e78d4ecc27be8b5c947477225da607cece56a8e911e9abad5297
+IMAGE_TAG tensorfold-qwen38:main-9a38b1f7b
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.12kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for nvcr.io/nvidia/pytorch:26.07-py3
+#2 DONE 0.0s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [build 1/7] FROM nvcr.io/nvidia/pytorch:26.07-py3
+#4 CACHED
+
+#5 [internal] load build context
+#5 transferring context: 199.78MB 1.3s done
+#5 DONE 1.3s
+
+#6 [build 2/7] RUN apt-get update && apt-get install -y --no-install-recommends xz-utils ca-certificates     && rm -rf /var/lib/apt/lists/*
+#6 0.343 Get:1 http://ports.ubuntu.com/ubuntu-ports noble InRelease [256 kB]
+#6 0.560 Get:2 http://ports.ubuntu.com/ubuntu-ports noble-updates InRelease [126 kB]
+#6 0.626 Get:3 http://ports.ubuntu.com/ubuntu-ports noble-backports InRelease [126 kB]
+#6 0.691 Get:4 http://ports.ubuntu.com/ubuntu-ports noble-security InRelease [126 kB]
+#6 0.724 Get:5 http://ports.ubuntu.com/ubuntu-ports noble/multiverse arm64 Packages [274 kB]
+#6 0.743 Get:6 http://ports.ubuntu.com/ubuntu-ports noble/main arm64 Packages [1776 kB]
+#6 0.777 Get:7 http://ports.ubuntu.com/ubuntu-ports noble/restricted arm64 Packages [113 kB]
+#6 0.806 Get:8 http://ports.ubuntu.com/ubuntu-ports noble/universe arm64 Packages [19.0 MB]
+#6 0.982 Get:9 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 Packages [1909 kB]
+#6 0.989 Get:10 http://ports.ubuntu.com/ubuntu-ports noble-updates/multiverse arm64 Packages [110 kB]
+#6 0.991 Get:11 http://ports.ubuntu.com/ubuntu-ports noble-updates/universe arm64 Packages [2247 kB]
+#6 1.024 Get:12 http://ports.ubuntu.com/ubuntu-ports noble-updates/restricted arm64 Packages [3525 kB]
+#6 1.099 Get:13 http://ports.ubuntu.com/ubuntu-ports noble-backports/main arm64 Packages [49.0 kB]
+#6 1.109 Get:14 http://ports.ubuntu.com/ubuntu-ports noble-backports/universe arm64 Packages [36.3 kB]
+#6 1.117 Get:15 http://ports.ubuntu.com/ubuntu-ports noble-backports/multiverse arm64 Packages [669 B]
+#6 1.127 Get:16 http://ports.ubuntu.com/ubuntu-ports noble-security/universe arm64 Packages [1669 kB]
+#6 1.147 Get:17 http://ports.ubuntu.com/ubuntu-ports noble-security/multiverse arm64 Packages [105 kB]
+#6 1.166 Get:18 http://ports.ubuntu.com/ubuntu-ports noble-security/main arm64 Packages [1586 kB]
+#6 1.172 Get:19 http://ports.ubuntu.com/ubuntu-ports noble-security/restricted arm64 Packages [3390 kB]
+#6 1.748 Fetched 36.5 MB in 2s (23.7 MB/s)
+#6 1.748 Reading package lists...
+#6 2.331 Reading package lists...
+#6 2.860 Building dependency tree...
+#6 3.058 Reading state information...
+#6 3.213 The following additional packages will be installed:
+#6 3.214   liblzma5
+#6 3.241 The following packages will be upgraded:
+#6 3.243   ca-certificates liblzma5 xz-utils
+#6 3.303 3 upgraded, 0 newly installed, 0 to remove and 103 not upgraded.
+#6 3.303 Need to get 535 kB of archives.
+#6 3.303 After this operation, 3072 B disk space will be freed.
+#6 3.303 Get:1 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 liblzma5 arm64 5.6.1+really5.4.5-1ubuntu0.4 [126 kB]
+#6 3.340 Get:2 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 ca-certificates all 20260816ubuntu0.24.04.2 [140 kB]
+#6 3.361 Get:3 http://ports.ubuntu.com/ubuntu-ports noble-updates/main arm64 xz-utils arm64 5.6.1+really5.4.5-1ubuntu0.4 [268 kB]
+#6 4.013 Preconfiguring packages ...
+#6 4.363 Fetched 535 kB in 0s (4865 kB/s)
+#6 4.382 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31160 files and directories currently installed.)
+#6 4.440 Preparing to unpack .../liblzma5_5.6.1+really5.4.5-1ubuntu0.4_arm64.deb ...
+#6 4.442 Unpacking liblzma5:arm64 (5.6.1+really5.4.5-1ubuntu0.4) over (5.6.1+really5.4.5-1ubuntu0.3) ...
+#6 4.488 Setting up liblzma5:arm64 (5.6.1+really5.4.5-1ubuntu0.4) ...
+#6 4.539 (Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 31160 files and directories currently installed.)
+#6 4.550 Preparing to unpack .../ca-certificates_20260816ubuntu0.24.04.2_all.deb ...
+#6 4.559 Unpacking ca-certificates (20260816ubuntu0.24.04.2) over (20260601~24.04.1) ...
+#6 4.728 Preparing to unpack .../xz-utils_5.6.1+really5.4.5-1ubuntu0.4_arm64.deb ...
+#6 4.734 Unpacking xz-utils (5.6.1+really5.4.5-1ubuntu0.4) over (5.6.1+really5.4.5-1ubuntu0.3) ...
+#6 4.764 Setting up ca-certificates (20260816ubuntu0.24.04.2) ...
+#6 5.712 Updating certificates in /etc/ssl/certs...
+#6 6.305 rehash: warning: skipping ca-certificates.crt,it does not contain exactly one certificate or CRL
+#6 6.309 4 added, 5 removed; done.
+#6 6.309 Running hooks in /etc/ca-certificates/update.d...
+#6 6.312 done.
+#6 6.329 Setting up xz-utils (5.6.1+really5.4.5-1ubuntu0.4) ...
+#6 6.345 Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
+#6 6.367 /sbin/ldconfig.real: /opt/hpcx/nccl_spectrum-x_plugin/lib/libdoca_gpunetio_host.so.2 is not a symbolic link
+#6 6.367 
+#6 DONE 6.6s
+
+#7 [build 3/7] RUN curl -fsSL -o /tmp/zig.tar.xz "https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz"     && echo "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8  /tmp/zig.tar.xz" | sha256sum -c -     && mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz
+#7 185.2 /tmp/zig.tar.xz: OK
+#7 DONE 188.2s
+
+#8 [build 4/7] COPY SOURCE_SHA /SOURCE_SHA
+#8 DONE 0.0s
+
+#9 [build 5/7] COPY src/ /tensorfold/
+#9 DONE 1.4s
+
+#10 [build 6/7] RUN echo "SOURCE_SHA $(cat /SOURCE_SHA)"     && echo "TREE $(sha256sum /tensorfold/CHANGELOG.md | cut -d' ' -f1) changelog-sha"     && echo "ZIG $(/opt/zig/zig version)"     && echo "ZIG_ARCHIVE_SHA256 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8"     && echo "NVCC $(/usr/local/cuda/bin/nvcc --version | tail -2 | tr '\n' ' ')"
+#10 0.131 SOURCE_SHA 9a38b1f7b33863507cdea47e88207d8b3bea3f22
+#10 0.133 TREE c462d5da8cfc31bd7d39f3f34de008a73059595e01c35cba04ce129ec78f7753 changelog-sha
+#10 0.151 ZIG 0.17.0
+#10 0.151 ZIG_ARCHIVE_SHA256 9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8
+#10 0.154 NVCC Cuda compilation tools, release 13.3, V13.3.73 Build cuda_13.3.r13.3/compiler.38244171_0 
+#10 DONE 0.2s
+
+#11 [build 7/7] RUN cd /tensorfold && /opt/zig/zig build -Dnvcc=/usr/local/cuda/bin/nvcc -Doptimize=fast --prefix /opt/tensorfold       -j"$(nproc)" fatbins install native && test -x /opt/tensorfold/native/bin/tensorfold-native     && echo "BUILD OK $(sha256sum /opt/tensorfold/native/bin/tensorfold-native)"
+#11 78.04 install
+#11 78.04 +- install tf-moss-image-blocks
+#11 78.04    +- compile exe tf-moss-image-blocks fast native
+#11 78.04       +- run /usr/local/cuda/bin/nvcc (drama3_fp8.fatbin) w
+#11 78.04 ./zig/kernels/cuda/drama3_fp8.cu(179): warning #177-D: variable "RW" was declared but never referenced
+#11 78.04     constexpr int RW = PromptCfg<M, RT, CW>::RW;
+#11 78.04                   ^
+#11 78.04 
+#11 78.04 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 78.04 
+#11 78.04 
+#11 98.82 install
+#11 98.82 +- install tf-moss-image-blocks
+#11 98.82    +- compile exe tf-moss-image-blocks fast native
+#11 98.82       +- run /usr/local/cuda/bin/nvcc (flashnext_attn.fatbin) w
+#11 98.82 ./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+#11 98.82       for (int h = 0; h < 2; ++h) {
+#11 98.82       ^
+#11 98.82           detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=false]" at line 483
+#11 98.82 
+#11 98.82 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 98.82 
+#11 98.82 ./zig/kernels/cuda/flashnext_attn.cu(436): warning #128-D: loop is not reachable
+#11 98.82       for (int h = 0; h < 2; ++h) {
+#11 98.82       ^
+#11 98.82           detected during instantiation of "void attn_chunks<NB,ONE,FUSE,PAGED>(const __nv_bfloat16 *, const __nv_bfloat16 *, const __nv_bfloat16 *, const int *, float *, float *, float *, const int *, const int *, const int *, int, int, int, int, int, float, int, int, fn_attn::Pg) [with NB=1, ONE=true, FUSE=true, PAGED=true]" at line 512
+#11 98.82 
+#11 98.82 
+#11 115.3 install
+#11 115.3 +- install tf-moss-image-blocks
+#11 115.3    +- compile exe tf-moss-image-blocks fast native
+#11 115.3       +- run /usr/local/cuda/bin/nvcc (exl3_linear.fatbin) w
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=8, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=2, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=2, KS=4, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=2, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 ./zig/kernels/cuda/exl3_linear_wc.cuh(179): warning #128-D: loop is not reachable
+#11 115.3       for (int idx = threadIdx.x; idx < rows * 32; idx += NTH) {
+#11 115.3       ^
+#11 115.3           detected during instantiation of "void tf_exl3::linear_wc_body<K2,MT,KS,NS,FOLD>(const tf_exl3::WcArgs &) [with K2=12, MT=4, KS=4, NS=4, FOLD=true]" at line 215
+#11 115.3 
+#11 115.3 
+#11 116.1 install
+#11 116.1 +- install tf-moss-image-blocks
+#11 116.1    +- compile exe tf-moss-image-blocks fast native
+#11 116.1       +- run /usr/local/cuda/bin/nvcc (flashnext_fact.fatbin) w
+#11 116.1 ./zig/kernels/cuda/flashnext_fact.cu(175): warning #128-D: loop is not reachable
+#11 116.1               for (int kt = 0; kt < GS / 16; ++kt) {
+#11 116.1               ^
+#11 116.1           detected during instantiation of "void fact::fact_kernel<BM,BN,WM,WN,STAGES,GPS,DBUF,MINB,FOLD,OUT16,BLOCKED>(const __nv_bfloat16 *, const float *, const uint32_t *, const __nv_bfloat16 *, const __nv_bfloat16 *, void *, float *, int, int, int, int, int, int, int) [with BM=64, BN=128, WM=2, WN=4, STAGES=3, GPS=2, DBUF=false, MINB=2, FOLD=true, OUT16=true, BLOCKED=true]" at line 264
+#11 116.1 
+#11 116.1 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 116.1 
+#11 116.1 
+#11 117.4 install
+#11 117.4 +- install tf-moss-image-blocks
+#11 117.4    +- compile exe tf-moss-image-blocks fast native
+#11 117.4       +- run /usr/local/cuda/bin/nvcc (fp8_experts.fatbin) w
+#11 117.4 ./zig/kernels/cuda/fp8_experts.cu(143): warning #177-D: variable "RW" was declared but never referenced
+#11 117.4     constexpr int RW = PromptCfg<M, RT, CW>::RW;
+#11 117.4                   ^
+#11 117.4 
+#11 117.4 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 117.4 
+#11 117.4 
+#11 120.5 install
+#11 120.5 +- install tf-moss-image-blocks
+#11 120.5    +- compile exe tf-moss-image-blocks fast native
+#11 120.5       +- run /usr/local/cuda/bin/nvcc (glm_mm.fatbin) w
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=64, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 Remark: The warnings can be suppressed with "-diag-suppress <warning-number>"
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=32, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=16, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=128, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=64, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=32, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=8, BM=16, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=128, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=64, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=32, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=6, BM=16, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=128, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=64, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=32, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=4, BM=16, WM=1, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 ./zig/kernels/cuda/glm_mm.cu(85): warning #177-D: member "<unnamed>::Tile<BITS, BM, WM, STAGES>::SMEM [with BITS=16, BM=128, WM=2, STAGES=3]" was declared but never referenced
+#11 120.5       static constexpr int SMEM = STAGES * STAGE;
+#11 120.5                            ^
+#11 120.5 
+#11 120.5 
+#11 636.0 BUILD OK 8e04b448aac1bccba6452088278d71328aae8b2813eb1e45fe3228c4ec10e933  /opt/tensorfold/native/bin/tensorfold-native
+#11 DONE 636.2s
+
+#12 [stage-1 2/2] COPY --from=build /opt/tensorfold /opt/tensorfold
+#12 DONE 0.3s
+
+#13 exporting to image
+#13 exporting layers
+#13 exporting layers 0.8s done
+#13 writing image sha256:2533c8a882610a69e376d1ea3d89d4ac03add9b1e8b642de6e770fc0ea1cc7e6 done
+#13 naming to docker.io/library/tensorfold-qwen38:main-9a38b1f7b done
+#13 DONE 0.9s
+BUILD_RC=0
+IMAGE_ID sha256:2533c8a882610a69e376d1ea3d89d4ac03add9b1e8b642de6e770fc0ea1cc7e6 CREATED 2026-11-24T18:57:08.56690285Z SIZE 24965638043
+tensorfold-native 1.3.4
+BUILD_DONE 2026-11-24T18:57:09+00:00

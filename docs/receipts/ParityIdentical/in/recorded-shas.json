@@ -1,0 +1,22 @@
+{
+ "D-c1-run1-code-pass0-j0": {
+  "sha": "3307e7268814bf3e748dae5f4b734b1586a8fe36215f7431e7762ade30443b8e",
+  "token_sha": "9d924b3b9f23",
+  "completion_tokens": 512
+ },
+ "D-c1-run1-prose-pass0-j0": {
+  "sha": "7f3dc3312d6cdc629e853575b7e6dca82b3bdfdc49fa9ace30bc7e8ba3b9bc7d",
+  "token_sha": "d1e65310c9a9",
+  "completion_tokens": 512
+ },
+ "P-c1-run1-code-pass0-j0": {
+  "sha": "45f424ba7e2614d3fa7a7ce54adaf3c1a6c39bd57ca4901959726552bb71953c",
+  "token_sha": "7caf641321d8",
+  "completion_tokens": 512
+ },
+ "P-c1-run1-prose-pass0-j0": {
+  "sha": "20657973d02ee081dbe664fe99f1bd9d8fb67bccc6a49e4ff86383de2a3f4798",
+  "token_sha": "1db0835ea044",
+  "completion_tokens": 512
+ }
+}

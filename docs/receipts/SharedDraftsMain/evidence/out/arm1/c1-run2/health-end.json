@@ -1,0 +1,1 @@
+{"status": "ok", "model": "Qwen3.8-Flash-Next", "model_ids": ["Qwen3.8-Flash-Next"], "max_batch_size": 8, "warming": false, "memory": {"active": 81148127104, "cache": 0, "peak": 81166720640}, "live": {"connections": 1, "waiting": 1, "decode_tokens_per_second": 16.5, "prefill_tokens_per_second": 0.0}, "version": "1.3.4", "backend": "cuda", "device": "NVIDIA GB10"}
