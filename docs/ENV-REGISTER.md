@@ -190,10 +190,10 @@ dev-env: 0 setting(s) without a citation
 coverage: 95 settings in scope, set 95, missing 0, absent 1, annotations 2, worklist markers 0, passage-lost 0
 ```
 
-The 95 are the `flashnext`, `cuda` and `common` rows of `zig/src/platform/environment.zig`: `dev.env`
-carries 102 statements, 16 in the top section (measured levers and enablers, plus the base names the
-launcher sets) and 86 in `explicit defaults`, one of the 86 as the `unset` form; 7 of the 102 are not
-rows of the served table. Those seven were each checked for a reader and classified, because the gate
+The 95 are the `flashnext`, `cuda` and `common` rows of `zig/src/platform/environment.zig` in that
+served tree. Counted at the current `dev.env` (2026-11-25, independent of which tree the gate runs
+against): 116 statements, 114 `export` and 2 `unset`; against the served tree 7 of them are not rows
+of its table. Those seven were each checked for a reader and classified, because the gate
 can only list them:
 
 | carried, not a row | reader in the served tree |
@@ -274,7 +274,8 @@ container carries fails as EXTRA.
    that `dev.env` does not set and the register does not already annotate; a presence test with a
    `null` default is appended as `# missing NAME=presence`.
 3. Build the dev tree once (git apply only, no compiler) and gate against ITS table, because the register now
-   names rows the composition adds and the old served r5 table has 95 where this has 99:
+   names rows the composition adds and the old served r5 table has 95 where the composition's own table has
+  101 (`TF_FLASHNEXT_PROMPT_KS_N`, `_PROMPT_KS_GROUP`, `_ROUND_MS` and the `GATHER_*` rows):
    `rm -rf work/DevTree && mkdir -p work/DevTree && git -C work/upmain archive 1ece6e6d | tar -x -C work/DevTree &&
    git -C work/DevTree init -q -b main . && for p in patches/main-1ece6e6db-r5-dev/[0-9]*.patch; do
    git -C work/DevTree apply "$(realpath "$p")"; done`.
