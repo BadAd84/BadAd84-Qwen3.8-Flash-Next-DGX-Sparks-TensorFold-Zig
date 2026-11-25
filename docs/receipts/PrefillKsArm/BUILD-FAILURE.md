@@ -29,3 +29,9 @@ series onto the recipe's pinned `TF_REF`. Until one is done, no image built by `
 ## Decision: re-seat our series onto the recipe's base
 
 Read, not assumed: ~/qwen-zig/scripts/config.sh:46 pins TF_REF=eab8582819688325e371907e4706e1c602b8a273 (its own comment: v1.1.4); our series is cut against 1ece6e6dbbc073582d50738ce8e73e3c3261a73b; and git merge-base --is-ancestor 1ece6e6d eab85828 reports NOT an ancestor, so the recipe tree does not already carry what our patches expect. Option 1 is out, and the next attempt re-seats the forty-one patches onto eab85828 (the operation this repo has machinery and a skill for) rather than forcing a base inside build.sh, which applies two differently based sets to one tree.
+
+## Tested: our series does not re-seat onto the recipe base either
+
+git apply, then git apply --3way, of all forty-one patches onto a fresh extract of TF_REF=eab85828 (the recipe's v1.1.4): clean 1, three-way 0, fail 40, tree 7347 files against the base's; e.g. 0001-rows.patch, 0021-int4-autoround.patch and 0041-prompt-ks-tile.patch all fail both ways.
+
+So the two sets are not merely differently based on one lineage: the recipe tree is not a descendant of ours (merge-base --is-ancestor says no) and our patches do not land on it. The build cannot be fixed by forcing a base or by a mechanical re-seat; it needs either the recipe's own patch set dropped from the image (build from our base and skip the recipe patches) or our series cut against the recipe's tree as a fresh port.
