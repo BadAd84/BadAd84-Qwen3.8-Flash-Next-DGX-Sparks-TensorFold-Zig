@@ -41,3 +41,15 @@ So the two sets are not merely differently based on one lineage: the recipe tree
 Five launches failed in the recipe patch loop, each on context that should have matched: README.md at 280 (block context), README.md at 282 (one line), then .gitignore at 33. The Dockerfile fetches its tree from TF_REPO=https://github.com/ashhart/TensorFold.git at TF_REF, so the content it applies to is not the content our patches were cut against, even at the same sha. A placeholder cannot fix that: any patch generated from our clone can mismatch there.
 
 Next step, one command: fetch that remote into work/upmain, check out 1ece6e6d, and diff its README.md and .gitignore against our clone's. If they differ, the whole forty-one-patch series must be regenerated against the remote's content; if they do not, the build's sparse fetch is the variable.
+
+## Seven launches, every component excluded; the next experiment is inside the failing layer
+
+Measured, each inside the build image (nvcr.io/nvidia/pytorch:26.07-py3):
+- the remote serves our base sha with .gitignore at blob b9b813a2626b, 33 lines, identical to our clone's;
+- the container checkout writes LF (sed -n 33p | od -c shows no CR) with core.autocrlf unset;
+- the patch applies by hand there: git apply reports APPLIES;
+- it applies from a bind mount through dash with the stage's own loop: for p in /opt/tf-patches/*.patch ... prints LOOP-OK;
+- COPY does not alter the bytes (od -c after COPY shows the same header, with the index line).
+Yet the stage fails at .gitignore:33 and always has, with a patch that has also been tried without an index line and with block context.
+
+So the next experiment must run INSIDE the failing layer rather than reproduce its inputs: add a debug RUN to a copy of the Dockerfile that prints git status, git rev-parse HEAD, sha1sum .gitignore and cat -A of the file at line 33 immediately before the apply loop. Do not launch another build before that.
