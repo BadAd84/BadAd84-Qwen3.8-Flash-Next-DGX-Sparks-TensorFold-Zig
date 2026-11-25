@@ -35,3 +35,9 @@ Read, not assumed: ~/qwen-zig/scripts/config.sh:46 pins TF_REF=eab8582819688325e
 git apply, then git apply --3way, of all forty-one patches onto a fresh extract of TF_REF=eab85828 (the recipe's v1.1.4): clean 1, three-way 0, fail 40, tree 7347 files against the base's; e.g. 0001-rows.patch, 0021-int4-autoround.patch and 0041-prompt-ks-tile.patch all fail both ways.
 
 So the two sets are not merely differently based on one lineage: the recipe tree is not a descendant of ours (merge-base --is-ancestor says no) and our patches do not land on it. The build cannot be fixed by forcing a base or by a mechanical re-seat; it needs either the recipe's own patch set dropped from the image (build from our base and skip the recipe patches) or our series cut against the recipe's tree as a fresh port.
+
+## Fifth attempt and the finding that supersedes the placeholder
+
+Five launches failed in the recipe patch loop, each on context that should have matched: README.md at 280 (block context), README.md at 282 (one line), then .gitignore at 33. The Dockerfile fetches its tree from TF_REPO=https://github.com/ashhart/TensorFold.git at TF_REF, so the content it applies to is not the content our patches were cut against, even at the same sha. A placeholder cannot fix that: any patch generated from our clone can mismatch there.
+
+Next step, one command: fetch that remote into work/upmain, check out 1ece6e6d, and diff its README.md and .gitignore against our clone's. If they differ, the whole forty-one-patch series must be regenerated against the remote's content; if they do not, the build's sparse fetch is the variable.
